@@ -1,0 +1,7 @@
+# TITLE: 猫ちゃん登場
+# SUBTITLE: プレイヤーの近くに猫ちゃん召喚
+# CATEGORY: 友好MOB
+
+execute as @p at @p run summon minecraft:cat ^ ^ ^ {NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[type=minecraft:cat,sort=nearest,limit=30] minecraft:slow_falling 3 1 true
+

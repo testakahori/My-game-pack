@@ -1,0 +1,26 @@
+# TITLE: TNTの雨
+# SUBTITLE: 上空からバラバラとTNT落下
+# CATEGORY: 妨害系
+
+execute as @p at @p run summon tnt ~-2 ~30 ~ {Fuse:60}
+execute as @p at @p run summon tnt ~ ~33 ~3 {Fuse:60}
+execute as @p at @p run summon tnt ~3 ~36 ~-1 {Fuse:60}
+execute as @p at @p run summon tnt ~-1 ~39 ~-3 {Fuse:60}
+execute as @p at @p run summon tnt ~4 ~42 ~ {Fuse:60}
+execute as @p at @p run summon tnt ~-3 ~44 ~2 {Fuse:60}
+execute as @p at @p run summon tnt ~1 ~46 ~-2 {Fuse:60}
+execute as @p at @p run summon tnt ~-4 ~48 ~1 {Fuse:60}
+execute as @p at @p run summon tnt ~ ~50 ~-4 {Fuse:60}
+execute as @p at @p run summon tnt ~4 ~50 ~4 {Fuse:60}
+execute as @p at @p run summon tnt ~-2 ~30 ~ {Fuse:60}
+execute as @p at @p run summon tnt ~ ~33 ~3 {Fuse:60}
+execute as @p at @p run summon tnt ~3 ~36 ~-1 {Fuse:60}
+execute as @p at @p run summon tnt ~-1 ~39 ~-3 {Fuse:60}
+execute as @p at @p run summon tnt ~4 ~42 ~ {Fuse:60}
+execute as @p at @p run summon tnt ~-3 ~44 ~2 {Fuse:60}
+execute as @p at @p run summon tnt ~1 ~46 ~-2 {Fuse:60}
+execute as @p at @p run summon tnt ~-4 ~48 ~1 {Fuse:60}
+execute as @p at @p run summon tnt ~ ~50 ~-4 {Fuse:60}
+execute as @p at @p run summon tnt ~4 ~50 ~4 {Fuse:60}
+
+

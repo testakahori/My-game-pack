@@ -1,0 +1,36 @@
+# Dependencies
+node_modules
+GiftsViewer/node_modules/
+
+# Build outputs
+dist
+release
+GiftsViewer/dist/
+GiftsViewer/release/
+GiftsViewer/tools-bundled/
+
+# Minecraft server / runtime files (large binaries, not source)
+server/
+bridge_runtime/
+
+# Bridge runtime binaries and auto-generated files
+bridge/node/
+bridge/_launch_node.bat
+bridge/logs/
+
+# Minecraft Mod build outputs (source in src/ is kept)
+DoumaCmdMod/build/
+DoumaCmdMod/.gradle/
+DoumaCmdMod/bin/
+
+# Gift data (runtime data, not source)
+tiktok_gifts/data/
+GiftsViewer/data/
+
+# Logs
+*.log
+*.blockmap
+
+# AI workflow files (Claude Code / OMC)
+.omc/
+.claude/

@@ -1,0 +1,11 @@
+# TITLE: 魔女パニック
+# SUBTITLE: プレイヤーの周辺にファントムに乗った魔女と蜘蛛に乗った魔女を召喚
+# CATEGORY: 敵対MOB
+
+execute as @p at @p run summon minecraft:phantom ^ ^30 ^ {Tags:["gift_spawn_new"],NoGravity:1b,CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,Passengers:[{id:"minecraft:witch",CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,ActiveEffects:[{Id:12,Amplifier:0,Duration:999999,ShowParticles:0b}]}]}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new
+
+execute as @p at @p run summon minecraft:spider ^ ^2 ^-3 {Tags:["gift_spawn_new"],CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,Passengers:[{id:"minecraft:witch",CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,ActiveEffects:[{Id:12,Amplifier:0,Duration:999999,ShowParticles:0b}]}]}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new

@@ -1,0 +1,6 @@
+# TITLE: 強制雨
+# SUBTITLE: 強制的に雨降らす
+# CATEGORY: 妨害系
+
+weather thunder 600s
+#time set night

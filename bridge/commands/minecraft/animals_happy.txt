@@ -1,0 +1,87 @@
+# TITLE: 動物全員登場
+# SUBTITLE: プレイヤーの近くに動物たちを召喚
+# CATEGORY: 友好MOB
+
+
+#cat
+execute as @p at @p run summon minecraft:cat ^ ^ ^ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new
+
+#cow
+execute as @p at @p run summon minecraft:cow ^ ^ ^ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new
+
+
+#pig
+execute as @p at @p run summon minecraft:pig ^ ^ ^ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new
+
+#chicken
+execute as @p at @p run summon minecraft:chicken ^ ^ ^ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new
+
+#axolotl
+execute as @p at @p run summon minecraft:axolotl ^ ^ ^ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new
+
+#frog
+execute as @p at @p run summon minecraft:frog ^ ^ ^ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new
+
+#turtle
+execute as @p at @p run summon minecraft:turtle ^ ^ ^ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new
+
+#ocelot
+execute as @p at @p run summon minecraft:ocelot ^ ^ ^ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new
+
+#sheep
+execute as @p at @p run summon minecraft:sheep ^ ^ ^ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new
+
+
+#zombie_horse
+execute as @p at @p run summon minecraft:zombie_horse ^ ^ ^ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new
+
+
+#panda
+execute as @p at @p run summon minecraft:panda ^ ^ ^ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new
+
+#horse
+execute as @p at @p run summon minecraft:horse ^ ^ ^ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new
+
+#fox
+execute as @p at @p run summon minecraft:fox ^ ^ ^ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new
+
+#bat
+execute as @p at @p run summon minecraft:bat ^ ^ ^ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new
+
+#llama
+execute as @p at @p run summon minecraft:llama ^ ^ ^ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new
+
+#polar_bear
+execute as @p at @p run summon minecraft:polar_bear ^ ^ ^ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new

@@ -1,0 +1,98 @@
+{
+  "name": "tiktok-bridge-ui",
+  "private": true,
+  "version": "1.0.6",
+  "description": "MyGamePack 用の設定編集UI（TikTok Bridge統合UI）",
+  "author": "Douma Akahori",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+
+    "electron:dev": "cross-env ELECTRON_DEV=1 electron .",
+    "electron:prod": "electron .",
+
+    "pack:win": "npm run build && electron-builder --win --x64"
+  },
+  "dependencies": {
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.4.24",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.1",
+
+    "cross-env": "^7.0.3",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.douma.mygamepack.bridgeui",
+    "productName": "MyGamePack Bridge UI",
+    "copyright": "Copyright © 2026 Douma Akahori",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "bridge",
+        "to": "bridge"
+      },
+      {
+        "from": "GiftsViewer/tools-bundled",
+        "to": "gv-tools"
+      },
+      {
+        "from": "server/Douma_Craft",
+        "to": "server/Douma_Craft"
+      }
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "**/*.bat",
+      "**/*.cmd",
+      "**/*.ps1",
+      "**/*.exe",
+      "**/*.dll"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+
+      "perMachine": false,
+      "allowElevation": false,
+
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "MyGamePack Bridge UI",
+
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+
+      "artifactName": "${productName} Setup ${version}.${ext}",
+      "unicode": true
+    }
+  }
+}

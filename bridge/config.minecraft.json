@@ -1,0 +1,383 @@
+{
+  "tiktokUsername": "mikusu_nuts",
+  "rcon": {
+    "host": "127.0.0.1",
+    "port": 25575,
+    "password": "y5hit2kucm"
+  },
+  "options": {
+    "giftCooldownMs": 300,
+    "maxCommandsPerGift": 200,
+    "commandsDir": "D:\\Dev02\\game_dev\\MyGamePack02\\bridge_ui\\ui\\bridge\\commands\\minecraft",
+    "logUnknownGifts": true
+  },
+  "likeEvents": [
+    {
+      "repeat": 1,
+      "threshold": 10,
+      "commandFile": "cod.txt",
+      "label": "",
+      "enabled": true
+    },
+    {
+      "repeat": 1,
+      "threshold": 100,
+      "commandFile": "heal.txt",
+      "label": "",
+      "enabled": true
+    },
+    {
+      "repeat": 100,
+      "threshold": 500,
+      "commandFile": "slime.txt",
+      "label": "",
+      "enabled": true
+    }
+  ],
+  "shareEvent": {
+    "commandFile": "slime.txt",
+    "repeat": 1,
+    "enabled": true
+  },
+  "followEvent": {
+    "commandFile": "creeper.txt",
+    "repeat": 1,
+    "enabled": true
+  },
+  "memberEvent": {
+    "commandFile": "villager.txt",
+    "repeat": 1,
+    "enabled": true
+  },
+  "mappings": [
+    {
+      "giftId": "7934",
+      "name": "Heart Me",
+      "commandFile": "goldapple.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "5655",
+      "name": "Rose",
+      "commandFile": "zombie.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "6064",
+      "name": "GG",
+      "commandFile": "skeleton.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "13538",
+      "name": "New Year Protection",
+      "commandFile": "get_tree.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "12202",
+      "name": "Nice to meet you",
+      "commandFile": "sheep.txt",
+      "repeat": 3
+    },
+    {
+      "giftId": "13651",
+      "name": "Go Popular",
+      "commandFile": "slime.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "5487",
+      "name": "Finger Heart",
+      "commandFile": "kirarabbit.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "6544",
+      "name": "Ice Lolly",
+      "commandFile": "goldapple.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "8913",
+      "name": "Rosa",
+      "commandFile": "husk.txt",
+      "repeat": 3
+    },
+    {
+      "giftId": "9947",
+      "name": "Friendship Necklace",
+      "commandFile": "creeper.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "12898",
+      "name": "Udon-nou",
+      "commandFile": "heal.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "13864",
+      "name": "Fukkachan",
+      "commandFile": "give_haste.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "14463",
+      "name": "Nebaarukun",
+      "commandFile": "get_ender_pearl.txt",
+      "repeat": 2
+    },
+    {
+      "giftId": "15063",
+      "name": "Journey Pass",
+      "commandFile": "give_fatigue.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "13523",
+      "name": "Genius",
+      "commandFile": "get_iron_pickaxe.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "5659",
+      "name": "Paper Crane",
+      "commandFile": "get_water_backet.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "5586",
+      "name": "Hearts",
+      "commandFile": "daiyasoubi.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "11583",
+      "name": "DJ Glasses",
+      "commandFile": "fall_sand.txt",
+      "repeat": 100
+    },
+    {
+      "giftId": "13444",
+      "name": "Star Map Polaris",
+      "commandFile": "iron_golem.txt",
+      "repeat": 2
+    },
+    {
+      "giftId": "8914",
+      "name": "Forever Rosa",
+      "commandFile": "lovedog.txt",
+      "repeat": 3
+    },
+    {
+      "giftId": "5879",
+      "name": "Doughnut",
+      "commandFile": "silverfish.txt",
+      "repeat": 5
+    },
+    {
+      "giftId": "5658",
+      "name": "Perfume",
+      "commandFile": "pig.txt",
+      "repeat": 10
+    },
+    {
+      "giftId": "6097",
+      "name": "Little Crown",
+      "commandFile": "tnt.txt",
+      "repeat": 3
+    },
+    {
+      "giftId": "14109",
+      "name": "Mark of Love",
+      "commandFile": "hukitobasu.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "13087",
+      "name": "Bubble Gum",
+      "commandFile": "seichi_donut.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "6427",
+      "name": "Hat and Mustache",
+      "commandFile": "animals_happy.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "6104",
+      "name": "Cap",
+      "commandFile": "otosiana.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "5585",
+      "name": "Confetti",
+      "commandFile": "zombie.txt",
+      "repeat": 100
+    },
+    {
+      "giftId": "5660",
+      "name": "Hand Hearts",
+      "commandFile": "skeleton.txt",
+      "repeat": 100
+    },
+    {
+      "giftId": "8343",
+      "name": "Hand Heart",
+      "commandFile": "give_blindness.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "11177",
+      "name": "Coffee Magic",
+      "commandFile": "wither_skeleton.txt",
+      "repeat": 2
+    },
+    {
+      "giftId": "5509",
+      "name": "Sunglasses",
+      "commandFile": "lightning_bold.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "6007",
+      "name": "Boxing Gloves",
+      "commandFile": "zombie-armer.txt",
+      "repeat": 20
+    },
+    {
+      "giftId": "9948",
+      "name": "You’re Amazing",
+      "commandFile": "tnt.txt",
+      "repeat": 10
+    },
+    {
+      "giftId": "7168",
+      "name": "Money Gun",
+      "commandFile": "item_bossyuu.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "6267",
+      "name": "Corgi",
+      "commandFile": "taiden.txt",
+      "repeat": 5
+    },
+    {
+      "giftId": "12577",
+      "name": "Manifesting",
+      "commandFile": "zombiekataguruma.txt",
+      "repeat": 100
+    },
+    {
+      "giftId": "13072",
+      "name": "Dragon Crown",
+      "commandFile": "tnt-kuusyuu.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "5897",
+      "name": "Swan",
+      "commandFile": "all_shu-gou.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "5978",
+      "name": "Train",
+      "commandFile": "skeleton_knight.txt",
+      "repeat": 100
+    },
+    {
+      "giftId": "6233",
+      "name": "Travel with You",
+      "commandFile": "weather.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "9498",
+      "name": "Blooming Ribbons",
+      "commandFile": "warden.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "10668",
+      "name": "Future Encounter",
+      "commandFile": "witch_sabbat.txt",
+      "repeat": 50
+    },
+    {
+      "giftId": "11046",
+      "name": "Galaxy",
+      "commandFile": "maguma_jigoku.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "13604",
+      "name": "Fiery Dragon",
+      "commandFile": "ozisan_party.txt",
+      "repeat": 100
+    },
+    {
+      "giftId": "6646",
+      "name": "Leon the Kitten",
+      "commandFile": "wither.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "6089",
+      "name": "Sports Car",
+      "commandFile": "blaze_phantom.txt",
+      "repeat": 100
+    },
+    {
+      "giftId": "11809",
+      "name": "Beating Heart",
+      "commandFile": "nezaraitosoubi.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "10560",
+      "name": "Stinging Bee",
+      "commandFile": "pikkerubossyuu.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "6820",
+      "name": "Whale Diving",
+      "commandFile": "ghast.txt",
+      "repeat": 50
+    },
+    {
+      "giftId": "54724",
+      "name": "Creeper",
+      "commandFile": "zombie.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "54727",
+      "name": "Chick Stampede",
+      "commandFile": "blaze_phantom.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "54725",
+      "name": "Baby Chicks",
+      "commandFile": "husk_watertower.txt",
+      "repeat": 1
+    },
+    {
+      "giftId": "54728",
+      "name": "Sneaky Jockey",
+      "commandFile": "tntdaibakuhatu.txt",
+      "repeat": 5
+    }
+  ],
+  "unmappedGiftEvent": {
+    "commandFile": "skeleton.txt",
+    "repeat": 1,
+    "enabled": true
+  }
+}

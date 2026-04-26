@@ -1,0 +1,16 @@
+# TITLE: 雷落下！
+# SUBTITLE: カミナリ落下でピグリン化、ウィッチ化を狙います
+# CATEGORY: 妨害系
+
+execute at @p[distance=1..] run execute at @e[type=!minecraft:player,distance=..30, sort=nearest,limit=30] run summon minecraft:lightning_bolt ~ ~ ~
+
+# 最初の execute at @p[distance=1..]
+# コマンド実行位置を最寄りのプレイヤー（実行元から距離1ブロック以上にいる者）に移します。
+# distance=1.. は「1ブロック以上」という意味で、距離フィルタの下限のみを指定しています（上限なし）。
+# 次の execute at @e[type=!minecraft:player,limit=15]
+# そのプレイヤー位置を基準に、プレイヤー以外のエンティティを対象にします（type=!minecraft:player）。
+# limit=15 により、最大15体が対象になります（デフォルト順序は不定。近い順に確実にしたい場合は sort=nearest を付けます）。
+# 最後の summon minecraft:lightning_bolt ~ ~ ~
+# 対象エンティティごとの現在位置（~ ~ ~）に落雷を発生させます。
+
+

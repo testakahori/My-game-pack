@@ -1,0 +1,7 @@
+# TITLE: アーマーゾンビ!
+# SUBTITLE: アーマーゾンビがプレイヤー付近に落下します
+# CATEGORY: 敵対MOB
+
+execute as @p at @p run summon zombie ^ ^ ^ {NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\"",HandItems:[{id:iron_sword,Count:1}],ArmorItems:[{id:iron_boots,Count:1},{id:iron_leggings,Count:1},{id:iron_chestplate,Count:1},{id:iron_helmet,Count:1}],ArmorDropChances:[0.0F,0.0F,0.0F,0.0F],HandDropChances:[0.0F]}
+effect give @e[type=minecraft:zombie,sort=nearest,limit=30] minecraft:slow_falling 3 1 true
+

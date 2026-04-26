@@ -1,0 +1,7 @@
+# TITLE: 守護者登場
+# SUBTITLE: プレイヤーの近くに鉄ゴーレム召喚
+# CATEGORY: 友好MOB
+
+
+execute as @p at @p run summon minecraft:iron_golem ^ ^ ^ {NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+

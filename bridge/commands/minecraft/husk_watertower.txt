@@ -1,0 +1,15 @@
+# TITLE: ハスクの滝
+# SUBTITLE: 滝と共に10体のハスクが降り注ぐ
+# CATEGORY: 妨害系
+
+execute at @p run setblock ~ ~10 ~ minecraft:water replace
+execute at @p positioned ~ ~10 ~ run summon minecraft:husk ~ ~ ~ {NoAI:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\"",ActiveEffects:[{Id:28,Amplifier:1b,Duration:100,ShowParticles:0b}]}
+execute at @p positioned ~ ~10 ~ run summon minecraft:husk ~ ~ ~ {NoAI:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\"",ActiveEffects:[{Id:28,Amplifier:1b,Duration:100,ShowParticles:0b}]}
+execute at @p positioned ~ ~10 ~ run summon minecraft:husk ~ ~ ~ {NoAI:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\"",ActiveEffects:[{Id:28,Amplifier:1b,Duration:100,ShowParticles:0b}]}
+execute at @p positioned ~ ~10 ~ run summon minecraft:husk ~ ~ ~ {NoAI:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\"",ActiveEffects:[{Id:28,Amplifier:1b,Duration:100,ShowParticles:0b}]}
+execute at @p positioned ~ ~10 ~ run summon minecraft:husk ~ ~ ~ {NoAI:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\"",ActiveEffects:[{Id:28,Amplifier:1b,Duration:100,ShowParticles:0b}]}
+execute at @p positioned ~ ~10 ~ run summon minecraft:husk ~ ~ ~ {NoAI:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\"",ActiveEffects:[{Id:28,Amplifier:1b,Duration:100,ShowParticles:0b}]}
+execute at @p positioned ~ ~10 ~ run summon minecraft:husk ~ ~ ~ {NoAI:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\"",ActiveEffects:[{Id:28,Amplifier:1b,Duration:100,ShowParticles:0b}]}
+execute at @p positioned ~ ~10 ~ run summon minecraft:husk ~ ~ ~ {NoAI:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\"",ActiveEffects:[{Id:28,Amplifier:1b,Duration:100,ShowParticles:0b}]}
+execute at @p positioned ~ ~10 ~ run summon minecraft:husk ~ ~ ~ {NoAI:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\"",ActiveEffects:[{Id:28,Amplifier:1b,Duration:100,ShowParticles:0b}]}
+execute at @p positioned ~ ~10 ~ run summon minecraft:husk ~ ~ ~ {NoAI:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\"",ActiveEffects:[{Id:28,Amplifier:1b,Duration:100,ShowParticles:0b}]}

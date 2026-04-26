@@ -1,0 +1,26 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="All Rights Reserved"
+
+[[mods]]
+modId="doumacmd"
+version="1.0.0"
+displayName="Douma Command Mod"
+authors="Douma"
+description='''
+Adds /douma <key> <count> that runs command txt files and calls gift_stream:_announce.
+'''
+
+[[dependencies.doumacmd]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.doumacmd]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1]"
+ordering="NONE"
+side="BOTH"

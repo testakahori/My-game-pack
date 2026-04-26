@@ -1,0 +1,155 @@
+🎮 MyGamePack Bridge UI
+
+このツールは
+TikTok LIVEで投げられたギフトをきっかけに、Minecraftで妨害やお助けコマンドを発動させるための設定ツールです。
+
+パソコンや設定が苦手な方でも、
+上から順番に進めれば動くように設計しています。
+
+⚠ まず最初に知っておいてほしいこと
+
+本ツールは Windows専用 です
+
+Minecraftは Java版（1.20.1推奨） が必要です
+
+配信は TikTok LIVE STUDIO を使用します
+
+🧱 STEP1：コマンド設定
+
+UIを起動すると、設定画面が開きます。
+
+ここでは
+「どんな妨害・お助けを出すか」 を決めます。
+
+例：敵を出すコマンド
+execute as @p at @p run summon minecraft:husk ^ ^ ^-2 {NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+入力項目
+
+表示名：好きな名前
+
+テキスト名：後で分かる管理用の名前
+
+コマンド：実行したいMinecraftコマンド
+
+入力できたら 保存 を押します。
+
+TXTをダウンロード
+
+「TXTをDL」を押します。
+
+保存先は：
+
+MyGamePack
+ └ bridge
+     └ commands
+         └ minecraft
+
+必ず bridge → commands → minecraft フォルダに保存してください。
+
+🎁 STEP2：ギフトとTXTを紐づける
+
+次に「ギフト設定」を行います。
+
+やること
+
+ギフトID を入力
+
+表示名 を入力
+
+「commandsフォルダを選択」 を押す
+
+許可を押す
+
+さっき作った TXT ファイルを選ぶ
+
+回数の設定
+
+例：
+
+敵を100体出したい場合
+👉 回数スライダーを「100」に設定
+
+設定できたら 保存 を押します。
+
+※ ギフトの数だけ、この作業を繰り返します。
+
+⚙ STEP3：config.minecraft.json を作る（超重要）
+
+「設定＆DL」タブを開きます。
+
+TikTokユーザー名を入力
+
+テスト配信する場合：
+
+今配信している人のIDを入力
+
+テスト後は
+必ず自分のIDに戻してください
+
+数値設定
+
+maxCommandsPerGift
+
+ギフト回数を100にした場合
+👉 100 に設定
+
+configをダウンロード
+
+「config.jsonをDL」を押します。
+
+保存先：
+
+MyGamePack
+ └ bridge
+
+ファイル名を
+
+config.minecraft.json
+
+として 上書き保存 してください。
+
+🚀 これで準備完了
+
+あとは Bridge を起動して、
+TikTok LIVE でギフトを投げるとコマンドが実行されます。
+
+🔐 セキュリティについて
+
+MyGamePack Bridge UI は以下のみを行います：
+
+bridge/config.minecraft.json の読み書き
+
+bridge/commands フォルダへのTXT出力
+
+外部サーバーとの通信は行いません
+
+自動更新機能はありません
+
+管理者権限は要求しません
+
+スタートアップ登録は行いません
+
+本アプリは Electron 製のローカル設定ツールです。
+
+初回実行時に Windows Defender や Norton などで
+「不明なアプリ」と表示される場合がありますが、
+これはコード署名を行っていないためです。
+
+不安な方は GitHub 上のソースコードをご確認ください。
+
+📦 動作環境
+
+Windows 10 / 11
+
+Minecraft Java Edition
+
+TikTok LIVE STUDIO
+
+❤️ 作者より
+
+このツールは
+「配信をもっと盛り上げたい」
+「視聴者参加型にしたい」
+という方向けに制作しています。
+
+不具合報告や改善案は Issue からお願いします。

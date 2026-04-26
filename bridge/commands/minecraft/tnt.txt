@@ -1,0 +1,6 @@
+# TITLE: TNT！
+# SUBTITLE: TNT追加
+# CATEGORY: 妨害系
+
+execute as @p at @p run summon tnt ~ ~2 ~ {Fuse:80} 
+

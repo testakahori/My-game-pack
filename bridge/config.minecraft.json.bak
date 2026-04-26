@@ -1,0 +1,25 @@
+{
+    "tiktokUsername":  "akahoridouma",
+    "target":  {
+                   "type":  "minecraft",
+                   "rcon":  {
+                                "host":  "127.0.0.1",
+                                "port":  25575,
+                                "password":  "gkq13r4duih6hg7ixa9a"
+                            }
+               },
+    "options":  {
+                    "giftCooldownMs":  300,
+                    "maxCommandsPerGift":  200,
+                    "logUnknownGifts":  true,
+                    "commandsDir":  "commands/minecraft"
+                },
+    "mappings":  [
+                     {
+                         "giftId":  "19098",
+                         "name":  "Fluffy Heart",
+                         "commandFile":  "skeleton.txt",
+                         "repeat":  1
+                     }
+                 ]
+}

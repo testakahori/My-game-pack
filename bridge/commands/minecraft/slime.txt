@@ -1,0 +1,8 @@
+# TITLE: スライム！
+# SUBTITLE: プレイヤーの近くにスライム召喚
+# CATEGORY: 敵対MOB
+
+
+execute as @p at @p run summon minecraft:slime ^ ^ ^ {NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[type=minecraft:slime,sort=nearest,limit=30] minecraft:slow_falling 3 1 true
+

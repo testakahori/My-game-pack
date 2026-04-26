@@ -1,0 +1,5 @@
+# TITLE: 砂落ち50x50
+# SUBTITLE: 50x50の砂が落下します
+# CATEGORY: 妨害系
+
+execute as @a run give @a minecraft:sand 64

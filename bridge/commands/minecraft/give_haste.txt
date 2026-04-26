@@ -1,0 +1,5 @@
+# TITLE: 採掘速度上昇20秒！
+# SUBTITLE: 採掘速度上昇20秒
+# CATEGORY: お助け系
+
+effect give {playerMe} minecraft:haste 20 3

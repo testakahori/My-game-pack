@@ -1,0 +1,18 @@
+# TITLE: 全員集合！
+# SUBTITLE: プレイヤー位置に全てをテレポート
+# CATEGORY: 妨害系
+
+execute at @p run tp @e[type=!minecraft:minecart] ~ ~ ~
+execute as @e[type=!minecraft:minecart] at @s run tp @s ~ ~-1 ~
+effect give @e[type=!minecraft:minecart] minecraft:slow_falling 3 1 true
+
+# 〇概要
+#  近くのエンティティを集結
+#〇詳細
+#  プレイヤー位置に全てをテレポート
+
+# 1行目：プレイヤー（@p）の位置にすべてのエンティティをテレポート
+# 2行目で1ブロック下に再配置して浮遊状態を軽減（空中浮き対策）
+# 3行目で落下ダメージを防ぐ
+
+

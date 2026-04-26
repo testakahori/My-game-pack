@@ -1,0 +1,6 @@
+# TITLE: 肩車ゾンビ
+# SUBTITLE: 全ての種類のピッケルを没収
+# CATEGORY: 妨害系
+
+
+{CustomNameVisible:1b,CustomName:"\"{ListenerName}\"",ActiveEffects:[{Id:20,Amplifier:1,Duration:400,ShowParticles:0b},{Id:12,Amplifier:0,Duration:400,ShowParticles:0b}],Passengers:[{id:"minecraft:zombie",IsBaby:1b,NoAI:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\"",ActiveEffects:[{Id:12,Amplifier:0,Duration:400,ShowParticles:0b}]},{id:"minecraft:zombie",Silent:1b,NoAI:0b,NoGravity:1b,Fire:0,CustomName:"\"FakeAttacker\"",DeathLootTable:"",ActiveEffects:[{Id:20,Amplifier:1,Duration:400,ShowParticles:0b},{Id:12,Amplifier:0,Duration:400,ShowParticles:0b},{Id:14,Amplifier:0,Duration:400,ShowParticles:0b}]}]}

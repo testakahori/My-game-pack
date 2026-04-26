@@ -1,0 +1,20 @@
+{
+  "tiktokUsername": "akahoridouma",
+  "target": {
+    "type": "7dtd",
+    "telnet": {
+      "host": "127.0.0.1",
+      "port": 8081,
+      "playerId": 171
+    }
+  },
+  "options": {
+    "giftCooldownMs": 300,
+    "maxCommandsPerGift": 200,
+    "logUnknownGifts": true,
+    "commandsDir": "commands/7dtd"
+  },
+  "mappings": [
+    { "giftId": "19098", "name": "Fluffy Heart", "commandFile": "explosive1.txt", "repeat": 1 }
+  ]
+}

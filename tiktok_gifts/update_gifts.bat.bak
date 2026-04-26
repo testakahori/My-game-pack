@@ -1,0 +1,3 @@
+@echo off
+echo ARG1=%1
+pause

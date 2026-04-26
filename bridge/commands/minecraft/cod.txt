@@ -1,0 +1,7 @@
+# TITLE: タラ
+# SUBTITLE: タラが跳ね回る
+# CATEGORY: 友好MOB
+
+execute as @p at @p run summon minecraft:cod ^ ^3 ^-2 {NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[type=minecraft:cod,sort=nearest,limit=30] minecraft:slow_falling 3 1 true
+

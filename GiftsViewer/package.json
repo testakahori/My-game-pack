@@ -1,0 +1,64 @@
+{
+  "name": "gifts-viewer",
+  "version": "1.0.1",
+  "private": true,
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "electron:dev": "concurrently -k -n VITE,ELECTRON \"vite\" \"wait-on http://localhost:5173 && cross-env ELECTRON_DEV=1 VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "electron:prod": "npm run build && electron .",
+    "bundle:tools": "node scripts/bundle-tools.cjs",
+    "pack:win": "npm run build && npm run bundle:tools && electron-builder --win --x64"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tiktok-live-connector": "^2.1.1-beta1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^9.0.1",
+    "cross-env": "^7.0.3",
+    "electron": "^31.4.0",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.6.3",
+    "vite": "^6.4.1",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "ai.mygamepack.giftsviewer",
+    "productName": "Gifts Viewer",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "assets/**"
+    ],
+    "extraResources": [
+      {
+        "from": "tools-bundled",
+        "to": "tools"
+      },
+      {
+        "from": "data",
+        "to": "data"
+      },
+      {
+        "from": "node",
+        "to": "node"
+      }
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        "nsis"
+      ]
+    }
+  }
+}

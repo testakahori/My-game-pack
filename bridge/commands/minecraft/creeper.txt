@@ -1,0 +1,6 @@
+# TITLE: クリーパー！
+# SUBTITLE: クリーパー追加
+# CATEGORY: 敵対MOB
+
+execute as @p at @p run summon minecraft:creeper ~ ~1 ~ {Fuse:15,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+

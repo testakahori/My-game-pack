@@ -1,0 +1,12 @@
+# TITLE: ウォーデン
+# SUBTITLE: ウォーデンを召喚
+# CATEGORY: 妨害系|敵対MOB
+
+# 1. ウォーデンを召喚
+execute as @p at @p run summon minecraft:warden ^ ^3 ^
+# 2. 名前付きウォーデンにタグをつける
+execute as @e[type=warden] if data entity @s CustomName run tag @s add named
+# 3. 名前なしウォーデンにだけ名前をつける
+execute as @e[type=warden,tag=!named] run data merge entity @s {PersistenceRequired:1b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+# 4. タグを削除（オプション）
+tag @e[type=warden,tag=named] remove named

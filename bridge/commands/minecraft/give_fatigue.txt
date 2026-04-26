@@ -1,0 +1,5 @@
+# TITLE: 採掘速度低下10秒！
+# SUBTITLE: 採掘速度低下10秒
+# CATEGORY: 妨害系
+
+effect give {PlayerMe} minecraft:mining_fatigue 10 3

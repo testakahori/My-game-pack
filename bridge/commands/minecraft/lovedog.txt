@@ -1,0 +1,7 @@
+# TITLE: {ListenerName}の犬が来た！
+# SUBTITLE: {ListenerName}さんの愛犬が召喚された
+# CATEGORY: 友好MOB
+
+execute as @p at @p run summon minecraft:wolf ~ ~1 ~ {CustomName:'{"text":"{ListenerName}"}',CustomNameVisible:1b,Tame:1b,Tags:["giftwolf_new"]}
+execute as @p run data modify entity @e[type=minecraft:wolf,tag=giftwolf_new,limit=1] Owner set from entity @s UUID
+tag @e[type=minecraft:wolf,tag=giftwolf_new] remove giftwolf_new

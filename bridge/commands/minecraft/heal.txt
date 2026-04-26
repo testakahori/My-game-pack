@@ -1,0 +1,5 @@
+# TITLE: 回復！
+# SUBTITLE: 回復支援
+# CATEGORY: お助け系
+
+effect give @p minecraft:regeneration 15 5

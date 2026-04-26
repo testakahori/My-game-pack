@@ -1,0 +1,10 @@
+# TITLE: ピッケル没収！
+# SUBTITLE: すべてのピッケル没収
+# CATEGORY: 妨害
+
+clear @p minecraft:wooden_pickaxe
+clear @p minecraft:stone_pickaxe
+clear @p minecraft:iron_pickaxe
+clear @p minecraft:diamond_pickaxe
+clear @p minecraft:golden_pickaxe
+clear @p minecraft:netherite_pickaxe

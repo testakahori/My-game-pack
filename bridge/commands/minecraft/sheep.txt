@@ -1,0 +1,7 @@
+# TITLE: ひつじちゃん！
+# SUBTITLE: 頭上かひつじが降り注ぐ
+# CATEGORY: 友好MOB
+
+execute as @p at @p run summon minecraft:sheep ^ ^ ^ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new

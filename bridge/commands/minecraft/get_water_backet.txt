@@ -1,0 +1,5 @@
+# TITLE: 水入りバケツ！
+# SUBTITLE: 水入りばけつ
+# CATEGORY: お助け系
+
+execute at @a run give @a water_bucket 1

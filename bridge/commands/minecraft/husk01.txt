@@ -1,0 +1,6 @@
+# TITLE: ハスク！
+# SUBTITLE: ハスク追加
+# CATEGORY: その他
+
+execute as @p at @p run summon minecraft:husk ^ ^ ^ {NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[type=minecraft:husk,sort=nearest,limit=1] minecraft:slow_falling 3 1 true
