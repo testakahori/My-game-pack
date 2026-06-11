@@ -8,6 +8,10 @@
   "options": {
     "giftCooldownMs": 300,
     "maxCommandsPerGift": 200,
+    "commandTransport": "douma_mod",
+    "doumaModHost": "127.0.0.1",
+    "doumaModPort": 25576,
+    "maxLikeCatchUpPerEvent": 5,
     "commandsDir": "D:\\Dev02\\game_dev\\MyGamePack02\\bridge_ui\\ui\\bridge\\commands\\minecraft",
     "logUnknownGifts": true
   },

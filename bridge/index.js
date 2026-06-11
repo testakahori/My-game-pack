@@ -30,6 +30,45 @@ const { WebcastPushConnection } = require("tiktok-live-connector");
 const { Rcon } = require("rcon-client");
 
 // --------------------
+// Minecraft RCON キープアライブ接続管理
+// --------------------
+let activeRcon = null;
+let rconTimeoutTimer = null;
+const RCON_KEEP_ALIVE_MS = 10000; // 10秒間アイドルで自動切断
+
+async function getMinecraftRcon(host, port, password) {
+  if (activeRcon && activeRcon.socket && !activeRcon.socket.destroyed) {
+    if (rconTimeoutTimer) {
+      clearTimeout(rconTimeoutTimer);
+      rconTimeoutTimer = null;
+    }
+    return activeRcon;
+  }
+
+  if (activeRcon) {
+    try { activeRcon.end(); } catch (_) {}
+    activeRcon = null;
+  }
+
+  console.log("[RCON] Connecting to Minecraft...");
+  activeRcon = await Rcon.connect({ host, port, password });
+  console.log("[RCON] Connected (New Connection established).");
+  return activeRcon;
+}
+
+function scheduleRconDisconnect() {
+  if (rconTimeoutTimer) clearTimeout(rconTimeoutTimer);
+  rconTimeoutTimer = setTimeout(() => {
+    if (activeRcon) {
+      console.log("[RCON] Disconnecting due to inactivity (keep-alive)...");
+      try { activeRcon.end(); } catch (_) {}
+      activeRcon = null;
+    }
+    rconTimeoutTimer = null;
+  }, RCON_KEEP_ALIVE_MS);
+}
+
+// --------------------
 // ファイルログ（起動ごとにタイムスタンプ付きログを自動保存）
 // --------------------
 (function setupFileLogging() {
@@ -355,12 +394,15 @@ function dedupeKeyFromGift(data) {
     data.gift?.messageId ||
     "";
 
-  if (msgId) return `msg:${String(msgId)}`;
-
   const giftId = String(data.giftId ?? "");
   const user = getStableSender(data);
   const repeatCount = String(data.repeatCount ?? "");
   const repeatEnd = String(data.repeatEnd ?? "");
+
+  if (msgId) {
+    // 連打ギフトの場合は repeatCount を含めて重複排除キーを一意にする
+    return `msg:${String(msgId)}|rc:${repeatCount}`;
+  }
 
   return `g:${giftId}|u:${user}|rc:${repeatCount}|re:${repeatEnd}`;
 }
@@ -397,12 +439,7 @@ async function execCommandsToMinecraftRcon({
 
   let rcon;
   try {
-    rcon = await Rcon.connect({
-      host: rconHost,
-      port: rconPort,
-      password: rconPassword,
-    });
-    console.log("[RCON] Connected.");
+    rcon = await getMinecraftRcon(rconHost, rconPort, rconPassword);
 
     // Fix 3: プレイヤーが0人ならスキップ（ログアウト後の後追い実行防止）
     try {
@@ -410,6 +447,7 @@ async function execCommandsToMinecraftRcon({
       const m = listResp.match(/There are (\d+) of/);
       if (m && parseInt(m[1], 10) === 0) {
         console.log(`[RCON] No players online, skipping (${contextLabel})`);
+        scheduleRconDisconnect();
         return;
       }
     } catch {
@@ -434,10 +472,67 @@ async function execCommandsToMinecraftRcon({
     }
   } catch (e) {
     console.error(`[RCON] Error (${contextLabel}):`, e?.message || e);
+    // 接続エラー時はアクティブ接続を破棄する
+    if (activeRcon) {
+      try { activeRcon.end(); } catch (_) {}
+      activeRcon = null;
+    }
   } finally {
-    try {
-      if (rcon) rcon.end();
-    } catch {}
+    // 毎回切断せず、キープアライブタイマーを開始する
+    scheduleRconDisconnect();
+  }
+}
+
+function commandFileToDoumaKey(commandFile) {
+  const file = ensureTxt(commandFile);
+  return path.basename(file, ".txt");
+}
+
+function sendDoumaModEvent({ host, port, type, commandFile, count, listenerName, announce }) {
+  const payload = JSON.stringify({
+    type,
+    key: commandFileToDoumaKey(commandFile),
+    count: clampInt(count, 1, 100, 1),
+    listenerName: String(listenerName || "viewer"),
+    announce: announce !== false,
+  });
+
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: host,
+      port,
+      path: "/douma/event",
+      method: "POST",
+      timeout: 1500,
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(payload),
+      },
+    }, (res) => {
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => { body += chunk; });
+      res.on("end", () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve(body);
+        } else {
+          reject(new Error(`DoumaMod HTTP ${res.statusCode}: ${body}`));
+        }
+      });
+    });
+
+    req.on("timeout", () => req.destroy(new Error("DoumaMod HTTP timeout")));
+    req.on("error", reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+async function enqueueDoumaModEvent(doumaMod, event) {
+  try {
+    await sendDoumaModEvent({ ...doumaMod, ...event });
+  } catch (e) {
+    console.error(`[DoumaMod] Send failed (${event.type}:${event.commandFile}):`, e?.message || e);
   }
 }
 
@@ -583,6 +678,17 @@ async function main() {
   const options = config.options || {};
   const giftCooldownMs = Number(options.giftCooldownMs ?? 300);
   const maxCommandsPerGift = Number(options.maxCommandsPerGift ?? 50);
+  const maxLikeCatchUpPerEvent = clampInt(options.maxLikeCatchUpPerEvent ?? 5, 1, 100, 5);
+  const rconQueueWarnSize = clampInt(options.rconQueueWarnSize ?? 20, 1, 10000, 20);
+  const commandTransport = String(options.commandTransport || "rcon").toLowerCase().trim();
+  const useDoumaModTransport = targetType === "minecraft" && (
+    commandTransport === "douma_mod" ||
+    commandTransport === "doumamod" ||
+    commandTransport === "mod" ||
+    commandTransport === "http"
+  );
+  const doumaModHost = String(options.doumaModHost || "127.0.0.1").trim();
+  const doumaModPort = Number(options.doumaModPort || 25576);
   const logUnknownGifts = !!options.logUnknownGifts;
 
   // [ADD] announce settings
@@ -613,30 +719,44 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
   // Target validate
   let mc = null;
+  let doumaMod = null;
   let dtd = null;
 
   if (targetType === "minecraft") {
-    // 互換: config.rcon が直下でもOK
-    const r = target.rcon || config.rcon || {};
-    const rconHost = String(process.env.RCON_HOST || r.host || "127.0.0.1").trim();
-    const rconPort = Number(process.env.RCON_PORT || r.port || 25575);
+    if (useDoumaModTransport) {
+      if (!Number.isFinite(doumaModPort) || doumaModPort <= 0) {
+        console.error("[ERROR] options.doumaModPort is invalid.");
+        process.exit(1);
+      }
+      doumaMod = { host: doumaModHost, port: doumaModPort };
+    } else {
+      // 互換: config.rcon が直下でもOK
+      const r = target.rcon || config.rcon || {};
+      const rconHost = String(process.env.RCON_HOST || r.host || "127.0.0.1").trim();
+      const rconPort = Number(process.env.RCON_PORT || r.port || 25575);
 
-    // 優先順位：ENV > rcon_password.txt > config
-    const pwFromEnvOrFile = loadRconPassword();
-    const rconPassword = pwFromEnvOrFile || String(r.password || "").trim();
+      // 優先順位：ENV > rcon_password.txt > config
+      const pwFromEnvOrFile = loadRconPassword();
+      const rconPassword = pwFromEnvOrFile || String(r.password || "").trim();
 
-    if (!rconPassword) {
-      console.error("[ERROR] RCON password is empty.");
-      console.error(
-        "        対処：server/forge-1.20.1/rcon_password.txt を作る（setup_rcon.bat実行）"
-      );
-      console.error("        または環境変数 RCON_PASSWORD を設定する");
-      process.exit(1);
+      if (!rconPassword) {
+        console.error("[ERROR] RCON password is empty.");
+        console.error(
+          "        対処：server/forge-1.20.1/rcon_password.txt を作る（setup_rcon.bat実行）"
+        );
+        console.error("        または環境変数 RCON_PASSWORD を設定する");
+        process.exit(1);
+      }
+
+      mc = { rconHost, rconPort, rconPassword };
+
+      console.log(`[Bridge] RCON password source: ${pwFromEnvOrFile ? "env/file" : "config"}`);
     }
 
-    mc = { rconHost, rconPort, rconPassword };
-
-    console.log(`[Bridge] RCON password source: ${pwFromEnvOrFile ? "env/file" : "config"}`);
+    if (!mc && !doumaMod) {
+      console.error("[ERROR] Minecraft command transport is not configured.");
+      process.exit(1);
+    }
   } else if (targetType === "7dtd" || targetType === "7days" || targetType === "7dtdtelnet") {
     const t = target.telnet || {};
     const host = String(t.host || "127.0.0.1").trim();
@@ -714,6 +834,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   console.log(`[Bridge] TikTok Username: @${tiktokUsername}`);
   console.log(`[Bridge] Target: ${targetType}`);
   if (mc) console.log(`[Bridge] RCON: ${mc.rconHost}:${mc.rconPort}`);
+  if (doumaMod) console.log(`[Bridge] DoumaMod HTTP: ${doumaMod.host}:${doumaMod.port}`);
   if (dtd) console.log(`[Bridge] Telnet: ${dtd.host}:${dtd.port} playerId=${dtd.playerId}`);
   console.log(`[Bridge] Mappings: ${mappingById.size} items`);
   console.log(`[Bridge] CommandsDir: ${commandsDirName}/`);
@@ -774,17 +895,46 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   const lastExecAt = new Map(); // cooldown (giftId+sender)
   const streakLastCount = new Map(); // key: giftId:sender -> lastRepeatCount
 
-  // Fix 1: RCON/Telnet 実行を直列化するキュー
-  // 並列接続による gift_stream:bridge ストレージの上書きを防ぐ
-  let _rconQueue = Promise.resolve();
-  function enqueueRcon(label, fn) {
-    _rconQueue = _rconQueue.then(async () => {
-      try {
-        await fn();
-      } catch (e) {
-        console.error(`[Queue] Error in ${label}:`, e?.message || e);
-      }
+  // RCON/Telnet 実行を直列化しつつ、ギフトをいいねの backlog より優先する。
+  // 並列接続による gift_stream:bridge ストレージの上書きを防ぐため、実行自体は常に1本。
+  const rconQueue = [];
+  let rconQueueRunning = false;
+  let rconQueueSeq = 0;
+
+  function enqueueRcon(label, fn, opts = {}) {
+    const priority = Number(opts.priority ?? 0);
+    rconQueue.push({ label, fn, priority, seq: ++rconQueueSeq });
+    rconQueue.sort((a, b) => (b.priority - a.priority) || (a.seq - b.seq));
+
+    if (rconQueue.length === rconQueueWarnSize) {
+      console.warn(`[Queue] Backlog reached ${rconQueue.length}. Gifts will be prioritized over likes.`);
+    }
+
+    drainRconQueue().catch((e) => {
+      console.error("[Queue] Drain error:", e?.message || e);
     });
+  }
+
+  async function drainRconQueue() {
+    if (rconQueueRunning) return;
+    rconQueueRunning = true;
+    try {
+      while (rconQueue.length > 0) {
+        const job = rconQueue.shift();
+        try {
+          await job.fn();
+        } catch (e) {
+          console.error(`[Queue] Error in ${job.label}:`, e?.message || e);
+        }
+      }
+    } finally {
+      rconQueueRunning = false;
+      if (rconQueue.length > 0) {
+        drainRconQueue().catch((e) => {
+          console.error("[Queue] Drain error:", e?.message || e);
+        });
+      }
+    }
   }
 
   async function connectTikTokWithRetry() {
@@ -853,6 +1003,18 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       // unmappedGiftEvent が有効なら実行
       if (unmappedGiftEvent?.enabled !== false && unmappedGiftEvent?.commandFile) {
         const unmappedMap = { commandFile: ensureTxt(unmappedGiftEvent.commandFile), name: `unmapped:${giftId}` };
+        if (doumaMod) {
+          const unmappedRepeat = clampInt(unmappedGiftEvent.repeat ?? 1, 1, 100, 1);
+          console.log(`[Gift] (unmapped) -> DoumaMod file=${unmappedGiftEvent.commandFile} repeat=${unmappedRepeat}`);
+          enqueueRcon(`unmapped:${giftId}`, () => enqueueDoumaModEvent(doumaMod, {
+            type: "gift",
+            commandFile: unmappedGiftEvent.commandFile,
+            count: unmappedRepeat,
+            listenerName: sender,
+            announce: announceEnabled,
+          }), { priority: 10 });
+          return;
+        }
         const resolved = resolveCommands(unmappedMap);
         if (resolved.ok) {
           const unmappedRepeat = clampInt(unmappedGiftEvent.repeat ?? 1, 1, 100, 1);
@@ -884,7 +1046,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
               rconPort: mc.rconPort,
               rconPassword: mc.rconPassword,
               maxCommandsPerGift,
-            }));
+            }), { priority: 10 });
           } else if (dtd) {
             enqueueRcon(`unmapped:${giftId}`, () => execCommandsTo7dtdTelnet({
               commands,
@@ -894,7 +1056,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
               password: dtd.password,
               sendPasswordAlways: dtd.sendPasswordAlways,
               maxCommandsPerGift,
-            }));
+            }), { priority: 10 });
           }
         }
       }
@@ -915,14 +1077,6 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       lastExecAt.set(cooldownKey, now);
     }
 
-    const resolved = resolveCommands(mapping);
-    if (!resolved.ok) {
-      console.log(
-        `[Gift] id=${giftId} name="${mapping.name}" from=${sender}${repeatText} -> ERROR: ${resolved.reason}`
-      );
-      return;
-    }
-
     const baseRepeat = clampInt(mapping.repeat ?? 1, 1, 100, 1);
 
     // streakは「増えた分(delta)」だけ反応
@@ -941,6 +1095,26 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     }
 
     const times = delta * baseRepeat;
+
+    if (doumaMod) {
+      console.log(
+        `[Gift] id=${giftId} name="${mapping.name}" from=${sender}${repeatText} -> DoumaMod file=${mapping.commandFile} count=${times}`
+      );
+      enqueueRcon(`gift:${giftId}`, () => enqueueDoumaModEvent(doumaMod, {
+        type: "gift",
+        commandFile: mapping.commandFile,
+        count: times,
+        listenerName: sender,
+        announce: announceEnabled,
+      }), { priority: 10 });
+    } else {
+    const resolved = resolveCommands(mapping);
+    if (!resolved.ok) {
+      console.log(
+        `[Gift] id=${giftId} name="${mapping.name}" from=${sender}${repeatText} -> ERROR: ${resolved.reason}`
+      );
+      return;
+    }
 
     // --- タイトル表示（Minecraftのみ）黄色太字タイトル＋黄緑サブタイトル（送り主名）---
     let prelude = [];
@@ -986,7 +1160,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         rconPort: mc.rconPort,
         rconPassword: mc.rconPassword,
         maxCommandsPerGift,
-      }));
+      }), { priority: 10 });
     } else if (dtd) {
       enqueueRcon(`gift:${giftId}`, () => execCommandsTo7dtdTelnet({
         commands: replaced,
@@ -996,7 +1170,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         password: dtd.password,
         sendPasswordAlways: dtd.sendPasswordAlways,
         maxCommandsPerGift,
-      }));
+      }), { priority: 10 });
+    }
     }
 
     // TTS 読み上げ（ギフト）
@@ -1048,14 +1223,34 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       likeTriggeredAt.set(thresh, currentMultiple);
 
       const mapping = { commandFile: ensureTxt(ev.commandFile), name: ev.label || `${thresh}いいね` };
+      const sender = getStableSender(data);
+      const evRepeat = clampInt(ev.repeat ?? 1, 1, 100, 1);
+      const triggersToRun = Math.min(newTriggers, maxLikeCatchUpPerEvent);
+      const skippedTriggers = newTriggers - triggersToRun;
+
+      if (doumaMod) {
+        const count = triggersToRun * evRepeat;
+        console.log(
+          `[Like] total=${total} threshold=${thresh} newTriggers=${newTriggers} run=${triggersToRun} skipped=${skippedTriggers} repeat=${evRepeat} -> DoumaMod file=${ev.commandFile} count=${count}`
+        );
+        if (count > 0) {
+          enqueueRcon(`like:${thresh}`, () => enqueueDoumaModEvent(doumaMod, {
+            type: "like",
+            commandFile: ev.commandFile,
+            count,
+            listenerName: sender,
+            announce: announceEnabled && thresh >= 100,
+          }), { priority: 0 });
+        }
+        continue;
+      }
+
       const resolved = resolveCommands(mapping);
       if (!resolved.ok) {
         console.log(`[Like] threshold=${thresh} ERROR: ${resolved.reason}`);
         continue;
       }
 
-      const sender = getStableSender(data);
-      const evRepeat = clampInt(ev.repeat ?? 1, 1, 100, 1);
       const ctx = { gameType: targetType, listenerName: sender, playerId: dtd ? dtd.playerId : 0 };
       const baseCommands = resolved.commands.map((cmd) => applyPlaceholders(cmd, ctx));
 
@@ -1066,22 +1261,25 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         `title @a subtitle {"text":"${mcJsonStringEscape(sender, 40)}","color":"green"}`,
       ] : [];
 
-      const triggerCommands = [...likeTitleCmds];
-      for (let r = 0; r < evRepeat; r++) triggerCommands.push(...baseCommands);
+      const triggerCommands = [];
+      for (let i = 0; i < triggersToRun; i++) {
+        triggerCommands.push(...likeTitleCmds);
+        for (let r = 0; r < evRepeat; r++) triggerCommands.push(...baseCommands);
+      }
 
-      console.log(`[Like] total=${total} threshold=${thresh} newTriggers=${newTriggers} repeat=${evRepeat} file=${ev.commandFile}`);
+      console.log(
+        `[Like] total=${total} threshold=${thresh} newTriggers=${newTriggers} run=${triggersToRun} skipped=${skippedTriggers} repeat=${evRepeat} file=${ev.commandFile}`
+      );
 
-      for (let i = 0; i < newTriggers; i++) {
-        if (mc) {
-          enqueueRcon(`like:${thresh}`, () => execCommandsToMinecraftRcon({
-            commands: triggerCommands,
-            contextLabel: `like:${thresh}`,
-            rconHost: mc.rconHost,
-            rconPort: mc.rconPort,
-            rconPassword: mc.rconPassword,
-            maxCommandsPerGift,
-          }));
-        }
+      if (mc && triggerCommands.length > 0) {
+        enqueueRcon(`like:${thresh}`, () => execCommandsToMinecraftRcon({
+          commands: triggerCommands,
+          contextLabel: `like:${thresh}`,
+          rconHost: mc.rconHost,
+          rconPort: mc.rconPort,
+          rconPassword: mc.rconPassword,
+          maxCommandsPerGift,
+        }), { priority: 0 });
       }
     }
   });
@@ -1094,11 +1292,23 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     if (!shareEvent || shareEvent.enabled === false || !shareEvent.commandFile) return;
 
     const mapping = { commandFile: ensureTxt(shareEvent.commandFile), name: "シェア" };
+    const sender = getStableSender(data);
+    const shareRepeat = clampInt(shareEvent.repeat ?? 1, 1, 100, 1);
+    if (doumaMod) {
+      console.log(`[Share] from=${sender} -> DoumaMod repeat=${shareRepeat} file=${shareEvent.commandFile}`);
+      enqueueRcon("share", () => enqueueDoumaModEvent(doumaMod, {
+        type: "other",
+        commandFile: shareEvent.commandFile,
+        count: shareRepeat,
+        listenerName: sender,
+        announce: announceEnabled,
+      }), { priority: 5 });
+      return;
+    }
+
     const resolved = resolveCommands(mapping);
     if (!resolved.ok) { console.log(`[Share] ERROR: ${resolved.reason}`); return; }
 
-    const sender = getStableSender(data);
-    const shareRepeat = clampInt(shareEvent.repeat ?? 1, 1, 100, 1);
     let prelude = [];
     if (targetType === "minecraft" && announceEnabled) {
       prelude = [
@@ -1122,7 +1332,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         rconPort: mc.rconPort,
         rconPassword: mc.rconPassword,
         maxCommandsPerGift,
-      }));
+      }), { priority: 5 });
     }
   });
 
@@ -1134,11 +1344,23 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     if (!followEvent || followEvent.enabled === false || !followEvent.commandFile) return;
 
     const mapping = { commandFile: ensureTxt(followEvent.commandFile), name: "フォロー" };
+    const sender = getStableSender(data);
+    const followRepeat = clampInt(followEvent.repeat ?? 1, 1, 100, 1);
+    if (doumaMod) {
+      console.log(`[Follow] from=${sender} -> DoumaMod repeat=${followRepeat} file=${followEvent.commandFile}`);
+      enqueueRcon("follow", () => enqueueDoumaModEvent(doumaMod, {
+        type: "other",
+        commandFile: followEvent.commandFile,
+        count: followRepeat,
+        listenerName: sender,
+        announce: announceEnabled,
+      }), { priority: 5 });
+      return;
+    }
+
     const resolved = resolveCommands(mapping);
     if (!resolved.ok) { console.log(`[Follow] ERROR: ${resolved.reason}`); return; }
 
-    const sender = getStableSender(data);
-    const followRepeat = clampInt(followEvent.repeat ?? 1, 1, 100, 1);
     let prelude = [];
     if (targetType === "minecraft" && announceEnabled) {
       prelude = [
@@ -1162,7 +1384,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         rconPort: mc.rconPort,
         rconPassword: mc.rconPassword,
         maxCommandsPerGift,
-      }));
+      }), { priority: 5 });
     }
   });
 
@@ -1174,11 +1396,23 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     if (!memberEvent || memberEvent.enabled === false || !memberEvent.commandFile) return;
 
     const mapping = { commandFile: ensureTxt(memberEvent.commandFile), name: "訪問" };
+    const sender = getStableSender(data);
+    const memberRepeat = clampInt(memberEvent.repeat ?? 1, 1, 100, 1);
+    if (doumaMod) {
+      console.log(`[Member] join=${sender} -> DoumaMod repeat=${memberRepeat} file=${memberEvent.commandFile}`);
+      enqueueRcon("member", () => enqueueDoumaModEvent(doumaMod, {
+        type: "other",
+        commandFile: memberEvent.commandFile,
+        count: memberRepeat,
+        listenerName: sender,
+        announce: false,
+      }), { priority: 3 });
+      return;
+    }
+
     const resolved = resolveCommands(mapping);
     if (!resolved.ok) { console.log(`[Member] ERROR: ${resolved.reason}`); return; }
 
-    const sender = getStableSender(data);
-    const memberRepeat = clampInt(memberEvent.repeat ?? 1, 1, 100, 1);
     const ctx = { gameType: targetType, listenerName: sender, playerId: dtd ? dtd.playerId : 0 };
     const baseMemberCmds = resolved.commands.map((cmd) => applyPlaceholders(cmd, ctx));
     const memberExpanded = [];
@@ -1193,7 +1427,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         rconPort: mc.rconPort,
         rconPassword: mc.rconPassword,
         maxCommandsPerGift,
-      }));
+      }), { priority: 3 });
     }
   });
 
