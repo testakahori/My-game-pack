@@ -47,7 +47,18 @@ function ensureDir(p) {
   const outMin = path.join(outBase, "gifts.min.json");
   const outMeta = path.join(outBase, "gifts.meta.json");
 
-  const connection = new TikTokLiveConnection(uniqueId, { enableExtendedGiftInfo: true });
+  const connection = new TikTokLiveConnection(uniqueId, {
+    enableExtendedGiftInfo: true,
+    // ギフト名などを日本語で取得する（デフォルトは en）
+    webClientParams: {
+      app_language: "ja-JP",
+      browser_language: "ja-JP",
+      webcast_language: "ja-JP",
+    },
+    webClientHeaders: {
+      "Accept-Language": "ja-JP,ja;q=0.9",
+    },
+  });
 
   try {
     console.log(`[fetchAvailableGifts] start: @${uniqueId}`);
