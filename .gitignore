@@ -31,6 +31,9 @@ GiftsViewer/data/
 *.log
 *.blockmap
 
+# Backup files
+*.bak
+
 # AI workflow files (Claude Code / OMC)
 .omc/
 .claude/
