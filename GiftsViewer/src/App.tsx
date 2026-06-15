@@ -148,7 +148,12 @@ export default function App() {
       arr.sort((a, b) => (a.diamond_count ?? 0) - (b.diamond_count ?? 0));
       if (sort === "costDesc") arr.reverse();
     }
-    arr.sort((a, b) => Number(favoriteIds.includes(b.id)) - Number(favoriteIds.includes(a.id)));
+
+    if (favoriteIds.length > 0) {
+      const favoriteSet = new Set(favoriteIds);
+      arr.sort((a, b) => Number(favoriteSet.has(b.id)) - Number(favoriteSet.has(a.id)));
+    }
+
     return arr;
   }, [costFilter, favoriteIds, gifts, q, sort]);
 
