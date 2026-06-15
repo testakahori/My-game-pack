@@ -18,6 +18,8 @@ declare global {
       giftsUpdate: (username: string) => Promise<any>;
       giftsOpenFolder: () => Promise<any>;
       giftsOpenHtml: () => Promise<any>;
+      giftsFetchImageBase64: (url: string) => Promise<string>;
+      giftsCopyPngDataUrl: (dataUrl: string) => Promise<any>;
 
       settingsRead: () => Promise<{ username?: string }>;
       settingsWrite: (next: { username?: string }) => Promise<{ ok: true }>;
