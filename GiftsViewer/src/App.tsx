@@ -2,6 +2,7 @@
 import React from "react";
 
 type Gift = { id: number; name: string; diamond_count: number; image?: string | null };
+type DisplayGift = Gift & { cost: number; key: string };
 type GiftsMeta = { generatedAt: string; username: string; count: number } | null;
 type ViewMode = "cards" | "list";
 type CostFilter = "all" | "low" | "mid" | "high";
@@ -63,7 +64,9 @@ export default function App() {
       const raw = window.localStorage.getItem("giftsviewer:favorites");
       if (!raw) return [];
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.filter((id) => Number.isFinite(id)) : [];
+      return Array.isArray(parsed)
+        ? Array.from(new Set(parsed.map((id) => Number(id)).filter((id) => Number.isFinite(id))))
+        : [];
     } catch {
       return [];
     }
@@ -129,48 +132,71 @@ export default function App() {
     window.localStorage.setItem("giftsviewer:favorites", JSON.stringify(favoriteIds));
   }, [favoriteIds]);
 
-  const filtered = React.useMemo(() => {
+  const visibleGifts = React.useMemo<DisplayGift[]>(() => {
     const s = q.trim().toLowerCase();
-    let arr = gifts.filter((g) => {
-      const cost = g.diamond_count ?? 0;
+    const byId = new Map<number, DisplayGift>();
+
+    for (const g of gifts) {
+      const id = Number(g.id);
+      if (!Number.isFinite(id) || byId.has(id)) continue;
+
+      const cost = Number(g.diamond_count) || 0;
+      byId.set(id, {
+        ...g,
+        id,
+        diamond_count: cost,
+        cost,
+        key: `gift-${id}`,
+      });
+    }
+
+    let arr = Array.from(byId.values()).filter((g) => {
       const matchesSearch = !s ? true : `${g.id} ${g.name}`.toLowerCase().includes(s);
       const matchesCost =
         costFilter === "all" ||
-        (costFilter === "low" && cost <= 99) ||
-        (costFilter === "mid" && cost >= 100 && cost <= 999) ||
-        (costFilter === "high" && cost >= 1000);
+        (costFilter === "low" && g.cost <= 99) ||
+        (costFilter === "mid" && g.cost >= 100 && g.cost <= 999) ||
+        (costFilter === "high" && g.cost >= 1000);
       return matchesSearch && matchesCost;
     });
 
     if (sort === "nameAsc") {
-      arr.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      arr.sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja") || a.cost - b.cost || a.id - b.id);
     } else {
-      arr.sort((a, b) => (a.diamond_count ?? 0) - (b.diamond_count ?? 0));
-      if (sort === "costDesc") arr.reverse();
+      arr.sort((a, b) => {
+        const costDiff = sort === "costDesc" ? b.cost - a.cost : a.cost - b.cost;
+        return costDiff || (a.name || "").localeCompare(b.name || "", "ja") || a.id - b.id;
+      });
     }
 
     if (favoriteIds.length > 0) {
       const favoriteSet = new Set(favoriteIds);
-      arr.sort((a, b) => Number(favoriteSet.has(b.id)) - Number(favoriteSet.has(a.id)));
+      arr.sort((a, b) => {
+        const favoriteDiff = Number(favoriteSet.has(b.id)) - Number(favoriteSet.has(a.id));
+        if (favoriteDiff !== 0) return favoriteDiff;
+        const costDiff = sort === "costDesc" ? b.cost - a.cost : a.cost - b.cost;
+        if (sort === "nameAsc") return (a.name || "").localeCompare(b.name || "", "ja") || costDiff || a.id - b.id;
+        return costDiff || (a.name || "").localeCompare(b.name || "", "ja") || a.id - b.id;
+      });
     }
 
     return arr;
   }, [costFilter, favoriteIds, gifts, q, sort]);
 
   const stats = React.useMemo(() => {
-    if (filtered.length === 0) {
+    if (visibleGifts.length === 0) {
       return { count: 0, min: 0, max: 0, avg: 0 };
     }
 
-    const costs = filtered.map((g) => g.diamond_count ?? 0);
+    const costs = visibleGifts.map((g) => g.cost);
     const total = costs.reduce((sum, cost) => sum + cost, 0);
     return {
-      count: filtered.length,
+      count: visibleGifts.length,
       min: Math.min(...costs),
       max: Math.max(...costs),
-      avg: Math.round(total / filtered.length),
+      avg: Math.round(total / visibleGifts.length),
     };
-  }, [filtered]);
+  }, [visibleGifts]);
 
   const onUpdate = async () => {
     setLoading(true);
@@ -281,7 +307,8 @@ export default function App() {
   const canUpdate = apiReady && !loading;
   const canOpen = apiReady;
   const canOpenHtml = apiReady && exists;
-  const favoriteCount = favoriteIds.filter((id) => gifts.some((g) => g.id === id)).length;
+  const giftIdSet = React.useMemo(() => new Set(gifts.map((g) => Number(g.id))), [gifts]);
+  const favoriteCount = favoriteIds.filter((id) => giftIdSet.has(id)).length;
   const segmentedButtonStyle = (active: boolean): React.CSSProperties => ({
     padding: "8px 12px",
     border: "1px solid #ccc",
@@ -477,7 +504,7 @@ export default function App() {
         </div>
       )}
 
-      {filtered.length === 0 ? (
+      {visibleGifts.length === 0 ? (
         <div
           style={{
             marginTop: 12,
@@ -492,6 +519,7 @@ export default function App() {
         </div>
       ) : viewMode === "cards" ? (
         <div
+          key="cards-view"
           style={{
             marginTop: 12,
             display: "grid",
@@ -499,9 +527,9 @@ export default function App() {
             gap: 10,
           }}
         >
-          {filtered.map((g) => (
+          {visibleGifts.map((g) => (
             <div
-              key={g.id}
+              key={g.key}
               style={{
                 border: "1px solid #e5e5e5",
                 borderRadius: 14,
@@ -591,6 +619,7 @@ export default function App() {
         </div>
       ) : (
         <div
+          key="list-view"
           style={{
             marginTop: 12,
             border: "1px solid #e5e5e5",
@@ -612,8 +641,8 @@ export default function App() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((g, index) => (
-                <tr key={g.id} style={{ background: index % 2 === 0 ? "#fff" : "#fcfcfd" }}>
+              {visibleGifts.map((g, index) => (
+                <tr key={g.key} style={{ background: index % 2 === 0 ? "#fff" : "#fcfcfd" }}>
                   <td style={{ padding: "7px 12px", borderBottom: "1px solid #f0f0f0" }}>
                     <button
                       type="button"
