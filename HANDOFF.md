@@ -32,11 +32,47 @@
   新規記録は不要。全期間合算のみだった既存 `operations:stats` を配信単位へ拡張した位置づけ
 - 分割ロジックは合成データで11項目の単体検証済み（分割・集計・gap統合）。`vite build` 成功
 
+### 追加実装：Minecraftコマンドの完璧化（全MOBスポーン統一）
+
+「マイクラを完璧にしたい」との方針で、コマンドtxt 52本を全数監査し、残っていた演出・堅牢性の
+問題を解消した（致命的バグは07-02で解消済み。今回は残りの品質・一貫性）。
+
+- **全召喚MOBを「上空が開いていれば頭上から落下・塞がっていれば足元」フォールバックに統一**。
+  視線基準の `^` 座標を summon から完全排除（採掘中の向きでスポーン位置がぶれる問題を根絶）。
+  変換: zombie/skeleton/sheep/pig/silverfish/husk/husk01/wither_skeleton/skeleton_knight/
+  cat/slime/kirarabbit/iron_golem/zombie-armer/zombiekataguruma/lovedog ＋ animals_happy（16種）
+- slow_falling を `gift_spawn_new` タグで**召喚個体だけ**に限定（旧: `@e[type=X,limit=30]` は
+  既存の飼育動物・ペットにも掛かっていた）
+- lovedog: TITLEは{ListenerName}非置換だったため文言修正（SUBTITLEのみModが置換）、召喚犬に
+  slow_falling 追加
+- デッドコード除去（pig / ozisan_party の残骸行）
+- 健全性チェック強化: summon行の `^` を全面禁止＋一時タグの remove 漏れ検出
+- **Mod（jar）の再ビルドは不要**。Modはtxtを実行時に読むため、txt更新だけで反映される
+- `creeper`（足元固定が確実で意図的）、`husk_watertower`（滝演出で意図的に上空~10）は対象外で正しい
+
+### 既に実装済み（07-03の「検討中リスト」は完了済み）
+
+HANDOFF下部の07-03「優先度高：配信の安定運用に直結」リストは**すべて実装完了**。運用センター
+（サイドバー🛡️）に集約されている:
+
+| 機能 | 実装場所 |
+|---|---|
+| テストモード | 運用センター → オフライン・テストモード |
+| /douma/status キュー可視化 | 運用センター → Mod死活監視（ゲージ、詰まりで警告色） |
+| Mod死活監視 | 運用センター 上部（2秒ごとポーリング、応答なしで赤表示） |
+| 実行結果フィードバック | status の executed/failed/lastError（Mod 1.1.1）＋運用センター表示 |
+| イベント履歴ビューア | 運用センター → イベント履歴テーブル＋配信統計📊ページ |
+| Bridge自動再起動 | electron/restart_policy.cjs（クラッシュ時のみ2秒後に再起動） |
+
 ### 注意（次の人向け）
 
 - このプロジェクトには tsconfig.json が無く、ビルドは `vite build`（esbuildトランスパイルのみ）。
   型チェックはビルド工程に含まれない点に留意。
-- 07-02〜07-05の作業一式（Mod source, コマンドtxt, bridge/index.js, OperationsPage.tsx, feature_engine.js, config_schema, restart_policy, bridge/test/ など）は**まだgitコミットされていない**（未コミットのワーキングツリー変更）。コミットは未指示のため未実施。
+- 07-02〜07-05の作業は**ブランチ `feat/bougai-minecraft-fixes` にコミット済み**（内容別に8コミット）。
+  main取り込みは `git checkout main && git merge feat/bougai-minecraft-fixes`（fast-forward）。
+- コマンドtxtの変更をサーバーへ反映するには、各サーバーの `bridge/commands/minecraft/` へ配布するか、
+  EXEを再パック（`npm run pack:win`）して再インストールする。**jar再ビルドは不要**。
+- 7DTD側の強化（キュー/再送は移植済み、監視は未実装）は方針により保留中。
 - 以降の未完タスクは下記「残っている実環境確認」のとおり、いずれも人がMinecraftに入るか外部サービスへ公開する必要があるもの。
 
 ---
