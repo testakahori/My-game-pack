@@ -2,7 +2,8 @@
 # SUBTITLE: 村人が召喚される
 # CATEGORY: 友好MOB
 
-execute as @p at @p run summon minecraft:villager ^ ^3 ^-2 {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+# 上空が開いていれば頭上から落下、塞がっていれば足元に出現
+execute at @p if block ~ ~3 ~ air run summon minecraft:villager ~ ~3 ~ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+execute at @p unless block ~ ~3 ~ air run summon minecraft:villager ~ ~ ~ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
 effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
 tag @e[tag=gift_spawn_new] remove gift_spawn_new
-

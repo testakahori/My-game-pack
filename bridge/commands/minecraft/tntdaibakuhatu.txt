@@ -5,25 +5,9 @@
 
 
 
-execute at @p run fill ~7 ~37 ~-7 ~-7 ~5 ~7 minecraft:tnt
-execute at @p run fill ~ ~4 ~ ~ ~4 ~ minecraft:redstone_block
-execute as @p at @p run summon tnt ~-2 ~30 ~ {Fuse:60}
-execute as @p at @p run summon tnt ~ ~33 ~3 {Fuse:60}
-execute as @p at @p run summon tnt ~3 ~36 ~-1 {Fuse:60}
-execute as @p at @p run summon tnt ~-1 ~39 ~-3 {Fuse:60}
-execute as @p at @p run summon tnt ~4 ~42 ~ {Fuse:60}
-execute as @p at @p run summon tnt ~-3 ~44 ~2 {Fuse:60}
-execute as @p at @p run summon tnt ~1 ~46 ~-2 {Fuse:60}
-execute as @p at @p run summon tnt ~-4 ~48 ~1 {Fuse:60}
-execute as @p at @p run summon tnt ~ ~50 ~-4 {Fuse:60}
-execute as @p at @p run summon tnt ~4 ~50 ~4 {Fuse:60}
-execute as @p at @p run summon tnt ~-2 ~30 ~ {Fuse:60}
-execute as @p at @p run summon tnt ~ ~33 ~3 {Fuse:60}
-execute as @p at @p run summon tnt ~3 ~36 ~-1 {Fuse:60}
-execute as @p at @p run summon tnt ~-1 ~39 ~-3 {Fuse:60}
-execute as @p at @p run summon tnt ~4 ~42 ~ {Fuse:60}
-execute as @p at @p run summon tnt ~-3 ~44 ~2 {Fuse:60}
-execute as @p at @p run summon tnt ~1 ~46 ~-2 {Fuse:60}
-execute as @p at @p run summon tnt ~-4 ~48 ~1 {Fuse:60}
-execute as @p at @p run summon tnt ~ ~50 ~-4 {Fuse:60}
-execute as @p at @p run summon tnt ~4 ~50 ~4 {Fuse:60}
+execute at @p if block ~ ~30 ~ air run fill ~7 ~37 ~-7 ~-7 ~5 ~7 minecraft:tnt
+execute at @p if block ~ ~30 ~ air run fill ~ ~4 ~ ~ ~4 ~ minecraft:redstone_block
+execute at @p unless block ~ ~30 ~ air run summon tnt ~2 ~ ~ {Fuse:40}
+execute at @p unless block ~ ~30 ~ air run summon tnt ~-2 ~ ~ {Fuse:40}
+execute at @p unless block ~ ~30 ~ air run summon tnt ~ ~ ~2 {Fuse:40}
+execute at @p unless block ~ ~30 ~ air run summon tnt ~ ~ ~-2 {Fuse:40}

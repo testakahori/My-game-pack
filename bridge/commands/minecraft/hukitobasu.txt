@@ -3,8 +3,8 @@
 # CATEGORY: 妨害系
 
 execute as @a at @s run effect give @s levitation 1 10 true
-execute as @a at @s run summon minecraft:armor_stand ~ ~1.0 ~ {Invisible:1b,NoGravity:1b,Invulnerable:1b,Tags:["fakeExplosion"]}
 execute as @a at @s run particle explosion_emitter ~ ~1.0 ~ 0.1 0.1 0.1 0 1 force
 execute as @a at @s run playsound minecraft:entity.generic.explode master @s ~ ~ ~ 1 1
 
-
+# 旧版が残していた不可視アーマースタンドを掃除（無限に溜まりエンティティ数を圧迫していた）
+kill @e[type=minecraft:armor_stand,tag=fakeExplosion]

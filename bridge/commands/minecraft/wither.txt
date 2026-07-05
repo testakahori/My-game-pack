@@ -1,7 +1,9 @@
 # TITLE: ウィザー召喚
 # SUBTITLE: プレイヤーの近くにウィザーを召喚
+# CATEGORY: 敵対MOB
 
-execute as @p at @p run summon minecraft:wither ^ ^3 ^ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+# 上空が開いていれば頭上に、塞がっていれば足元に出現（視線に依存しない）
+execute at @p if block ~ ~3 ~ air run summon minecraft:wither ~ ~3 ~ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+execute at @p unless block ~ ~3 ~ air run summon minecraft:wither ~ ~ ~ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
 effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
 tag @e[tag=gift_spawn_new] remove gift_spawn_new
-

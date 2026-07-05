@@ -2,4 +2,5 @@
 # SUBTITLE: 採掘速度上昇20秒
 # CATEGORY: お助け系
 
-effect give {playerMe} minecraft:haste 20 3
+# {playerMe} は未実装プレースホルダだったため @a に修正（常に失敗していた）
+effect give @a minecraft:haste 20 3

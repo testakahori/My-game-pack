@@ -2,4 +2,5 @@
 # SUBTITLE: 15秒間暗闇
 # CATEGORY: 妨害系
 
-effect give {PlayerMe} blindness 15 1
+# {PlayerMe} は未実装プレースホルダだったため @a に修正（常に失敗していた）
+effect give @a minecraft:blindness 15 1

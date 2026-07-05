@@ -1,5 +1,7 @@
-# TITLE: 砂落ち50x50
-# SUBTITLE: 50x50の砂が落下します
+# TITLE: 砂落下！
+# SUBTITLE: 頭上から砂が降ってくる
 # CATEGORY: 妨害系
 
-execute as @a run give @a minecraft:sand 64
+# 旧版は「give 砂64個」でタイトル（砂落ち）と動作が食い違っていたため、実際に砂を落下させる形に修正
+# 上空が開いているときだけ頭上7x7に砂を生成（坑道内では発動しない＝地形破壊しない）
+execute at @p if block ~ ~15 ~ air run fill ~-3 ~15 ~-3 ~3 ~16 ~3 minecraft:sand replace minecraft:air

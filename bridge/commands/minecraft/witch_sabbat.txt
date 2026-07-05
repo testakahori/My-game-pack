@@ -2,10 +2,13 @@
 # SUBTITLE: プレイヤーの周辺にファントムに乗った魔女と蜘蛛に乗った魔女を召喚
 # CATEGORY: 敵対MOB
 
-execute as @p at @p run summon minecraft:phantom ^ ^30 ^ {Tags:["gift_spawn_new"],NoGravity:1b,CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,Passengers:[{id:"minecraft:witch",CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,ActiveEffects:[{Id:12,Amplifier:0,Duration:999999,ShowParticles:0b}]}]}
+# 上空が開いていれば高高度から、塞がっていれば頭上2ブロックに出現（視線に依存しない）
+execute at @p if block ~ ~30 ~ air run summon minecraft:phantom ~ ~30 ~ {Tags:["gift_spawn_new"],NoGravity:1b,CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,Passengers:[{id:"minecraft:witch",CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,ActiveEffects:[{Id:12,Amplifier:0,Duration:999999,ShowParticles:0b}]}]}
+execute at @p unless block ~ ~30 ~ air run summon minecraft:phantom ~ ~2 ~ {Tags:["gift_spawn_new"],NoGravity:1b,CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,Passengers:[{id:"minecraft:witch",CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,ActiveEffects:[{Id:12,Amplifier:0,Duration:999999,ShowParticles:0b}]}]}
 effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
 tag @e[tag=gift_spawn_new] remove gift_spawn_new
 
-execute as @p at @p run summon minecraft:spider ^ ^2 ^-3 {Tags:["gift_spawn_new"],CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,Passengers:[{id:"minecraft:witch",CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,ActiveEffects:[{Id:12,Amplifier:0,Duration:999999,ShowParticles:0b}]}]}
+execute at @p if block ~ ~2 ~ air run summon minecraft:spider ~ ~2 ~ {Tags:["gift_spawn_new"],CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,Passengers:[{id:"minecraft:witch",CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,ActiveEffects:[{Id:12,Amplifier:0,Duration:999999,ShowParticles:0b}]}]}
+execute at @p unless block ~ ~2 ~ air run summon minecraft:spider ~ ~ ~ {Tags:["gift_spawn_new"],CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,Passengers:[{id:"minecraft:witch",CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,ActiveEffects:[{Id:12,Amplifier:0,Duration:999999,ShowParticles:0b}]}]}
 effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
 tag @e[tag=gift_spawn_new] remove gift_spawn_new

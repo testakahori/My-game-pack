@@ -2,4 +2,5 @@
 # SUBTITLE: 採掘速度低下10秒
 # CATEGORY: 妨害系
 
-effect give {PlayerMe} minecraft:mining_fatigue 10 3
+# {PlayerMe} は未実装プレースホルダだったため @a に修正（常に失敗していた）
+effect give @a minecraft:mining_fatigue 10 3

@@ -2,8 +2,9 @@
 # SUBTITLE: ウォーデンを召喚
 # CATEGORY: 妨害系|敵対MOB
 
-# 1. ウォーデンを召喚
-execute as @p at @p run summon minecraft:warden ^ ^3 ^
+# 1. ウォーデンを召喚（上空が開いていれば頭上、塞がっていれば足元。視線に依存しない）
+execute at @p if block ~ ~3 ~ air run summon minecraft:warden ~ ~3 ~
+execute at @p unless block ~ ~3 ~ air run summon minecraft:warden ~ ~ ~
 # 2. 名前付きウォーデンにタグをつける
 execute as @e[type=warden] if data entity @s CustomName run tag @s add named
 # 3. 名前なしウォーデンにだけ名前をつける

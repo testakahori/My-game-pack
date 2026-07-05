@@ -2,6 +2,8 @@
 # SUBTITLE: ガストが現れる
 # CATEGORY: 敵対MOB
 
-execute as @p at @p run summon minecraft:ghast ^ ^3 ^-2 {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+# ガストは巨体(4x4)なので広い上空を優先、塞がっていれば頭上1ブロックに出現
+execute at @p if block ~ ~8 ~ air run summon minecraft:ghast ~ ~8 ~ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+execute at @p unless block ~ ~8 ~ air run summon minecraft:ghast ~ ~1 ~ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
 effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
 tag @e[tag=gift_spawn_new] remove gift_spawn_new

@@ -2,4 +2,6 @@
 # SUBTITLE: プレイヤーの近くにブレイズとファントム召喚
 # CATEGORY: 敵対MOB
 
-execute as @p at @p run summon minecraft:phantom ^ ^30 ^ {NoGravity:1b,CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,Passengers:[{id:"minecraft:blaze",CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,ActiveEffects:[{Id:12,Amplifier:0,Duration:999999,ShowParticles:0b},{Id:10,Amplifier:0,Duration:999999,ShowParticles:0b}]}]}
+# 上空が開いていれば高高度から、塞がっていれば頭上2ブロックに出現（視線に依存しない）
+execute at @p if block ~ ~30 ~ air run summon minecraft:phantom ~ ~30 ~ {NoGravity:1b,CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,Passengers:[{id:"minecraft:blaze",CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,ActiveEffects:[{Id:12,Amplifier:0,Duration:999999,ShowParticles:0b},{Id:10,Amplifier:0,Duration:999999,ShowParticles:0b}]}]}
+execute at @p unless block ~ ~30 ~ air run summon minecraft:phantom ~ ~2 ~ {NoGravity:1b,CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,Passengers:[{id:"minecraft:blaze",CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,ActiveEffects:[{Id:12,Amplifier:0,Duration:999999,ShowParticles:0b},{Id:10,Amplifier:0,Duration:999999,ShowParticles:0b}]}]}
