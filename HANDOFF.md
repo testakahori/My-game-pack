@@ -19,8 +19,23 @@
 
 - **開発サーバー `D:\Dev02\game_dev\MyGamePack02\server\Douma_Craft\mods\` に旧 `doumacmd-1.1.0.jar` が残存していた**ため、`doumacmd-1.1.1.jar`（hash `D534E03A...`）へ差し替え、旧jarを削除。これで全配備先が1.1.1で統一。
 
+### 追加実装：配信統計ダッシュボード
+
+強化案「統計ダッシュボード」を実装した。
+
+- サイドバーに **「配信統計」📊** ページを追加（`src/components/StatsDashboardPage.tsx` 新規）
+- `operations-history.json` のイベントを**時刻ギャップで配信セッションに自動分割**し、配信単位で
+  ギフト数・いいね数・その他・成功/失敗・最頻ギフト・トップギフター・ユニーク視聴者・配信時間を集計
+- 区切り時間（30/60/90/120/180分）をUIから切替可能。既定90分
+- 全期間サマリー（配信数・総イベント・ギフト・いいね・成功率・失敗）も表示
+- 新IPC `operations:streamStats`（`electron/main.cjs` の `computeStreamStats`）。既存履歴にそのまま効き、
+  新規記録は不要。全期間合算のみだった既存 `operations:stats` を配信単位へ拡張した位置づけ
+- 分割ロジックは合成データで11項目の単体検証済み（分割・集計・gap統合）。`vite build` 成功
+
 ### 注意（次の人向け）
 
+- このプロジェクトには tsconfig.json が無く、ビルドは `vite build`（esbuildトランスパイルのみ）。
+  型チェックはビルド工程に含まれない点に留意。
 - 07-02〜07-05の作業一式（Mod source, コマンドtxt, bridge/index.js, OperationsPage.tsx, feature_engine.js, config_schema, restart_policy, bridge/test/ など）は**まだgitコミットされていない**（未コミットのワーキングツリー変更）。コミットは未指示のため未実施。
 - 以降の未完タスクは下記「残っている実環境確認」のとおり、いずれも人がMinecraftに入るか外部サービスへ公開する必要があるもの。
 

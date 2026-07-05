@@ -9,6 +9,7 @@ import GiftsViewerPage from "./components/GiftsViewerPage";
 import EventSettingsPage from "./components/EventSettingsPage";
 import TTSSettingsPage from "./components/TTSSettingsPage";
 import OperationsPage from "./components/OperationsPage";
+import StatsDashboardPage from "./components/StatsDashboardPage";
 
 const PAGE_TITLE: Partial<Record<AppPage, string>> = {
   [AppPage.DASHBOARD]: "ダッシュボード",
@@ -18,6 +19,7 @@ const PAGE_TITLE: Partial<Record<AppPage, string>> = {
   [AppPage.GIFTS_VIEWER]: "ギフト一覧",
   [AppPage.SETUP]: "初期セットアップ",
   [AppPage.OPERATIONS]: "運用センター",
+  [AppPage.STATS]: "配信統計",
 };
 
 const App: React.FC = () => {
@@ -126,6 +128,9 @@ const App: React.FC = () => {
           )}
           {activePage === AppPage.OPERATIONS && (
             <div className="p-6"><OperationsPage /></div>
+          )}
+          {activePage === AppPage.STATS && (
+            <div className="p-6"><StatsDashboardPage /></div>
           )}
 
           {activePage === AppPage.SETUP && (

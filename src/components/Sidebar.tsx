@@ -16,6 +16,7 @@ const LOCKED_PAGES: AppPage[] = [
   AppPage.TTS,
   AppPage.GIFTS_VIEWER,
   AppPage.OPERATIONS,
+  AppPage.STATS,
 ];
 
 type NavItem = {
@@ -61,6 +62,12 @@ const NAV_ITEMS: NavItem[] = [
     label: "運用センター",
     sub: "監視・テスト・安全設定",
     icon: "🛡️",
+  },
+  {
+    page: AppPage.STATS,
+    label: "配信統計",
+    sub: "配信ごとの集計",
+    icon: "📊",
   },
   {
     page: AppPage.SETUP,

@@ -718,6 +718,70 @@ ipcMain.handle("operations:stats", () => {
     topCommands: top(byCommand), topSenders: top(bySender) };
 });
 
+// 配信単位（per-stream）の統計。
+// operations-history.json のイベントを時刻ギャップで「配信セッション」に分割し、
+// 配信ごとにギフト数・発動数・失敗数・最頻ギフト・トップギフターを集計する。
+// gapMinutes 以上イベントが途切れたら別の配信とみなす（既定90分）。
+function computeStreamStats(gapMinutes) {
+  const gapMs = Math.max(5, Number(gapMinutes) || 90) * 60 * 1000;
+  const sorted = readOperationsHistory()
+    .map((r) => ({ ...r, t: Date.parse(r.at) || 0 }))
+    .filter((r) => r.t > 0)
+    .sort((a, b) => a.t - b.t);
+
+  const buckets = [];
+  let cur = null;
+  for (const r of sorted) {
+    if (!cur || r.t - cur.lastT > gapMs) {
+      cur = { startT: r.t, lastT: r.t, rows: [] };
+      buckets.push(cur);
+    }
+    cur.rows.push(r);
+    cur.lastT = r.t;
+  }
+
+  const top = (obj) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, 3)
+    .map(([name, count]) => ({ name, count }));
+
+  const summarize = (b) => {
+    const byCommand = {}, bySender = {};
+    let gift = 0, like = 0, other = 0, succeeded = 0, failed = 0;
+    for (const r of b.rows) {
+      const amount = Number(r.count || 1);
+      if (r.ok) succeeded++; else failed++;
+      if (r.type === "gift") gift += amount;
+      else if (r.type === "like") like += amount;
+      else other += amount;
+      byCommand[r.commandFile || "unknown"] = (byCommand[r.commandFile || "unknown"] || 0) + amount;
+      bySender[r.sender || "unknown"] = (bySender[r.sender || "unknown"] || 0) + amount;
+    }
+    return {
+      start: new Date(b.startT).toISOString(),
+      end: new Date(b.lastT).toISOString(),
+      durationMs: b.lastT - b.startT,
+      events: b.rows.length,
+      gift, like, other, succeeded, failed,
+      uniqueSenders: Object.keys(bySender).length,
+      topCommands: top(byCommand),
+      topSenders: top(bySender),
+    };
+  };
+
+  const streams = buckets.map(summarize).reverse(); // 新しい配信を先頭に
+  const sum = (key) => streams.reduce((a, s) => a + s[key], 0);
+  return {
+    gapMinutes: gapMs / 60000,
+    overall: {
+      streams: streams.length,
+      events: sorted.length,
+      gift: sum("gift"), like: sum("like"), other: sum("other"),
+      succeeded: sum("succeeded"), failed: sum("failed"),
+    },
+    streams,
+  };
+}
+ipcMain.handle("operations:streamStats", (_event, gapMinutes) => computeStreamStats(gapMinutes));
+
 // --------------------
 // IPC: Minecraft 起動
 // --------------------

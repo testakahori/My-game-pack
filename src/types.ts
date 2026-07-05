@@ -10,6 +10,7 @@ export enum AppPage {
   WORLD = "world",
   SETUP = "setup",
   OPERATIONS = "operations",
+  STATS = "stats",
 }
 
 export enum AppTab {
