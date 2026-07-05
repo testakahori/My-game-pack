@@ -28,6 +28,37 @@ const os = require("os");
 const { execFile } = require("child_process");
 const { WebcastPushConnection } = require("tiktok-live-connector");
 const { Rcon } = require("rcon-client");
+const { validateBridgeConfig } = require("./config_schema");
+const { FeatureEngine, parseWeightedList, chooseWeighted } = require("./feature_engine");
+let runtimeProtection = { enabled: false };
+let doumaWebSocket = null;
+let doumaWebSocketStopping = false;
+
+function connectDoumaWebSocket({ host, port }) {
+  if (typeof WebSocket !== "function") return;
+  const wsUrl = `ws://${host}:${Number(port) + 1}`;
+  try {
+    const socket = new WebSocket(wsUrl);
+    doumaWebSocket = socket;
+    socket.addEventListener("open", () => console.log(`[DoumaWS] Connected: ${wsUrl}`));
+    socket.addEventListener("message", event => {
+      try {
+        const status = JSON.parse(String(event.data));
+        if (status.type !== "ack") {
+          fs.writeFileSync(path.join(__dirname, "runtime-status.json"),
+            JSON.stringify({ at: new Date().toISOString(), ...status }, null, 2), "utf8");
+        }
+      } catch {}
+    });
+    socket.addEventListener("close", () => {
+      if (doumaWebSocket === socket) doumaWebSocket = null;
+      if (!doumaWebSocketStopping) setTimeout(() => connectDoumaWebSocket({ host, port }), 2000);
+    });
+    socket.addEventListener("error", () => {});
+  } catch {
+    if (!doumaWebSocketStopping) setTimeout(() => connectDoumaWebSocket({ host, port }), 2000);
+  }
+}
 
 // --------------------
 // Minecraft RCON キープアライブ接続管理
@@ -195,6 +226,17 @@ async function speakText(text, cfg) {
   } catch (e) {
     console.warn("[TTS] speakText error:", e?.message || e);
   }
+}
+
+let ttsQueueTail = Promise.resolve();
+function enqueueSpeech(text, cfg, ngWords = []) {
+  let safe = String(text || "");
+  for (const word of ngWords) {
+    if (!word) continue;
+    safe = safe.split(String(word)).join("＊".repeat(Math.min(8, String(word).length)));
+  }
+  ttsQueueTail = ttsQueueTail.then(() => speakText(safe, cfg)).catch(() => {});
+  return ttsQueueTail;
 }
 
 // ------------------------
@@ -433,7 +475,7 @@ async function execCommandsToMinecraftRcon({
   rconPassword,
   maxCommandsPerGift,
 }) {
-  if (!commands || commands.length === 0) return;
+  if (!commands || commands.length === 0) return true;
 
   const trimmed = commands.slice(0, maxCommandsPerGift);
 
@@ -495,6 +537,11 @@ function sendDoumaModEvent({ host, port, type, commandFile, count, listenerName,
     count: clampInt(count, 1, 100, 1),
     listenerName: String(listenerName || "viewer"),
     announce: announce !== false,
+    protectionEnabled: runtimeProtection.enabled === true,
+    protectX1: Number(runtimeProtection.x1 || 0),
+    protectX2: Number(runtimeProtection.x2 || 0),
+    protectZ1: Number(runtimeProtection.z1 || 0),
+    protectZ2: Number(runtimeProtection.z2 || 0),
   });
 
   return new Promise((resolve, reject) => {
@@ -528,11 +575,37 @@ function sendDoumaModEvent({ host, port, type, commandFile, count, listenerName,
   });
 }
 
-async function enqueueDoumaModEvent(doumaMod, event) {
-  try {
-    await sendDoumaModEvent({ ...doumaMod, ...event });
-  } catch (e) {
-    console.error(`[DoumaMod] Send failed (${event.type}:${event.commandFile}):`, e?.message || e);
+async function enqueueDoumaModEvent(doumaMod, event, opts = {}) {
+  // ギフトは落とさない：429(キュー満杯)や一時的な接続断は指数バックオフでリトライ。
+  // リトライ待ちは rconQueue を直列で塞ぐが、Mod側が詰まっている間に
+  // さらに送り込まないバックプレッシャとして機能する。
+  const maxRetries = Number(opts.retries ?? (event.type === "gift" ? 5 : 1));
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await sendDoumaModEvent({ ...doumaMod, ...event });
+      try {
+        const historyPath = path.join(__dirname, "operations-history.json");
+        let rows = [];
+        try { rows = JSON.parse(fs.readFileSync(historyPath, "utf8")); } catch {}
+        rows.unshift({ at: new Date().toISOString(), type: event.type || "other",
+          sender: event.listenerName || "viewer", commandFile: ensureTxt(event.commandFile),
+          count: event.count || 1, ok: true });
+        fs.writeFileSync(historyPath, JSON.stringify(rows.slice(0, 1000), null, 2), "utf8");
+      } catch {}
+      if (attempt > 0) {
+        console.log(`[DoumaMod] Send ok after retry x${attempt} (${event.type}:${event.commandFile})`);
+      }
+      return;
+    } catch (e) {
+      if (attempt >= maxRetries) {
+        console.error(
+          `[DoumaMod] Send failed (${event.type}:${event.commandFile}) after ${attempt + 1} attempts:`,
+          e?.message || e
+        );
+        return;
+      }
+      await sleep(Math.min(3000, 250 * Math.pow(2, attempt)));
+    }
   }
 }
 
@@ -571,15 +644,16 @@ async function execCommandsTo7dtdTelnet({
     let socket;
     let ended = false;
     let sentPassword = false;
+    let commandsSent = false;
     let buffer = "";
 
-    const finish = () => {
+    const finish = (ok = commandsSent) => {
       if (ended) return;
       ended = true;
       try {
         socket?.end();
       } catch {}
-      resolve();
+      resolve(ok);
     };
 
     try {
@@ -599,6 +673,7 @@ async function execCommandsTo7dtdTelnet({
             writeLine(socket, cmd);
             console.log(`  [CMD ${i + 1}/${trimmed.length}] SENT: ${cmd}`);
           }
+          commandsSent = true;
 
           if (commands.length > trimmed.length) {
             console.log(
@@ -630,21 +705,34 @@ async function execCommandsTo7dtdTelnet({
 
       socket.on("timeout", () => {
         console.error(`[TELNET] Timeout (${contextLabel})`);
-        finish();
+        finish(false);
       });
 
       socket.on("error", (err) => {
         console.error(`[TELNET] Error (${contextLabel}):`, err?.message || err);
-        finish();
+        finish(false);
       });
 
       socket.on("end", () => finish());
       socket.on("close", () => finish());
     } catch (e) {
       console.error(`[TELNET] Fatal (${contextLabel}):`, e?.message || e);
-      finish();
+      finish(false);
     }
   });
+}
+
+async function execCommandsTo7dtdTelnetWithRetry(args, retries = 3) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const ok = await execCommandsTo7dtdTelnet(args);
+    if (ok) {
+      if (attempt > 0) console.log(`[TELNET] Recovered after retry x${attempt} (${args.contextLabel})`);
+      return true;
+    }
+    if (attempt < retries) await sleep(Math.min(3000, 300 * Math.pow(2, attempt)));
+  }
+  console.error(`[TELNET] Failed after ${retries + 1} attempts (${args.contextLabel})`);
+  return false;
 }
 
 // ------------------------
@@ -670,12 +758,19 @@ async function main() {
   }
 
   const config = safeReadJson(configPath);
+  const configValidation = validateBridgeConfig(config);
+  for (const warning of configValidation.warnings) console.warn(`[Config] ${warning}`);
+  if (!configValidation.ok) {
+    for (const error of configValidation.errors) console.error(`[Config] ${error}`);
+    throw new Error("config.minecraft.json の設定が不正です");
+  }
 
   const tiktokUsername = String(config.tiktokUsername || "").trim();
   const target = config.target || { type: "minecraft", rcon: config.rcon }; // 互換
   const targetType = String(target.type || "minecraft").toLowerCase();
 
   const options = config.options || {};
+  runtimeProtection = options.protection || { enabled: false };
   const giftCooldownMs = Number(options.giftCooldownMs ?? 300);
   const maxCommandsPerGift = Number(options.maxCommandsPerGift ?? 50);
   const maxLikeCatchUpPerEvent = clampInt(options.maxLikeCatchUpPerEvent ?? 5, 1, 100, 5);
@@ -690,6 +785,17 @@ async function main() {
   const doumaModHost = String(options.doumaModHost || "127.0.0.1").trim();
   const doumaModPort = Number(options.doumaModPort || 25576);
   const logUnknownGifts = !!options.logUnknownGifts;
+  const mutedUsers = new Set((Array.isArray(options.mutedUsers) ? options.mutedUsers : [])
+    .map(v => String(v).trim().toLowerCase()).filter(Boolean));
+  const ttsNgWords = (Array.isArray(options.ttsNgWords) ? options.ttsNgWords : [])
+    .map(v => String(v).trim()).filter(Boolean);
+  const isMuted = (data) => {
+    const candidates = [getStableSender(data), data?.uniqueId, data?.userId]
+      .map(v => String(v || "").trim().toLowerCase());
+    const blocked = candidates.some(v => v && mutedUsers.has(v));
+    if (blocked) console.log(`[Safety] muted user event ignored: ${candidates.find(Boolean)}`);
+    return blocked;
+  };
 
   // [ADD] announce settings
   const ANNOUNCE_FUNCTION = String(options.announceFunction || "gift_stream:_announce").trim();
@@ -891,6 +997,20 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     }
   }
 
+  function resolveRandomizedMapping(mapping) {
+    const resolved = resolveCommands(mapping);
+    const choices = parseWeightedList(resolved.meta?.RANDOM).map(choice => {
+      if (choice.explicitWeight) return choice;
+      const candidate = resolveCommands({ commandFile: ensureTxt(choice.commandFile) });
+      return { ...choice, weight: Math.max(1, Number(candidate.meta?.WEIGHT || 1)) };
+    });
+    if (!resolved.ok || choices.length === 0) return { mapping, meta: resolved.meta || {} };
+    const chosen = chooseWeighted(choices);
+    const commandFile = ensureTxt(chosen.commandFile);
+    console.log(`[Random] ${mapping.commandFile} -> ${commandFile} (weight=${chosen.weight})`);
+    return { mapping: { ...mapping, commandFile }, meta: resolved.meta || {} };
+  }
+
   const tiktok = new WebcastPushConnection(tiktokUsername, {});
   const lastExecAt = new Map(); // cooldown (giftId+sender)
   const streakLastCount = new Map(); // key: giftId:sender -> lastRepeatCount
@@ -937,6 +1057,21 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     }
   }
 
+  const featureEngine = new FeatureEngine(options.gameplay || {}, feature => {
+    if (!feature?.commandFile) return;
+    if (!doumaMod) {
+      console.warn(`[Feature] ${feature.type} skipped: DoumaMod transport is required`);
+      return;
+    }
+    const listenerName = feature.type === "combo"
+      ? (featureEngine.topGifter() || feature.sender) : feature.sender;
+    enqueueRcon(`feature:${feature.type}`, () => enqueueDoumaModEvent(doumaMod, {
+      type: "other", commandFile: feature.commandFile,
+      count: clampInt(feature.count, 1, 100, 1),
+      listenerName: listenerName || "viewer", announce: true,
+    }), { priority: 8 });
+  });
+
   async function connectTikTokWithRetry() {
     while (true) {
       try {
@@ -951,7 +1086,9 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     }
   }
 
+  if (doumaMod) connectDoumaWebSocket(doumaMod);
   await connectTikTokWithRetry();
+  featureEngine.startPoll();
 
   // 接続後のイベントだけを処理するための基準時刻
   const connectedAt = Date.now();
@@ -968,6 +1105,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   console.log("[Bridge] Press Ctrl+C to stop.");
 
   tiktok.on("gift", async (data) => {
+    if (isMuted(data)) return;
     // [診断ログ] TikTok ライブラリが受信した全ギフトイベントを記録
     const _rawGiftId = String(data.giftId ?? "");
     const _rawName = String(data.giftName ?? data.extendedGiftInfo?.name ?? "");
@@ -993,7 +1131,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       return;
     }
 
-    const mapping = mappingById.get(giftId);
+    let mapping = mappingById.get(giftId);
     if (!mapping) {
       if (logUnknownGifts) {
         console.log(
@@ -1048,7 +1186,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
               maxCommandsPerGift,
             }), { priority: 10 });
           } else if (dtd) {
-            enqueueRcon(`unmapped:${giftId}`, () => execCommandsTo7dtdTelnet({
+            enqueueRcon(`unmapped:${giftId}`, () => execCommandsTo7dtdTelnetWithRetry({
               commands,
               contextLabel: `unmapped:${giftId}`,
               host: dtd.host,
@@ -1063,6 +1201,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       return;
     }
 
+    const randomized = resolveRandomizedMapping(mapping);
+    mapping = randomized.mapping;
     const now = Date.now();
 
     // streak判定
@@ -1073,7 +1213,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     if (!isStreak) {
       const cooldownKey = `${giftId}:${sender}`;
       const last = lastExecAt.get(cooldownKey) || 0;
-      if (now - last < giftCooldownMs) return;
+      const fileCooldown = clampInt(randomized.meta?.COOLDOWN ?? giftCooldownMs, 0, 60000, giftCooldownMs);
+      if (now - last < fileCooldown) return;
       lastExecAt.set(cooldownKey, now);
     }
 
@@ -1094,7 +1235,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       }
     }
 
-    const times = delta * baseRepeat;
+    let times = delta * baseRepeat;
+    times = featureEngine.recordGift({ giftId, sender, commandFile: mapping.commandFile, count: times });
 
     if (doumaMod) {
       console.log(
@@ -1162,7 +1304,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         maxCommandsPerGift,
       }), { priority: 10 });
     } else if (dtd) {
-      enqueueRcon(`gift:${giftId}`, () => execCommandsTo7dtdTelnet({
+      enqueueRcon(`gift:${giftId}`, () => execCommandsTo7dtdTelnetWithRetry({
         commands: replaced,
         contextLabel: `gift:${giftId}`,
         host: dtd.host,
@@ -1180,7 +1322,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       const ttsText = (ttsCfg.giftTemplate || TTS_DEFAULTS.giftTemplate)
         .replace(/\{sender\}/g, sender)
         .replace(/\{gift\}/g, giftName);
-      speakText(ttsText, ttsCfg).catch(() => {});
+      enqueueSpeech(ttsText, ttsCfg, ttsNgWords);
     }
   });
 
@@ -1189,38 +1331,71 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // --------------------
   tiktok.on("chat", async (data) => {
     if (isPreConnectionEvent(data)) return;
+    if (isMuted(data)) return;
     const ttsCfg = loadTtsConfig();
     if (!ttsCfg.enabled || !ttsCfg.commentEnabled) return;
 
     const sender = getStableSender(data);
     const text = String(data.comment || "").trim();
     if (!text) return;
+    featureEngine.recordComment(text, sender);
 
     const readText = sender ? `${sender}、${text}` : text;
-    speakText(readText, ttsCfg).catch(() => {});
+    enqueueSpeech(readText, ttsCfg, ttsNgWords);
   });
 
   // --------------------
   // Like イベント（X いいねごとにコマンド発火）
   // --------------------
-  const likeTriggeredAt = new Map(); // threshold -> lastTriggeredMultiple
+  // しきい値の重複設定でも衝突しないよう「しきい値|コマンドファイル」でベースライン管理
+  const likeTriggeredAt = new Map(); // `${threshold}|${commandFile}` -> lastTriggeredMultiple
+
+  // DoumaModモードのいいねはミニバッチ化：短時間の連続発火を1イベントに圧縮して
+  // HTTP送信とMod側キューの消費を抑える（ギフトを圧迫させない）
+  const LIKE_BATCH_MS = clampInt(options.likeBatchWindowMs ?? 1200, 100, 10000, 1200);
+  const likeBatch = new Map(); // commandFile -> { count, sender, announce }
+  function queueLikeEventBatched(commandFile, count, sender, announce) {
+    const cur = likeBatch.get(commandFile);
+    if (cur) {
+      cur.count = Math.min(100, cur.count + count);
+      cur.sender = sender;
+      cur.announce = cur.announce || announce;
+      return;
+    }
+    const entry = { count: Math.min(100, count), sender, announce };
+    likeBatch.set(commandFile, entry);
+    setTimeout(() => {
+      likeBatch.delete(commandFile);
+      console.log(`[Like] batched -> DoumaMod file=${commandFile} count=${entry.count}`);
+      enqueueRcon(`like:${commandFile}`, () => enqueueDoumaModEvent(doumaMod, {
+        type: "like",
+        commandFile,
+        count: entry.count,
+        listenerName: entry.sender,
+        announce: entry.announce,
+      }), { priority: 0 });
+    }, LIKE_BATCH_MS);
+  }
 
   tiktok.on("like", async (data) => {
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
+    if (isMuted(data)) return;
     const total = Number(data.totalLikeCount ?? 0);
+    featureEngine.recordLikes(total, getStableSender(data));
     for (const ev of likeEvents) {
       if (ev.enabled === false || !ev.commandFile || !ev.threshold) continue;
       const thresh = clampInt(ev.threshold, 1, 1000000, 10);
+      const likeKey = `${thresh}|${ev.commandFile}`;
       const currentMultiple = Math.floor(total / thresh);
-      if (!likeTriggeredAt.has(thresh)) {
+      if (!likeTriggeredAt.has(likeKey)) {
         // 初回イベントは現在の累積いいね数をベースラインとして記録するだけで発火しない
-        likeTriggeredAt.set(thresh, currentMultiple);
+        likeTriggeredAt.set(likeKey, currentMultiple);
         continue;
       }
-      const lastMultiple = likeTriggeredAt.get(thresh);
+      const lastMultiple = likeTriggeredAt.get(likeKey);
       const newTriggers = currentMultiple - lastMultiple;
       if (newTriggers <= 0) continue;
-      likeTriggeredAt.set(thresh, currentMultiple);
+      likeTriggeredAt.set(likeKey, currentMultiple);
 
       const mapping = { commandFile: ensureTxt(ev.commandFile), name: ev.label || `${thresh}いいね` };
       const sender = getStableSender(data);
@@ -1234,13 +1409,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
           `[Like] total=${total} threshold=${thresh} newTriggers=${newTriggers} run=${triggersToRun} skipped=${skippedTriggers} repeat=${evRepeat} -> DoumaMod file=${ev.commandFile} count=${count}`
         );
         if (count > 0) {
-          enqueueRcon(`like:${thresh}`, () => enqueueDoumaModEvent(doumaMod, {
-            type: "like",
-            commandFile: ev.commandFile,
-            count,
-            listenerName: sender,
-            announce: announceEnabled && thresh >= 100,
-          }), { priority: 0 });
+          queueLikeEventBatched(ev.commandFile, count, sender, announceEnabled && thresh >= 100);
         }
         continue;
       }
@@ -1289,6 +1458,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // --------------------
   tiktok.on("share", async (data) => {
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
+    if (isMuted(data)) return;
     if (!shareEvent || shareEvent.enabled === false || !shareEvent.commandFile) return;
 
     const mapping = { commandFile: ensureTxt(shareEvent.commandFile), name: "シェア" };
@@ -1341,10 +1511,12 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // --------------------
   tiktok.on("follow", async (data) => {
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
+    if (isMuted(data)) return;
     if (!followEvent || followEvent.enabled === false || !followEvent.commandFile) return;
 
     const mapping = { commandFile: ensureTxt(followEvent.commandFile), name: "フォロー" };
     const sender = getStableSender(data);
+    featureEngine.recordFollow(sender);
     const followRepeat = clampInt(followEvent.repeat ?? 1, 1, 100, 1);
     if (doumaMod) {
       console.log(`[Follow] from=${sender} -> DoumaMod repeat=${followRepeat} file=${followEvent.commandFile}`);
@@ -1393,6 +1565,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // --------------------
   tiktok.on("member", async (data) => {
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
+    if (isMuted(data)) return;
     if (!memberEvent || memberEvent.enabled === false || !memberEvent.commandFile) return;
 
     const mapping = { commandFile: ensureTxt(memberEvent.commandFile), name: "訪問" };
@@ -1433,6 +1606,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
   process.on("SIGINT", () => {
     console.log("\n[Bridge] Stopping...");
+    doumaWebSocketStopping = true;
+    try { doumaWebSocket?.close(); } catch {}
     try {
       tiktok.disconnect();
     } catch {}
@@ -1440,7 +1615,21 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   });
 }
 
-main().catch((e) => {
-  console.error("[FATAL]", e?.message || e);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((e) => {
+    console.error("[FATAL]", e?.message || e);
+    process.exit(1);
+  });
+}
+
+// テスト用エクスポート（本番動作には影響しない）
+module.exports = {
+  parseCommandFile,
+  applyPlaceholders,
+  dedupeKeyFromGift,
+  isDuplicateEvent,
+  clampInt,
+  sendDoumaModEvent,
+  enqueueDoumaModEvent,
+  commandFileToDoumaKey,
+};
