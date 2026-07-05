@@ -8,6 +8,7 @@ import InitialSetupPage from "./components/InitialSetupPage";
 import GiftsViewerPage from "./components/GiftsViewerPage";
 import EventSettingsPage from "./components/EventSettingsPage";
 import TTSSettingsPage from "./components/TTSSettingsPage";
+import OperationsPage from "./components/OperationsPage";
 
 const PAGE_TITLE: Partial<Record<AppPage, string>> = {
   [AppPage.DASHBOARD]: "ダッシュボード",
@@ -16,6 +17,7 @@ const PAGE_TITLE: Partial<Record<AppPage, string>> = {
   [AppPage.TTS]: "🔊 読み上げ設定",
   [AppPage.GIFTS_VIEWER]: "ギフト一覧",
   [AppPage.SETUP]: "初期セットアップ",
+  [AppPage.OPERATIONS]: "運用センター",
 };
 
 const App: React.FC = () => {
@@ -121,6 +123,9 @@ const App: React.FC = () => {
             <div className="p-6">
               <TTSSettingsPage />
             </div>
+          )}
+          {activePage === AppPage.OPERATIONS && (
+            <div className="p-6"><OperationsPage /></div>
           )}
 
           {activePage === AppPage.SETUP && (

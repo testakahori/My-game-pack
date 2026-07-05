@@ -32,6 +32,12 @@ const CommandSetManager: React.FC = () => {
     `execute as @p at @p run summon minecraft:husk ^ ^ ^ {NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\\"{ListenerName}\\""}\neffect give @e[type=minecraft:husk,sort=nearest,limit=1] minecraft:slow_falling 3 1 true`
   );
   const [filename, setFilename]     = useState("husk.txt");
+  const [cooldown, setCooldown]     = useState("");
+  const [weight, setWeight]         = useState("");
+  const [random, setRandom]         = useState("");
+  const [sound, setSound]           = useState("");
+  const [particle, setParticle]     = useState("");
+  const [destructive, setDestructive] = useState(false);
   const [saveMsg, setSaveMsg]       = useState<{ type: "ok" | "error"; text: string } | null>(null);
   const [saving, setSaving]         = useState(false);
 
@@ -44,16 +50,34 @@ const CommandSetManager: React.FC = () => {
       .filter((l) => l.length > 0);
   }, [commandsText]);
 
+  const healthProblems = useMemo(() => {
+    const problems: string[] = [];
+    commandLines.forEach((line, i) => {
+      if (line.startsWith("{")) problems.push(`${i + 1}行目: コマンド名がありません`);
+      if (/\{PlayerMe\}/i.test(line)) problems.push(`${i + 1}行目: 未対応の {PlayerMe} があります`);
+      if (/summon\s+\S+\s+\^-?\d|\^-?\d+(\.\d+)?\s+\^/.test(line)) problems.push(`${i + 1}行目: 視線依存の^座標は埋没の原因になります`);
+    });
+    if (cooldown && (!Number.isFinite(+cooldown) || +cooldown < 0)) problems.push("# COOLDOWN は0以上の数値にしてください");
+    if (weight && (!Number.isFinite(+weight) || +weight <= 0)) problems.push("# WEIGHT は1以上の数値にしてください");
+    return problems;
+  }, [commandLines, cooldown, weight]);
+
   const canSave =
     title.trim().length > 0 &&
     normalizedFilename.length > 0 &&
-    commandLines.length > 0;
+    commandLines.length > 0 && healthProblems.length === 0;
 
   const buildContent = () => {
     const parts: string[] = [];
     parts.push(`# TITLE: ${title.trim()}`);
     if (subtitle.trim()) parts.push(`# SUBTITLE: ${subtitle.trim()}`);
     if (category) parts.push(`# CATEGORY: ${category}`);
+    if (cooldown) parts.push(`# COOLDOWN: ${cooldown}`);
+    if (weight) parts.push(`# WEIGHT: ${weight}`);
+    if (random.trim()) parts.push(`# RANDOM: ${random.trim()}`);
+    if (sound.trim()) parts.push(`# SOUND: ${sound.trim()}`);
+    if (particle.trim()) parts.push(`# PARTICLE: ${particle.trim()}`);
+    if (destructive) parts.push("# DESTRUCTIVE: true");
     parts.push("");
     parts.push(...commandLines);
     return parts.join("\n");
@@ -134,6 +158,15 @@ const CommandSetManager: React.FC = () => {
           </div>
         </div>
 
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+          <label className="text-xs text-gray-400"># COOLDOWN (ms)<input value={cooldown} onChange={e=>setCooldown(e.target.value)} className="w-full mt-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2"/></label>
+          <label className="text-xs text-gray-400"># WEIGHT<input value={weight} onChange={e=>setWeight(e.target.value)} className="w-full mt-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2"/></label>
+          <label className="text-xs text-gray-400"># RANDOM<input value={random} onChange={e=>setRandom(e.target.value)} placeholder="heal.txt*50,tnt.txt*50" className="w-full mt-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2"/></label>
+          <label className="text-xs text-gray-400"># SOUND<input value={sound} onChange={e=>setSound(e.target.value)} placeholder="entity.experience_orb.pickup" className="w-full mt-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2"/></label>
+          <label className="text-xs text-gray-400"># PARTICLE<input value={particle} onChange={e=>setParticle(e.target.value)} placeholder="minecraft:happy_villager" className="w-full mt-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2"/></label>
+          <label className="flex items-center gap-2 text-xs text-amber-300"><input type="checkbox" checked={destructive} onChange={e=>setDestructive(e.target.checked)}/>地形破壊系（拠点保護対象）</label>
+        </div>
+
         {/* コマンド入力 */}
         <div className="mt-5">
           <label className="text-xs font-bold text-gray-400">コマンド（1行=1コマンド）</label>
@@ -147,6 +180,11 @@ const CommandSetManager: React.FC = () => {
           <div className="mt-1 text-[11px] text-gray-500">
             コマンド行：<span className="text-cyan-300 font-bold">{commandLines.length}</span> 行
           </div>
+          <div className="mt-2 flex gap-2">
+            <button type="button" className="rounded-lg bg-gray-700 px-3 py-1 text-xs" onClick={()=>setCommandsText('execute at @p if block ~ ~3 ~ air run summon minecraft:zombie ~ ~3 ~\\nexecute at @p unless block ~ ~3 ~ air run summon minecraft:zombie ~2 ~ ~')}>安全スポーン雛形</button>
+            <button type="button" className="rounded-lg bg-gray-700 px-3 py-1 text-xs" onClick={()=>setCommandsText('playsound entity.experience_orb.pickup master @a ~ ~ ~ 1 1\\nexecute at @a run particle minecraft:happy_villager ~ ~1 ~ 0.5 0.8 0.5 0.05 20 force')}>演出雛形</button>
+          </div>
+          {healthProblems.length > 0 && <div className="mt-2 rounded-lg border border-red-700/40 bg-red-900/20 p-2 text-xs text-red-300">{healthProblems.map(p=><div key={p}>• {p}</div>)}</div>}
         </div>
 
         {/* ファイル名 + 保存ボタン */}

@@ -15,6 +15,7 @@ const LOCKED_PAGES: AppPage[] = [
   AppPage.EVENTS,
   AppPage.TTS,
   AppPage.GIFTS_VIEWER,
+  AppPage.OPERATIONS,
 ];
 
 type NavItem = {
@@ -54,6 +55,12 @@ const NAV_ITEMS: NavItem[] = [
     label: "ギフト一覧",
     sub: "TikTok Gifts",
     icon: "🎀",
+  },
+  {
+    page: AppPage.OPERATIONS,
+    label: "運用センター",
+    sub: "監視・テスト・安全設定",
+    icon: "🛡️",
   },
   {
     page: AppPage.SETUP,

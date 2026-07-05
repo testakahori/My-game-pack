@@ -9,6 +9,7 @@ export enum AppPage {
   GIFTS_VIEWER = "gifts_viewer",
   WORLD = "world",
   SETUP = "setup",
+  OPERATIONS = "operations",
 }
 
 export enum AppTab {
