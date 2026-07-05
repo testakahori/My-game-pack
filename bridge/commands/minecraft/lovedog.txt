@@ -1,8 +1,10 @@
-# TITLE: {ListenerName}の犬が来た！
+# TITLE: 愛犬が来た！
 # SUBTITLE: {ListenerName}さんの愛犬が召喚された
 # CATEGORY: 友好MOB
 
-# 足元(~ ~ ~)に召喚：狭い坑道でも天井にめり込まない
-execute as @p at @p run summon minecraft:wolf ~ ~ ~ {CustomName:'{"text":"{ListenerName}"}',CustomNameVisible:1b,Tame:1b,Tags:["giftwolf_new"]}
+# 上空が開いていれば頭上から落下、塞がっていれば足元に出現（視線に依存しない）
+execute at @p if block ~ ~3 ~ air run summon minecraft:wolf ~ ~3 ~ {CustomName:'{"text":"{ListenerName}"}',CustomNameVisible:1b,Tame:1b,Tags:["giftwolf_new"]}
+execute at @p unless block ~ ~3 ~ air run summon minecraft:wolf ~ ~ ~ {CustomName:'{"text":"{ListenerName}"}',CustomNameVisible:1b,Tame:1b,Tags:["giftwolf_new"]}
 execute as @p run data modify entity @e[type=minecraft:wolf,tag=giftwolf_new,limit=1] Owner set from entity @s UUID
+effect give @e[type=minecraft:wolf,tag=giftwolf_new,limit=1] minecraft:slow_falling 3 1 true
 tag @e[type=minecraft:wolf,tag=giftwolf_new] remove giftwolf_new

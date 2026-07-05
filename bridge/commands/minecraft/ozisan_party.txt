@@ -32,7 +32,6 @@ execute at @p if block ~ ~3 ~ air run summon minecraft:pig ~ ~3 ~ {Tags:["gift_s
 execute at @p unless block ~ ~3 ~ air run summon minecraft:pig ~ ~ ~ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
 effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
 tag @e[tag=gift_spawn_new] remove gift_spawn_new
-effect give @e[type=minecraft:pig,dx=0,dy=-10,dz=0] minecraft:slow_falling
 
 execute at @p if block ~ ~3 ~ air run summon minecraft:evoker ~ ~3 ~ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
 execute at @p unless block ~ ~3 ~ air run summon minecraft:evoker ~ ~ ~ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}

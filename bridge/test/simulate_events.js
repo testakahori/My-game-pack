@@ -105,12 +105,21 @@ async function main() {
       if (commands.length === 0) problems.push(`${f}: コマンド行が0件`);
       for (const cmd of commands) {
         if (/\{playerme\}/i.test(cmd)) problems.push(`${f}: 未実装プレースホルダ {PlayerMe} が残存`);
-        // 視線依存のローカル座標（^に0以外のオフセット）はスポーン位置バグの原因
-        if (/summon\s+\S+\s+\^\s*-?\d|\^-?\d+(\.\d+)?\s+\^/.test(cmd)) {
-          problems.push(`${f}: 視線依存の^座標オフセットが残存 -> ${cmd.slice(0, 80)}`);
+        // スポーンは視線非依存のワールド相対(~)へ統一済み。summon で ^（視線基準）を使うと
+        // 採掘中の向き次第でスポーン位置が地中などにぶれるため、一切禁止する。
+        if (/\bsummon\b/.test(cmd) && cmd.includes("^")) {
+          problems.push(`${f}: summon に視線基準の^座標が残存 -> ${cmd.slice(0, 80)}`);
         }
         // コマンドとして成立しない行（NBTだけ等）
         if (cmd.startsWith("{")) problems.push(`${f}: コマンドではない行 -> ${cmd.slice(0, 60)}`);
+      }
+      // 召喚個体を狙う一時タグは、同一ファイル内で必ず remove する
+      // （付けっぱなしだと次回以降のセレクタが過去の個体まで巻き込み、効果の誤爆やリークになる）
+      const joined = commands.join("\n");
+      for (const tag of ["gift_spawn_new", "giftwolf_new"]) {
+        if (joined.includes(tag) && !joined.includes(`remove ${tag}`)) {
+          problems.push(`${f}: 一時タグ ${tag} を付与後に remove していない`);
+        }
       }
     }
     assert.strictEqual(problems.length, 0, "\n    " + problems.join("\n    "));

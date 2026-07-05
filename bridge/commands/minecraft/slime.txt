@@ -2,7 +2,8 @@
 # SUBTITLE: プレイヤーの近くにスライム召喚
 # CATEGORY: 敵対MOB
 
-
-execute as @p at @p run summon minecraft:slime ^ ^ ^ {NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
-effect give @e[type=minecraft:slime,sort=nearest,limit=30] minecraft:slow_falling 3 1 true
-
+# 上空が開いていれば頭上から落下、塞がっていれば足元に出現（視線に依存しない）
+execute at @p if block ~ ~3 ~ air run summon minecraft:slime ~ ~3 ~ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+execute at @p unless block ~ ~3 ~ air run summon minecraft:slime ~ ~ ~ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new

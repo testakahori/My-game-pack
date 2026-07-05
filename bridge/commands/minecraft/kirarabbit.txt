@@ -2,6 +2,8 @@
 # SUBTITLE: 殺人うさぎ追加
 # CATEGORY: 敵対MOB
 
-execute as @p at @p run summon minecraft:rabbit ^ ^ ^ {RabbitType:99, Attributes:[{Name:"generic.max_health", Base:10}], Health:10f,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
-effect give @e[type=minecraft:rabbit,sort=nearest,limit=30] minecraft:slow_falling 3 1 true
-
+# 上空が開いていれば頭上から落下、塞がっていれば足元に出現（視線に依存しない）
+execute at @p if block ~ ~3 ~ air run summon minecraft:rabbit ~ ~3 ~ {Tags:["gift_spawn_new"],RabbitType:99,Attributes:[{Name:"generic.max_health",Base:10}],Health:10f,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+execute at @p unless block ~ ~3 ~ air run summon minecraft:rabbit ~ ~ ~ {Tags:["gift_spawn_new"],RabbitType:99,Attributes:[{Name:"generic.max_health",Base:10}],Health:10f,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
+tag @e[tag=gift_spawn_new] remove gift_spawn_new

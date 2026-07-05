@@ -2,6 +2,8 @@
 # SUBTITLE: 上空から馬に乗ったスケルトンがプレイヤー周辺に落下
 # CATEGORY: 敵対MOB
 
-execute as @p at @p run summon minecraft:skeleton_horse ^ ^ ^ {Tags:["gift_spawn_new"],Tame:1b, SaddleItem:{id:"minecraft:saddle",Count:1}, Attributes:[{Name:"minecraft:generic.max_health",Base:5}], Health:5f, NoAI:0b, NoGravity:0b, CustomNameVisible:1b, CustomName:"\"{ListenerName}\"", Passengers:[{id:"minecraft:skeleton", HandItems:[{id:"minecraft:bow",Count:1}], PersistenceRequired:1b, Attributes:[{Name:"minecraft:generic.max_health",Base:30}], Health:30f}]}
+# 上空が開いていれば頭上から落下、塞がっていれば足元に出現（視線に依存しない）
+execute at @p if block ~ ~3 ~ air run summon minecraft:skeleton_horse ~ ~3 ~ {Tags:["gift_spawn_new"],Tame:1b,SaddleItem:{id:"minecraft:saddle",Count:1},Attributes:[{Name:"minecraft:generic.max_health",Base:5}],Health:5f,NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\"",Passengers:[{id:"minecraft:skeleton",HandItems:[{id:"minecraft:bow",Count:1}],PersistenceRequired:1b,Attributes:[{Name:"minecraft:generic.max_health",Base:30}],Health:30f}]}
+execute at @p unless block ~ ~3 ~ air run summon minecraft:skeleton_horse ~ ~ ~ {Tags:["gift_spawn_new"],Tame:1b,SaddleItem:{id:"minecraft:saddle",Count:1},Attributes:[{Name:"minecraft:generic.max_health",Base:5}],Health:5f,NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\"",Passengers:[{id:"minecraft:skeleton",HandItems:[{id:"minecraft:bow",Count:1}],PersistenceRequired:1b,Attributes:[{Name:"minecraft:generic.max_health",Base:30}],Health:30f}]}
 effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
 tag @e[tag=gift_spawn_new] remove gift_spawn_new
