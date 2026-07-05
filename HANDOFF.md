@@ -70,6 +70,26 @@
 - 既知の軽微点: `*.bak` / `logs/` / `test/` / `operations-history.json` も同梱される（計~100KB・無害）。
   将来的に electron-builder の `extraResources` フィルタで除外余地あり（今回のtxt反映には無関係なので未対応）
 
+### インストーラ改善：旧バージョン自動アンインストール（v1.0.10）
+
+「新しいEXEを入れる前に、いちいち旧版を手動アンインストールするのが手間」への対応。
+
+- `build/installer.nsh` を新規作成（electron-builderが既定で `!include` するカスタムスクリプト）。
+  `customInit` マクロで、インストール開始時に**旧バージョンのアンインストーラを HKCU と HKLM の両方から
+  検出してサイレント実行**してから新版を入れる。過去の版（インストール方式が異なり取り残されたもの）も掃除する。
+- バージョンを **1.0.10** へ更新（挙動が変わったので識別のため）。
+- **includeされている事の検証済み**: `build/installer.nsh` に一時的な `!warning` マーカーを入れて
+  `makensis` がそれを出力することを確認（`build/installer.nsh:9` を処理）→ その後マーカー除去して最終ビルド。
+- 生成物 `release/MyGamePack Bridge UI Setup 1.0.10.exe`
+  - サイズ: 298,824,942 bytes（bridge/node＋server同梱JDKで約300MBが通常。1.0.9再パックの360MBの方が異常値だった）
+  - SHA-256: `fbba0f162c6767b3e1f103e2c4fd01c2b14452450d54d8f8828335d9607b928c`
+  - SHA-512 (`latest.yml`): `aJYdHgI/10t8yVmPNIJg6TGAJOJmVI/zwikAtVitmPtpfzNun4ekUmty1smeselEXE4VGpALBsAx6rO3LC1ngQ==`
+- 注意点:
+  - `perMachine:false`＋`allowElevation:false` のため、**per-machineで入った旧版の除去には管理者権限が要り、
+    昇格なしでは消えない場合がある**（per-userの通常インストールはHKCUから確実に除去される）。
+  - この自動アンインストールの実挙動は、実機で「旧版インストール済み→新版インストール」を1回試して要確認
+    （makensisへの取り込みはビルドで検証済みだが、実行時の除去は未実機確認）。
+
 ### 既に実装済み（07-03の「検討中リスト」は完了済み）
 
 HANDOFF下部の07-03「優先度高：配信の安定運用に直結」リストは**すべて実装完了**。運用センター
