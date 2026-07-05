@@ -50,6 +50,26 @@
 - **Mod（jar）の再ビルドは不要**。Modはtxtを実行時に読むため、txt更新だけで反映される
 - `creeper`（足元固定が確実で意図的）、`husk_watertower`（滝演出で意図的に上空~10）は対象外で正しい
 
+### EXE再パック（v1.0.9・txt反映版）
+
+上記のコマンドtxt統一を同梱するため `npm run pack:win` で **v1.0.9 を再パック**した
+（バージョンは据え置き。旧1.0.9はGitHub未公開のためローカル上書き）。
+
+- `release/MyGamePack Bridge UI Setup 1.0.9.exe`
+  - サイズ: 360,036,933 bytes
+  - SHA-256: `508dc91ff43aa1fb8e6ecb8d8c13072803f9d570f96756f609ceb2cbe0576a33`
+  - SHA-512 (`latest.yml`): `GhqkyWiaeIGh3C4j6sxR1wfi/pd5WrLKRYDXrzWUfwGLn/p8C37yLsD8cyaQNKtFKDhT476soDv9yJ49XXEYmQ==`
+  - releaseDate: `2026-07-05T08:38:29Z`
+- `release/latest.yml` / `.blockmap` も再生成済み
+- **検証**: 同梱 `resources/bridge/commands/minecraft/zombie.txt` が新方式（overhead/feet）になっていることと、
+  同梱txtに summon+`^` が 0 件であることを確認
+- ビルドは exit 0。途中 `rcedit`（exeメタ書換）が一時ロックで失敗→自動リトライで成功し、NSIS生成完了
+- サイズが旧298MB→360MBに増加したのは、bridgeを起動するのに必須の `bridge/node`（Nodeランタイム約103MB、
+  `electron/main.cjs` が `resources/bridge/node/node.exe` を使用）＋`bridge/node_modules`（45MB）が同梱されているため。
+  異常ではない
+- 既知の軽微点: `*.bak` / `logs/` / `test/` / `operations-history.json` も同梱される（計~100KB・無害）。
+  将来的に electron-builder の `extraResources` フィルタで除外余地あり（今回のtxt反映には無関係なので未対応）
+
 ### 既に実装済み（07-03の「検討中リスト」は完了済み）
 
 HANDOFF下部の07-03「優先度高：配信の安定運用に直結」リストは**すべて実装完了**。運用センター
