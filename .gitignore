@@ -17,6 +17,9 @@ bridge_runtime/
 bridge/node/
 bridge/_launch_node.bat
 bridge/logs/
+bridge/operations-history.json
+bridge/runtime-status.json
+bridge/presets/
 
 # Minecraft Mod build outputs (source in src/ is kept)
 DoumaCmdMod/build/
