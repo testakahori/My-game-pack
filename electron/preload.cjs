@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld("mygamepack", {
   },
 
   configPath: () => ipcRenderer.invoke("config:path"),
+  configValidate: (cfg) => ipcRenderer.invoke("config:validate", cfg),
 
   // --------------------
   // Bridge (A方式: 同梱) 起動 / パス確認
@@ -74,6 +75,19 @@ contextBridge.exposeInMainWorld("mygamepack", {
 
   // Bridge 停止
   bridgeStop: () => ipcRenderer.invoke("bridge:stop"),
+  bridgeProcessStatus: () => ipcRenderer.invoke("bridge:processStatus"),
+  modStatus: () => ipcRenderer.invoke("mod:status"),
+  testEvent: (event) => ipcRenderer.invoke("mod:testEvent", event),
+  operationsHistory: () => ipcRenderer.invoke("operations:history"),
+  operationsHistoryClear: () => ipcRenderer.invoke("operations:history:clear"),
+  worldBackup: () => ipcRenderer.invoke("world:backup"),
+  presetsList: () => ipcRenderer.invoke("presets:list"),
+  presetsSave: (name) => ipcRenderer.invoke("presets:save", name),
+  presetsLoad: (name) => ipcRenderer.invoke("presets:load", name),
+  operationsStats: () => ipcRenderer.invoke("operations:stats"),
+  updaterStatus: () => ipcRenderer.invoke("updater:status"),
+  updaterCheck: () => ipcRenderer.invoke("updater:check"),
+  updaterInstall: () => ipcRenderer.invoke("updater:install"),
 
   // Minecraft ランチャー起動
   minecraftLaunch: () => ipcRenderer.invoke("minecraft:launch"),

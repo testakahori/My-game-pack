@@ -3,7 +3,11 @@ const { app, BrowserWindow, ipcMain, session, shell, clipboard, nativeImage, dia
 const path = require("path");
 const fs = require("fs");
 const { spawn } = require("child_process");
+const http = require("http");
 const { checkEngine, getSpeakers, flattenSpeakers, synthesize } = require("./tts.cjs");
+const { validateBridgeConfig } = require("./config_schema.cjs");
+const { autoUpdater } = require("electron-updater");
+const { RestartPolicy } = require("./restart_policy.cjs");
 
 const isDev = process.env.ELECTRON_DEV === "1";
 
@@ -231,6 +235,9 @@ app.whenReady().then(() => {
   installProdOnlyCsp();
   ensureBridgeExtracted();
   createWindow();
+  setupAutoUpdater();
+  setTimeout(() => autoUpdateGiftsIfStale().catch(e =>
+    console.warn("[gifts:auto-update]", e?.message || e)), 5000);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -253,6 +260,8 @@ ipcMain.handle("config:read", async () => {
 });
 
 ipcMain.handle("config:write", async (_event, nextConfig) => {
+  const validation = validateBridgeConfig(nextConfig);
+  if (!validation.ok) throw new Error(`設定エラー:\n${validation.errors.join("\n")}`);
   const configPath = getConfigPath();
   ensureConfigExists(configPath);
 
@@ -274,6 +283,31 @@ ipcMain.handle("config:write", async (_event, nextConfig) => {
 ipcMain.handle("config:path", async () => {
   return getConfigPath();
 });
+
+let updateState = { state: "idle", version: null, percent: 0, error: "" };
+function setupAutoUpdater() {
+  if (!app.isPackaged) return;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on("checking-for-update", () => { updateState = { state: "checking", version: null, percent: 0, error: "" }; });
+  autoUpdater.on("update-available", info => { updateState = { state: "downloading", version: info.version, percent: 0, error: "" }; });
+  autoUpdater.on("update-not-available", info => { updateState = { state: "current", version: info.version, percent: 100, error: "" }; });
+  autoUpdater.on("download-progress", p => { updateState = { ...updateState, percent: Math.round(p.percent || 0) }; });
+  autoUpdater.on("update-downloaded", info => { updateState = { state: "ready", version: info.version, percent: 100, error: "" }; });
+  autoUpdater.on("error", error => { updateState = { state: "error", version: null, percent: 0, error: error?.message || String(error) }; });
+  setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 8000);
+}
+ipcMain.handle("updater:status", () => updateState);
+ipcMain.handle("updater:check", async () => {
+  if (!app.isPackaged) return { state: "development" };
+  await autoUpdater.checkForUpdates();
+  return updateState;
+});
+ipcMain.handle("updater:install", () => {
+  if (updateState.state === "ready") autoUpdater.quitAndInstall(false, true);
+  return { ok: updateState.state === "ready" };
+});
+ipcMain.handle("config:validate", async (_event, value) => validateBridgeConfig(value));
 
 // ✅ preload側の「bridgeRoot / bridgeDir」ズレ事故を防ぐため両方返す
 ipcMain.handle("bridge:root", async () => getInstalledBridgeRoot());
@@ -402,6 +436,31 @@ function copyBridgeRecursive(src, dst) {
   }
 }
 
+// アプリ更新時に doumacmd Mod jar を既存サーバーの mods/ へ差し替える
+// （bridge 再展開だけでは Mod が旧版のまま残るため）
+function refreshDoumaModJar(serverFolder) {
+  try {
+    const srcServer = path.join(process.resourcesPath, "server", "Douma_Craft");
+    if (!fs.existsSync(srcServer)) return;
+
+    const jars = fs.readdirSync(srcServer).filter((f) => /^doumacmd-.*\.jar$/i.test(f));
+    if (jars.length === 0) return;
+
+    const modsDir = path.join(serverFolder, "mods");
+    if (!fs.existsSync(modsDir)) return; // サーバー未セットアップなら setup.bat に任せる
+
+    for (const old of fs.readdirSync(modsDir).filter((f) => /^doumacmd-.*\.jar$/i.test(f))) {
+      if (!jars.includes(old)) fs.unlinkSync(path.join(modsDir, old));
+    }
+    for (const j of jars) {
+      fs.copyFileSync(path.join(srcServer, j), path.join(modsDir, j));
+    }
+    console.log(`[main] doumacmd mod jar refreshed in ${modsDir}: ${jars.join(", ")}`);
+  } catch (e) {
+    console.error("[main] refreshDoumaModJar failed:", e?.message || e);
+  }
+}
+
 function ensureBridgeExtracted() {
   if (!app.isPackaged) return; // dev は ui/bridge をそのまま使う
 
@@ -420,6 +479,7 @@ function ensureBridgeExtracted() {
   if (cfg.bridgeVersion === currentVersion && fs.existsSync(path.join(dst, "index.js"))) return;
 
   copyBridgeRecursive(src, dst);
+  refreshDoumaModJar(cfg.serverFolder);
   writeAppConfig({ bridgeVersion: currentVersion });
 }
 
@@ -449,11 +509,16 @@ ipcMain.handle("bridge:extractTo", async (_event, targetFolder) => {
 // --------------------
 let serverPid  = null;
 let bridgePid  = null;
+let bridgeProcRef = null;
+let bridgeStopRequested = false;
+let bridgeRestartTimer = null;
+const bridgeRestartPolicy = new RestartPolicy();
 
 ipcMain.handle("server:start", async () => {
   const dir = getServerRoot();
   const bat = path.join(dir, "run.bat");
   if (!fs.existsSync(bat)) throw new Error(`run.bat not found: ${bat}`);
+  if (readAppConfig().autoBackupOnServerStart !== false) await createWorldBackup("server-start");
 
   const proc = spawn("cmd.exe", ["/k", bat], {
     cwd: dir,
@@ -488,32 +553,22 @@ ipcMain.handle("bridge:launch", async () => {
 
   const nodeCmd = getNodeCommand();
 
-  // 同梱 node のフルパスを埋め込んだ bat を動的生成して起動
-  // → PC に Node.js が入っていなくても動作する
-  const launchBat = path.join(dir, "_launch_node.bat");
-  fs.writeFileSync(
-    launchBat,
-    [
-      "@echo off",
-      "chcp 65001 > nul",
-      "title MC TikTok Bridge",
-      `"${nodeCmd}" index.js --config config.minecraft.json`,
-      "echo.",
-      "echo Bridge has stopped.",
-      "pause",
-    ].join("\r\n") + "\r\n",
-    "utf8"
-  );
-
-  const bridgeProc = spawn("cmd.exe", ["/c", launchBat], {
-    cwd: dir,
-    detached: true,
-    windowsHide: false,
-    stdio: "ignore",
-  });
-  bridgePid = bridgeProc.pid;
-  bridgeProc.on("exit", () => { bridgePid = null; });
-  bridgeProc.unref();
+  bridgeStopRequested = false;
+  bridgeRestartPolicy.start();
+  const launch = () => {
+    const child = spawn(nodeCmd, [indexJs, "--config", path.join(dir, "config.minecraft.json")], {
+      cwd: dir, windowsHide: true, stdio: "ignore",
+    });
+    bridgeProcRef = child;
+    bridgePid = child.pid;
+    child.on("exit", () => {
+      bridgePid = null; bridgeProcRef = null;
+      if (!bridgeStopRequested && bridgeRestartPolicy.shouldRestart()) {
+        bridgeRestartTimer = setTimeout(launch, 2000);
+      }
+    });
+  };
+  if (!bridgeProcRef) launch();
 
   return { ok: true };
 });
@@ -522,6 +577,9 @@ ipcMain.handle("bridge:launch", async () => {
 // IPC: Bridge 停止
 // --------------------
 ipcMain.handle("bridge:stop", async () => {
+  bridgeStopRequested = true;
+  bridgeRestartPolicy.requestStop();
+  if (bridgeRestartTimer) clearTimeout(bridgeRestartTimer);
   if (bridgePid) {
     spawn("taskkill", ["/F", "/T", "/PID", String(bridgePid)], { windowsHide: true });
     bridgePid = null;
@@ -530,6 +588,134 @@ ipcMain.handle("bridge:stop", async () => {
     spawn("taskkill", ["/F", "/FI", "WINDOWTITLE eq MC TikTok Bridge"], { windowsHide: true });
   }
   return { ok: true };
+});
+ipcMain.handle("bridge:processStatus", () => bridgeRestartPolicy.status(bridgePid));
+
+function requestDouma(method, requestPath, body) {
+  return new Promise((resolve, reject) => {
+    let cfg = {};
+    try { cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch {}
+    const host = cfg.options?.doumaModHost || "127.0.0.1";
+    const port = Number(cfg.options?.doumaModPort || 25576);
+    const data = body ? Buffer.from(JSON.stringify(body)) : null;
+    const req = http.request({ host, port, path: requestPath, method, timeout: 1500,
+      headers: data ? { "Content-Type": "application/json", "Content-Length": data.length } : {} },
+    (res) => {
+      const chunks = [];
+      res.on("data", c => chunks.push(c));
+      res.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        let parsed = {}; try { parsed = JSON.parse(text); } catch { parsed = { message: text }; }
+        if (res.statusCode >= 400) reject(new Error(parsed.message || `HTTP ${res.statusCode}`));
+        else resolve(parsed);
+      });
+    });
+    req.on("timeout", () => req.destroy(new Error("Mod status timeout")));
+    req.on("error", reject);
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+function getOperationsHistoryPath() { return path.join(getBridgeBatDir(), "operations-history.json"); }
+function readOperationsHistory() {
+  try { return JSON.parse(fs.readFileSync(getOperationsHistoryPath(), "utf8")); } catch { return []; }
+}
+function appendOperationsHistory(row) {
+  const rows = readOperationsHistory();
+  rows.unshift(row);
+  fs.writeFileSync(getOperationsHistoryPath(), JSON.stringify(rows.slice(0, 1000), null, 2), "utf8");
+}
+
+ipcMain.handle("mod:status", async () => {
+  try { return { online: true, ...(await requestDouma("GET", "/douma/status")) }; }
+  catch (e) { return { online: false, error: e.message }; }
+});
+ipcMain.handle("mod:testEvent", async (_event, value) => {
+  let bridgeCfg = {};
+  try { bridgeCfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch {}
+  const protection = bridgeCfg.options?.protection || {};
+  const payload = {
+    type: value?.type === "like" ? "like" : "gift",
+    key: path.basename(String(value?.commandFile || ""), ".txt"),
+    count: Math.max(1, Math.min(100, Number(value?.count || 1))),
+    listenerName: String(value?.listenerName || "テスト視聴者").slice(0, 40),
+    announce: true,
+    protectionEnabled: protection.enabled === true,
+    protectX1: Number(protection.x1 || 0), protectX2: Number(protection.x2 || 0),
+    protectZ1: Number(protection.z1 || 0), protectZ2: Number(protection.z2 || 0),
+  };
+  let result;
+  try { await requestDouma("POST", "/douma/event", payload); result = { ok: true }; }
+  catch (e) { result = { ok: false, message: e.message }; }
+  appendOperationsHistory({ at: new Date().toISOString(), type: payload.type, sender: payload.listenerName,
+    commandFile: `${payload.key}.txt`, count: payload.count, ...result });
+  return result;
+});
+ipcMain.handle("operations:history", () => readOperationsHistory());
+ipcMain.handle("operations:history:clear", () => {
+  fs.writeFileSync(getOperationsHistoryPath(), "[]", "utf8"); return { ok: true };
+});
+async function createWorldBackup(reason = "manual") {
+  const propsPath = path.join(getServerRoot(), "server.properties");
+  if (!fs.existsSync(propsPath)) throw new Error("server.properties がありません");
+  const m = fs.readFileSync(propsPath, "utf8").match(/^level-name=(.+)$/m);
+  const world = path.join(getServerRoot(), (m?.[1] || "world").trim());
+  if (!fs.existsSync(world)) throw new Error(`ワールドがありません: ${world}`);
+  const outDir = path.join(getServerRoot(), "backups");
+  fs.mkdirSync(outDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const zip = path.join(outDir, `world-${stamp}.zip`);
+  await new Promise((resolve, reject) => {
+    const ps = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+      "Compress-Archive -LiteralPath $args[0] -DestinationPath $args[1] -CompressionLevel Fastest", world, zip],
+      { windowsHide: true });
+    ps.on("exit", code => code === 0 ? resolve() : reject(new Error(`バックアップ失敗 (${code})`)));
+    ps.on("error", reject);
+  });
+  return { ok: true, path: zip, reason, message: `バックアップ完了: ${path.basename(zip)}` };
+}
+ipcMain.handle("world:backup", async () => createWorldBackup("manual"));
+
+function getPresetDir() {
+  const dir = path.join(getBridgeBatDir(), "presets");
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+ipcMain.handle("presets:list", () =>
+  fs.readdirSync(getPresetDir()).filter(name => name.endsWith(".json")).sort()
+);
+ipcMain.handle("presets:save", (_event, name) => {
+  const safe = String(name || "").trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").slice(0, 60);
+  if (!safe) throw new Error("プリセット名が空です");
+  fs.copyFileSync(getConfigPath(), path.join(getPresetDir(), `${safe}.json`));
+  return { ok: true };
+});
+ipcMain.handle("presets:load", (_event, name) => {
+  const safe = path.basename(String(name || ""));
+  const source = path.join(getPresetDir(), safe);
+  if (!fs.existsSync(source)) throw new Error("プリセットがありません");
+  const value = JSON.parse(fs.readFileSync(source, "utf8"));
+  const validation = validateBridgeConfig(value);
+  if (!validation.ok) throw new Error(validation.errors.join("\n"));
+  fs.writeFileSync(getConfigPath(), JSON.stringify(value, null, 2), "utf8");
+  return { ok: true, config: value };
+});
+ipcMain.handle("operations:stats", () => {
+  const rows = readOperationsHistory();
+  const byCommand = {};
+  const bySender = {};
+  let succeeded = 0;
+  for (const row of rows) {
+    if (row.ok) succeeded++;
+    const amount = Number(row.count || 1);
+    byCommand[row.commandFile || "unknown"] = (byCommand[row.commandFile || "unknown"] || 0) + amount;
+    bySender[row.sender || "unknown"] = (bySender[row.sender || "unknown"] || 0) + amount;
+  }
+  const top = (obj) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, 10)
+    .map(([name, count]) => ({ name, count }));
+  return { total: rows.length, succeeded, failed: rows.length - succeeded,
+    topCommands: top(byCommand), topSenders: top(bySender) };
 });
 
 // --------------------
@@ -812,6 +998,23 @@ function getGvSettingsPath() {
 
 function getGvToolPath(name) {
   return path.join(getGvToolsDir(), name);
+}
+
+async function autoUpdateGiftsIfStale() {
+  let bridgeCfg = {};
+  try { bridgeCfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch {}
+  const username = String(bridgeCfg.tiktokUsername || "").trim().replace(/^@/, "");
+  if (!username) return { skipped: "username" };
+  const metaPath = path.join(getGvDataDir(), "gifts.meta.json");
+  if (fs.existsSync(metaPath) && Date.now() - fs.statSync(metaPath).mtimeMs < 24 * 60 * 60 * 1000) {
+    return { skipped: "fresh" };
+  }
+  const dir = getGvDataDir();
+  await runProc(getNodeCommand(), [getGvToolPath("fetch_gifts.cjs"), username, "--out", dir], dir);
+  await runProc(getNodeCommand(), [getGvToolPath("gifts_to_html.cjs"),
+    "--in", path.join(dir, "gifts.min.json"), "--out", dir], dir);
+  console.log(`[gifts:auto-update] updated for @${username}`);
+  return { ok: true };
 }
 
 // --------------------
