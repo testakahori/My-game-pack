@@ -13,6 +13,15 @@ interface LogEntry {
   type: LogType;
 }
 
+type BridgeProcessStatus = {
+  running?: boolean;
+  state?: string;
+  pid?: number | null;
+  cpuPercent?: number | null;
+  memMb?: number | null;
+  restartCount?: number;
+};
+
 const LS_TIKTOK_USER = "mc_tiktok_username_unified_v1";
 const LS_MAPPINGS    = "mc_tiktok_mappings_unified_v1";
 const WORLD_PREFIX   = "haihu_world";
@@ -158,16 +167,87 @@ const LaunchStep: React.FC<{ step: number; label: string; desc: string; status: 
   );
 };
 
+const TikTokMark: React.FC = () => (
+  <svg className="tiktok-mark" viewBox="0 0 32 32" aria-label="TikTok">
+    <path className="tiktok-mark__cyan" d="M18 4v15.2a6.3 6.3 0 1 1-5-6.1v4.2a2.4 2.4 0 1 0 1.1 2V4h3.9Zm0 2c1.1 4 3.6 6 7 6.6v4.2c-3.1-.4-5.4-1.6-7-3.4Z" />
+    <path className="tiktok-mark__pink" d="M18 4v15.2a6.3 6.3 0 1 1-5-6.1v4.2a2.4 2.4 0 1 0 1.1 2V4h3.9Zm0 2c1.1 4 3.6 6 7 6.6v4.2c-3.1-.4-5.4-1.6-7-3.4Z" />
+    <path className="tiktok-mark__core" d="M18 4v15.2a6.3 6.3 0 1 1-5-6.1v4.2a2.4 2.4 0 1 0 1.1 2V4h3.9Zm0 2c1.1 4 3.6 6 7 6.6v4.2c-3.1-.4-5.4-1.6-7-3.4Z" />
+  </svg>
+);
+
+const GrassBlockIcon: React.FC = () => (
+  <svg className="grass-block-icon" viewBox="0 0 48 48" aria-hidden="true">
+    <polygon points="24,4 43,14 24,24 5,14" fill="#55c94e" />
+    <polygon points="5,14 24,24 24,44 5,34" fill="#79502e" />
+    <polygon points="43,14 24,24 24,44 43,34" fill="#5c3c27" />
+    <path d="M5 14 24 24 43 14M24 24v20M12 18v6m9-3v5m14-8v7M9 29l6 3m5-2 4 2m7-5 7-4m-8 12 5-3" stroke="#9a6b40" strokeWidth="2" opacity=".8" />
+    <path d="m5 14 6 3 4-4 5 4 4-5 6 4 5-5 8 3" stroke="#8be763" strokeWidth="2" fill="none" />
+  </svg>
+);
+
+const WorldDiorama: React.FC = () => (
+  <svg className="cockpit-world-scene" viewBox="0 0 360 150" role="img" aria-label="木とネザーポータルのあるMinecraftワールド">
+    <defs>
+      <linearGradient id="waterTop" x1="0" x2="1"><stop stopColor="#11d9ff" /><stop offset="1" stopColor="#245cff" /></linearGradient>
+      <linearGradient id="grassTop" x1="0" x2="1"><stop stopColor="#56c94d" /><stop offset="1" stopColor="#2a8f42" /></linearGradient>
+      <filter id="worldGlow"><feGaussianBlur stdDeviation="4" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+    </defs>
+
+    <polygon points="34,92 176,31 328,89 184,142" fill="#062a4c" stroke="#18d8ff" strokeWidth="2" filter="url(#worldGlow)" />
+    <polygon points="34,92 184,142 184,148 34,99" fill="#064d75" />
+    <polygon points="328,89 184,142 184,148 328,96" fill="#07345f" />
+    <path d="M55 91 179 40l126 48-122 45Z" fill="url(#waterTop)" opacity=".7" />
+
+    <polygon points="79,84 171,45 276,83 181,119" fill="url(#grassTop)" />
+    <polygon points="79,84 181,119 181,133 79,98" fill="#704a2c" />
+    <polygon points="276,83 181,119 181,133 276,97" fill="#573720" />
+
+    <g className="world-pixels" opacity=".55">
+      <path d="m90 84 92 33 84-31M112 74l91 34M140 62l91 34M104 91l81-34M136 102l81-34M168 113l81-34" />
+    </g>
+
+    <g transform="translate(112 35)">
+      <polygon points="0,29 17,22 34,29 17,36" fill="#3b9f3f" />
+      <polygon points="0,29 17,36 17,47 0,40" fill="#674229" />
+      <polygon points="34,29 17,36 17,47 34,40" fill="#53351f" />
+      <rect x="14" y="7" width="6" height="23" fill="#76502d" />
+      <polygon points="17,0 34,9 17,18 0,9" fill="#42b94e" />
+      <polygon points="0,9 17,18 17,28 0,19" fill="#2f873d" />
+      <polygon points="34,9 17,18 17,28 34,19" fill="#246f35" />
+    </g>
+
+    <g transform="translate(211 47)">
+      <rect x="0" y="0" width="34" height="49" rx="2" fill="#502a83" stroke="#7e53ff" strokeWidth="5" />
+      <rect x="8" y="8" width="18" height="33" fill="#843eff" />
+      <path d="M11 12c9 5 2 10 11 15-8 4-4 8-11 11" fill="none" stroke="#e866ff" strokeWidth="2" />
+    </g>
+
+    <g transform="translate(69 69)">
+      <polygon points="0,9 14,2 28,9 14,16" fill="#69d45d" />
+      <polygon points="0,9 14,16 14,27 0,20" fill="#77502c" />
+      <polygon points="28,9 14,16 14,27 28,20" fill="#5d3b25" />
+    </g>
+    <g transform="translate(258 67)">
+      <polygon points="0,8 12,2 24,8 12,14" fill="#57c654" />
+      <polygon points="0,8 12,14 12,24 0,18" fill="#70482b" />
+      <polygon points="24,8 12,14 12,24 24,18" fill="#563620" />
+    </g>
+  </svg>
+);
+
 // ── メインコンポーネント ──────────────────────────────────
 const DashboardPage: React.FC = () => {
   const api = (window as any).mygamepack;
 
   const [forgeState,  setForgeState]  = useState<RunState>("stopped");
   const [bridgeState, setBridgeState] = useState<RunState>("stopped");
+  const [allStartBusy, setAllStartBusy] = useState(false);
 
-  const [username,  setUsername]  = useState<string>(() => localStorage.getItem(LS_TIKTOK_USER) || "");
+  const [username,  setUsername]  = useState<string>("");
+  const usernameLoadedRef = useRef(false);
   const [applyBusy, setApplyBusy] = useState(false);
   const [applyMsg,  setApplyMsg]  = useState<{ type: "ok" | "error"; text: string } | null>(null);
+  const [appliedUsername, setAppliedUsername] = useState<string | null>(null);
 
   const [levelName,    setLevelName]    = useState("");
   const [draft,        setDraft]        = useState("");
@@ -177,21 +257,92 @@ const DashboardPage: React.FC = () => {
   const [worldMsg,     setWorldMsg]     = useState<{ type: "ok" | "error"; text: string } | null>(null);
 
   const [log, setLog] = useState<LogEntry[]>([]);
+  const [bridgeProcess, setBridgeProcess] = useState<BridgeProcessStatus>({});
+  const [bridgeLogs, setBridgeLogs] = useState<string[]>([]);
+  const [safety, setSafety] = useState<{ protection: boolean; autoBackup: boolean }>({ protection: false, autoBackup: true });
   const logEndRef = useRef<HTMLDivElement>(null);
 
   const addLog = useCallback((text: string, type: LogType = "info") => {
     setLog(prev => [...prev.slice(-99), { id: ++logIdCounter, time: nowStr(), text, type }]);
   }, []);
 
-  useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [log]);
-  useEffect(() => { localStorage.setItem(LS_TIKTOK_USER, username); }, [username]);
+  useEffect(() => {
+    if (log.length > 0) logEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [log]);
+
+  // username は config.minecraft.json を優先して初期化する（ハードコード既定値で実アカウントを潰さない）
+  useEffect(() => {
+    (async () => {
+      try {
+        const cfg = await api.configRead();
+        const fromCfg = String(cfg?.tiktokUsername ?? cfg?.tiktok?.username ?? cfg?.tiktok?.user ?? "").trim().replace(/^@/, "");
+        const fromLs = (localStorage.getItem(LS_TIKTOK_USER) || "").trim().replace(/^@/, "");
+        const initial = fromCfg || fromLs;
+        if (initial) setUsername(initial);
+      } catch {
+        const fromLs = (localStorage.getItem(LS_TIKTOK_USER) || "").trim().replace(/^@/, "");
+        if (fromLs) setUsername(fromLs);
+      } finally {
+        usernameLoadedRef.current = true;
+      }
+    })();
+  }, [api]);
+
+  useEffect(() => {
+    if (!usernameLoadedRef.current) return; // 初期ロード前の空文字で localStorage を潰さない
+    localStorage.setItem(LS_TIKTOK_USER, username);
+  }, [username]);
+
+  // 保護＆バックアップカードの実状態（拠点保護・起動時バックアップ）を読み込む
+  useEffect(() => {
+    (async () => {
+      try {
+        const [appCfg, cfg] = await Promise.all([
+          api.appConfigRead?.() ?? Promise.resolve({}),
+          api.configRead?.() ?? Promise.resolve({}),
+        ]);
+        setSafety({
+          protection: cfg?.options?.protection?.enabled === true,
+          autoBackup: appCfg?.autoBackupOnServerStart !== false,
+        });
+      } catch { /* 表示は既定値のまま */ }
+    })();
+  }, [api]);
+
+  useEffect(() => {
+    let disposed = false;
+    const refreshBridgeRuntime = async () => {
+      try {
+        const status = await api.bridgeProcessStatus?.();
+        if (!disposed && status) {
+          setBridgeProcess(status);
+          if (status.running && bridgeState !== "starting") setBridgeState("running");
+          if (!status.running && bridgeState === "running") setBridgeState("stopped");
+        }
+      } catch {
+        /* status polling is optional */
+      }
+      try {
+        const result = await api.bridgeLogs?.();
+        if (!disposed && Array.isArray(result?.lines)) setBridgeLogs(result.lines);
+      } catch {
+        /* log polling is optional */
+      }
+    };
+    void refreshBridgeRuntime();
+    const timer = window.setInterval(refreshBridgeRuntime, 2500);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [api, bridgeState]);
 
   useEffect(() => {
     (async () => {
       setWorldLoading(true);
       try {
         const [props, worlds] = await Promise.all([
-          api.serverPropsRead() as Promise<Record<string, string>>,
+          (api.serverPropsRead() as Promise<Record<string, string>>).catch(() => ({} as Record<string, string>)),
           api.serverWorldsList().catch(() => [] as string[]),
         ]);
         setWorldFolders(worlds);
@@ -208,10 +359,17 @@ const DashboardPage: React.FC = () => {
   const isWorldDirty = draft !== levelName;
 
   // ── ハンドラー ──
+  const logBackupResult = (backup?: { ok: boolean; message: string } | null) => {
+    if (!backup) return;
+    if (backup.ok) addLog(`起動前バックアップ: ${backup.message}`, "ok");
+    else addLog(`起動前バックアップに失敗しました（サーバー起動は続行）: ${backup.message}`, "warn");
+  };
+
   const handleServerStart = async () => {
     setForgeState("starting"); addLog("Forgeサーバーを起動中…");
     try {
-      await api.serverStart(); setForgeState("running");
+      const started = await api.serverStart(); setForgeState("running");
+      logBackupResult(started?.backup);
       addLog("Forgeサーバーを起動しました。", "ok");
     } catch (e: any) {
       setForgeState("error"); addLog(`サーバー起動エラー: ${e?.message ?? String(e)}`, "error");
@@ -234,7 +392,7 @@ const DashboardPage: React.FC = () => {
       await api.bridgeLaunch(); setBridgeState("running");
       addLog("BRIDGEを起動しました。", "ok");
       try { await api.serverGamerulesApply(); addLog("ゲームルール（常昼・晴れ・keepInventory）を適用しました。", "ok"); }
-      catch { addLog("ゲームルール適用: サーバー未起動のためスキップ", "warn"); }
+      catch (ge: any) { addLog(`ゲームルール適用をスキップ: ${ge?.message ?? String(ge)}`, "warn"); }
     } catch (e: any) {
       setBridgeState("error"); addLog(`BRIDGE起動エラー: ${e?.message ?? String(e)}`, "error");
     }
@@ -250,16 +408,159 @@ const DashboardPage: React.FC = () => {
     }
   };
 
+  const handleBridgeRestart = async () => {
+    setBridgeState("starting"); addLog("BRIDGEを再起動中…");
+    try {
+      // main側で「停止完了→起動」を直列実行する専用IPCを使う（stop→launch連打の空振りを防ぐ）
+      if (api.bridgeRestart) {
+        await api.bridgeRestart();
+      } else {
+        await api.bridgeStop();
+        await api.bridgeLaunch();
+      }
+      setBridgeState("running");
+      addLog("BRIDGEを再起動しました。", "ok");
+      try { await api.serverGamerulesApply(); addLog("ゲームルールを再適用しました。", "ok"); }
+      catch (ge: any) { addLog(`ゲームルール再適用をスキップ: ${ge?.message ?? String(ge)}`, "warn"); }
+    } catch (e: any) {
+      setBridgeState("error"); addLog(`BRIDGE再起動エラー: ${e?.message ?? String(e)}`, "error");
+    }
+  };
+
   const handleMinecraftLaunch = async () => {
     addLog("Minecraftランチャーを起動中…");
     try { await api.minecraftLaunch(); addLog("Minecraftランチャーを起動しました。", "ok"); }
     catch (e: any) { addLog(`Minecraft起動エラー: ${e?.message ?? String(e)}`, "error"); }
   };
 
+  const applyBridgeConfig = useCallback(async () => {
+    const existingCfg = await api.configRead();
+
+    // mappings は config.minecraft.json を唯一の正とする。
+    // UI(localStorage)に有効な割当があるときだけ更新し、空のときは既存 config の mappings を維持する。
+    // （リデザイン・キャッシュ消失・新規プロファイルで全ギフト割当が消える事故を防ぐ）
+    const uiMappings = safeParse<GiftMapping[]>(localStorage.getItem(LS_MAPPINGS), [])
+      .filter((m) => String(m.giftId ?? "").trim() && String(m.commandFile ?? "").trim())
+      .map((m) => ({
+        giftId: String(m.giftId),
+        name: m.name || String(m.giftId),
+        commandFile: (m.commandFile || "").trim(),
+        repeat: Math.min(100, Math.max(1, Number(m.repeat ?? 1))),
+      }));
+    const existingMappings = Array.isArray(existingCfg?.mappings) ? existingCfg.mappings : [];
+    const mappings = uiMappings.length > 0 ? uiMappings : existingMappings;
+
+    // username は「UIで明示入力があればそれ、無ければ config の既存値」。ハードコード既定値は使わない。
+    const existingUsername = String(
+      existingCfg?.tiktokUsername ?? existingCfg?.tiktok?.username ?? existingCfg?.tiktok?.user ?? ""
+    ).trim().replace(/^@/, "");
+    const typedUsername = username.trim().replace(/^@/, "");
+    const u = typedUsername || existingUsername;
+    if (!u) {
+      throw new Error("TikTokユーザー名が未設定です。上の「アカウント」欄に配信アカウント名を入力してください。");
+    }
+
+    // RCON パスワードを RCON_password.txt から自動同期
+    const rconResult = await api.serverRconPasswordRead().catch(() => ({ found: false, password: "" }));
+    const rconPassword = rconResult.found ? rconResult.password : (existingCfg?.rcon?.password || "");
+    const rcon = {
+      host: existingCfg?.rcon?.host || "127.0.0.1",
+      port: existingCfg?.rcon?.port || 25575,
+      password: rconPassword,
+    };
+
+    await api.configWrite({
+      ...existingCfg,
+      tiktokUsername: u,
+      rcon,
+      options: {
+        ...(existingCfg?.options || {}),
+        giftCooldownMs: existingCfg?.options?.giftCooldownMs ?? 300,
+        maxCommandsPerGift: existingCfg?.options?.maxCommandsPerGift ?? 200,
+        commandsDir: existingCfg?.options?.commandsDir || "commands/minecraft",
+        logUnknownGifts: existingCfg?.options?.logUnknownGifts ?? true,
+      },
+      mappings,
+    });
+
+    return { username: u, mappingCount: mappings.length };
+  }, [api, username]);
+
   const handleAllStart = async () => {
-    addLog("すべて起動を開始します…");
-    await handleServerStart();
-    await handleBridgeStart();
+    if (allStartBusy) return;
+    setAllStartBusy(true);
+    setApplyMsg(null);
+    setWorldMsg(null);
+    addLog("一括起動を開始します…", "info");
+    let stage: "config" | "forge" | "minecraft" | "bridge" | "done" = "config";
+
+    try {
+      if (isWorldDirty) {
+        setWorldSaving(true);
+        addLog(`配布ワールド設定を保存中: ${draft}`, "info");
+        await api.serverPropsWrite({ "level-name": draft });
+        try { await api.serverDatapackDeployNightVision(); } catch { /* optional */ }
+        setLevelName(draft);
+        setWorldMsg({ type: "ok", text: "一括起動前にワールド設定を保存しました。" });
+        addLog("配布ワールド設定を保存しました。", "ok");
+      }
+
+      try {
+        const applied = await applyBridgeConfig();
+        setApplyMsg({ type: "ok", text: `適用しました（${applied.mappingCount}件）` });
+        addLog(`TikTok設定をBRIDGEに適用しました (@${applied.username}, ${applied.mappingCount}件)`, "ok");
+      } catch (e: any) {
+        setApplyMsg({ type: "error", text: e?.message ?? String(e) });
+        addLog(`Bridge設定適用エラー: ${e?.message ?? String(e)}`, "error");
+        throw e;
+      }
+
+      setForgeState("starting");
+      stage = "forge";
+      addLog("Forgeサーバーを起動中…", "info");
+      const started = await api.serverStart();
+      setForgeState("running");
+      logBackupResult(started?.backup);
+      addLog("Forgeサーバーを起動しました。", "ok");
+
+      stage = "minecraft";
+      addLog("Minecraftランチャーを起動中…", "info");
+      // Minecraft起動失敗は致命にしない（配信はサーバー＋Bridgeで成立する。ランチャーは手動でも可）
+      try {
+        await api.minecraftLaunch();
+        addLog("Minecraftランチャーを起動しました。サーバーへ接続してください。", "ok");
+      } catch (mcErr: any) {
+        addLog(`Minecraftランチャーの自動起動に失敗（手動で起動してください）: ${mcErr?.message ?? String(mcErr)}`, "warn");
+      }
+
+      addLog("TikTok LIVE Studio でライブ接続を開始してください（ここは手動手順です）。", "warn");
+
+      setBridgeState("starting");
+      stage = "bridge";
+      addLog("BRIDGEを起動中…", "info");
+      await api.bridgeLaunch();
+      setBridgeState("running");
+      addLog("BRIDGEを起動しました。", "ok");
+
+      try {
+        await api.serverGamerulesApply();
+        addLog("ゲームルール（常昼・晴れ・keepInventory）を適用しました。", "ok");
+      } catch (ge: any) {
+        addLog(`ゲームルール適用をスキップ: ${ge?.message ?? String(ge)}`, "warn");
+      }
+
+      stage = "done";
+      addLog("一括起動が完了しました。", "ok");
+    } catch (e: any) {
+      const msg = e?.message ?? String(e);
+      if (stage === "forge") setForgeState("error");
+      if (stage === "minecraft") addLog("Minecraft起動段階で止まりました。ランチャーのインストール場所を確認してください。", "error");
+      if (stage === "bridge") setBridgeState("error");
+      addLog(`一括起動エラー: ${msg}`, "error");
+    } finally {
+      setWorldSaving(false);
+      setAllStartBusy(false);
+    }
   };
 
   const handleAllStop = async () => {
@@ -285,35 +586,10 @@ const DashboardPage: React.FC = () => {
   const handleApplyBridge = async () => {
     setApplyBusy(true); setApplyMsg(null);
     try {
-      const u = username.trim().replace(/^@/, "");
-      if (!u) throw new Error("TikTok ユーザー名を入力してください");
-      const mappings = safeParse<GiftMapping[]>(localStorage.getItem(LS_MAPPINGS), []);
-      const normalized = mappings.map((m) => ({
-        giftId: String(m.giftId),
-        name: m.name,
-        commandFile: (m.commandFile || "").trim(),
-        repeat: Math.min(100, Math.max(1, Number(m.repeat ?? 1))),
-      }));
-      const existingCfg = await api.configRead();
-
-      // RCON パスワードを RCON_password.txt から自動同期
-      const rconResult = await api.serverRconPasswordRead().catch(() => ({ found: false, password: "" }));
-      const rconPassword = rconResult.found ? rconResult.password : (existingCfg?.rcon?.password || "");
-      const rcon = {
-        host: existingCfg?.rcon?.host || "127.0.0.1",
-        port: existingCfg?.rcon?.port || 25575,
-        password: rconPassword,
-      };
-
-      await api.configWrite({
-        ...existingCfg,
-        tiktokUsername: u,
-        rcon,
-        options: { giftCooldownMs: 300, maxCommandsPerGift: 200, commandsDir: "commands/minecraft", logUnknownGifts: true },
-        mappings: normalized,
-      });
-      setApplyMsg({ type: "ok", text: `適用しました（${normalized.length}件）` });
-      addLog(`TikTok設定をBRIDGEに適用しました (@${u}, ${normalized.length}件)`, "ok");
+      const applied = await applyBridgeConfig();
+      setApplyMsg({ type: "ok", text: `適用しました（${applied.mappingCount}件）` });
+      setAppliedUsername(applied.username);
+      addLog(`TikTok設定をBRIDGEに適用しました (@${applied.username}, ${applied.mappingCount}件)`, "ok");
     } catch (e: any) {
       setApplyMsg({ type: "error", text: e?.message ?? String(e) });
       addLog(`Bridge設定適用エラー: ${e?.message ?? String(e)}`, "error");
@@ -323,9 +599,9 @@ const DashboardPage: React.FC = () => {
   const tiktokConfigured = username.trim().length > 0;
   const worldDisplay = levelName ? levelName.replace(`${WORLD_PREFIX}/`, "") : "未設定";
   const step1: StepStatus = forgeState  === "running" ? "done" : forgeState  === "error" ? "error" : forgeState  === "starting" ? "active" : "pending";
-  const step2: StepStatus = bridgeState === "running" ? "done" : bridgeState === "error" ? "error" : bridgeState === "starting" ? "active" : "pending";
-  const step3: StepStatus = "optional";
-  const isBusy = forgeState === "starting" || bridgeState === "starting";
+  const stepBridge: StepStatus = bridgeState === "running" ? "done" : bridgeState === "error" ? "error" : bridgeState === "starting" ? "active" : "pending";
+  const stepTikTok: StepStatus = tiktokConfigured ? "done" : "pending";
+  const isBusy = allStartBusy || forgeState === "starting" || bridgeState === "starting";
 
   const logTypeStyle: Record<LogType, string> = {
     info:  "text-gray-500",
@@ -334,278 +610,169 @@ const DashboardPage: React.FC = () => {
     warn:  "text-amber-400",
   };
 
+  const pipeline = [
+    { label: "TikTok", value: tiktokConfigured ? `@${username.trim().replace(/^@/, "")}` : "未設定", icon: "tiktok", state: tiktokConfigured ? (bridgeState === "running" ? "running" : "stopped") : "stopped", tone: "green" },
+    { label: "Forge Server", value: "Forge 1.20.1", icon: "▣", state: forgeState, tone: "red" },
+    { label: "World", value: worldDisplay, icon: "world", state: levelName ? "running" : "stopped", tone: "green" },
+    { label: "Bridge", value: "TikTok → Minecraft", icon: "⛓", state: bridgeState, tone: "red" },
+  ] as const;
+
+  const launchFlow = [
+    ["forge server起動", "Forge 1.20.1 が起動するまで待つ", step1],
+    ["Minecraft起動", "ランチャーを開いてサーバーに接続", "pending"],
+    ["TIKTOK LIVE STUDIO でライブ接続", "ライブ接続は手動で開始します", stepTikTok],
+    ["BRIDGE起動", "TikTok → RCON 接続・ルール自動適用", stepBridge],
+    ["配布ワールド選択", `${draft || "haihu_world/sakura"} を適用`, levelName ? "done" : "pending"],
+    ["保護・安全設定", "監視・テスト・バックアップ確認", "done"],
+    ["TIKTOK LIVE 配信開始", "配信開始ボタンはLive Studio側で押します", "pending"],
+  ] as const;
+
   return (
-    <div className="space-y-4 max-w-6xl">
-
-      {/* ── ステータスサマリー ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatusCard label="Forgeサーバー" value="Forge 1.20.1" state={forgeState} icon="🖥️" />
-        <StatusCard label="BRIDGE" value="TikTok → Minecraft" state={bridgeState} icon="🔗" />
-        <StatusCard
-          label="TikTok設定"
-          value={tiktokConfigured ? `@${username.trim().replace(/^@/, "")}` : "未設定"}
-          state={tiktokConfigured ? "running" : "stopped"}
-          icon="📡"
-        />
-        <StatusCard
-          label="配布ワールド"
-          value={worldDisplay}
-          state={levelName ? "running" : "unknown"}
-          icon="🌍"
-        />
-      </div>
-
-      {/* ── クイックアクション + 起動フロー ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-
-        {/* クイックアクション（3/5） */}
-        <div
-          className="lg:col-span-3 backdrop-blur-sm bg-white/[0.03] border border-cyan-500/20 rounded-2xl p-6 space-y-5"
-          style={S.glassCard}
-        >
-          <div className="text-[10px] text-cyan-300 uppercase tracking-wider font-bold">クイックアクション</div>
-
-          {/* All Start */}
-          <button
-            type="button"
-            onClick={handleAllStart}
-            disabled={isBusy}
-            className="w-full py-5 rounded-xl font-black text-lg text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-[0.98] active:translate-y-0.5 relative overflow-hidden"
-            style={{
-              background: "linear-gradient(135deg, #7c3aed 0%, #3b82f6 50%, #7c3aed 100%)",
-              backgroundSize: "200% 100%",
-              ...S.allStart,
-            }}
-          >
-            <span className="relative z-10 tracking-widest">▶▶ Forgeサーバー+BRIDGE起動</span>
-          </button>
-
-          {/* 個別ボタン */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2.5">
-              <div className="text-[11px] text-cyan-300 font-bold tracking-wide">Forgeサーバー</div>
-              <button
-                type="button"
-                onClick={handleServerStart}
-                disabled={isBusy}
-                className="w-full py-3 rounded-xl text-sm font-bold text-emerald-400 backdrop-blur-sm bg-white/[0.04] border border-emerald-500/50 disabled:opacity-40 transition active:scale-[0.97] active:translate-y-px"
-                style={S.forgeStart}
-              >
-                ▶ 起動
-              </button>
-              <button
-                type="button"
-                onClick={handleServerStop}
-                disabled={isBusy}
-                className="w-full py-3 rounded-xl text-sm font-bold text-red-300 backdrop-blur-sm bg-white/[0.04] border border-red-500/50 disabled:opacity-40 transition active:scale-[0.97] active:translate-y-px"
-                style={S.stopBtn}
-              >
-                ■ 停止
-              </button>
-            </div>
-            <div className="space-y-2.5">
-              <div className="text-[11px] text-cyan-300 font-bold tracking-wide">BRIDGE</div>
-              <button
-                type="button"
-                onClick={handleBridgeStart}
-                disabled={isBusy}
-                className="w-full py-3 rounded-xl text-sm font-bold text-blue-400 backdrop-blur-sm bg-white/[0.04] border border-cyan-500/50 disabled:opacity-40 transition active:scale-[0.97] active:translate-y-px"
-                style={S.bridgeStart}
-              >
-                ▶ 起動
-              </button>
-              <button
-                type="button"
-                onClick={handleBridgeStop}
-                disabled={isBusy}
-                className="w-full py-3 rounded-xl text-sm font-bold text-red-300 backdrop-blur-sm bg-white/[0.04] border border-red-500/50 disabled:opacity-40 transition active:scale-[0.97] active:translate-y-px"
-                style={S.stopBtn}
-              >
-                ■ 停止
-              </button>
-            </div>
+    <div className="dashboard-page cockpit-page page-surface">
+      <div className="cockpit-layout">
+        <section className="cockpit-main">
+          <div className="cockpit-panel-title">
+            <span>›</span>
+            <div><h1>配信準備コックピット</h1><p>ForgeからTikTok経由でMinecraftをつなぎます</p></div>
           </div>
 
-          {/* Minecraft + 全停止 */}
-          <div className="grid grid-cols-2 gap-4 pt-3 border-t border-white/10">
-            <button
-              type="button"
-              onClick={handleMinecraftLaunch}
-              className="w-full py-3 rounded-xl text-sm font-bold text-white backdrop-blur-sm bg-violet-500/10 border border-violet-500/50 transition active:scale-[0.97] active:translate-y-px"
-              style={S.minecraftBtn}
-            >
-              🎮 Minecraft 起動
-            </button>
-            <button
-              type="button"
-              onClick={handleAllStop}
-              disabled={isBusy}
-              className="w-full py-3 rounded-xl text-sm font-bold text-red-300 backdrop-blur-sm bg-red-500/10 border border-red-500/50 disabled:opacity-40 transition active:scale-[0.97] active:translate-y-px"
-              style={S.allStopBtn}
-            >
-              ■ すべて停止
-            </button>
-          </div>
-        </div>
-
-        {/* 起動フロー（2/5） */}
-        <div
-          className="lg:col-span-2 backdrop-blur-sm bg-white/[0.03] border border-cyan-500/20 rounded-2xl p-6 flex flex-col gap-3"
-          style={S.glassCard}
-        >
-          <div className="text-[10px] text-white uppercase tracking-wider font-bold">起動フロー</div>
-          <LaunchStep step={1} label="Forgeサーバー起動" desc="Forge 1.20.1 が起動するまで待つ" status={step1} />
-          <LaunchStep step={2} label="BRIDGE 起動" desc="TikTok → RCON 接続 + ゲームルール自動適用" status={step2} />
-          <LaunchStep step={3} label="Minecraft 起動" desc="ランチャーを開いてサーバーに接続（任意）" status={step3} />
-          <div className="mt-auto pt-3 text-[10px] text-white/50 leading-relaxed border-t border-white/10">
-            初回は「初期セットアップ」でフォルダーを設定してください。
-          </div>
-        </div>
-      </div>
-
-      {/* ── 設定カード群 ── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-
-        {/* TikTok接続 */}
-        <div
-          className="backdrop-blur-sm bg-white/[0.03] border border-cyan-500/20 rounded-2xl p-5 space-y-3"
-          style={S.glassCard}
-        >
-          <div className="text-[10px] text-cyan-300 uppercase tracking-wider font-bold">TikTok 接続設定</div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-gray-400 text-sm shrink-0">@</span>
-            <input
-              value={username}
-              onChange={(e) => { setUsername(e.target.value); setApplyMsg(null); }}
-              placeholder="ユーザー名"
-              className="flex-1 min-w-0 bg-white/10 border border-gray-500/40 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 transition backdrop-blur-sm"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={handleApplyBridge}
-            disabled={applyBusy}
-            className="w-full py-3 rounded-xl text-sm font-bold text-white backdrop-blur-sm bg-white/[0.04] border border-cyan-400/40 disabled:opacity-40 transition active:scale-[0.97] active:translate-y-px"
-            style={S.cyanPurpleBtn}
-          >
-            {applyBusy ? "適用中…" : "✅ BRIDGE に適用"}
-          </button>
-          {applyMsg && (
-            <div className={`text-xs px-3 py-2 rounded-xl ${applyMsg.type === "ok" ? "bg-emerald-900/50 border border-emerald-800/40 text-emerald-300" : "bg-red-900/50 border border-red-800/40 text-red-300"}`}>
-              {applyMsg.text}
-            </div>
-          )}
-        </div>
-
-        {/* 配布ワールド */}
-        <div
-          className="backdrop-blur-sm bg-violet-900/20 border border-violet-500/30 rounded-2xl p-5 space-y-3"
-          style={S.glassWorldCard}
-        >
-          <div className="text-[10px] text-violet-300 uppercase tracking-wider font-bold">配布ワールド</div>
-          {worldLoading ? (
-            <div className="text-xs text-gray-400">読み込み中…</div>
-          ) : (
-            <>
-              <div className="flex items-center gap-1.5">
-                <span className="text-[12px] text-white shrink-0 font-mono">{WORLD_PREFIX}/</span>
-                {worldFolders.length > 0 ? (
-                  <select
-                    value={subfolder}
-                    onChange={(e) => setSubfolder(e.target.value)}
-                    className="flex-1 min-w-0 bg-white/10 border border-gray-500/40 rounded-xl px-2 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500/40 transition backdrop-blur-sm"
-                  >
-                    {!worldFolders.includes(subfolder) && subfolder && (
-                      <option value={subfolder}>{subfolder}</option>
-                    )}
-                    {worldFolders.map((f) => <option key={f} value={f}>{f}</option>)}
-                  </select>
-                ) : (
-                  <input
-                    value={subfolder}
-                    onChange={(e) => setSubfolder(e.target.value)}
-                    placeholder="newworld"
-                    className="flex-1 min-w-0 bg-white/10 border border-gray-500/40 rounded-xl px-2 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-violet-500/40 transition backdrop-blur-sm"
-                  />
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={handleWorldSave}
-                disabled={worldSaving || !isWorldDirty}
-                className={`w-full py-3 rounded-xl text-sm transition active:scale-[0.97] active:translate-y-px backdrop-blur-sm ${
-                  isWorldDirty && !worldSaving
-                    ? "text-white font-black bg-white/[0.12] border border-white/20"
-                    : "text-gray-600 font-bold bg-white/[0.02] border border-gray-700/30 cursor-not-allowed"
-                }`}
-                style={isWorldDirty && !worldSaving ? S.saveBtn : {}}
-              >
-                {worldSaving ? "保存中…" : "💾 保存"}
-              </button>
-              {worldMsg && (
-                <div className={`text-xs px-3 py-2 rounded-xl ${worldMsg.type === "ok" ? "bg-emerald-900/50 border border-emerald-800/40 text-emerald-300" : "bg-red-900/50 border border-red-800/40 text-red-300"}`}>
-                  {worldMsg.text}
+          <div className="cockpit-pipeline">
+            {pipeline.map((item, index) => (
+              <React.Fragment key={item.label}>
+                <div className={`cockpit-node cockpit-node--${item.tone}`}>
+                  <b>{item.label}</b>
+                  <div className="cockpit-node-ring">
+                    <span>{item.icon === "tiktok" ? <TikTokMark /> : item.icon === "world" ? <GrassBlockIcon /> : item.icon}</span>
+                  </div>
+                  <em className={item.state === "running" ? "is-running" : "is-stopped"}>
+                    ● {item.state === "running" ? "接続中" : item.state === "starting" ? "処理中" : "停止中"}
+                  </em>
+                  <small>{item.value}</small>
                 </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* ライブ配信手順 */}
-        <div
-          className="backdrop-blur-sm bg-white/[0.03] border border-cyan-500/20 rounded-2xl p-5 flex flex-col gap-2.5"
-          style={S.glassCard}
-        >
-          <div className="text-[10px] text-cyan-300 uppercase tracking-wider font-bold">ライブ配信の手順</div>
-          <ol className="space-y-1.5">
-            {([
-              "イベント設定の保存を押す",
-              "ギフト設定をする",
-              "TikTok ID を設定する",
-              "BRIDGEに適用を押す",
-              "TIKTOK Live Studio でライブ配信",
-              "Forgeサーバー+BRIDGE起動",
-              "Minecraft起動",
-            ] as const).map((step, i) => (
-              <li key={i} className="flex items-start gap-2 text-[12px] text-gray-200">
-                <span className="text-cyan-400 font-black shrink-0">{["①","②","③","④","⑤","⑥","⑦"][i]}</span>
-                <span>{step}</span>
-              </li>
+                {index < pipeline.length - 1 ? <div className="cockpit-link"><i /><span>›</span></div> : null}
+              </React.Fragment>
             ))}
-          </ol>
+          </div>
+
+          <div className="cockpit-launch-actions">
+            <button type="button" onClick={handleAllStart} disabled={isBusy} className="cockpit-all-start">
+              <span>▶</span> 一括起動
+            </button>
+            <div className="cockpit-bridge-actions" aria-label="BRIDGE単体操作">
+              <button type="button" onClick={handleBridgeStop} disabled={isBusy} className="cockpit-bridge-action cockpit-bridge-action--stop">
+                ■ BRIDGE停止
+              </button>
+              <button type="button" onClick={handleBridgeRestart} disabled={isBusy} className="cockpit-bridge-action cockpit-bridge-action--restart">
+                ↻ BRIDGE再起動
+              </button>
+            </div>
+          </div>
+          <p className="cockpit-all-start-note">すべてのコンポーネントを順番に起動します</p>
+        </section>
+
+        <aside className="cockpit-flow-panel">
+          <h2>ライブ手順 <small>（起動フロー）</small></h2>
+          <div className="cockpit-flow-list">
+            {launchFlow.map(([label, description, status], index) => (
+              <div className={`cockpit-flow-step cockpit-flow-step--${status}`} key={label}>
+                <span>{index + 1}</span>
+                <i>{index === 2 ? <TikTokMark /> : ["▣","🎮","","⛓","♟","⬡","◉"][index]}</i>
+                <div><b>{label}</b><small>{description}</small>{status === "done" ? <em>● 完了</em> : <em>● 待機中</em>}</div>
+              </div>
+            ))}
+          </div>
+          <p className="cockpit-flow-note">初回は「初期セットアップ」でフォルダーを設定してください。</p>
+        </aside>
+
+        <div className="cockpit-lower-grid">
+          <section className="cockpit-info-card">
+          <h2><span><TikTokMark /></span> TikTok 接続設定</h2>
+          <label>アカウント</label>
+          <div className="cockpit-account-row">
+            <b>@</b><input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="配信アカウント名" />
+            <em className={bridgeState === "running" ? "is-running" : "is-stopped"}>● {bridgeState === "running" ? "接続中" : "未接続"}</em>
+          </div>
+          <button type="button" onClick={handleApplyBridge} disabled={applyBusy} className="cockpit-apply">
+            <span>⬡</span>
+            <div>
+              <b>
+                {applyBusy
+                  ? "適用中…"
+                  : appliedUsername && appliedUsername === username.trim().replace(/^@/, "")
+                  ? "BRIDGE に適用済み"
+                  : "BRIDGE に適用する"}
+              </b>
+              <small>RCON・イベント・ギフト連携</small>
+            </div>
+            <i className={appliedUsername && appliedUsername === username.trim().replace(/^@/, "") && !applyBusy ? "is-applied" : "is-idle"}>●</i>
+          </button>
+          </section>
+
+          <section className="cockpit-info-card cockpit-world-card">
+          <h2><span><GrassBlockIcon /></span> 配信ワールド</h2>
+          <label>ワールド</label>
+          <select value={subfolder} onChange={(e) => setSubfolder(e.target.value)}>
+            {worldFolders.map((folder) => <option value={folder} key={folder}>{WORLD_PREFIX}/ {folder}</option>)}
+          </select>
+          <WorldDiorama />
+          <small>状態: <b>{levelName ? "起動準備OK" : "未設定"}</b></small>
+          </section>
+
+          <section className="cockpit-info-card cockpit-safety-card">
+          <h2><span>⬡</span> 保護＆バックアップ</h2>
+          <div className="cockpit-safety-state"><span>⬡</span><div><b>{safety.protection || safety.autoBackup ? "一部有効" : "未設定"}</b><small>運用センターで詳細を設定できます</small></div></div>
+          <ul>
+            <li>{bridgeProcess.running ? "✓" : "○"} BRIDGEログ監視{bridgeProcess.running ? "" : "（停止中）"}</li>
+            <li>{safety.protection ? "✓" : "○"} 拠点保護エリア{safety.protection ? "" : "（未設定）"}</li>
+            <li>{safety.autoBackup ? "✓" : "○"} サーバー起動時バックアップ{safety.autoBackup ? "" : "（無効）"}</li>
+            <li>✓ クラッシュ時自動再起動</li>
+          </ul>
+          </section>
         </div>
       </div>
 
-      {/* ── アクティビティログ ── */}
-      <div
-        className="backdrop-blur-sm bg-white/[0.03] border border-cyan-500/20 rounded-2xl p-5"
-        style={S.glassCard}
-      >
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-[10px] text-cyan-300 uppercase tracking-wider font-bold">アクティビティログ</div>
-          <button
-            type="button"
-            onClick={() => setLog([])}
-            className="text-[11px] text-gray-500 hover:text-gray-300 transition px-2 py-0.5 rounded border border-transparent hover:border-gray-700"
-          >
-            クリア
-          </button>
-        </div>
-        <div className="h-36 overflow-y-auto space-y-0.5 font-mono bg-black/30 rounded-xl p-3 border border-white/5">
+      <section className="cockpit-activity">
+        <div><h2>アクティビティログ</h2><button type="button" onClick={() => setLog([])}>ログをクリア</button></div>
+        <div className="cockpit-log">
           {log.length === 0 ? (
-            <div className="text-xs text-gray-700 py-8 text-center">操作ログがここに表示されます</div>
+            <p className="cockpit-log-empty"><span className={logTypeStyle.info}>●</span><b>まだ操作履歴はありません。起動・停止などの操作を行うとここに記録されます。</b></p>
           ) : (
-            log.map((entry) => (
-              <div key={entry.id} className="flex items-start gap-2 text-xs leading-5">
-                <span className="text-gray-600 shrink-0 tabular-nums">{entry.time}</span>
-                <span className={logTypeStyle[entry.type]}>{entry.text}</span>
-              </div>
+            log.slice(-12).map((entry) => (
+              <p key={entry.id}><span className={logTypeStyle[entry.type]}>●</span><time>{entry.time}</time><b>{entry.text}</b></p>
             ))
           )}
           <div ref={logEndRef} />
         </div>
-      </div>
+      </section>
 
+      <section className="cockpit-bridge-log-panel">
+        <div className="cockpit-bridge-log-head">
+          <div>
+            <h2>BRIDGEログ</h2>
+            <p>
+              状態: <b className={bridgeProcess.running ? "is-running" : "is-stopped"}>{bridgeProcess.running ? "稼働中" : "停止中"}</b>
+              {bridgeProcess.pid ? <span> PID {bridgeProcess.pid}</span> : null}
+              {typeof bridgeProcess.cpuPercent === "number" ? <span> CPU {bridgeProcess.cpuPercent}%</span> : null}
+              {typeof bridgeProcess.memMb === "number" ? <span> MEM {bridgeProcess.memMb}MB</span> : null}
+            </p>
+          </div>
+          <button type="button" onClick={handleBridgeRestart} disabled={isBusy}>↻ BRIDGE再起動</button>
+        </div>
+        <div className="cockpit-bridge-log-body">
+          {bridgeLogs.length ? bridgeLogs.slice(-80).map((line, index) => (
+            <p key={`${index}-${line}`}>{line}</p>
+          )) : (
+            <p className="is-muted">BRIDGEログはまだありません。BRIDGEを起動するとここに表示されます。</p>
+          )}
+        </div>
+      </section>
+
+      <div className="cockpit-hidden-actions" aria-hidden="true">
+        <button onClick={handleServerStart}>start</button><button onClick={handleServerStop}>stop</button>
+        <button onClick={handleBridgeStart}>bridge</button><button onClick={handleBridgeStop}>bridge stop</button><button onClick={handleBridgeRestart}>bridge restart</button>
+        <button onClick={handleMinecraftLaunch}>minecraft</button><button onClick={handleAllStop}>all stop</button>
+        <button onClick={handleWorldSave}>save</button>
+      </div>
     </div>
   );
 };

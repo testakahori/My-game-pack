@@ -2,9 +2,10 @@
 const { app, BrowserWindow, ipcMain, session, shell, clipboard, nativeImage, dialog } = require("electron");
 const path = require("path");
 const fs = require("fs");
-const { spawn } = require("child_process");
+const crypto = require("crypto");
+const { spawn, spawnSync } = require("child_process");
 const http = require("http");
-const { checkEngine, getSpeakers, flattenSpeakers, synthesize } = require("./tts.cjs");
+const { ENGINE_PORTS, checkEngine, getSpeakers, flattenSpeakers, synthesize } = require("./tts.cjs");
 const { validateBridgeConfig } = require("./config_schema.cjs");
 const { autoUpdater } = require("electron-updater");
 const { RestartPolicy } = require("./restart_policy.cjs");
@@ -79,10 +80,26 @@ function ensureConfigExists(configPath) {
 
   ensureDir(path.dirname(configPath));
 
+  // options/likeEvents/各種イベントを欠いた最小configだと、config:write の commandsDir矯正
+  // （options が無いと発火しない）や各イベントの既定動作が効かなくなるため、完全な形で書き出す。
   const defaultConfig = {
     tiktokUsername: "",
     rcon: { host: "127.0.0.1", port: 25575, password: "" },
     mappings: [],
+    likeEvents: [],
+    unmappedGiftEvent: { commandFile: "", repeat: 1, enabled: false },
+    shareEvent: { commandFile: "", repeat: 1, enabled: false },
+    followEvent: { commandFile: "", repeat: 1, enabled: false },
+    memberEvent: { commandFile: "", repeat: 1, enabled: false },
+    options: {
+      giftCooldownMs: 300,
+      maxCommandsPerGift: 200,
+      commandTransport: "douma_mod",
+      doumaModHost: "127.0.0.1",
+      doumaModPort: 25576,
+      maxLikeCatchUpPerEvent: 5,
+      logUnknownGifts: true,
+    },
   };
 
   fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2), "utf-8");
@@ -128,8 +145,11 @@ function createWindow() {
   const iconPath = path.join(__dirname, "..", "assets", "icon.ico");
 
   const win = new BrowserWindow({
-    width: 1200,
-    height: 900,
+    width: 1488,
+    height: 1000,
+    minWidth: 1120,
+    minHeight: 720,
+    frame: false,
     autoHideMenuBar: true,
     icon: iconPath,
     webPreferences: {
@@ -183,18 +203,29 @@ function runProc(cmd, args, cwd) {
 }
 
 function detectBundledNodeExe() {
-  // 置き方が2パターンあり得るので両対応
-  // A) <bridgeRoot>/node/node.exe （resources/bridge/node/node.exe）
-  const root = getInstalledBridgeRoot();
-  const candA = path.join(root, "node", "node.exe");
-  if (fs.existsSync(candA)) return candA;
+  // 置き方が複数あり得るので順に探す。
+  // v1.0.12以降: resources/bridge/bridge-runtime.zip を serverFolder/bridge へ必要時展開する。
+  const candidates = [];
+  try { candidates.push(path.join(getBridgeBatDir(), "node", "node.exe")); } catch {}
+  try { candidates.push(path.join(app.getPath("userData"), "bridge", "node", "node.exe")); } catch {}
+  try { candidates.push(path.join(getInstalledBridgeRoot(), "node", "node.exe")); } catch {}
+  if (app.isPackaged) candidates.push(path.join(process.resourcesPath, "node", "node.exe"));
 
-  // B) <resources>/node/node.exe （resources/node/node.exe）
-  const candB = path.join(process.resourcesPath, "node", "node.exe");
-  if (fs.existsSync(candB)) return candB;
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) return candidate;
+  }
 
   return null;
 }
+
+ipcMain.on("window:minimize", (event) => BrowserWindow.fromWebContents(event.sender)?.minimize());
+ipcMain.on("window:maximizeToggle", (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return;
+  if (win.isMaximized()) win.unmaximize();
+  else win.maximize();
+});
+ipcMain.on("window:close", (event) => BrowserWindow.fromWebContents(event.sender)?.close());
 
 function getNodeCommand() {
   if (process.platform !== "win32") return "node";
@@ -232,9 +263,10 @@ if (!gotLock) {
 }
 
 app.whenReady().then(() => {
+  consumeInstallerSetupReset();
   installProdOnlyCsp();
-  ensureBridgeExtracted();
   createWindow();
+  scheduleBridgeSync();
   setupAutoUpdater();
   setTimeout(() => autoUpdateGiftsIfStale().catch(e =>
     console.warn("[gifts:auto-update]", e?.message || e)), 5000);
@@ -284,17 +316,20 @@ ipcMain.handle("config:path", async () => {
   return getConfigPath();
 });
 
-let updateState = { state: "idle", version: null, percent: 0, error: "" };
+let updateState = { state: "idle", version: null, percent: 0, error: "", checkedAt: null };
+function setUpdateState(patch) {
+  updateState = { ...updateState, ...patch, checkedAt: new Date().toISOString() };
+}
 function setupAutoUpdater() {
   if (!app.isPackaged) return;
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on("checking-for-update", () => { updateState = { state: "checking", version: null, percent: 0, error: "" }; });
-  autoUpdater.on("update-available", info => { updateState = { state: "downloading", version: info.version, percent: 0, error: "" }; });
-  autoUpdater.on("update-not-available", info => { updateState = { state: "current", version: info.version, percent: 100, error: "" }; });
-  autoUpdater.on("download-progress", p => { updateState = { ...updateState, percent: Math.round(p.percent || 0) }; });
-  autoUpdater.on("update-downloaded", info => { updateState = { state: "ready", version: info.version, percent: 100, error: "" }; });
-  autoUpdater.on("error", error => { updateState = { state: "error", version: null, percent: 0, error: error?.message || String(error) }; });
+  autoUpdater.on("checking-for-update", () => setUpdateState({ state: "checking", version: null, percent: 0, error: "" }));
+  autoUpdater.on("update-available", info => setUpdateState({ state: "downloading", version: info.version, percent: 0, error: "" }));
+  autoUpdater.on("update-not-available", info => setUpdateState({ state: "current", version: info.version, percent: 100, error: "" }));
+  autoUpdater.on("download-progress", p => setUpdateState({ percent: Math.round(p.percent || 0) }));
+  autoUpdater.on("update-downloaded", info => setUpdateState({ state: "ready", version: info.version, percent: 100, error: "" }));
+  autoUpdater.on("error", error => setUpdateState({ state: "error", version: null, percent: 0, error: error?.message || String(error) }));
   setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 8000);
 }
 ipcMain.handle("updater:status", () => updateState);
@@ -312,25 +347,10 @@ ipcMain.handle("config:validate", async (_event, value) => validateBridgeConfig(
 // ✅ preload側の「bridgeRoot / bridgeDir」ズレ事故を防ぐため両方返す
 ipcMain.handle("bridge:root", async () => getInstalledBridgeRoot());
 ipcMain.handle("bridge:dir", async () => getBridgeDir());
+ipcMain.handle("bridge:syncStatus", () => bridgeSyncState);
 
-// --------------------
-// IPC: Bridge起動（任意）
-// --------------------
-ipcMain.handle("bridge:start", async () => {
-  const root = getInstalledBridgeRoot();
-  const bat = path.join(root, "minecraft_start_all.bat");
-
-  if (!fs.existsSync(root)) throw new Error(`Bridge root not found: ${root}`);
-  if (!fs.existsSync(bat)) throw new Error(`minecraft_start_all.bat not found: ${bat}`);
-
-  spawn("cmd.exe", ["/c", bat], {
-    cwd: root,
-    windowsHide: false,
-    detached: true,
-  });
-
-  return { ok: true, bat, bridgeRoot: root };
-});
+// アプリバージョン（UIのハードコード表記を廃してこれを使う）
+ipcMain.handle("app:version", () => app.getVersion());
 
 // --------------------
 // IPC: Gifts read (UIタブ用)
@@ -386,6 +406,29 @@ function writeAppConfig(data) {
   fs.writeFileSync(p, JSON.stringify(next, null, 2), "utf-8");
 }
 
+/**
+ * The NSIS installer writes this one-shot marker after every successful install.
+ * Consuming it here makes an installed build always open behind the setup gate,
+ * while preserving the previously selected server folder for returning users.
+ */
+function consumeInstallerSetupReset() {
+  if (!app.isPackaged) return;
+
+  const markerPath = path.join(app.getPath("userData"), "require-initial-setup.flag");
+  if (!fs.existsSync(markerPath)) return;
+
+  try {
+    writeAppConfig({
+      setupComplete: false,
+      setupRequiredByInstall: true,
+      setupRequiredAt: new Date().toISOString(),
+    });
+    fs.unlinkSync(markerPath);
+  } catch (error) {
+    console.warn("[setup] failed to consume installer reset marker:", error?.message || error);
+  }
+}
+
 // --------------------
 // Paths: Server / Bridge (UI統合用)
 // --------------------
@@ -419,21 +462,403 @@ function getBridgeBatDir() {
 }
 
 // --------------------
-// Bridge: resources → userData に展開
+// Bridge: resources → serverFolder/bridge へ差分同期
 // --------------------
-function copyBridgeRecursive(src, dst) {
-  fs.mkdirSync(dst, { recursive: true });
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const srcPath = path.join(src, entry.name);
-    const dstPath = path.join(dst, entry.name);
-    if (entry.isDirectory()) {
-      copyBridgeRecursive(srcPath, dstPath);
-    } else {
-      // config.minecraft.json はユーザー設定なので既存があれば上書きしない
-      if (entry.name === "config.minecraft.json" && fs.existsSync(dstPath)) continue;
-      fs.copyFileSync(srcPath, dstPath);
+const BRIDGE_SYNC_MARKER = ".bridge-sync-state.json";
+const BRIDGE_RUNTIME_STATE = ".bridge-runtime-state.json";
+const BRIDGE_HEAVY_DIRS = new Set(["node", "node_modules"]);
+const BRIDGE_GENERATED_DIRS = new Set(["logs", "presets", "test"]);
+const BRIDGE_INTERNAL_BUNDLE_FILES = new Set(["bridge-runtime.zip", "bridge-runtime-manifest.json"]);
+const BRIDGE_PRESERVE_FILES = new Set([
+  "config.minecraft.json",
+  "config.7dtd.json",
+  "tts-settings.json",
+  "operations-history.json",
+  "runtime-status.json",
+]);
+const COPY_HASH_LIMIT_BYTES = 1024 * 1024;
+
+let bridgeSyncState = {
+  state: "idle",
+  phase: "",
+  error: "",
+  stats: null,
+  updatedAt: null,
+};
+
+function setBridgeSyncState(patch) {
+  bridgeSyncState = { ...bridgeSyncState, ...patch, updatedAt: new Date().toISOString() };
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send("bridge:syncStatus", bridgeSyncState);
+  }
+}
+
+async function pathExists(p) {
+  try {
+    await fs.promises.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function safeStat(p) {
+  try {
+    return await fs.promises.stat(p);
+  } catch {
+    return null;
+  }
+}
+
+async function sha256File(filePath) {
+  const buf = await fs.promises.readFile(filePath);
+  return crypto.createHash("sha256").update(buf).digest("hex");
+}
+
+async function sha256FileIfExists(filePath) {
+  try {
+    return await sha256File(filePath);
+  } catch {
+    return "";
+  }
+}
+
+async function readPackageVersion(filePath) {
+  try {
+    const json = JSON.parse(await fs.promises.readFile(filePath, "utf8"));
+    return String(json.version || "");
+  } catch {
+    return "";
+  }
+}
+
+function normalizeBridgeRelPath(relPath) {
+  return relPath.replace(/\\/g, "/");
+}
+
+function shouldPreserveBridgeFile(relPath) {
+  return BRIDGE_PRESERVE_FILES.has(normalizeBridgeRelPath(relPath));
+}
+
+async function getBridgeRuntimeSignature(root) {
+  const nodeExe = path.join(root, "node", "node.exe");
+  const nodeStat = await safeStat(nodeExe);
+  const bundlePath = path.join(root, "index.bundle.cjs");
+  const bundleStat = await safeStat(bundlePath);
+  const nodeModulesDir = path.join(root, "node_modules");
+  const tiktokPkg = path.join(nodeModulesDir, "tiktok-live-connector", "package.json");
+  const rconPkg = path.join(nodeModulesDir, "rcon-client", "package.json");
+
+  return {
+    bundleExists: !!bundleStat,
+    bundleBytes: bundleStat?.size || 0,
+    bundleSha256: await sha256FileIfExists(bundlePath),
+    packageJsonSha256: await sha256FileIfExists(path.join(root, "package.json")),
+    packageLockSha256: await sha256FileIfExists(path.join(root, "package-lock.json")),
+    nodeExeBytes: nodeStat?.size || 0,
+    nodeExeSha256: await sha256FileIfExists(nodeExe),
+    nodeExeExists: !!nodeStat,
+    nodeModulesReady: await pathExists(tiktokPkg) && await pathExists(rconPkg),
+    tiktokLiveConnectorVersion: await readPackageVersion(tiktokPkg),
+    rconClientVersion: await readPackageVersion(rconPkg),
+  };
+}
+
+function getBridgeRuntimeArchivePath() {
+  if (app.isPackaged) return path.join(process.resourcesPath, "bridge", "bridge-runtime.zip");
+  return path.resolve(__dirname, "..", "build", "bridge-runtime.zip");
+}
+
+function getBridgeRuntimeManifestPath() {
+  if (app.isPackaged) return path.join(process.resourcesPath, "bridge", "bridge-runtime-manifest.json");
+  return path.resolve(__dirname, "..", "build", "bridge-runtime-manifest.json");
+}
+
+async function readJsonFileIfExists(filePath) {
+  try {
+    return JSON.parse(await fs.promises.readFile(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+async function readBridgeRuntimeManifest() {
+  return readJsonFileIfExists(getBridgeRuntimeManifestPath());
+}
+
+function getPackagedBridgeResourceDir() {
+  if (app.isPackaged) return path.join(process.resourcesPath, "bridge");
+  return path.resolve(__dirname, "..", "build", "bridge-bundle");
+}
+
+function bridgeRuntimeMatchesManifest(signature, manifest) {
+  if (!signature?.nodeExeExists || !manifest) return false;
+  if (manifest.runtimeKind === "bundle") {
+    if (!signature.bundleExists) return false;
+    if (manifest.bundleSha256 && signature.bundleSha256 !== manifest.bundleSha256) return false;
+    if (Number(signature.nodeExeBytes || 0) !== Number(manifest.nodeExeBytes || 0)) return false;
+    if (manifest.nodeExeSha256 && signature.nodeExeSha256 !== manifest.nodeExeSha256) return false;
+    return true;
+  }
+  if (!signature.nodeModulesReady) return false;
+  if (Number(signature.nodeExeBytes || 0) !== Number(manifest.nodeExeBytes || 0)) return false;
+  if (manifest.nodeExeSha256 && signature.nodeExeSha256 !== manifest.nodeExeSha256) return false;
+  const deps = manifest.dependencies || {};
+  if (deps["tiktok-live-connector"] && signature.tiktokLiveConnectorVersion !== deps["tiktok-live-connector"]) return false;
+  if (deps["rcon-client"] && signature.rconClientVersion !== deps["rcon-client"]) return false;
+  return true;
+}
+
+async function writeBridgeRuntimeState(bridgeDir, manifest, mode) {
+  if (!manifest) return;
+  const state = {
+    appVersion: app.getVersion(),
+    mode,
+    runtimeKind: manifest.runtimeKind || "archive",
+    updatedAt: new Date().toISOString(),
+    archiveSha256: manifest.archiveSha256,
+    bundleSha256: manifest.bundleSha256,
+    packageJsonSha256: manifest.packageJsonSha256,
+    packageLockSha256: manifest.packageLockSha256,
+    nodeExeBytes: manifest.nodeExeBytes,
+    nodeExeSha256: manifest.nodeExeSha256,
+    dependencies: manifest.dependencies || {},
+  };
+  await fs.promises.writeFile(path.join(bridgeDir, BRIDGE_RUNTIME_STATE), JSON.stringify(state, null, 2), "utf8");
+}
+
+async function expandBridgeRuntimeArchive(archivePath, bridgeDir) {
+  await fs.promises.mkdir(bridgeDir, { recursive: true });
+  try {
+    // Windows 10+ 標準の bsdtar。PowerShell Expand-Archive より大量ファイル展開がかなり速い。
+    await runProc("tar.exe", ["-xf", archivePath, "-C", bridgeDir], bridgeDir);
+  } catch (tarError) {
+    const script = [
+      "& { param($zip, $dest)",
+      "$ErrorActionPreference='Stop';",
+      "Expand-Archive -LiteralPath $zip -DestinationPath $dest -Force",
+      "}",
+    ].join(" ");
+    try {
+      await runProc("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script, archivePath, bridgeDir], bridgeDir);
+    } catch (psError) {
+      throw new Error(`Bridge runtime extraction failed. tar: ${tarError.message}; powershell: ${psError.message}`);
     }
   }
+}
+
+async function copyBundledRuntimeFiles(bridgeDir, manifest) {
+  const sourceRoot = getPackagedBridgeResourceDir();
+  const entry = manifest?.entry || "index.bundle.cjs";
+  const srcBundle = path.join(sourceRoot, entry);
+  const srcNode = path.join(sourceRoot, "node", "node.exe");
+  if (!await pathExists(srcBundle)) throw new Error(`Bridge bundle not found: ${srcBundle}`);
+  if (!await pathExists(srcNode)) throw new Error(`Bridge node.exe not found: ${srcNode}`);
+  await fs.promises.mkdir(path.join(bridgeDir, "node"), { recursive: true });
+  await fs.promises.copyFile(srcBundle, path.join(bridgeDir, entry));
+  await fs.promises.copyFile(srcNode, path.join(bridgeDir, "node", "node.exe"));
+}
+
+async function ensureBridgeRuntimeReady(bridgeDir, stats = null) {
+  const signature = await getBridgeRuntimeSignature(bridgeDir);
+  const manifest = await readBridgeRuntimeManifest();
+  const archivePath = getBridgeRuntimeArchivePath();
+  const archiveExists = await pathExists(archivePath);
+  const state = await readJsonFileIfExists(path.join(bridgeDir, BRIDGE_RUNTIME_STATE));
+  const runtimeKind = manifest?.runtimeKind || "archive";
+  const stateMatches = !!manifest && !!state &&
+    (state.runtimeKind || "archive") === runtimeKind &&
+    Number(state.nodeExeBytes || 0) === Number(manifest.nodeExeBytes || 0) &&
+    (!manifest.nodeExeSha256 || state.nodeExeSha256 === manifest.nodeExeSha256) &&
+    (runtimeKind === "bundle"
+      ? state.bundleSha256 === manifest.bundleSha256
+      : state.archiveSha256 === manifest.archiveSha256 && state.packageLockSha256 === manifest.packageLockSha256);
+
+  if (bridgeRuntimeMatchesManifest(signature, manifest) && stateMatches) {
+    const result = { ready: true, extracted: false, skipped: true, reason: "current" };
+    if (stats) stats.runtime = result;
+    return result;
+  }
+
+  if (bridgeRuntimeMatchesManifest(signature, manifest) && !stateMatches) {
+    await writeBridgeRuntimeState(bridgeDir, manifest, "adopt-existing");
+    const result = { ready: true, extracted: false, skipped: true, reason: "adopt-existing" };
+    if (stats) stats.runtime = result;
+    return result;
+  }
+
+  if (runtimeKind === "bundle") {
+    setBridgeSyncState({ state: "running", phase: "copying-runtime", error: "", stats });
+    await copyBundledRuntimeFiles(bridgeDir, manifest);
+    const after = await getBridgeRuntimeSignature(bridgeDir);
+    if (!bridgeRuntimeMatchesManifest(after, manifest)) {
+      throw new Error(`Bridge bundled runtime copy failed: ${bridgeDir}`);
+    }
+    await writeBridgeRuntimeState(bridgeDir, manifest, "copied-bundle");
+    const result = {
+      ready: true,
+      extracted: false,
+      copied: true,
+      skipped: false,
+      reason: "copied-bundle",
+      bundleBytes: manifest?.bundleBytes || after.bundleBytes || 0,
+    };
+    if (stats) stats.runtime = result;
+    return result;
+  }
+
+  if (!archiveExists) {
+    if (signature.nodeExeExists && signature.nodeModulesReady) {
+      const result = { ready: true, extracted: false, skipped: true, reason: "existing-no-archive" };
+      if (stats) stats.runtime = result;
+      return result;
+    }
+    throw new Error(`Bridge runtime archive not found: ${archivePath}`);
+  }
+
+  setBridgeSyncState({ state: "running", phase: "extracting-runtime", error: "", stats });
+  await expandBridgeRuntimeArchive(archivePath, bridgeDir);
+  const after = await getBridgeRuntimeSignature(bridgeDir);
+  if (!after.nodeExeExists || !after.nodeModulesReady) {
+    throw new Error(`Bridge runtime extraction failed: ${bridgeDir}`);
+  }
+  await writeBridgeRuntimeState(bridgeDir, manifest, "extracted");
+  const result = {
+    ready: true,
+    extracted: true,
+    skipped: false,
+    reason: "extracted",
+    archiveBytes: manifest?.archiveBytes || (await safeStat(archivePath))?.size || 0,
+  };
+  if (stats) stats.runtime = result;
+  return result;
+}
+
+async function ensureNodeRuntimeAvailable() {
+  if (!app.isPackaged) return { ready: true, development: true };
+  return ensureBridgeRuntimeReady(getBridgeBatDir());
+}
+
+function getBridgeEntryPoint(dir) {
+  const bundled = path.join(dir, "index.bundle.cjs");
+  if (fs.existsSync(bundled)) return bundled;
+  return path.join(dir, "index.js");
+}
+
+async function filesSame(srcPath, dstPath, srcStat) {
+  const dstStat = await safeStat(dstPath);
+  if (!dstStat) return false;
+  if (srcStat.size !== dstStat.size) return false;
+
+  // 大きいファイルはサイズ一致なら同一扱いにする。
+  // node/node_modules は基本的にディレクトリ単位でスキップ判定するため、
+  // ここで巨大ファイルを毎回ハッシュしない。
+  if (srcStat.size > COPY_HASH_LIMIT_BYTES) return true;
+
+  // 同じコピー由来なら mtime も近いことが多い。軽量な早期 return。
+  if (Math.abs(srcStat.mtimeMs - dstStat.mtimeMs) < 2000) return true;
+
+  const [srcHash, dstHash] = await Promise.all([sha256File(srcPath), sha256File(dstPath)]);
+  return srcHash === dstHash;
+}
+
+async function copyFileIfChanged(srcPath, dstPath, stats) {
+  const srcStat = await safeStat(srcPath);
+  if (!srcStat || !srcStat.isFile()) return;
+  if (await filesSame(srcPath, dstPath, srcStat)) {
+    stats.skippedFiles++;
+    return;
+  }
+  await fs.promises.mkdir(path.dirname(dstPath), { recursive: true });
+  await fs.promises.copyFile(srcPath, dstPath);
+  stats.copiedFiles++;
+  stats.copiedBytes += srcStat.size;
+}
+
+function shouldSkipHeavyDir(entryName, srcSig, dstSig, forceHeavy) {
+  if (forceHeavy) return false;
+  if (entryName === "node") {
+    return srcSig.nodeExeExists && dstSig.nodeExeExists && srcSig.nodeExeBytes === dstSig.nodeExeBytes;
+  }
+  if (entryName === "node_modules") {
+    return (
+      dstSig.nodeModulesReady &&
+      srcSig.packageJsonSha256 &&
+      srcSig.packageLockSha256 &&
+      srcSig.packageJsonSha256 === dstSig.packageJsonSha256 &&
+      srcSig.packageLockSha256 === dstSig.packageLockSha256
+    );
+  }
+  return false;
+}
+
+async function copyBridgeDifferential(src, dst, options = {}) {
+  const forceHeavy = options.forceHeavy === true;
+  const preserveUserFiles = options.preserveUserFiles !== false;
+  const srcSig = await getBridgeRuntimeSignature(src);
+  const dstSig = await getBridgeRuntimeSignature(dst);
+  const stats = {
+    copiedFiles: 0,
+    copiedBytes: 0,
+    skippedFiles: 0,
+    preservedFiles: 0,
+    skippedDirs: 0,
+    skippedHeavyDirs: [],
+  };
+
+  async function walk(srcDir, dstDir, relDir = "") {
+    await fs.promises.mkdir(dstDir, { recursive: true });
+    const entries = await fs.promises.readdir(srcDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const relPath = relDir ? path.join(relDir, entry.name) : entry.name;
+      const srcPath = path.join(srcDir, entry.name);
+      const dstPath = path.join(dstDir, entry.name);
+
+      if (entry.name === BRIDGE_SYNC_MARKER) {
+        stats.skippedFiles++;
+        continue;
+      }
+      if (!relDir && BRIDGE_INTERNAL_BUNDLE_FILES.has(entry.name)) {
+        stats.skippedFiles++;
+        continue;
+      }
+
+      if (entry.isDirectory()) {
+        if (!relDir && BRIDGE_GENERATED_DIRS.has(entry.name)) {
+          stats.skippedDirs++;
+          continue;
+        }
+        if (!relDir && BRIDGE_HEAVY_DIRS.has(entry.name) && shouldSkipHeavyDir(entry.name, srcSig, dstSig, forceHeavy)) {
+          stats.skippedHeavyDirs.push(entry.name);
+          stats.skippedDirs++;
+          continue;
+        }
+        await walk(srcPath, dstPath, relPath);
+        continue;
+      }
+
+      if (!entry.isFile()) continue;
+      if (preserveUserFiles && shouldPreserveBridgeFile(relPath) && await pathExists(dstPath)) {
+        stats.preservedFiles++;
+        continue;
+      }
+      await copyFileIfChanged(srcPath, dstPath, stats);
+    }
+  }
+
+  await walk(src, dst);
+  return { stats, signature: srcSig };
+}
+
+async function writeBridgeSyncMarker(dst, signature, stats) {
+  const marker = {
+    appVersion: app.getVersion(),
+    syncedAt: new Date().toISOString(),
+    signature,
+    stats,
+  };
+  await fs.promises.writeFile(path.join(dst, BRIDGE_SYNC_MARKER), JSON.stringify(marker, null, 2), "utf8");
 }
 
 // アプリ更新時に doumacmd Mod jar を既存サーバーの mods/ へ差し替える
@@ -461,7 +886,18 @@ function refreshDoumaModJar(serverFolder) {
   }
 }
 
-function ensureBridgeExtracted() {
+function scheduleBridgeSync() {
+  if (!app.isPackaged) return;
+  setTimeout(() => {
+    ensureBridgeExtracted().catch((e) => {
+      const message = e?.message || String(e);
+      console.error("[main] bridge background sync failed:", message);
+      setBridgeSyncState({ state: "error", phase: "failed", error: message });
+    });
+  }, 1000);
+}
+
+async function ensureBridgeExtracted() {
   if (!app.isPackaged) return; // dev は ui/bridge をそのまま使う
 
   const src = path.join(process.resourcesPath, "bridge");
@@ -476,11 +912,20 @@ function ensureBridgeExtracted() {
   const currentVersion = app.getVersion();
 
   // 同バージョン展開済みなら再コピーしない
-  if (cfg.bridgeVersion === currentVersion && fs.existsSync(path.join(dst, "index.js"))) return;
+  if (cfg.bridgeVersion === currentVersion && fs.existsSync(path.join(dst, "index.js"))) {
+    setBridgeSyncState({ state: "running", phase: "checking-runtime", error: "", stats: null });
+    const runtime = await ensureBridgeRuntimeReady(dst);
+    setBridgeSyncState({ state: "current", phase: "skipped", error: "", stats: { runtime } });
+    return;
+  }
 
-  copyBridgeRecursive(src, dst);
+  setBridgeSyncState({ state: "running", phase: "copying", error: "", stats: null });
+  const result = await copyBridgeDifferential(src, dst, { preserveUserFiles: true });
+  await ensureBridgeRuntimeReady(dst, result.stats);
   refreshDoumaModJar(cfg.serverFolder);
+  await writeBridgeSyncMarker(dst, await getBridgeRuntimeSignature(dst), result.stats);
   writeAppConfig({ bridgeVersion: currentVersion });
+  setBridgeSyncState({ state: "done", phase: "complete", error: "", stats: result.stats });
 }
 
 // --------------------
@@ -498,10 +943,12 @@ ipcMain.handle("bridge:extractTo", async (_event, targetFolder) => {
   if (!fs.existsSync(src)) throw new Error(`resources/bridge not found: ${src}`);
 
   const dst = path.join(targetFolder, "bridge");
-  copyBridgeRecursive(src, dst);
+  const result = await copyBridgeDifferential(src, dst, { forceHeavy: true, preserveUserFiles: true });
+  await ensureBridgeRuntimeReady(dst, result.stats);
+  await writeBridgeSyncMarker(dst, await getBridgeRuntimeSignature(dst), result.stats);
   writeAppConfig({ bridgeVersion: app.getVersion() });
 
-  return { ok: true, dst };
+  return { ok: true, dst, stats: result.stats };
 });
 
 // --------------------
@@ -513,12 +960,64 @@ let bridgeProcRef = null;
 let bridgeStopRequested = false;
 let bridgeRestartTimer = null;
 const bridgeRestartPolicy = new RestartPolicy();
+const BRIDGE_LOG_LIMIT = 300;
+const bridgeLogBuffer = [];
+
+function appendBridgeLog(message) {
+  const text = String(message ?? "").replace(/\r/g, "");
+  for (const line of text.split("\n")) {
+    const trimmed = line.trimEnd();
+    if (!trimmed) continue;
+    bridgeLogBuffer.push(`[${new Date().toLocaleTimeString("ja-JP")}] ${trimmed}`);
+  }
+  if (bridgeLogBuffer.length > BRIDGE_LOG_LIMIT) {
+    bridgeLogBuffer.splice(0, bridgeLogBuffer.length - BRIDGE_LOG_LIMIT);
+  }
+}
+
+function pipeBridgeStream(stream, prefix) {
+  if (!stream) return;
+  stream.on("data", (chunk) => {
+    appendBridgeLog(`${prefix} ${chunk.toString("utf8")}`);
+  });
+}
+
+function getProcessMetrics(pid) {
+  if (!pid || process.platform !== "win32") return { cpuPercent: null, memMb: null };
+  try {
+    const result = spawnSync("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `$p=Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | Where-Object {$_.IDProcess -eq ${Number(pid)}} | Select-Object -First 1 PercentProcessorTime,WorkingSet; if ($p) { "$($p.PercentProcessorTime)|$([math]::Round($p.WorkingSet/1MB,1))" }`,
+    ], { windowsHide: true, timeout: 1500, encoding: "utf8" });
+    const raw = String(result.stdout || "").trim();
+    const [cpu, mem] = raw.split("|");
+    return {
+      cpuPercent: Number.isFinite(Number(cpu)) ? Number(cpu) : null,
+      memMb: Number.isFinite(Number(mem)) ? Number(mem) : null,
+    };
+  } catch {
+    return { cpuPercent: null, memMb: null };
+  }
+}
 
 ipcMain.handle("server:start", async () => {
   const dir = getServerRoot();
   const bat = path.join(dir, "run.bat");
   if (!fs.existsSync(bat)) throw new Error(`run.bat not found: ${bat}`);
-  if (readAppConfig().autoBackupOnServerStart !== false) await createWorldBackup("server-start");
+
+  // 起動前バックアップ。失敗してもサーバー起動は絶対にブロックしない
+  // （旧実装は失敗時に throw して Forge が起動不能になる事故があった）。
+  let backup = null;
+  if (readAppConfig().autoBackupOnServerStart !== false) {
+    try {
+      const result = await createWorldBackup("server-start");
+      backup = { ok: true, message: result.message };
+    } catch (e) {
+      backup = { ok: false, message: e.message };
+    }
+  }
 
   const proc = spawn("cmd.exe", ["/k", bat], {
     cwd: dir,
@@ -530,7 +1029,7 @@ ipcMain.handle("server:start", async () => {
   proc.on("exit", () => { serverPid = null; });
   proc.unref();
 
-  return { ok: true };
+  return { ok: true, backup };
 });
 
 // --------------------
@@ -546,50 +1045,109 @@ ipcMain.handle("server:stop", async () => {
 // --------------------
 // IPC: Bridge 起動（同梱 node 優先、なければ PATH の node）
 // --------------------
-ipcMain.handle("bridge:launch", async () => {
-  const dir = getBridgeBatDir();
-  const indexJs = path.join(dir, "index.js");
-  if (!fs.existsSync(indexJs)) throw new Error(`index.js not found: ${indexJs}`);
+// 前セッション由来を含む「このBridge」の node プロセスだけをコマンドラインで特定して停止する。
+// PID直killはPID再利用で無関係なプロセスを殺す危険があるため、commandLine一致で限定する。
+function killBridgeByCommandLine() {
+  if (process.platform !== "win32") return;
+  try {
+    const dir = getBridgeBatDir().replace(/'/g, "''");
+    const ps =
+      "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' " +
+      "-and $_.CommandLine -like '*config.minecraft.json*' " +
+      `-and $_.CommandLine -like '*${dir}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
+    spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps], { windowsHide: true, timeout: 5000 });
+  } catch { /* ベストエフォート */ }
+}
 
+async function launchBridge() {
+  const dir = getBridgeBatDir();
+  const indexJs = getBridgeEntryPoint(dir);
+  if (!fs.existsSync(indexJs)) throw new Error(`Bridge entry not found: ${indexJs}`);
+
+  await ensureNodeRuntimeAvailable();
   const nodeCmd = getNodeCommand();
 
   bridgeStopRequested = false;
   bridgeRestartPolicy.start();
-  const launch = () => {
+  const spawnOnce = () => {
+    appendBridgeLog(`[BRIDGE] 起動します: ${indexJs}`);
     const child = spawn(nodeCmd, [indexJs, "--config", path.join(dir, "config.minecraft.json")], {
-      cwd: dir, windowsHide: true, stdio: "ignore",
+      cwd: dir, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
     });
     bridgeProcRef = child;
     bridgePid = child.pid;
-    child.on("exit", () => {
-      bridgePid = null; bridgeProcRef = null;
+    appendBridgeLog(`[BRIDGE] PID ${bridgePid} で起動しました`);
+    pipeBridgeStream(child.stdout, "[stdout]");
+    pipeBridgeStream(child.stderr, "[stderr]");
+    child.on("exit", (code, signal) => {
+      appendBridgeLog(`[BRIDGE] 終了しました code=${code ?? "null"} signal=${signal ?? "null"}`);
+      if (bridgeProcRef === child) { bridgePid = null; bridgeProcRef = null; }
       if (!bridgeStopRequested && bridgeRestartPolicy.shouldRestart()) {
-        bridgeRestartTimer = setTimeout(launch, 2000);
+        const backoffMs = bridgeRestartPolicy.nextDelayMs ? bridgeRestartPolicy.nextDelayMs() : 2000;
+        appendBridgeLog(`[BRIDGE] ${Math.round(backoffMs / 1000)}秒後に自動再起動します`);
+        bridgeRestartTimer = setTimeout(spawnOnce, backoffMs);
+      } else if (bridgeRestartPolicy.exhausted && bridgeRestartPolicy.exhausted()) {
+        appendBridgeLog("[BRIDGE] 自動再起動の上限に達しました。設定を確認して手動で再起動してください。");
       }
     });
   };
-  if (!bridgeProcRef) launch();
+  if (!bridgeProcRef) spawnOnce();
 
+  return { ok: true, pid: bridgePid };
+}
+
+async function stopBridge() {
+  bridgeStopRequested = true;
+  bridgeRestartPolicy.requestStop();
+  if (bridgeRestartTimer) { clearTimeout(bridgeRestartTimer); bridgeRestartTimer = null; }
+
+  const child = bridgeProcRef;
+  // このセッションで起動した child があるなら exit を待つ（taskkill は非同期なので待たないと再起動が空振りする）
+  const waitExit = child
+    ? new Promise((resolve) => {
+        let done = false;
+        const finish = () => { if (!done) { done = true; resolve(); } };
+        child.once("exit", finish);
+        setTimeout(finish, 5000); // 保険：5秒でタイムアウト
+      })
+    : Promise.resolve();
+
+  const pid = bridgePid || (child && child.pid) || null;
+  if (pid) {
+    appendBridgeLog(`[BRIDGE] 停止要求 PID ${pid}`);
+    try { spawn("taskkill", ["/F", "/T", "/PID", String(pid)], { windowsHide: true }); } catch { /* fallthrough */ }
+  } else {
+    appendBridgeLog("[BRIDGE] PID不明のためコマンドラインで停止を試行します");
+  }
+
+  await waitExit;
+  killBridgeByCommandLine(); // 前セッション由来のオーファンを掃除（このbridgeのcommandLineに限定）
+  bridgePid = null;
+  bridgeProcRef = null;
   return { ok: true };
-});
+}
+
+ipcMain.handle("bridge:launch", async () => launchBridge());
 
 // --------------------
 // IPC: Bridge 停止
 // --------------------
-ipcMain.handle("bridge:stop", async () => {
-  bridgeStopRequested = true;
-  bridgeRestartPolicy.requestStop();
-  if (bridgeRestartTimer) clearTimeout(bridgeRestartTimer);
-  if (bridgePid) {
-    spawn("taskkill", ["/F", "/T", "/PID", String(bridgePid)], { windowsHide: true });
-    bridgePid = null;
-  } else {
-    // Fallback: kill by window title (e.g. launched from a previous session)
-    spawn("taskkill", ["/F", "/FI", "WINDOWTITLE eq MC TikTok Bridge"], { windowsHide: true });
-  }
-  return { ok: true };
+ipcMain.handle("bridge:stop", async () => stopBridge());
+
+// --------------------
+// IPC: Bridge 再起動（停止完了を待ってから起動する。UI側の stop→launch 連打は使わない）
+// --------------------
+ipcMain.handle("bridge:restart", async () => {
+  await stopBridge();
+  await new Promise((r) => setTimeout(r, 400)); // ポート/ファイル解放の猶予
+  return launchBridge();
 });
-ipcMain.handle("bridge:processStatus", () => bridgeRestartPolicy.status(bridgePid));
+ipcMain.handle("bridge:processStatus", () => {
+  const status = bridgeRestartPolicy.status(bridgePid);
+  return { ...status, ...getProcessMetrics(bridgePid) };
+});
+
+ipcMain.handle("bridge:logs", () => ({ ok: true, lines: [...bridgeLogBuffer] }));
 
 function requestDouma(method, requestPath, body) {
   return new Promise((resolve, reject) => {
@@ -618,13 +1176,62 @@ function requestDouma(method, requestPath, body) {
 }
 
 function getOperationsHistoryPath() { return path.join(getBridgeBatDir(), "operations-history.json"); }
+
+// operations-history.json は bridge（Node）と electron（main）の両方が書き込む。
+// 従来の「全体読み込み→unshift→全体書き込み」は同時書き込みで履歴が巻き戻る事故があったため、
+// 追記のみ（JSONL: 1行1イベント、古い順）に変更した。読み出し時に新しい順へ変換して返す。
+// 旧フォーマット（JSON配列、新しい順）のファイルもそのまま読めるよう互換を維持する。
 function readOperationsHistory() {
-  try { return JSON.parse(fs.readFileSync(getOperationsHistoryPath(), "utf8")); } catch { return []; }
+  let raw = "";
+  try { raw = fs.readFileSync(getOperationsHistoryPath(), "utf8"); } catch { return []; }
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith("[")) {
+    // 旧フォーマット（JSON配列）
+    try { return JSON.parse(trimmed); } catch { return []; }
+  }
+  const rows = [];
+  for (const line of trimmed.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    try { rows.push(JSON.parse(t)); } catch { /* 壊れた行はスキップ */ }
+  }
+  return rows.reverse(); // 新しい順
 }
+
+function compactOperationsHistoryIfLarge(historyPath) {
+  try {
+    const stat = fs.statSync(historyPath);
+    if (stat.size < 2 * 1024 * 1024) return; // 2MB未満は行カウストをしない（頻繁なfs呼び出しを避ける）
+    const lines = fs.readFileSync(historyPath, "utf8").split("\n").filter((l) => l.trim());
+    if (lines.length <= 2000) return;
+    fs.writeFileSync(historyPath, lines.slice(lines.length - 2000).join("\n") + "\n", "utf8");
+  } catch { /* 圧縮に失敗しても記録自体は既に成功しているので無視 */ }
+}
+
+// 旧バージョン（JSON配列・新しい順）で運用していたファイルをJSONL（1行1イベント・古い順）へ
+// その場で一度だけ変換する。以降は追記のみで済むため、bridgeとelectronの同時書き込みで
+// 履歴が巻き戻る事故が起きなくなる。
+function migrateOperationsHistoryToJsonlIfNeeded(historyPath) {
+  let raw = "";
+  try { raw = fs.readFileSync(historyPath, "utf8"); } catch { return; }
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("[")) return; // 既にJSONL、または空
+  let rows;
+  try { rows = JSON.parse(trimmed); } catch { return; }
+  if (!Array.isArray(rows)) return;
+  const oldestFirst = [...rows].reverse(); // 旧フォーマットは新しい順→古い順に戻す
+  const lines = oldestFirst.map((row) => JSON.stringify(row)).join("\n");
+  fs.writeFileSync(historyPath, lines ? lines + "\n" : "", "utf8");
+}
+
 function appendOperationsHistory(row) {
-  const rows = readOperationsHistory();
-  rows.unshift(row);
-  fs.writeFileSync(getOperationsHistoryPath(), JSON.stringify(rows.slice(0, 1000), null, 2), "utf8");
+  const historyPath = getOperationsHistoryPath();
+  try {
+    migrateOperationsHistoryToJsonlIfNeeded(historyPath);
+    fs.appendFileSync(historyPath, JSON.stringify(row) + "\n", "utf8");
+    compactOperationsHistoryIfLarge(historyPath);
+  } catch { /* ignore */ }
 }
 
 ipcMain.handle("mod:status", async () => {
@@ -666,13 +1273,40 @@ async function createWorldBackup(reason = "manual") {
   fs.mkdirSync(outDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const zip = path.join(outDir, `world-${stamp}.zip`);
+  // powershell -Command に後続引数を渡しても $args には入らない（旧実装が常に
+  // 「バックアップ失敗 (1)」になっていた真因）。パスは環境変数経由で渡す。
+  // session.lock はサーバー稼働中ロックされて読めないため、robocopy で一時フォルダーへ
+  // 除外コピーしてから圧縮する（robocopy は exit code 0〜7 が成功扱い）。
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    "$world = $env:DOUMA_BACKUP_WORLD",
+    "$zip = $env:DOUMA_BACKUP_ZIP",
+    "$staging = Join-Path $env:TEMP ('douma-backup-' + [guid]::NewGuid().ToString('N'))",
+    "robocopy $world (Join-Path $staging 'world') /E /R:1 /W:1 /XF session.lock | Out-Null",
+    "if ($LASTEXITCODE -ge 8) { throw ('robocopy failed: exit ' + $LASTEXITCODE) }",
+    "Compress-Archive -LiteralPath (Join-Path $staging 'world') -DestinationPath $zip -CompressionLevel Fastest",
+    "Remove-Item -LiteralPath $staging -Recurse -Force",
+    "exit 0",
+  ].join("; ");
   await new Promise((resolve, reject) => {
-    const ps = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
-      "Compress-Archive -LiteralPath $args[0] -DestinationPath $args[1] -CompressionLevel Fastest", world, zip],
-      { windowsHide: true });
-    ps.on("exit", code => code === 0 ? resolve() : reject(new Error(`バックアップ失敗 (${code})`)));
+    const ps = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+      windowsHide: true,
+      env: { ...process.env, DOUMA_BACKUP_WORLD: world, DOUMA_BACKUP_ZIP: zip },
+    });
+    let errText = "";
+    ps.stderr.on("data", chunk => { errText += String(chunk); });
+    ps.on("exit", code => {
+      if (code === 0) return resolve();
+      const detail = errText.split(/\r?\n/).map(line => line.trim()).find(Boolean) || "";
+      reject(new Error(`バックアップ失敗 (${code})${detail ? `: ${detail}` : ""}`));
+    });
     ps.on("error", reject);
   });
+  // ディスク圧迫防止：直近10件だけ残して古いバックアップを削除
+  try {
+    const old = fs.readdirSync(outDir).filter(name => /^world-.*\.zip$/.test(name)).sort().reverse().slice(10);
+    for (const name of old) fs.rmSync(path.join(outDir, name), { force: true });
+  } catch {}
   return { ok: true, path: zip, reason, message: `バックアップ完了: ${path.basename(zip)}` };
 }
 ipcMain.handle("world:backup", async () => createWorldBackup("manual"));
@@ -745,12 +1379,17 @@ function computeStreamStats(gapMinutes) {
 
   const summarize = (b) => {
     const byCommand = {}, bySender = {};
-    let gift = 0, like = 0, other = 0, succeeded = 0, failed = 0;
+    // type は gift/like に加えて、historyType経由で share/follow/member が実値として記録される
+    // （Mod向けキューは常に"other"だが、統計上の内訳はここで区別する）。それ以外は other に集約。
+    let gift = 0, like = 0, share = 0, follow = 0, member = 0, other = 0, succeeded = 0, failed = 0;
     for (const r of b.rows) {
       const amount = Number(r.count || 1);
       if (r.ok) succeeded++; else failed++;
       if (r.type === "gift") gift += amount;
       else if (r.type === "like") like += amount;
+      else if (r.type === "share") share += amount;
+      else if (r.type === "follow") follow += amount;
+      else if (r.type === "member") member += amount;
       else other += amount;
       byCommand[r.commandFile || "unknown"] = (byCommand[r.commandFile || "unknown"] || 0) + amount;
       bySender[r.sender || "unknown"] = (bySender[r.sender || "unknown"] || 0) + amount;
@@ -760,7 +1399,7 @@ function computeStreamStats(gapMinutes) {
       end: new Date(b.lastT).toISOString(),
       durationMs: b.lastT - b.startT,
       events: b.rows.length,
-      gift, like, other, succeeded, failed,
+      gift, like, share, follow, member, other, succeeded, failed,
       uniqueSenders: Object.keys(bySender).length,
       topCommands: top(byCommand),
       topSenders: top(bySender),
@@ -774,7 +1413,8 @@ function computeStreamStats(gapMinutes) {
     overall: {
       streams: streams.length,
       events: sorted.length,
-      gift: sum("gift"), like: sum("like"), other: sum("other"),
+      gift: sum("gift"), like: sum("like"), share: sum("share"), follow: sum("follow"),
+      member: sum("member"), other: sum("other"),
       succeeded: sum("succeeded"), failed: sum("failed"),
     },
     streams,
@@ -785,21 +1425,38 @@ ipcMain.handle("operations:streamStats", (_event, gapMinutes) => computeStreamSt
 // --------------------
 // IPC: Minecraft 起動
 // --------------------
-const MINECRAFT_PATHS = [
-  "C:\\Program Files (x86)\\Minecraft Launcher\\MinecraftLauncher.exe",
-  "C:\\XboxGames\\Minecraft Launcher\\Content\\Minecraft.exe",
-];
+function getMinecraftLauncherCandidates() {
+  const cfg = readAppConfig();
+  const list = [];
+  if (cfg.minecraftLauncherPath) list.push(cfg.minecraftLauncherPath); // 設定で明示指定を最優先
+  list.push(
+    "C:\\Program Files (x86)\\Minecraft Launcher\\MinecraftLauncher.exe",
+    "C:\\XboxGames\\Minecraft Launcher\\Content\\Minecraft.exe",
+    path.join(process.env.LOCALAPPDATA || "", "Programs", "Minecraft Launcher", "MinecraftLauncher.exe"),
+    path.join(process.env.PROGRAMFILES || "", "Minecraft Launcher", "MinecraftLauncher.exe"),
+    path.join(process.env["ProgramFiles(x86)"] || "", "Minecraft Launcher", "MinecraftLauncher.exe"),
+  );
+  return list.filter(Boolean);
+}
 
 ipcMain.handle("minecraft:launch", async () => {
-  const found = MINECRAFT_PATHS.find((p) => fs.existsSync(p));
-  if (!found) {
+  const candidates = getMinecraftLauncherCandidates();
+  const found = candidates.find((p) => fs.existsSync(p));
+  if (found) {
+    spawn(found, [], { detached: true, stdio: "ignore" }).unref();
+    return { ok: true, path: found };
+  }
+  // Microsoft Store 版をシェル経由で起動（存在すれば開く。無ければ何も起きないだけ）
+  try {
+    spawn("explorer.exe", ["shell:AppsFolder\\Microsoft.4297127D64EC6_8wekyb3d8bbwe!Minecraft"],
+      { detached: true, stdio: "ignore" }).unref();
+    return { ok: true, viaShell: true };
+  } catch {
     throw new Error(
-      "Minecraft ランチャーが見つかりませんでした。\n確認したパス:\n" +
-      MINECRAFT_PATHS.join("\n")
+      "Minecraft ランチャーが見つかりませんでした。手動で起動するか、ランチャーの場所を設定してください。\n確認したパス:\n" +
+      candidates.join("\n")
     );
   }
-  spawn(found, [], { detached: true, stdio: "ignore" }).unref();
-  return { ok: true };
 });
 
 // --------------------
@@ -865,6 +1522,14 @@ ipcMain.handle("dialog:pickFolder", async (_event, title) => {
   return { canceled: false, path: filePaths[0] };
 });
 
+ipcMain.handle("folder:open", async (_event, folderPath) => {
+  if (!folderPath || typeof folderPath !== "string") throw new Error("folderPath is required");
+  if (!fs.existsSync(folderPath)) throw new Error(`フォルダが見つかりません: ${folderPath}`);
+  const error = await shell.openPath(folderPath);
+  if (error) throw new Error(error);
+  return { ok: true, path: folderPath };
+});
+
 // --------------------
 // IPC: 任意フォルダの setup.bat を実行
 // --------------------
@@ -897,30 +1562,21 @@ ipcMain.handle("server:rconpassword:read", async () => {
 // IPC: ゲームルール一括適用（RCON）
 // --------------------
 ipcMain.handle("server:gamerules:apply", async () => {
-  const configPath = getConfigPath();
-  ensureConfigExists(configPath);
-  const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-  const { host = "127.0.0.1", port = 25575, password = "" } = cfg.rcon || {};
-  if (!password) throw new Error("RCON パスワードが設定されていません（config.minecraft.json を確認してください）");
-
-  const rcon = new Rcon({ host, port: Number(port), password });
-  await rcon.connect();
-
-  const commands = [
-    "gamerule keepInventory true",
-    "gamerule doDaylightCycle false",
-    "time set day",
-    "gamerule doWeatherCycle false",
-    "weather clear",
-  ];
-
-  const results = [];
-  for (const cmd of commands) {
-    const res = await rcon.send(cmd);
-    results.push({ cmd, res });
+  // ゲームルールは DoumaCmdMod 経由（/douma/event, key=_gamerules）で適用する。
+  // 旧実装は rcon-client を require せずに new Rcon(...) しており常に ReferenceError で失敗していた
+  // （UI側は「サーバー未起動のためスキップ」と誤表示していた）。Mod経路に一本化して事故を無くす。
+  try {
+    await requestDouma("POST", "/douma/event", {
+      type: "other",
+      key: "_gamerules",
+      count: 1,
+      listenerName: "system",
+      announce: false,
+    });
+    return { ok: true, transport: "douma_mod" };
+  } catch (e) {
+    throw new Error(`ゲームルール適用に失敗しました（サーバー/Mod が未起動の可能性）: ${e?.message || e}`);
   }
-  await rcon.end();
-  return { ok: true, results };
 });
 
 // --------------------
@@ -1018,6 +1674,7 @@ ipcMain.handle("gifts:update", async (_event, username) => {
   if (!fs.existsSync(fetchTool)) throw new Error(`fetch_gifts.cjs not found: ${fetchTool}`);
   if (!fs.existsSync(htmlTool))  throw new Error(`gifts_to_html.cjs not found: ${htmlTool}`);
 
+  await ensureNodeRuntimeAvailable();
   const nodeCmd = getNodeCommand();
 
   await runProc(nodeCmd, [fetchTool, user, "--out", dir], dir);
@@ -1074,8 +1731,10 @@ async function autoUpdateGiftsIfStale() {
     return { skipped: "fresh" };
   }
   const dir = getGvDataDir();
-  await runProc(getNodeCommand(), [getGvToolPath("fetch_gifts.cjs"), username, "--out", dir], dir);
-  await runProc(getNodeCommand(), [getGvToolPath("gifts_to_html.cjs"),
+  await ensureNodeRuntimeAvailable();
+  const nodeCmd = getNodeCommand();
+  await runProc(nodeCmd, [getGvToolPath("fetch_gifts.cjs"), username, "--out", dir], dir);
+  await runProc(nodeCmd, [getGvToolPath("gifts_to_html.cjs"),
     "--in", path.join(dir, "gifts.min.json"), "--out", dir], dir);
   console.log(`[gifts:auto-update] updated for @${username}`);
   return { ok: true };
@@ -1112,6 +1771,7 @@ ipcMain.handle("gv:gifts:update", async (_event, username) => {
   if (!fs.existsSync(htmlTool)) throw new Error(`gifts_to_html.cjs not found: ${htmlTool}`);
 
   const dir = getGvDataDir();
+  await ensureNodeRuntimeAvailable();
   const nodeCmd = getNodeCommand();
 
   await runProc(nodeCmd, [fetchTool, user, "--out", dir], dir);
@@ -1198,42 +1858,78 @@ ipcMain.handle("app:config:write", async (_event, data) => {
 // --------------------
 // IPC: サーバーテンプレートをコピー（空フォルダ対応）
 // --------------------
+// 数百MB・数千ファイルのJDK同梱テンプレートを同期fsで丸ごとコピーするとメインプロセスが
+// 完全にブロックされ、アプリ全体が無応答になる。fs.promises化した上で、一定件数ごとに
+// setImmediateでイベントループへ制御を返し、進捗はポーリング用の状態に積んでUIへ公開する。
+let copyTemplateState = { state: "idle", copied: 0, total: 0, error: "" };
+
+function countFilesRecursive(dir) {
+  let count = 0;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, entry.name);
+    count += entry.isDirectory() ? countFilesRecursive(p) : 1;
+  }
+  return count;
+}
+
+async function copyRecursiveAsync(src, dst, onFileCopied) {
+  await fs.promises.mkdir(dst, { recursive: true });
+  const entries = await fs.promises.readdir(src, { withFileTypes: true });
+  let sinceYield = 0;
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    const dstPath = path.join(dst, entry.name);
+    if (entry.isDirectory()) {
+      await copyRecursiveAsync(srcPath, dstPath, onFileCopied);
+    } else {
+      // 既存ファイルはスキップ（上書きしない）
+      if (!(await pathExists(dstPath))) {
+        await fs.promises.copyFile(srcPath, dstPath);
+      }
+      onFileCopied();
+      sinceYield += 1;
+      if (sinceYield >= 25) {
+        sinceYield = 0;
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    }
+  }
+}
+
 ipcMain.handle("server:copyTemplate", async (_event, targetFolder) => {
   if (!targetFolder || typeof targetFolder !== "string") throw new Error("targetFolder is required");
 
   const template = getServerTemplatePath();
   if (!fs.existsSync(template)) throw new Error(`テンプレートが見つかりません: ${template}`);
 
-  function copyRecursive(src, dst) {
-    fs.mkdirSync(dst, { recursive: true });
-    for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-      const srcPath = path.join(src, entry.name);
-      const dstPath = path.join(dst, entry.name);
-      if (entry.isDirectory()) {
-        copyRecursive(srcPath, dstPath);
-      } else {
-        // 既存ファイルはスキップ（上書きしない）
-        if (!fs.existsSync(dstPath)) {
-          fs.copyFileSync(srcPath, dstPath);
-        }
-      }
-    }
-  }
-
-  copyRecursive(template, targetFolder);
-
-  // MODが読む bridge/commands/minecraft/ をテンプレートコピー時点で展開
-  // (bridge:extractTo は確認ボタン後だが、MODはサーバー起動時に読むため早めに配置する)
   const commandsSrc = app.isPackaged
     ? path.join(process.resourcesPath, "bridge", "commands", "minecraft")
     : path.resolve(__dirname, "..", "bridge", "commands", "minecraft");
   const commandsDst = path.join(targetFolder, "bridge", "commands", "minecraft");
-  if (fs.existsSync(commandsSrc)) {
-    copyRecursive(commandsSrc, commandsDst);
+  const hasCommandsSrc = fs.existsSync(commandsSrc);
+
+  const total = countFilesRecursive(template) + (hasCommandsSrc ? countFilesRecursive(commandsSrc) : 0);
+  copyTemplateState = { state: "running", copied: 0, total, error: "" };
+
+  try {
+    const onFileCopied = () => { copyTemplateState.copied += 1; };
+    await copyRecursiveAsync(template, targetFolder, onFileCopied);
+
+    // MODが読む bridge/commands/minecraft/ をテンプレートコピー時点で展開
+    // (bridge:extractTo は確認ボタン後だが、MODはサーバー起動時に読むため早めに配置する)
+    if (hasCommandsSrc) {
+      await copyRecursiveAsync(commandsSrc, commandsDst, onFileCopied);
+    }
+    copyTemplateState = { ...copyTemplateState, state: "done" };
+  } catch (err) {
+    copyTemplateState = { ...copyTemplateState, state: "error", error: String(err?.message || err) };
+    throw err;
   }
 
   return { ok: true };
 });
+
+ipcMain.handle("server:copyTemplateStatus", () => copyTemplateState);
 
 // --------------------
 // IPC: bridge/commands/minecraft/ 内の .txt ファイル一覧
@@ -1241,7 +1937,8 @@ ipcMain.handle("server:copyTemplate", async (_event, targetFolder) => {
 ipcMain.handle("bridge:commands:list", async () => {
   const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
   if (!fs.existsSync(dir)) return [];
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".txt")).sort();
+  // アンダースコア始まり（_gamerules など内部用）はギフト/イベント割当のドロップダウンに出さない
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".txt") && !f.startsWith("_")).sort();
   return files.map((name) => {
     let title = name;
     try {
@@ -1259,7 +1956,7 @@ ipcMain.handle("bridge:commands:list", async () => {
 ipcMain.handle("bridge:commands:readMeta", async () => {
   const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
   if (!fs.existsSync(dir)) return [];
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".txt")).sort();
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".txt") && !f.startsWith("_")).sort();
   return files.map((name) => {
     let title = name;
     let category = "";
@@ -1320,6 +2017,68 @@ ipcMain.handle("server:checkSetupComplete", async () => {
   const hasRunBat = fs.existsSync(path.join(dir, "run.bat"));
   const complete = hasProps && (hasLibraries || hasRunBat);
   return { complete, dir };
+});
+
+// --------------------
+// IPC: 完了画面「検出された環境」の実測（旧: 固定配列のハードコード）
+// --------------------
+ipcMain.handle("setup:inspectEnvironment", async () => {
+  const dir = getServerRoot();
+  const hasLibraries = fs.existsSync(path.join(dir, "libraries"));
+  const hasRunBat = fs.existsSync(path.join(dir, "run.bat"));
+
+  let forgeVersion = "";
+  let minecraftVersion = "";
+  try {
+    const forgeLibDir = path.join(dir, "libraries", "net", "minecraftforge", "forge");
+    if (fs.existsSync(forgeLibDir)) {
+      const versionDirs = fs.readdirSync(forgeLibDir, { withFileTypes: true }).filter((e) => e.isDirectory());
+      if (versionDirs.length > 0) {
+        forgeVersion = versionDirs[0].name; // 例: "1.20.1-47.3.0"
+        minecraftVersion = forgeVersion.split("-")[0] || "";
+      }
+    }
+  } catch { /* 検出できなければ未検出のまま */ }
+
+  let javaVersion = "";
+  try {
+    const result = spawnSync("java", ["-version"], { encoding: "utf8" });
+    // java -version は多くのJDKでstderrに出力する
+    const out = String(result.stderr || result.stdout || "").split("\n")[0].trim();
+    if (out) javaVersion = out;
+  } catch { /* javaがPATHに無ければ未検出のまま */ }
+
+  const modsDir = path.join(dir, "mods");
+  let doumaModJar = "";
+  try {
+    if (fs.existsSync(modsDir)) {
+      doumaModJar = fs.readdirSync(modsDir).find((f) => /^doumacmd-.*\.jar$/i.test(f)) || "";
+    }
+  } catch { /* ignore */ }
+
+  const giftsMetaPath = path.join(getGvDataDir(), "gifts.meta.json");
+  let tiktokApiFresh = false;
+  let tiktokApiAgeMs = null;
+  if (fs.existsSync(giftsMetaPath)) {
+    tiktokApiAgeMs = Date.now() - fs.statSync(giftsMetaPath).mtimeMs;
+    tiktokApiFresh = tiktokApiAgeMs < 24 * 60 * 60 * 1000;
+  }
+
+  return {
+    forge: { detected: hasLibraries || hasRunBat, version: forgeVersion || "未検出" },
+    minecraft: { detected: Boolean(minecraftVersion), version: minecraftVersion || "未検出" },
+    java: { detected: Boolean(javaVersion), version: javaVersion || "未検出（PATHにjavaがありません）" },
+    bridge: { detected: true, version: app.getVersion() },
+    doumaMod: { detected: Boolean(doumaModJar), version: doumaModJar || "未検出" },
+    tiktokApi: {
+      detected: tiktokApiFresh,
+      version: tiktokApiAgeMs === null
+        ? "未確認（gifts.meta.jsonなし）"
+        : tiktokApiFresh
+        ? "接続 OK（ギフトデータ取得済み）"
+        : "未確認（ギフトデータが24時間以上前）",
+    },
+  };
 });
 
 // --------------------
@@ -1385,18 +2144,61 @@ ipcMain.handle("tts:getSpeakers", async (_event, engine) => {
 });
 
 const ENGINE_EXE_PATHS = {
-  voicevox: path.join(require("os").homedir(), "AppData", "Local", "Programs", "VOICEVOX", "VOICEVOX.exe"),
-  aivis: path.join(require("os").homedir(), "AppData", "Local", "Programs", "AivisSpeech", "AivisSpeech.exe"),
+  voicevox: [
+    path.join(require("os").homedir(), "AppData", "Local", "Programs", "VOICEVOX", "VOICEVOX.exe"),
+    path.join(process.env.LOCALAPPDATA || "", "Programs", "VOICEVOX", "VOICEVOX.exe"),
+    path.join(process.env.PROGRAMFILES || "", "VOICEVOX", "VOICEVOX.exe"),
+  ],
+  aivis: [
+    path.join(require("os").homedir(), "AppData", "Local", "Programs", "AivisSpeech", "AivisSpeech.exe"),
+    path.join(process.env.LOCALAPPDATA || "", "Programs", "AivisSpeech", "AivisSpeech.exe"),
+    path.join(process.env.PROGRAMFILES || "", "AivisSpeech", "AivisSpeech.exe"),
+  ],
 };
 
+function resolveEngineExe(engine) {
+  const candidates = ENGINE_EXE_PATHS[engine] || [];
+  return candidates.find((candidate) => candidate && fs.existsSync(candidate)) || null;
+}
+
+async function waitForTtsEngine(engine, timeoutMs = 60000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (await checkEngine(engine)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  return false;
+}
+
 ipcMain.handle("tts:launchEngine", async (_event, engine) => {
-  const exePath = ENGINE_EXE_PATHS[engine];
-  if (!fs.existsSync(exePath)) {
-    return { ok: false, message: `実行ファイルが見つかりません。公式サイトからインストールしてください。\n${exePath}` };
+  if (!ENGINE_PORTS[engine]) {
+    return { ok: false, message: `未対応の読み上げエンジンです: ${engine}` };
+  }
+  if (await checkEngine(engine)) {
+    return { ok: true, alreadyRunning: true, message: "すでに起動しています。" };
+  }
+
+  const exePath = resolveEngineExe(engine);
+  if (!exePath) {
+    const expected = (ENGINE_EXE_PATHS[engine] || []).filter(Boolean).join("\n");
+    return { ok: false, message: `実行ファイルが見つかりません。公式サイトからインストールしてください。\n${expected}` };
   }
   try {
-    spawn(exePath, [], { detached: true, stdio: "ignore" }).unref();
-    return { ok: true };
+    spawn(exePath, [], { cwd: path.dirname(exePath), detached: true, stdio: "ignore" }).unref();
+  } catch (spawnError) {
+    const shellError = await shell.openPath(exePath);
+    if (shellError) {
+      return { ok: false, message: spawnError?.message || shellError };
+    }
+  }
+
+  try {
+    const ready = await waitForTtsEngine(engine);
+    if (ready) {
+      return { ok: true, message: "起動しました。" };
+    }
+    const port = ENGINE_PORTS[engine];
+    return { ok: false, message: `起動は実行しましたが、APIがまだ応答していません。${port}番ポートで起動しているか確認してください。` };
   } catch (e) {
     return { ok: false, message: e.message };
   }

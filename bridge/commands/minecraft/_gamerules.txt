@@ -1,0 +1,8 @@
+# TITLE: ゲームルール適用
+# CATEGORY: システム
+# 内部用（アンダースコア始まりはギフト割当のドロップダウンに出さない）
+gamerule keepInventory true
+gamerule doDaylightCycle false
+time set day
+gamerule doWeatherCycle false
+weather clear

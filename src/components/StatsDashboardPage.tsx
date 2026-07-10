@@ -1,19 +1,33 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import MinecraftBlockIcon from "./MinecraftBlockIcon";
 
 type NameCount = { name: string; count: number };
 type StreamStat = {
   start: string; end: string; durationMs: number; events: number;
-  gift: number; like: number; other: number; succeeded: number; failed: number;
+  gift: number; like: number; share: number; follow: number; member: number; other: number;
+  succeeded: number; failed: number;
   uniqueSenders: number; topCommands: NameCount[]; topSenders: NameCount[];
 };
 type StreamStats = {
   gapMinutes: number;
-  overall: { streams: number; events: number; gift: number; like: number; other: number; succeeded: number; failed: number };
+  overall: { streams: number; events: number; gift: number; like: number; share: number; follow: number; member: number; other: number; succeeded: number; failed: number };
   streams: StreamStat[];
 };
+type HistoryRow = { at: string; type: string; sender: string; commandFile: string; count: number; ok: boolean };
 
 const card = "rounded-2xl border border-gray-700 bg-gray-900/70 p-5";
-const GAP_OPTIONS = [30, 60, 90, 120, 180];
+const SESSION_GAP_MINUTES = 24 * 60;
+const TIMELINE_BUCKETS = 5;
+const CHART_X = [25, 80, 135, 190, 250];
+const CHART_TOP = 15;
+const CHART_BOTTOM = 132;
+
+const EVENT_ICON: Record<string, string> = {
+  gift: "🎁", like: "♥", share: "🔗", follow: "➕", member: "👋",
+};
+const EVENT_LABEL: Record<string, string> = {
+  gift: "ギフト", like: "いいね", share: "シェア", follow: "フォロー", member: "訪問", other: "その他",
+};
 
 function fmtDuration(ms: number): string {
   const min = Math.round(ms / 60000);
@@ -26,6 +40,9 @@ function fmtRange(startIso: string, endIso: string): string {
   const d = s.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" });
   const t = (x: Date) => x.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
   return `${d} ${t(s)}〜${t(e)}`;
+}
+function fmtTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 function successRate(succeeded: number, total: number): string {
   if (total <= 0) return "—";
@@ -43,104 +60,233 @@ function StatTile({ label, value, tone }: { label: string; value: React.ReactNod
 
 export default function StatsDashboardPage() {
   const api = (window as any).mygamepack;
-  const [gap, setGap] = useState(90);
-  const [data, setData] = useState<StreamStats>({ gapMinutes: 90, overall: { streams: 0, events: 0, gift: 0, like: 0, other: 0, succeeded: 0, failed: 0 }, streams: [] });
+  const [data, setData] = useState<StreamStats>({
+    gapMinutes: SESSION_GAP_MINUTES,
+    overall: { streams: 0, events: 0, gift: 0, like: 0, share: 0, follow: 0, member: 0, other: 0, succeeded: 0, failed: 0 },
+    streams: [],
+  });
+  const [history, setHistory] = useState<HistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const refresh = useCallback(async (g: number) => {
+  const refresh = useCallback(async () => {
     setLoading(true);
-    try { setData(await api.operationsStreamStats(g)); }
-    catch { /* ignore */ }
+    try {
+      const [stats, rows] = await Promise.all([
+        api.operationsStreamStats(SESSION_GAP_MINUTES),
+        api.operationsHistory ? api.operationsHistory() : Promise.resolve([]),
+      ]);
+      setData(stats);
+      setHistory(Array.isArray(rows) ? rows : []);
+    } catch { /* ignore */ }
     finally { setLoading(false); }
   }, [api]);
 
-  useEffect(() => { refresh(gap); }, [gap, refresh]);
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(refresh, 5000);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
 
-  const maxGift = Math.max(1, ...data.streams.map((s) => s.gift));
   const o = data.overall;
+  const latest = data.streams[0];
+  const totalKinds = Math.max(1, o.gift + o.like + o.share + o.follow + o.member + o.other);
+  const success = successRate(o.succeeded, o.succeeded + o.failed);
+
+  // 直近ストリーム区間に属する実イベント（新しい順→古い順に並べ替え）
+  const latestRows = useMemo<Array<HistoryRow & { t: number }>>(() => {
+    if (!latest) return [];
+    const startT = Date.parse(latest.start) || 0;
+    const endT = Date.parse(latest.end) || Date.now();
+    return history
+      .map((r) => ({ ...r, t: Date.parse(r.at) || 0 }))
+      .filter((r) => r.t >= startT && r.t <= endT)
+      .sort((a, b) => a.t - b.t);
+  }, [history, latest]);
+
+  const timelinePoints = useMemo(() => {
+    if (!latest || latestRows.length === 0) return [] as Array<{ key: string; pct: number; icon: string; tone: string; title: string }>;
+    const startT = Date.parse(latest.start) || 0;
+    const endT = Date.parse(latest.end) || startT + 1;
+    const span = Math.max(1, endT - startT);
+    return latestRows.slice(-40).map((r, index) => ({
+      key: `${r.at}-${index}`,
+      pct: Math.min(100, Math.max(0, ((r.t - startT) / span) * 100)),
+      icon: EVENT_ICON[r.type] || "⚡",
+      tone: r.type === "gift" ? "gift" : r.type === "like" ? "like" : "other",
+      title: `${EVENT_ICON[r.type] || "⚡"} ${EVENT_LABEL[r.type] || r.type} / ${r.sender} / ${fmtTime(r.at)}`,
+    }));
+  }, [latest, latestRows]);
+
+  const timelineLabels = useMemo(() => {
+    if (!latest) return [] as string[];
+    const startT = Date.parse(latest.start) || 0;
+    const endT = Date.parse(latest.end) || startT;
+    const span = endT - startT;
+    return Array.from({ length: TIMELINE_BUCKETS }, (_, index) => {
+      const t = new Date(startT + (span * index) / (TIMELINE_BUCKETS - 1));
+      return t.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+    });
+  }, [latest]);
+
+  const chartPoints = useMemo(() => {
+    if (!latest) return { gift: "", like: "" };
+    const startT = Date.parse(latest.start) || 0;
+    const endT = Date.parse(latest.end) || startT + 1;
+    const span = Math.max(1, endT - startT);
+    const bucketMs = span / CHART_X.length;
+    const giftBuckets = new Array(CHART_X.length).fill(0);
+    const likeBuckets = new Array(CHART_X.length).fill(0);
+    for (const r of latestRows) {
+      const idx = Math.min(CHART_X.length - 1, Math.floor((r.t - startT) / bucketMs));
+      const amount = Number(r.count || 1);
+      if (r.type === "gift") giftBuckets[idx] += amount;
+      else if (r.type === "like") likeBuckets[idx] += amount;
+    }
+    const maxValue = Math.max(1, ...giftBuckets, ...likeBuckets);
+    const toPoints = (values: number[]) =>
+      values.map((v, i) => `${CHART_X[i]},${Math.round(CHART_BOTTOM - (v / maxValue) * (CHART_BOTTOM - CHART_TOP))}`).join(" ");
+    return { gift: toPoints(giftBuckets), like: toPoints(likeBuckets) };
+  }, [latest, latestRows]);
+
+  const recentEvents = useMemo(() => history.slice(0, 8), [history]);
+
+  const highlights = useMemo(() => {
+    return [...history]
+      .sort((a, b) => Number(b.count || 1) - Number(a.count || 1))
+      .slice(0, 3);
+  }, [history]);
 
   return (
-    <div className="max-w-6xl space-y-5">
-      <div className={card}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-black">配信統計ダッシュボード</h2>
-            <p className="text-xs text-gray-400">イベント履歴を配信ごとに区切って集計します。{data.gapMinutes}分以上途切れたら別配信として扱います。</p>
-          </div>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-gray-400">配信の区切り</span>
-            <select className="rounded-lg border border-gray-700 bg-gray-950 px-2 py-1.5 text-gray-100"
-              value={gap} onChange={(e) => setGap(Number(e.target.value))}>
-              {GAP_OPTIONS.map((g) => <option key={g} value={g}>{g}分</option>)}
-            </select>
-            <button className="rounded-lg bg-gray-700 px-3 py-1.5 font-bold" onClick={() => refresh(gap)}>更新</button>
-          </div>
+    <div className="stats-page stats-design-page page-surface max-w-none">
+      <section className="stats-summary-panel">
+        <div className="stats-heading-row">
+          <div><h1>配信統計ダッシュボード</h1><p>配信イベントの集計と分析をリアルタイム更新します。</p></div>
+          <div><button onClick={() => refresh()}>↻ 更新</button></div>
         </div>
-        <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6">
-          <StatTile label="配信数" value={o.streams} />
-          <StatTile label="総イベント" value={o.events} />
-          <StatTile label="ギフト" value={o.gift} tone="text-pink-300" />
-          <StatTile label="いいね" value={o.like} tone="text-cyan-300" />
-          <StatTile label="成功率" value={successRate(o.succeeded, o.succeeded + o.failed)} tone="text-emerald-300" />
-          <StatTile label="失敗" value={o.failed} tone="text-red-300" />
-        </div>
-      </div>
-
-      {loading && data.streams.length === 0 ? (
-        <div className={`${card} text-center text-sm text-gray-400`}>集計中…</div>
-      ) : data.streams.length === 0 ? (
-        <div className={`${card} text-center text-sm text-gray-400`}>
-          まだイベント履歴がありません。配信するか、運用センターのテストモードでイベントを発火すると集計されます。
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {data.streams.map((s, i) => (
-            <div key={s.start} className={card}>
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <div className="flex items-baseline gap-3">
-                  <span className="rounded-full bg-gray-800 px-2.5 py-0.5 text-xs font-bold text-gray-300">
-                    配信 #{data.streams.length - i}
-                  </span>
-                  <span className="text-sm font-bold text-gray-100">{fmtRange(s.start, s.end)}</span>
-                </div>
-                <span className="text-xs text-gray-500">配信時間 {fmtDuration(s.durationMs)} / 視聴者 {s.uniqueSenders}人</span>
-              </div>
-
-              <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-6">
-                <StatTile label="イベント" value={s.events} />
-                <StatTile label="ギフト" value={s.gift} tone="text-pink-300" />
-                <StatTile label="いいね" value={s.like} tone="text-cyan-300" />
-                <StatTile label="その他" value={s.other} />
-                <StatTile label="成功" value={s.succeeded} tone="text-emerald-300" />
-                <StatTile label="失敗" value={s.failed} tone={s.failed > 0 ? "text-red-300" : "text-gray-100"} />
-              </div>
-
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-800" title={`ギフト ${s.gift}`}>
-                <div className="h-full bg-gradient-to-r from-pink-500 to-fuchsia-500 transition-all"
-                  style={{ width: `${Math.round((s.gift / maxGift) * 100)}%` }} />
-              </div>
-
-              <div className="mt-3 grid gap-3 text-xs sm:grid-cols-2">
-                <div>
-                  <div className="mb-1 text-gray-500">最多ギフト</div>
-                  {s.topCommands.length ? s.topCommands.map((c) => (
-                    <div key={c.name} className="flex justify-between text-gray-300">
-                      <span className="truncate">{c.name}</span><span className="ml-2 shrink-0 text-gray-400">{c.count}</span>
-                    </div>
-                  )) : <div className="text-gray-600">—</div>}
-                </div>
-                <div>
-                  <div className="mb-1 text-gray-500">トップギフター</div>
-                  {s.topSenders.length ? s.topSenders.map((c) => (
-                    <div key={c.name} className="flex justify-between text-gray-300">
-                      <span className="truncate">{c.name}</span><span className="ml-2 shrink-0 text-gray-400">{c.count}</span>
-                    </div>
-                  )) : <div className="text-gray-600">—</div>}
-                </div>
-              </div>
+        <div className="stats-summary-grid">
+          {[
+            ["▣","配信数",o.streams,"blue"],
+            ["⌁","総イベント",o.events,"violet"],
+            ["🎁","ギフト",o.gift,"pink"],
+            ["♥","いいね",o.like,"pink"],
+            ["✓","成功率",success,"green"],
+            ["×","失敗",o.failed,"red"],
+          ].map(([icon,label,value,tone]) => (
+            <div className={`stats-summary-tile stats-summary-tile--${tone}`} key={String(label)}>
+              <span>{icon}</span><small>{label}</small><b>{value}</b>
             </div>
           ))}
         </div>
+      </section>
+
+      {loading && !latest ? <section className="stats-empty">集計中…</section> : !latest ? (
+        <section className="stats-empty">まだイベント履歴がありません。運用センターでテストイベントを発火すると集計されます。</section>
+      ) : (
+        <>
+          <section className="stats-session-panel">
+            <div className="stats-session-title"><span>配信 #1</span><h2>{fmtRange(latest.start, latest.end)}</h2><em>リアルタイム</em><small>配信時間 {fmtDuration(latest.durationMs)} / 視聴者 {latest.uniqueSenders}人</small></div>
+            <div className="stats-session-metrics">
+              {[
+                ["♟","視聴者",latest.uniqueSenders,"人"],
+                ["🎁","ギフト",latest.gift,""],
+                ["♥","いいね",latest.like,""],
+                ["⚡","その他イベント",latest.other,""],
+              ].map(([icon,label,value,suffix]) => <div key={String(label)}><span>{icon}</span><small>{label}</small><b>{value}{suffix}</b></div>)}
+            </div>
+            <div className="stats-timeline">
+              <div>
+                {timelinePoints.map((p) => (
+                  <i
+                    key={p.key}
+                    style={{ left: `${p.pct}%` }}
+                    className={`stats-timeline-dot--${p.tone}`}
+                    title={p.title}
+                  />
+                ))}
+              </div>
+              {timelineLabels.map((label, index) => <small key={`${label}-${index}`}>{label}</small>)}
+            </div>
+          </section>
+
+          <div className="stats-analytics-grid">
+            <section className="stats-analytics-card">
+              <h2>イベント内訳 ⓘ</h2>
+              <div className="stats-stack">
+                <span style={{width:`${(o.gift/totalKinds)*100}%`}} />
+                <i style={{width:`${(o.like/totalKinds)*100}%`}} />
+                <b style={{width:`${((o.share+o.follow+o.member+o.other)/totalKinds)*100}%`}} />
+              </div>
+              {[["ギフト",o.gift,"pink"],["いいね",o.like,"violet"],["シェア",o.share,"green"],["訪問",o.member,"amber"]].map(([label,value,tone]) => (
+                <p key={String(label)}><span className={`dot dot--${tone}`} />{label}<b>{value}</b><em>{Math.round((Number(value)/totalKinds)*100)}.0%</em></p>
+              ))}
+              <footer>合計 <b>{o.events}</b></footer>
+            </section>
+
+            <section className="stats-analytics-card stats-line-card">
+              <h2>ギフト＆いいね 推移</h2>
+              <div className="stats-chart-legend"><span>━ ギフト</span><i>━ いいね</i></div>
+              <svg viewBox="0 0 260 150" role="img" aria-label="ギフトといいねの推移">
+                <g className="grid"><path d="M25 15V132H250M25 44H250M25 73H250M25 102H250M80 15V132M135 15V132M190 15V132" /></g>
+                <polyline className="gift" points={chartPoints.gift} />
+                <polyline className="like" points={chartPoints.like} />
+              </svg>
+            </section>
+
+            <section className="stats-analytics-card stats-gauge-card">
+              <h2>成功率 ⓘ</h2>
+              <div className="stats-gauge" style={{"--rate": success === "—" ? "0" : success.replace("%","")} as React.CSSProperties}><span>{success}</span></div>
+              <div><p><b className="ok">成功</b><strong>{o.succeeded}</strong></p><p><b className="ng">失敗</b><strong>{o.failed}</strong></p></div>
+            </section>
+
+            <section className="stats-analytics-card stats-top-card">
+              <h2>トップギフト</h2>
+              {latest.topCommands[0] ? (
+                <div className="stats-top-gift"><span><MinecraftBlockIcon /></span><div><b>{latest.topCommands[0].name}</b><small>💎 {latest.topCommands[0].count}</small></div><em>100%</em></div>
+              ) : (
+                <p className="stats-no-data">データなし</p>
+              )}
+              <h2>トップギフター</h2>
+              {latest.topSenders.length ? (
+                latest.topSenders.slice(0,3).map((sender,index) => <p className="stats-ranker" key={sender.name}><span>{index+1}</span><b>{sender.name}</b><em>💎 {sender.count}</em></p>)
+              ) : (
+                <p className="stats-no-data">データなし</p>
+              )}
+            </section>
+          </div>
+
+          <div className="stats-bottom-grid">
+            <section>
+              <h2>直近イベント</h2>
+              <div className="stats-table">
+                {recentEvents.length === 0 ? (
+                  <p className="stats-no-data">データなし</p>
+                ) : recentEvents.map((row, index) => (
+                  <p key={`${row.at}-${index}`}>
+                    <time>{fmtTime(row.at)}</time>
+                    <span>{EVENT_ICON[row.type] || "⚡"} {EVENT_LABEL[row.type] || row.type}</span>
+                    <b>{row.commandFile}</b>
+                    <em>{row.sender}</em>
+                    <strong>{row.count}</strong>
+                  </p>
+                ))}
+              </div>
+            </section>
+            <section>
+              <h2>盛り上がりポイント <small>（回数上位イベント）</small></h2>
+              {highlights.length === 0 ? (
+                <p className="stats-no-data">データなし</p>
+              ) : highlights.map((row, index) => (
+                <div className="stats-highlight" key={`${row.at}-${index}`}>
+                  <span>{EVENT_ICON[row.type] || "⚡"}</span>
+                  <div>
+                    <b>{EVENT_LABEL[row.type] || row.type}発生</b>
+                    <small>{fmtTime(row.at)}　{row.sender} さんから {row.commandFile}（×{row.count}）</small>
+                  </div>
+                </div>
+              ))}
+            </section>
+          </div>
+        </>
       )}
     </div>
   );

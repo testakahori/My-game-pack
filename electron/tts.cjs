@@ -48,6 +48,7 @@ function httpPost(port, path, body, contentType = 'application/json', timeoutMs 
 
 async function checkEngine(engine) {
   const port = ENGINE_PORTS[engine];
+  if (!port) return false;
   try {
     const res = await httpGet(port, '/version', 2000);
     return res.status === 200;
@@ -67,8 +68,8 @@ async function getSpeakers(engine) {
 // [{ label: "四国めたん（ノーマル）", id: 2 }, ...]
 function flattenSpeakers(speakers) {
   const list = [];
-  for (const speaker of speakers) {
-    for (const style of speaker.styles) {
+  for (const speaker of Array.isArray(speakers) ? speakers : []) {
+    for (const style of Array.isArray(speaker.styles) ? speaker.styles : []) {
       list.push({
         label: `${speaker.name}（${style.name}）`,
         id: style.id
@@ -80,6 +81,7 @@ function flattenSpeakers(speakers) {
 
 async function synthesize(engine, text, speakerId, speedScale = 1.0, pitchScale = 0.0, intonationScale = 1.0) {
   const port = ENGINE_PORTS[engine];
+  if (!port) throw new Error(`未対応の読み上げエンジンです: ${engine}`);
 
   // Step 1: audio_query
   const queryRes = await httpPost(
@@ -109,4 +111,4 @@ async function synthesize(engine, text, speakerId, speedScale = 1.0, pitchScale 
   return synthRes.body; // すでにBuffer
 }
 
-module.exports = { checkEngine, getSpeakers, flattenSpeakers, synthesize };
+module.exports = { ENGINE_PORTS, checkEngine, getSpeakers, flattenSpeakers, synthesize };

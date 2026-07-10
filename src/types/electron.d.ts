@@ -37,6 +37,9 @@ export type BridgeConfig = {
 declare global {
   interface Window {
     mygamepack: {
+      windowMinimize: () => void;
+      windowMaximizeToggle: () => void;
+      windowClose: () => void;
       // --------------------
       // config
       // --------------------
@@ -47,8 +50,17 @@ declare global {
       // --------------------
       // bridge (optional)
       // --------------------
-      bridgeStart?: () => Promise<any>;
       bridgeRoot?: () => Promise<string>;
+      bridgeSyncStatus?: () => Promise<any>;
+      appVersion?: () => Promise<string>;
+      setupInspectEnvironment?: () => Promise<{
+        forge: { detected: boolean; version: string };
+        minecraft: { detected: boolean; version: string };
+        java: { detected: boolean; version: string };
+        bridge: { detected: boolean; version: string };
+        doumaMod: { detected: boolean; version: string };
+        tiktokApi: { detected: boolean; version: string };
+      }>;
 
       // --------------------
       // gifts
@@ -61,13 +73,23 @@ declare global {
       // --------------------
       // サーバー管理（統合UI）
       // --------------------
-      serverStart: () => Promise<{ ok: true }>;
+      serverStart: () => Promise<{ ok: true; backup?: { ok: boolean; message: string } | null }>;
+      serverStop: () => Promise<{ ok: true }>;
       bridgeLaunch: () => Promise<{ ok: true }>;
+      bridgeStop: () => Promise<{ ok: true }>;
+      bridgeRestart: () => Promise<{ ok: true }>;
+      bridgeProcessStatus: () => Promise<any>;
+      bridgeLogs: () => Promise<{ ok: true; lines: string[] }>;
+      minecraftLaunch: () => Promise<{ ok: true }>;
+      serverGamerulesApply: () => Promise<{ ok: true }>;
+      serverDatapackDeployNightVision: () => Promise<{ ok: true }>;
       serverPropsRead: () => Promise<Record<string, string>>;
       serverPropsWrite: (updates: Record<string, string>) => Promise<{ ok: true }>;
       serverSetup: () => Promise<{ ok: true }>;
+      serverForgeInstallAtPath: (folderPath: string) => Promise<{ ok: true }>;
       serverRconPasswordRead: () => Promise<{ found: boolean; password: string }>;
       dialogPickFolder: (title?: string) => Promise<{ canceled: boolean; path: string }>;
+      folderOpen: (folderPath: string) => Promise<{ ok: true; path: string }>;
       serverSetupAtPath: (folderPath: string) => Promise<{ ok: true }>;
 
       // --------------------
@@ -85,13 +107,24 @@ declare global {
       // --------------------
       // App config
       // --------------------
-      appConfigRead: () => Promise<{ serverFolder: string; setupComplete: boolean }>;
-      appConfigWrite: (data: Partial<{ serverFolder: string; setupComplete: boolean }>) => Promise<{ ok: true }>;
+      appConfigRead: () => Promise<{
+        serverFolder: string;
+        setupComplete: boolean;
+        setupRequiredByInstall?: boolean;
+        setupRequiredAt?: string;
+      }>;
+      appConfigWrite: (data: Partial<{
+        serverFolder: string;
+        setupComplete: boolean;
+        setupRequiredByInstall: boolean;
+        setupRequiredAt: string;
+      }>) => Promise<{ ok: true }>;
 
       // --------------------
       // セットアップ支援
       // --------------------
       serverCopyTemplate: (targetFolder: string) => Promise<{ ok: true }>;
+      serverCopyTemplateStatus?: () => Promise<{ state: string; copied: number; total: number; error: string }>;
       serverCheckSetupComplete: () => Promise<{ complete: boolean; dir: string }>;
     };
   }

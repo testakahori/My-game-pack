@@ -16,6 +16,9 @@ function normalizeUsername(u) {
 }
 
 contextBridge.exposeInMainWorld("mygamepack", {
+  windowMinimize: () => ipcRenderer.send("window:minimize"),
+  windowMaximizeToggle: () => ipcRenderer.send("window:maximizeToggle"),
+  windowClose: () => ipcRenderer.send("window:close"),
   // --------------------
   // config read/write
   // --------------------
@@ -32,12 +35,17 @@ contextBridge.exposeInMainWorld("mygamepack", {
   configValidate: (cfg) => ipcRenderer.invoke("config:validate", cfg),
 
   // --------------------
-  // Bridge (A方式: 同梱) 起動 / パス確認
+  // Bridge (A方式: 同梱) パス確認
   // --------------------
-  bridgeStart: () => ipcRenderer.invoke("bridge:start"),
-
   // main.cjs は "bridge:root" を実装してるので、preload側も合わせる
   bridgeRoot: () => ipcRenderer.invoke("bridge:root"),
+  bridgeSyncStatus: () => ipcRenderer.invoke("bridge:syncStatus"),
+
+  // アプリバージョン
+  appVersion: () => ipcRenderer.invoke("app:version"),
+
+  // セットアップ完了画面「検出された環境」の実測
+  setupInspectEnvironment: () => ipcRenderer.invoke("setup:inspectEnvironment"),
 
   // --------------------
   // Gifts
@@ -75,7 +83,10 @@ contextBridge.exposeInMainWorld("mygamepack", {
 
   // Bridge 停止
   bridgeStop: () => ipcRenderer.invoke("bridge:stop"),
+  // Bridge 再起動（停止完了を待ってから起動：stop→launch連打の空振りを防ぐ）
+  bridgeRestart: () => ipcRenderer.invoke("bridge:restart"),
   bridgeProcessStatus: () => ipcRenderer.invoke("bridge:processStatus"),
+  bridgeLogs: () => ipcRenderer.invoke("bridge:logs"),
   modStatus: () => ipcRenderer.invoke("mod:status"),
   testEvent: (event) => ipcRenderer.invoke("mod:testEvent", event),
   operationsHistory: () => ipcRenderer.invoke("operations:history"),
@@ -124,6 +135,11 @@ contextBridge.exposeInMainWorld("mygamepack", {
 
   // フォルダ選択ダイアログを開く
   dialogPickFolder: (title) => ipcRenderer.invoke("dialog:pickFolder", title || ""),
+
+  folderOpen: (folderPath) => {
+    if (!isString(folderPath) || !folderPath.trim()) throw new Error("folderOpen: folderPath is empty");
+    return ipcRenderer.invoke("folder:open", folderPath.trim());
+  },
 
   // 任意フォルダの setup.bat を実行
   serverSetupAtPath: (folderPath) => {
@@ -209,6 +225,7 @@ contextBridge.exposeInMainWorld("mygamepack", {
     if (!isString(targetFolder) || !targetFolder.trim()) throw new Error("serverCopyTemplate: targetFolder is empty");
     return ipcRenderer.invoke("server:copyTemplate", targetFolder.trim());
   },
+  serverCopyTemplateStatus: () => ipcRenderer.invoke("server:copyTemplateStatus"),
 
   serverCheckSetupComplete: () => ipcRenderer.invoke("server:checkSetupComplete"),
 

@@ -1,6 +1,7 @@
 // src/components/Header.tsx
 import React from "react";
 import { AppTab } from "../types";
+import MinecraftBlockIcon from "./MinecraftBlockIcon";
 
 type Props = {
   activeTab: AppTab;
@@ -34,12 +35,12 @@ const Header: React.FC<Props> = ({ activeTab, setActiveTab, subtitle }) => {
   };
 
   return (
-    <header className="bg-gray-900/60 backdrop-blur border-b border-gray-800 sticky top-0 z-50">
-      <div className="container mx-auto px-4 py-4 flex items-center justify-between gap-4">
+    <header className="gift-tabs-header bg-gray-900/60 backdrop-blur border-b border-gray-800 sticky top-0 z-50">
+      <div className="gift-tabs-header__inner container mx-auto px-4 py-4 flex items-center justify-between gap-4">
         {/* Left brand */}
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-600 to-blue-600 flex items-center justify-center shadow-lg shrink-0">
-            <span className="text-white font-black">MC</span>
+          <div className="gift-tabs-cube w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-600 to-blue-600 flex items-center justify-center shadow-lg shrink-0">
+            <MinecraftBlockIcon />
           </div>
           <div className="min-w-0">
             <div className="text-white font-black leading-tight truncate">MC TikTok Bridge（統合UI）</div>
@@ -54,8 +55,7 @@ const Header: React.FC<Props> = ({ activeTab, setActiveTab, subtitle }) => {
           {tabBtn(AppTab.IMAGE_EDITOR, "画像編集", "fa-solid fa-image")}
         </nav>
 
-        {/* Right spacer（右のボタン群は消したので余白だけ） */}
-        <div className="w-10" />
+        <div className="gift-server-pill"><span />サーバー接続中</div>
       </div>
     </header>
   );

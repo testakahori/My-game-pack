@@ -5,9 +5,18 @@ GiftsViewer/node_modules/
 # Build outputs
 dist
 release
+release-*/
 GiftsViewer/dist/
 GiftsViewer/release/
 GiftsViewer/tools-bundled/
+build/bridge-runtime.zip
+build/bridge-runtime-manifest.json
+build/bridge-runtime-tmp/
+build/bridge-bundle/
+build/bridge-bundle-test/
+build/bundle-run-test/
+build/runtime-extract-test/
+build/runtime-tar-test/
 
 # Minecraft server / runtime files (large binaries, not source)
 server/

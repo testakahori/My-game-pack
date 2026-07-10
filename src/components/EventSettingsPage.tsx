@@ -1,6 +1,7 @@
 // src/components/EventSettingsPage.tsx
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ToggleSlider } from "./ToggleSlider";
+import EventTypeIcon, { type EventIconKind } from "./EventTypeIcon";
 
 type LikeEvent = {
   id: string;
@@ -49,7 +50,7 @@ function CmdFileSelect({
 }) {
   const selected = commandFiles.find((f) => f.name === value);
   return (
-    <div className="flex items-center gap-2">
+    <div className="event-command-select flex items-center gap-2">
       {commandFiles.length > 0 ? (
         <select
           value={value}
@@ -81,6 +82,7 @@ function CmdFileSelect({
 // ── 標準イベントカード ────────────────────────────────────
 function SimpleEventCard({
   icon,
+  tone,
   title,
   description,
   event,
@@ -90,7 +92,8 @@ function SimpleEventCard({
   commandFiles,
   children,
 }: {
-  icon: string;
+  icon: React.ReactNode;
+  tone: "amber" | "purple" | "blue" | "green";
   title: string;
   description: React.ReactNode;
   event: SimpleEvent;
@@ -101,15 +104,15 @@ function SimpleEventCard({
   children?: React.ReactNode;
 }) {
   return (
-    <div className={`border rounded-2xl p-5 space-y-4 transition-all ${
+    <div className={`event-simple-card event-simple-card--${tone} border rounded-2xl p-5 space-y-4 transition-all ${
       event.enabled
         ? "bg-gray-800 border-gray-700"
         : "bg-gray-900/40 border-gray-800"
     }`}>
       {/* ヘッダー */}
-      <div className="flex items-start justify-between gap-3">
+      <div className="event-simple-card__head flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0">
-          <span className="text-2xl shrink-0 mt-0.5">{icon}</span>
+          <span className="event-simple-card__icon text-2xl shrink-0 mt-0.5">{icon}</span>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-sm font-black text-white">{title}</h3>
@@ -126,7 +129,7 @@ function SimpleEventCard({
       </div>
 
       {/* 実行イベント + 回数 */}
-      <div>
+      <div className="event-simple-card__controls">
         <label className="text-xs font-bold text-gray-400 mb-1.5 block">実行イベント</label>
         <div className="flex items-center gap-2">
           <div className="flex-1 min-w-0">
@@ -160,10 +163,10 @@ function SimpleEventCard({
 // ── メインコンポーネント ──────────────────────────────────
 const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
   const [likeEvents, setLikeEvents]               = useState<LikeEvent[]>([]);
-  const [unmappedGiftEvent, setUnmappedGiftEvent] = useState<SimpleEvent>({ commandFile: "", enabled: false });
-  const [shareEvent, setShareEvent]               = useState<SimpleEvent>({ commandFile: "", enabled: false });
-  const [followEvent, setFollowEvent]             = useState<SimpleEvent>({ commandFile: "", enabled: false });
-  const [memberEvent, setMemberEvent]             = useState<SimpleEvent>({ commandFile: "", enabled: false });
+  const [unmappedGiftEvent, setUnmappedGiftEvent] = useState<SimpleEvent>({ commandFile: "", repeat: 1, enabled: false });
+  const [shareEvent, setShareEvent]               = useState<SimpleEvent>({ commandFile: "", repeat: 1, enabled: false });
+  const [followEvent, setFollowEvent]             = useState<SimpleEvent>({ commandFile: "", repeat: 1, enabled: false });
+  const [memberEvent, setMemberEvent]             = useState<SimpleEvent>({ commandFile: "", repeat: 1, enabled: false });
   const [commandFiles, setCommandFiles]           = useState<CommandFile[]>([]);
   const [loading, setLoading]                     = useState(true);
   const [saving, setSaving]                       = useState(false);
@@ -171,6 +174,12 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
   const [isDirty, setIsDirty]                     = useState(false);
 
   const snapshot = useRef<string>("");
+
+  // 親（App.tsx）が onDirtyChange を安定した参照で渡すとは限らない（実際、ヘッダーのポーリングで
+  // 数秒おきに新しい関数が渡された結果、load()が再実行されて未保存の編集がディスクの内容で
+  // 上書きされる事故があった）。親の実装に依存せず安全に動くよう、常に最新の関数をrefで呼び出す。
+  const onDirtyChangeRef = useRef(onDirtyChange);
+  useEffect(() => { onDirtyChangeRef.current = onDirtyChange; }, [onDirtyChange]);
 
   const makeSnapshot = (
     likes: LikeEvent[],
@@ -191,9 +200,9 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
     (likes: LikeEvent[], unmapped: SimpleEvent, share: SimpleEvent, follow: SimpleEvent, member: SimpleEvent) => {
       const dirty = makeSnapshot(likes, unmapped, share, follow, member) !== snapshot.current;
       setIsDirty(dirty);
-      onDirtyChange?.(dirty);
+      onDirtyChangeRef.current?.(dirty);
     },
-    [onDirtyChange]
+    []
   );
 
   // ── 読み込み ──
@@ -221,14 +230,15 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
 
       snapshot.current = makeSnapshot(likes, unmapped, share, follow, member);
       setIsDirty(false);
-      onDirtyChange?.(false);
+      onDirtyChangeRef.current?.(false);
     } catch (e: any) {
       setMsg({ type: "error", text: `読み込みエラー: ${e?.message ?? String(e)}` });
     } finally {
       setLoading(false);
     }
-  }, [onDirtyChange]);
+  }, []);
 
+  // マウント時に一度だけ読み込む（load自体は安定した参照なので依存配列は空でよい）
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
@@ -305,10 +315,10 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
   }
 
   return (
-    <div className="max-w-3xl space-y-5">
+    <div className="events-page page-surface max-w-none space-y-5">
 
       {/* ══ ヘッダー + アクション ══ */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="events-header flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-black text-white">イベント設定</h1>
           <p className="text-gray-400 text-sm mt-1">
@@ -316,7 +326,7 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
             <code className="text-cyan-400 text-xs ml-1">config.minecraft.json</code> に保存されます。
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="events-header__actions flex items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={load}
@@ -358,47 +368,39 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
       )}
 
       {/* ══ サマリー ══ */}
-      <div className="bg-gray-800 border border-gray-700 rounded-2xl p-5">
+      <div className="events-summary bg-gray-800 border border-gray-700 rounded-2xl p-5">
         <div className="flex items-center justify-between gap-3 mb-4">
           <h2 className="text-xs font-black text-gray-400 uppercase tracking-wider">イベント設定サマリー</h2>
           <span className="text-xs text-gray-500">
             <span className="text-cyan-300 font-bold">{enabledCount}</span> / 5 有効
           </span>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="events-summary-grid flex flex-wrap gap-2">
           {[
-            { label: "👍 いいね", enabled: likeEvents.some((e) => e.enabled), count: likeEvents.length },
-            { label: "🎁 未設定ギフト", enabled: unmappedGiftEvent.enabled },
-            { label: "➕ フォロー", enabled: followEvent.enabled },
-            { label: "🔗 シェア", enabled: shareEvent.enabled },
-            { label: "🚶 訪問", enabled: memberEvent.enabled },
+            { kind: "like", label: "いいね", enabled: likeEvents.some((e) => e.enabled), value: likeEvents.length, unit: "ルール", tone: "pink" },
+            { kind: "gift", label: "未設定ギフト", enabled: unmappedGiftEvent.enabled, value: unmappedGiftEvent.enabled ? 1 : 0, unit: "イベント", tone: "amber" },
+            { kind: "follow", label: "フォロー", enabled: followEvent.enabled, value: followEvent.enabled ? 1 : 0, unit: "イベント", tone: "purple" },
+            { kind: "share", label: "シェア", enabled: shareEvent.enabled, value: shareEvent.enabled ? 1 : 0, unit: "イベント", tone: "blue" },
+            { kind: "visit", label: "訪問", enabled: memberEvent.enabled, value: memberEvent.enabled ? 1 : 0, unit: "イベント", tone: "green" },
           ].map((item) => (
             <div
               key={item.label}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold ${
-                item.enabled
-                  ? "bg-emerald-950/50 border-emerald-700/50 text-emerald-300"
-                  : "bg-gray-900/60 border-gray-700 text-gray-500"
-              }`}
+              className={`events-summary-card events-summary-card--${item.tone} ${item.enabled ? "is-enabled" : "is-disabled"}`}
             >
-              <div className={`w-1.5 h-1.5 rounded-full ${item.enabled ? "bg-emerald-400" : "bg-gray-600"}`} />
-              {item.label}
-              {"count" in item && item.count > 0 && (
-                <span className={`ml-0.5 px-1 rounded text-[9px] ${item.enabled ? "bg-emerald-800/60" : "bg-gray-700"}`}>
-                  {item.count}件
-                </span>
-              )}
+              <span><EventTypeIcon kind={item.kind as EventIconKind} /></span>
+              <div><b>{item.label}</b><strong>{item.value} <small>{item.unit}</small></strong><em>{item.enabled ? "有効" : "無効"}</em></div>
             </div>
           ))}
         </div>
       </div>
 
       {/* ══ いいね設定（特別扱い） ══ */}
-      <section className="bg-gray-800 border border-gray-700 rounded-2xl p-5 space-y-4">
-        <div className="flex items-center justify-between gap-3">
+      <section className="events-like-panel bg-gray-800 border border-gray-700 rounded-2xl p-5 space-y-4">
+        <div className="events-like-heading flex items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-black text-white">👍 いいね設定</h2>
+              <span className="events-like-icon">♥</span>
+              <h2 className="text-base font-black text-white">いいね設定 <small>（しきい値ラダー）</small></h2>
               <span className="text-[10px] font-bold text-cyan-400 bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-700/40">
                 複数設定可
               </span>
@@ -419,94 +421,93 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
             「＋ ルール追加」でいいね設定を追加できます
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="events-like-table">
+            <div className="events-like-columns" aria-hidden="true">
+              <span>しきい値（累計いいね数）</span>
+              <span>実行コマンド（Minecraft）</span>
+              <span>繰り返し（回数）</span>
+              <span>ステータス</span>
+              <span>操作</span>
+            </div>
             {likeEvents.map((ev, idx) => (
               <div
                 key={ev.id}
-                className={`border rounded-xl p-4 space-y-4 transition-all ${
-                  ev.enabled
-                    ? "bg-gray-900/60 border-gray-600"
-                    : "bg-gray-900/30 border-gray-700 opacity-70"
-                }`}
+                className={`events-like-row ${ev.enabled ? "is-enabled" : "is-disabled"}`}
               >
-                {/* ルールヘッダー */}
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-black text-gray-500 bg-gray-800 px-2 py-0.5 rounded">
-                      ルール {idx + 1}
-                    </span>
-                    {ev.label && (
-                      <span className="text-xs text-gray-300 font-bold">{ev.label}</span>
-                    )}
-                    {ev.enabled ? (
-                      <span className="text-[9px] font-bold text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/40">有効</span>
-                    ) : (
-                      <span className="text-[9px] font-bold text-gray-600 bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">無効</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <ToggleSlider
-                      checked={ev.enabled}
-                      onChange={() => updateLike(ev.id, { enabled: !ev.enabled })}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setLikeEventsD((prev) => prev.filter((e) => e.id !== ev.id))}
-                      className="text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded-lg hover:bg-red-900/20 transition"
-                    >
-                      削除
-                    </button>
-                  </div>
+                <div className="events-like-threshold">
+                  <i>{idx + 1}</i>
+                  <input
+                    type="number"
+                    min={1}
+                    value={ev.threshold}
+                    aria-label={`ルール${idx + 1}のしきい値`}
+                    onChange={(e) => updateLike(ev.id, { threshold: Number(e.target.value) || 1 })}
+                  />
+                  <span>いいね</span>
                 </div>
 
-                {/* フィールド */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-bold text-gray-400 mb-1.5 block">発火するいいね数</label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={ev.threshold}
-                      onChange={(e) => updateLike(ev.id, { threshold: Number(e.target.value) || 1 })}
-                      className="w-full bg-gray-900 border border-gray-600 rounded-xl px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-                    />
-                    <div className="text-[10px] text-gray-500 mt-1">
-                      {ev.threshold} いいねごとに発火
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-gray-400 mb-1.5 block">表示ラベル（任意）</label>
-                    <input
-                      type="text"
-                      value={ev.label}
-                      onChange={(e) => updateLike(ev.id, { label: e.target.value })}
-                      placeholder={`${ev.threshold}いいね`}
-                      className="w-full bg-gray-900 border border-gray-600 rounded-xl px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-                    />
-                  </div>
+                <span className="events-like-arrow" aria-hidden="true">→</span>
+
+                <CmdFileSelect
+                  value={ev.commandFile}
+                  onChange={(v) => updateLike(ev.id, { commandFile: v })}
+                  commandFiles={commandFiles}
+                />
+
+                <div className="events-like-repeat">
+                  <button type="button" onClick={() => updateLike(ev.id, { repeat: Math.max(1, (ev.repeat ?? 1) - 1) })}>−</button>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={ev.repeat ?? 1}
+                    aria-label={`ルール${idx + 1}の繰り返し回数`}
+                    onChange={(e) => updateLike(ev.id, { repeat: Math.min(100, Math.max(1, Number(e.target.value) || 1)) })}
+                  />
+                  <button type="button" onClick={() => updateLike(ev.id, { repeat: Math.min(100, (ev.repeat ?? 1) + 1) })}>＋</button>
                 </div>
 
-                <div>
-                  <label className="text-xs font-bold text-gray-400 mb-1.5 block">実行イベント</label>
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 min-w-0">
-                      <CmdFileSelect
-                        value={ev.commandFile}
-                        onChange={(v) => updateLike(ev.id, { commandFile: v })}
-                        commandFiles={commandFiles}
-                      />
-                    </div>
-                    <input
-                      type="number"
-                      min={1}
-                      max={100}
-                      value={ev.repeat ?? 1}
-                      onChange={(e) => updateLike(ev.id, { repeat: Math.min(100, Math.max(1, Number(e.target.value) || 1)) })}
-                      className="w-16 shrink-0 bg-gray-900 border border-gray-600 rounded-xl px-2 py-2.5 text-sm text-center text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-                    />
-                    <span className="text-xs text-gray-500 shrink-0">回</span>
-                  </div>
+                <div className="events-like-status">
+                  <ToggleSlider checked={ev.enabled} onChange={() => updateLike(ev.id, { enabled: !ev.enabled })} />
+                  <span>{ev.enabled ? "有効" : "無効"}</span>
                 </div>
+
+                <div className="events-like-actions">
+                  <button
+                    type="button"
+                    disabled={idx === 0}
+                    onClick={() => setLikeEventsD((prev) => {
+                      const next = [...prev];
+                      [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                      return next;
+                    })}
+                    aria-label={`ルール${idx + 1}を上へ`}
+                  >↑</button>
+                  <button
+                    type="button"
+                    disabled={idx === likeEvents.length - 1}
+                    onClick={() => setLikeEventsD((prev) => {
+                      const next = [...prev];
+                      [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+                      return next;
+                    })}
+                    aria-label={`ルール${idx + 1}を下へ`}
+                  >↓</button>
+                  <button
+                    type="button"
+                    onClick={() => setLikeEventsD((prev) => prev.filter((e) => e.id !== ev.id))}
+                    aria-label={`ルール${idx + 1}を削除`}
+                  >⌫</button>
+                </div>
+
+                <input
+                  type="text"
+                  value={ev.label}
+                  onChange={(e) => updateLike(ev.id, { label: e.target.value })}
+                  className="events-like-label"
+                  aria-label={`ルール${idx + 1}の表示ラベル`}
+                  placeholder={`${ev.threshold}いいね`}
+                />
               </div>
             ))}
           </div>
@@ -514,11 +515,12 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
       </section>
 
       {/* ══ 標準イベント設定（2カラム） ══ */}
-      <div>
+      <div className="events-standard">
         <h2 className="text-xs font-black text-gray-400 uppercase tracking-wider mb-3">標準イベント</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="events-standard-grid grid grid-cols-1 md:grid-cols-2 gap-4">
           <SimpleEventCard
-            icon="🎁"
+            icon={<EventTypeIcon kind="gift" />}
+            tone="amber"
             title="未設定ギフト"
             description="ギフト設定でマッピングされていないギフトが投げられたときに発火します。"
             event={unmappedGiftEvent}
@@ -529,7 +531,8 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
           />
 
           <SimpleEventCard
-            icon="➕"
+            icon={<EventTypeIcon kind="follow" />}
+            tone="purple"
             title="フォロー"
             description="フォローされたときにコマンドを発火します。"
             event={followEvent}
@@ -540,7 +543,8 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
           />
 
           <SimpleEventCard
-            icon="🔗"
+            icon={<EventTypeIcon kind="share" />}
+            tone="blue"
             title="シェア"
             description="シェアされたときにコマンドを発火します。"
             event={shareEvent}
@@ -551,7 +555,8 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
           />
 
           <SimpleEventCard
-            icon="🚶"
+            icon={<EventTypeIcon kind="visit" />}
+            tone="green"
             title="訪問"
             description={
               <>
@@ -569,7 +574,7 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
       </div>
 
       {/* ══ 保存フッター ══ */}
-      <div className={`flex items-center justify-between gap-4 rounded-2xl p-5 border transition-all ${
+      <div className={`events-footer flex items-center justify-between gap-4 rounded-2xl p-5 border transition-all ${
         isDirty
           ? "bg-amber-950/25 border-amber-600/40"
           : "bg-gray-800/40 border-gray-700"

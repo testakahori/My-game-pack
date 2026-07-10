@@ -627,7 +627,12 @@ public class DoumaCmdMod {
             int result = server.getCommands().performPrefixedCommand(silentSource, commandLine);
             executedCommands++;
             if (result == 0) {
-                recordFailure(commandLine + ": command returned 0");
+                // execute if/unless の条件不成立（result 0）は正常系。召喚txtは
+                // 「上空が空いていれば頭上／塞がっていれば足元」の2行フォールバックで
+                // 毎回必ず片方が result 0 になるため、失敗計上すると統計が汚染される。
+                if (!isConditionalCommand(commandLine)) {
+                    recordFailure(commandLine + ": command returned 0");
+                }
                 return false;
             }
             return true;
@@ -637,6 +642,13 @@ public class DoumaCmdMod {
             recordFailure(commandLine + ": " + e.getMessage());
             return false;
         }
+    }
+
+    private static boolean isConditionalCommand(String commandLine) {
+        String v = commandLine == null ? "" : commandLine.trim();
+        if (v.startsWith("/")) v = v.substring(1).trim();
+        v = v.toLowerCase(Locale.ROOT);
+        return v.startsWith("execute if ") || v.startsWith("execute unless ");
     }
 
     private synchronized void recordFailure(String message) {

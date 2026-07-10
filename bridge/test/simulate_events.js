@@ -151,6 +151,51 @@ async function main() {
     assert.ok(bad.errors.some(x => x.includes("doumaModPort")));
   });
 
+  await ok("streak: 正常な連打進行はdeltaが増分のみ", () => {
+    const map = new Map();
+    const key = "gift1:alice";
+    const t0 = 1_000_000;
+    assert.strictEqual(bridge.computeStreakDelta(map, key, 1, false, t0, 60000), 1);
+    assert.strictEqual(bridge.computeStreakDelta(map, key, 3, false, t0 + 100, 60000), 2);
+    assert.strictEqual(bridge.computeStreakDelta(map, key, 5, false, t0 + 200, 60000), 2);
+  });
+
+  await ok("streak: repeatEndはtruthy判定（1でもtrueでも終了扱い）", () => {
+    const map = new Map();
+    const key = "gift1:alice";
+    const t0 = 1_000_000;
+    bridge.computeStreakDelta(map, key, 5, 1, t0, 60000); // repeatEnd=1（非boolean）でも終了扱い
+    assert.strictEqual(map.has(key), false, "repeatEnd=1 でbaselineが残留している");
+
+    bridge.computeStreakDelta(map, key, 3, true, t0 + 100, 60000);
+    assert.strictEqual(map.has(key), false, "repeatEnd=true でbaselineが残留している");
+  });
+
+  await ok("streak: ベースライン残留バグの回帰（終了イベント欠落→次streakが無視されない）", () => {
+    const map = new Map();
+    const key = "gift1:alice";
+    const t0 = 1_000_000;
+    // 1回目のstreak: rc=5で終了イベントが来ない（欠落）まま残留
+    bridge.computeStreakDelta(map, key, 5, false, t0, 60000);
+    assert.strictEqual(map.get(key).count, 5);
+
+    // 2回目のstreakがrc=1から開始 → 修正前は delta=1-5<=0 で無視されていた
+    const delta = bridge.computeStreakDelta(map, key, 1, false, t0 + 100, 60000);
+    assert.strictEqual(delta, 1, "新しいstreak開始（rc巻き戻り）が無視されている");
+  });
+
+  await ok("streak: TTL失効後は同一rcNumでもbaselineを捨てて発火する", () => {
+    const map = new Map();
+    const key = "gift1:alice";
+    const t0 = 1_000_000;
+    const ttlMs = 60000;
+    bridge.computeStreakDelta(map, key, 5, false, t0, ttlMs);
+
+    // TTLを過ぎてから同じ人が同じギフトをrc=1から投げ直す
+    const delta = bridge.computeStreakDelta(map, key, 1, false, t0 + ttlMs + 1, ttlMs);
+    assert.strictEqual(delta, 1, "TTL失効後もbaselineが効いてしまっている");
+  });
+
   await ok("Bridge再起動ポリシー: クラッシュ時のみ再起動", () => {
     const policy = new RestartPolicy();
     policy.start();

@@ -1,9 +1,8 @@
-// src/components/GiftsViewerPage.tsx
-// GiftsViewer を統合UI のページとして再実装（ダークテーマ・Tailwind）
 import React from "react";
 
 type Gift = { id: number; name: string; diamond_count: number; image?: string | null };
 type GiftsMeta = { generatedAt: string; username: string; count: number } | null;
+type ViewMode = "grid" | "list" | "compact";
 
 function fmtDate(iso?: string) {
   if (!iso) return "";
@@ -12,9 +11,59 @@ function fmtDate(iso?: string) {
   return d.toLocaleString("ja-JP");
 }
 
+function fmtShortDate(iso?: string) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("ja-JP", {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function getApi() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (window as any).mygamepack ?? null;
+}
+
+function DiamondIcon({ tone = "green" }: { tone?: "green" | "purple" | "blue" }) {
+  return (
+    <svg className={`gift-diamond-icon gift-diamond-icon--${tone}`} viewBox="0 0 64 64" aria-hidden="true">
+      <defs>
+        <linearGradient id={`giftDiamond-${tone}`} x1="10" y1="8" x2="54" y2="58" gradientUnits="userSpaceOnUse">
+          <stop stopColor={tone === "purple" ? "#d78bff" : tone === "blue" ? "#5fe7ff" : "#4cffb6"} />
+          <stop offset=".55" stopColor={tone === "purple" ? "#884fff" : tone === "blue" ? "#158cff" : "#0ccf82"} />
+          <stop offset="1" stopColor={tone === "purple" ? "#4c20a7" : tone === "blue" ? "#073f92" : "#056848"} />
+        </linearGradient>
+      </defs>
+      <path d="M18 9h28l12 15-26 32L6 24 18 9Z" fill={`url(#giftDiamond-${tone})`} />
+      <path d="M18 9 32 56 46 9M6 24h52M18 9l-4 15 18 32 18-32-4-15" fill="none" stroke="rgba(255,255,255,.42)" strokeWidth="2" />
+      <path d="M18 9h28l12 15-26 32L6 24 18 9Z" fill="none" stroke="rgba(255,255,255,.28)" strokeWidth="2" />
+    </svg>
+  );
+}
+
+function ServerLinkIcon() {
+  return (
+    <svg className="gift-server-link-icon" viewBox="0 0 72 72" aria-hidden="true">
+      <defs>
+        <linearGradient id="giftChestTop" x1="0" x2="1">
+          <stop stopColor="#ffd66a" />
+          <stop offset="1" stopColor="#b66b24" />
+        </linearGradient>
+      </defs>
+      <path d="M13 28h46v30H13z" fill="#8a5325" stroke="#ffd37b" strokeWidth="2" />
+      <path d="M13 20h46v13H13z" fill="url(#giftChestTop)" stroke="#ffd37b" strokeWidth="2" />
+      <path d="M17 33h38M36 20v38" stroke="#563317" strokeWidth="3" opacity=".7" />
+      <rect x="30" y="32" width="12" height="12" rx="2" fill="#d7e8ff" stroke="#12243f" strokeWidth="2" />
+      <path d="M48 15c8 2 12 7 12 15m-6-11c4 2 6 5 6 9" fill="none" stroke="#54e8ff" strokeWidth="3" strokeLinecap="round" />
+      <circle cx="18" cy="16" r="4" fill="#2df29c" />
+      <path d="M17 43h10m18 0h10" stroke="#ffd37b" strokeWidth="2" />
+    </svg>
+  );
 }
 
 const GiftsViewerPage: React.FC = () => {
@@ -27,6 +76,7 @@ const GiftsViewerPage: React.FC = () => {
   const [toast, setToast] = React.useState<{ id: number; msg: string } | null>(null);
   const [q, setQ] = React.useState("");
   const [sort, setSort] = React.useState<"costAsc" | "costDesc" | "nameAsc">("costAsc");
+  const [viewMode, setViewMode] = React.useState<ViewMode>("grid");
 
   const showToast = (msg: string) => {
     setToast({ id: Date.now(), msg });
@@ -37,7 +87,9 @@ const GiftsViewerPage: React.FC = () => {
     setErr(null);
     const api = getApi();
     if (!api?.gvGiftsRead) {
-      setGifts([]); setMeta(null); setExists(false);
+      setGifts([]);
+      setMeta(null);
+      setExists(false);
       setErr("Electron API (gvGiftsRead) が見つかりません。");
       return;
     }
@@ -70,7 +122,9 @@ const GiftsViewerPage: React.FC = () => {
     setErr(null);
     const api = getApi();
     if (!api?.gvGiftsUpdate) {
-      setErr("Electron API が見つかりません。"); setLoading(false); return;
+      setErr("Electron API が見つかりません。");
+      setLoading(false);
+      return;
     }
     try {
       const u = username.trim().replace(/^@/, "");
@@ -86,25 +140,13 @@ const GiftsViewerPage: React.FC = () => {
     }
   };
 
-  const onOpenFolder = async () => {
-    const api = getApi();
-    if (!api?.gvGiftsOpenFolder) return;
-    try { await api.gvGiftsOpenFolder(); }
-    catch (e: any) { setErr(e?.message || String(e)); }
-  };
-
-  const onOpenHtml = async () => {
-    const api = getApi();
-    if (!api?.gvGiftsOpenHtml) return;
-    try { await api.gvGiftsOpenHtml(); }
-    catch (e: any) { setErr(e?.message || String(e)); }
-  };
-
   const onCopyText = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
       showToast(`ID コピー: ${text}`);
-    } catch { /* ignore */ }
+    } catch {
+      showToast("IDコピーに失敗しました");
+    }
   };
 
   const onCopyImage = async (url: string) => {
@@ -112,9 +154,7 @@ const GiftsViewerPage: React.FC = () => {
     if (!api?.gvGiftsFetchImageBase64) return;
     try {
       showToast("画像をダウンロード中…");
-
       const dataUrl: string = await api.gvGiftsFetchImageBase64(url);
-
       const img = new Image();
       img.src = dataUrl;
       await new Promise<void>((resolve, reject) => {
@@ -128,193 +168,162 @@ const GiftsViewerPage: React.FC = () => {
       const ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("Failed to get 2d context");
       ctx.drawImage(img, 0, 0);
-      const pngDataUrl = canvas.toDataURL("image/png");
 
-      await api.gvGiftsCopyPngDataUrl(pngDataUrl);
+      await api.gvGiftsCopyPngDataUrl(canvas.toDataURL("image/png"));
       showToast("画像をクリップボードにコピーしました！");
     } catch (e: any) {
       setErr("画像コピー失敗: " + (e?.message || String(e)));
     }
   };
 
+  const uniqueGifts = React.useMemo(() => {
+    const map = new Map<string, Gift>();
+    for (const gift of gifts) {
+      const key = Number.isFinite(Number(gift.id))
+        ? `id:${gift.id}`
+        : `name:${gift.name}:${gift.diamond_count}`;
+      const current = map.get(key);
+      if (!current || (!current.image && gift.image)) map.set(key, gift);
+    }
+    return [...map.values()];
+  }, [gifts]);
+
   const filtered = React.useMemo(() => {
     const s = q.trim().toLowerCase();
-    let arr = gifts.filter((g) => (!s ? true : `${g.id} ${g.name}`.toLowerCase().includes(s)));
+    const arr = uniqueGifts.filter((g) => (!s ? true : `${g.id} ${g.name}`.toLowerCase().includes(s)));
+    const sorted = [...arr];
     if (sort === "nameAsc") {
-      arr.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      sorted.sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
     } else {
-      arr.sort((a, b) => (a.diamond_count ?? 0) - (b.diamond_count ?? 0));
-      if (sort === "costDesc") arr.reverse();
+      sorted.sort((a, b) => {
+        const byCost = (a.diamond_count ?? 0) - (b.diamond_count ?? 0);
+        if (byCost !== 0) return byCost;
+        return (a.name || "").localeCompare(b.name || "", "ja");
+      });
+      if (sort === "costDesc") sorted.reverse();
     }
-    return arr;
-  }, [gifts, q, sort]);
+    return sorted;
+  }, [uniqueGifts, q, sort]);
+
+  const minDiamond = uniqueGifts.length ? Math.min(...uniqueGifts.map((gift) => gift.diamond_count || 0)) : 0;
+  const maxDiamond = uniqueGifts.length ? Math.max(...uniqueGifts.map((gift) => gift.diamond_count || 0)) : 0;
+  const minGift = uniqueGifts.find((gift) => gift.diamond_count === minDiamond);
+  const maxGift = uniqueGifts.find((gift) => gift.diamond_count === maxDiamond);
 
   return (
-    <div className="flex flex-col h-full">
-      {/* ヘッダーバー */}
-      <div className="shrink-0 border-b border-gray-700 bg-gray-800/50 px-5 py-3 space-y-3">
-        <div className="flex items-center gap-3 flex-wrap">
-          {/* タイトル */}
-          <div>
-            <span className="text-white font-black text-base">ギフト一覧</span>
-            <span className="ml-2 text-gray-500 text-xs">TikTok ギフトを取得・一覧表示</span>
-          </div>
+    <div className="gifts-viewer-page gift-catalog-v2 page-surface">
+      <header className="gift-catalog-v2__header">
+        <div>
+          <h1>ギフト一覧</h1>
+          <p>TikTok Gifts</p>
+        </div>
+        <span>MyGamePack Manager</span>
+      </header>
 
-          {/* ユーザー名 + 更新 */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-400 shrink-0">TikTok:</span>
-            <span className="text-gray-400 text-xs shrink-0">@</span>
+      <section className="gift-catalog-v2__toolbar">
+        <label>
+          <span>TikTok ユーザー名</span>
+          <div>
+            <b>@</b>
             <input
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && onUpdate()}
               placeholder="akahoridouma"
-              className="bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-100 w-48 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
             />
-            <button
-              type="button"
-              onClick={onUpdate}
-              disabled={loading}
-              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition ${
-                loading
-                  ? "bg-gray-700 text-gray-500 cursor-not-allowed"
-                  : "bg-cyan-600 hover:bg-cyan-500 text-white"
-              }`}
-            >
-              {loading ? "更新中…" : "🔄 更新"}
-            </button>
           </div>
+        </label>
+        <button type="button" onClick={onUpdate} disabled={loading} className="gift-catalog-action gift-catalog-action--cyan">
+          {loading ? "更新中…" : "↻ 更新"}
+        </button>
+        <div className="gift-catalog-search">
+          <span>⌕</span>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ギフト名・IDを検索..." />
+        </div>
+        <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
+          <option value="costAsc">コスト 低→高</option>
+          <option value="costDesc">コスト 高→低</option>
+          <option value="nameAsc">名前 A→Z</option>
+        </select>
+      </section>
 
-          {/* フォルダ / HTML */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onOpenFolder}
-              className="px-3 py-1.5 rounded-lg text-xs text-gray-300 border border-gray-600 hover:border-gray-400 hover:text-white transition"
-            >
-              📁 フォルダを開く
-            </button>
-            <button
-              type="button"
-              onClick={onOpenHtml}
-              disabled={!exists}
-              className={`px-3 py-1.5 rounded-lg text-xs border transition ${
-                exists
-                  ? "text-gray-300 border-gray-600 hover:border-gray-400 hover:text-white"
-                  : "text-gray-600 border-gray-700 cursor-not-allowed"
-              }`}
-            >
-              🌐 HTML を開く
-            </button>
+      <p className="gift-catalog-v2__meta">
+        更新日時: {meta ? fmtDate(meta.generatedAt) : "未取得"}　/　@{meta?.username || username || "—"}　/　
+        <b>{filtered.length}</b> / {uniqueGifts.length} 件
+      </p>
+
+      {err && <div className="gift-catalog-error">❌ {err}</div>}
+
+      <section className="gift-catalog-stats-v2" aria-label="ギフト一覧サマリー">
+        <div className="gift-stat-card gift-stat-card--cyan">
+          <span className="gift-stat-card__icon">🎁</span>
+          <div><small>総ギフト数</small><b>{uniqueGifts.length}<em>件</em></b><p>TikTok ギフト取得完了</p></div>
+        </div>
+        <div className="gift-stat-card gift-stat-card--blue">
+          <span className="gift-stat-card__icon">◷</span>
+          <div><small>最終更新</small><b>{fmtShortDate(meta?.generatedAt)}</b><p>自動更新: 有効</p></div>
+        </div>
+        <div className="gift-stat-card gift-stat-card--green">
+          <span className="gift-stat-card__icon"><DiamondIcon tone="green" /></span>
+          <div><small>最安ギフト</small><b>{minDiamond}<em>💎</em></b><p>{minGift ? `${minGift.name}（ID: ${minGift.id}）` : "—"}</p></div>
+        </div>
+        <div className="gift-stat-card gift-stat-card--purple">
+          <span className="gift-stat-card__icon"><DiamondIcon tone="purple" /></span>
+          <div><small>最高額ギフト</small><b>{maxDiamond.toLocaleString()}<em>💎</em></b><p>{maxGift ? `${maxGift.name}（ID: ${maxGift.id}）` : "—"}</p></div>
+        </div>
+        <div className="gift-stat-card gift-stat-card--server">
+          <span className="gift-stat-card__icon"><ServerLinkIcon /></span>
+          <div><small>サーバー連携</small><b><i />正常</b><p>Bridge: 接続中</p></div>
+        </div>
+      </section>
+
+      <section className="gift-catalog-panel-v2">
+        <div className="gift-catalog-filters">
+          <div className="gift-catalog-result-count">
+            表示中 <b>{filtered.length}</b> 件
+            {q.trim() ? <button type="button" onClick={() => setQ("")}>検索をクリア</button> : null}
           </div>
-
-          {/* 検索 + ソート */}
-          <div className="flex items-center gap-2 ml-auto">
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="ID・名前で検索"
-              className="bg-gray-900 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-100 w-44 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-            />
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value as typeof sort)}
-              className="bg-gray-900 border border-gray-600 rounded-lg px-2 py-1.5 text-xs text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-            >
-              <option value="costAsc">コスト 低→高</option>
-              <option value="costDesc">コスト 高→低</option>
-              <option value="nameAsc">名前 A→Z</option>
-            </select>
+          <div className="gift-view-mode">
+            {(["grid", "list", "compact"] as const).map((mode) => (
+              <button key={mode} type="button" className={viewMode === mode ? "is-active" : ""} onClick={() => setViewMode(mode)}>
+                {mode === "grid" ? "▦ グリッド" : mode === "list" ? "☰ リスト" : "▥ コンパクト"}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* メタ情報 */}
-        <div className="text-xs text-gray-500">
-          {meta ? (
-            <span>
-              更新日時: {fmtDate(meta.generatedAt)} &nbsp;/&nbsp; @{meta.username} &nbsp;/&nbsp;{" "}
-              <span className="text-cyan-400 font-bold">{filtered.length}</span> / {meta.count} 件
-              {q && <span className="text-amber-400 ml-1">（絞り込み中）</span>}
-            </span>
-          ) : exists ? (
-            <span>gifts.min.json を読み込みました</span>
-          ) : (
-            <span>「更新」ボタンでギフト一覧を取得してください。</span>
-          )}
-        </div>
-
-        {/* エラー */}
-        {err && (
-          <div className="px-3 py-2 bg-red-900/40 border border-red-500/40 rounded-lg text-xs text-red-300">
-            ❌ {err}
-          </div>
-        )}
-      </div>
-
-      {/* ギフトグリッド */}
-      <div className="flex-1 overflow-y-auto p-4">
         {filtered.length === 0 ? (
-          <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
-            {loading ? "取得中…" : gifts.length === 0 ? "ギフトがありません" : "検索結果が0件です"}
+          <div className="gift-catalog-empty">
+            {loading ? "取得中…" : uniqueGifts.length === 0 ? "ギフトがありません" : "検索結果が0件です"}
           </div>
         ) : (
-          <div className="grid grid-cols-6 gap-2">
-            {filtered.map((g) => (
-              <div
-                key={g.id}
-                className="bg-gray-800 border border-gray-700 rounded-xl p-3 flex items-center gap-3 hover:border-gray-500 transition"
-              >
-                {/* 画像 */}
-                <div
-                  className={`w-14 h-14 rounded-xl bg-gray-700 flex items-center justify-center shrink-0 overflow-hidden ${
-                    g.image ? "cursor-pointer hover:ring-2 hover:ring-cyan-500/60" : ""
-                  }`}
-                  title={g.image ? "クリックで透過画像をコピー" : undefined}
-                  onClick={() => { if (g.image) onCopyImage(g.image); }}
+          <div className={`gift-catalog-grid gift-catalog-grid--${viewMode}`}>
+            {filtered.map((gift, index) => (
+              <article className="gift-catalog-card" key={gift.id}>
+                <button
+                  type="button"
+                  className="gift-catalog-card__image"
+                  onClick={() => { if (gift.image) onCopyImage(gift.image); }}
+                  title={gift.image ? "クリックで透過画像をコピー" : undefined}
                 >
-                  {g.image ? (
-                    <img src={g.image} alt="" className="w-full h-full object-contain" />
-                  ) : (
-                    <span className="text-gray-600 text-[10px]">no img</span>
-                  )}
+                  {gift.image ? <img src={gift.image} alt={gift.name} /> : <span>?</span>}
+                </button>
+                <div className="gift-catalog-card__body" onClick={() => onCopyText(String(gift.id))}>
+                  <b title={gift.name}>{gift.name}</b>
+                  <small>ID: <em>{gift.id}</em></small>
+                  <p>💎 <strong>{gift.diamond_count}</strong></p>
                 </div>
-
-                {/* テキスト */}
-                <div
-                  className="min-w-0 flex-1 cursor-pointer"
-                  title="クリックで ID をコピー"
-                  onClick={() => onCopyText(String(g.id))}
-                >
-                  <div className="text-sm font-bold text-gray-100 truncate">{g.name}</div>
-                  <div className="text-xs text-gray-400 mt-0.5">
-                    ID: <span className="text-cyan-400 font-bold">{g.id}</span>
-                    &ensp;/&ensp;
-                    💎 <span className="text-yellow-400 font-bold">{g.diamond_count}</span>
-                  </div>
-                  <div className="text-[10px] text-gray-600 mt-0.5">[ID コピー]</div>
-                </div>
-              </div>
+                <button type="button" className="gift-catalog-card__copy" onClick={() => onCopyText(String(gift.id))}>▣ コピー</button>
+                <i className={`gift-card-glow gift-card-glow--${index % 6}`} />
+              </article>
             ))}
           </div>
         )}
-      </div>
+      </section>
 
-      {/* トースト通知 */}
       {toast && (
-        <div
-          key={toast.id}
-          className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-gray-900 border border-gray-600 text-white px-5 py-2.5 rounded-full text-sm font-medium shadow-xl z-50 pointer-events-none"
-          style={{ animation: "gvToastFade 2.5s ease-in-out forwards" }}
-        >
+        <div key={toast.id} className="gift-catalog-toast">
           {toast.msg}
-          <style>{`
-            @keyframes gvToastFade {
-              0%   { opacity: 0; transform: translate(-50%, 12px); }
-              12%  { opacity: 1; transform: translate(-50%, 0); }
-              88%  { opacity: 1; transform: translate(-50%, 0); }
-              100% { opacity: 0; transform: translate(-50%, 12px); }
-            }
-          `}</style>
         </div>
       )}
     </div>

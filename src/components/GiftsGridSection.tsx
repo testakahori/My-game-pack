@@ -87,6 +87,12 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
     });
   }, [gifts]);
 
+  useEffect(() => {
+    if (selectedGiftId || uniqueGifts.length === 0) return;
+    const firstGift = uniqueGifts[0];
+    onPickGift(String(firstGift.id), firstGift.name || "", firstGift.image, firstGift.diamond_count);
+  }, [selectedGiftId, uniqueGifts, onPickGift]);
+
   const setCount   = useMemo(() => uniqueGifts.filter((g) => !!(mappingsByGiftId[String(g.id)]?.commandFile)).length, [uniqueGifts, mappingsByGiftId]);
   const unsetCount = useMemo(() => uniqueGifts.length - setCount, [uniqueGifts, setCount]);
 
@@ -114,10 +120,10 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
   };
 
   return (
-    <div className="relative bg-gray-800 border border-gray-700 rounded-3xl shadow-xl overflow-hidden">
+    <div className="gift-catalog-panel relative bg-gray-800 border border-gray-700 rounded-3xl shadow-xl overflow-hidden">
 
       {/* ── ヘッダー ── */}
-      <div className="px-5 pt-5 pb-4 space-y-3">
+      <div className="gift-catalog-head px-5 pt-5 pb-4 space-y-3">
         {/* タイトル行 */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
@@ -144,7 +150,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
         </div>
 
         {/* フィルタータブ + 検索 + ソート */}
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="gift-catalog-toolbar flex items-center gap-3 flex-wrap">
           {/* フィルタータブ（主役） */}
           <div className="flex items-center bg-gray-900/60 rounded-xl p-1 gap-1">
             {([
@@ -213,7 +219,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
       )}
 
       {/* ── ギフトグリッド ── */}
-      <div className="px-5 pb-5 overflow-y-auto" style={{ maxHeight: "340px" }}>
+      <div className="gift-grid-scroll px-5 pb-5 overflow-y-auto">
         {filtered.length === 0 ? (
           <div className="flex items-center justify-center h-32 text-gray-500 text-xs text-center">
             {loading
@@ -235,7 +241,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
                   type="button"
                   onClick={() => handleGiftClick(g)}
                   title={`${g.name} (💎${g.diamond_count})`}
-                  className={`relative flex flex-col items-center gap-1 p-2 rounded-xl transition-all border group ${
+                  className={`gift-tile relative flex flex-col items-center gap-1 p-2 rounded-xl transition-all border group ${
                     isSelected
                       ? "bg-cyan-900/70 border-cyan-400 ring-2 ring-cyan-400/40 shadow-lg shadow-cyan-900/50 scale-105"
                       : isSet
@@ -255,13 +261,10 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
                   </div>
 
                   {/* 画像 */}
-                  <div className={`w-11 h-11 rounded-lg flex items-center justify-center overflow-hidden ${
+                  <div className={`gift-tile-art w-11 h-11 rounded-lg flex items-center justify-center overflow-hidden ${
                     isSelected ? "bg-cyan-800/40" : "bg-gray-700/60"
                   }`}>
-                    {g.image
-                      ? <img src={g.image} alt="" className="w-full h-full object-contain" />
-                      : <span className="text-gray-600 text-[6px]">no img</span>
-                    }
+                    {g.image ? <img src={g.image} alt="" className="w-full h-full object-contain" /> : null}
                   </div>
 
                   {/* 名前 + コスト */}

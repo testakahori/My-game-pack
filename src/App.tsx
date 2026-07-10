@@ -1,5 +1,5 @@
 // src/App.tsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AppPage } from "./types";
 import Sidebar from "./components/Sidebar";
 import DashboardPage from "./components/DashboardPage";
@@ -10,6 +10,7 @@ import EventSettingsPage from "./components/EventSettingsPage";
 import TTSSettingsPage from "./components/TTSSettingsPage";
 import OperationsPage from "./components/OperationsPage";
 import StatsDashboardPage from "./components/StatsDashboardPage";
+import MinecraftBlockIcon from "./components/MinecraftBlockIcon";
 
 const PAGE_TITLE: Partial<Record<AppPage, string>> = {
   [AppPage.DASHBOARD]: "ダッシュボード",
@@ -26,7 +27,18 @@ const App: React.FC = () => {
   const [activePage, setActivePage] = useState<AppPage>(AppPage.SETUP);
   const [setupComplete, setSetupComplete] = useState(false);
   const [configLoaded, setConfigLoaded] = useState(false);
+  const [appVersion, setAppVersion] = useState("");
+  const [clock, setClock] = useState(new Date());
+  const [headerStatus, setHeaderStatus] = useState({ bridgeRunning: false, modOnline: false });
   const eventsDirtyRef = useRef(false);
+  const contentRef = useRef<HTMLElement>(null);
+
+  // App.tsx はヘッダーのポーリング（bridgeProcessStatus/modStatus/時計）で数秒おきに再レンダリングされる。
+  // インラインの onDirtyChange を渡すと毎回新しい関数になり、EventSettingsPage側のuseEffect(load)が
+  // それを検知して未保存の編集内容をディスクの内容で上書きしてしまう事故があったため、参照を固定する。
+  const handleEventsDirtyChange = useCallback((dirty: boolean) => {
+    eventsDirtyRef.current = dirty;
+  }, []);
 
   const navigateTo = (page: AppPage) => {
     if (activePage === AppPage.EVENTS && eventsDirtyRef.current) {
@@ -65,6 +77,40 @@ const App: React.FC = () => {
     })();
   }, []);
 
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      contentRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activePage]);
+
+  useEffect(() => {
+    const api = (window as any).mygamepack;
+    api?.appVersion?.().then((v: string) => setAppVersion(v)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const api = (window as any).mygamepack;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const [bridge, mod] = await Promise.all([
+          api?.bridgeProcessStatus ? api.bridgeProcessStatus() : Promise.resolve({ running: false }),
+          api?.modStatus ? api.modStatus() : Promise.resolve({ online: false }),
+        ]);
+        if (!cancelled) setHeaderStatus({ bridgeRunning: Boolean(bridge?.running), modOnline: Boolean(mod?.online) });
+      } catch { /* ヘッダーの参考表示なので失敗しても無視 */ }
+    };
+    poll();
+    const timer = window.setInterval(poll, 5000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, []);
+
   const handleSetupComplete = () => {
     setSetupComplete(true);
     setActivePage(AppPage.DASHBOARD);
@@ -88,26 +134,40 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="flex h-screen bg-gray-900 text-gray-100 overflow-hidden">
-      {/* 左サイドバー */}
-      <Sidebar
-        activePage={activePage}
-        setActivePage={navigateTo}
-        setupComplete={setupComplete}
-      />
+    <div className="app-shell flex h-screen flex-col bg-gray-900 text-gray-100 overflow-hidden">
+      <header className="global-app-header">
+        <div className="global-app-identity">
+          <div className="global-app-cube"><MinecraftBlockIcon /></div>
+          <div><b>MC TikTok Bridge（統合UI）</b><small>{appVersion ? `v${appVersion}` : ""}</small></div>
+        </div>
+        <div className="global-app-status">
+          <span><i className={`status-dot ${headerStatus.bridgeRunning ? "status-dot--ok" : "status-dot--warn"}`} />システム状態: <b>{headerStatus.bridgeRunning ? "正常" : "Bridge停止中"}</b></span>
+          <span>⌁ 接続: <b>{headerStatus.modOnline ? "オンライン" : "オフライン"}</b></span>
+          <span>⬡ Bridge: <b>{headerStatus.bridgeRunning ? "監視中" : "停止中"}</b></span>
+          <time>{clock.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}</time>
+        </div>
+        <div className="global-window-controls">
+          <button type="button" aria-label="最小化" onClick={() => (window as any).mygamepack?.windowMinimize?.()}>―</button>
+          <button type="button" aria-label="最大化" onClick={() => (window as any).mygamepack?.windowMaximizeToggle?.()}>□</button>
+          <button type="button" aria-label="閉じる" onClick={() => (window as any).mygamepack?.windowClose?.()}>×</button>
+        </div>
+      </header>
 
-      {/* 右コンテンツ */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* ページタイトルバー */}
-        <header className="bg-gray-800/60 border-b border-gray-700 px-6 py-3 flex items-center gap-3 shrink-0">
-          <div className="text-sm font-bold text-gray-200">{PAGE_TITLE[activePage]}</div>
-          <div className="ml-auto text-[11px] text-gray-500">MyGamePack Manager</div>
-        </header>
+      <div className="app-workspace flex flex-1 min-h-0 overflow-hidden">
+        <Sidebar
+          activePage={activePage}
+          setActivePage={navigateTo}
+          setupComplete={setupComplete}
+        />
 
-        {/* ページコンテンツ */}
-        <main className="flex-1 overflow-y-auto">
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <header className="app-topbar" aria-hidden="true">
+            <div className="app-topbar-title">{PAGE_TITLE[activePage]}</div>
+          </header>
+
+          <main ref={contentRef} className="app-content flex-1 overflow-y-auto">
           {activePage === AppPage.DASHBOARD && (
-            <div className="p-6">
+            <div className="page-pad p-6">
               <DashboardPage />
             </div>
           )}
@@ -116,25 +176,25 @@ const App: React.FC = () => {
           {activePage === AppPage.GIFTS && <GiftSettingsPage />}
 
           {activePage === AppPage.EVENTS && (
-            <div className="p-6">
-              <EventSettingsPage onDirtyChange={(d) => { eventsDirtyRef.current = d; }} />
+            <div className="page-pad p-6">
+              <EventSettingsPage onDirtyChange={handleEventsDirtyChange} />
             </div>
           )}
 
           {activePage === AppPage.TTS && (
-            <div className="p-6">
+            <div className="page-pad p-6">
               <TTSSettingsPage />
             </div>
           )}
           {activePage === AppPage.OPERATIONS && (
-            <div className="p-6"><OperationsPage /></div>
+            <div className="page-pad p-6"><OperationsPage /></div>
           )}
           {activePage === AppPage.STATS && (
-            <div className="p-6"><StatsDashboardPage /></div>
+            <div className="page-pad p-6"><StatsDashboardPage /></div>
           )}
 
           {activePage === AppPage.SETUP && (
-            <div className="p-6">
+            <div className="page-pad p-6">
               <InitialSetupPage
                 setupComplete={setupComplete}
                 onSetupComplete={handleSetupComplete}
@@ -149,7 +209,8 @@ const App: React.FC = () => {
               <GiftsViewerPage />
             </div>
           )}
-        </main>
+          </main>
+        </div>
       </div>
     </div>
   );

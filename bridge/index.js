@@ -449,6 +449,26 @@ function dedupeKeyFromGift(data) {
   return `g:${giftId}|u:${user}|rc:${repeatCount}|re:${repeatEnd}`;
 }
 
+// streakは「増えた分(delta)」だけ反応する。streakMapを直接更新しつつdeltaを返す純関数として
+// 切り出す（本番の gift ハンドラとテストの両方から同じロジックを呼べるようにするため）。
+// 【修正2026-07-08 C】ベースライン残留でギフトが無視される問題を解消：
+//  - streakMap は { count, at } を保持し、ttlMs で失効させる
+//  - 前回値より小さい repeatCount（＝新しいstreak開始）や失効時は baseline を捨てて delta=1
+//  - どのケースでも「無視(return)」しない
+//  - repeatEnd は truthy 判定（ライブラリが 1/true どちらを返しても終了扱い）
+function computeStreakDelta(streakMap, key, rcNum, repeatEnd, now, ttlMs) {
+  const prevEntry = streakMap.get(key);
+  const isFresh = prevEntry && (now - prevEntry.at) < ttlMs;
+  const delta = isFresh && rcNum > prevEntry.count
+    ? rcNum - prevEntry.count // 正常な連打の増分
+    : 1; // 新しいstreak開始 / baseline消失 / 巻き戻り → 最低1回は必ず発火
+
+  streakMap.set(key, { count: rcNum, at: now });
+  if (repeatEnd) streakMap.delete(key);
+
+  return delta;
+}
+
 function isDuplicateEvent(key) {
   // msgId ベースのキーは 2.5 秒で重複除去、フォールバックキーは 100ms に短縮
   // （フォールバックキーは同一ユーザー/匿名ユーザーの誤判定を防ぐため）
@@ -575,6 +595,30 @@ function sendDoumaModEvent({ host, port, type, commandFile, count, listenerName,
   });
 }
 
+// operations-history.json は bridge（このプロセス）と electron（main）の両方が書き込む。
+// 従来の「全体読み込み→unshift→全体書き込み」は同時書き込みで履歴が巻き戻る事故があったため、
+// 追記のみ（JSONL: 1行1イベント・古い順）に変更した。旧フォーマット（JSON配列）は初回書き込み時に
+// その場で変換する。electron/main.cjs 側にも同じ変換ロジックがある（どちらが先に書いても安全）。
+function migrateOperationsHistoryToJsonlIfNeeded(historyPath) {
+  let raw = "";
+  try { raw = fs.readFileSync(historyPath, "utf8"); } catch { return; }
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("[")) return; // 既にJSONL、または空
+  let rows;
+  try { rows = JSON.parse(trimmed); } catch { return; }
+  if (!Array.isArray(rows)) return;
+  const oldestFirst = [...rows].reverse();
+  const lines = oldestFirst.map((row) => JSON.stringify(row)).join("\n");
+  fs.writeFileSync(historyPath, lines ? lines + "\n" : "", "utf8");
+}
+
+function appendOperationsHistoryLine(historyPath, row) {
+  try {
+    migrateOperationsHistoryToJsonlIfNeeded(historyPath);
+    fs.appendFileSync(historyPath, JSON.stringify(row) + "\n", "utf8");
+  } catch { /* ignore */ }
+}
+
 async function enqueueDoumaModEvent(doumaMod, event, opts = {}) {
   // ギフトは落とさない：429(キュー満杯)や一時的な接続断は指数バックオフでリトライ。
   // リトライ待ちは rconQueue を直列で塞ぐが、Mod側が詰まっている間に
@@ -583,15 +627,13 @@ async function enqueueDoumaModEvent(doumaMod, event, opts = {}) {
   for (let attempt = 0; ; attempt++) {
     try {
       await sendDoumaModEvent({ ...doumaMod, ...event });
-      try {
-        const historyPath = path.join(__dirname, "operations-history.json");
-        let rows = [];
-        try { rows = JSON.parse(fs.readFileSync(historyPath, "utf8")); } catch {}
-        rows.unshift({ at: new Date().toISOString(), type: event.type || "other",
-          sender: event.listenerName || "viewer", commandFile: ensureTxt(event.commandFile),
-          count: event.count || 1, ok: true });
-        fs.writeFileSync(historyPath, JSON.stringify(rows.slice(0, 1000), null, 2), "utf8");
-      } catch {}
+      // event.type はMod側のキュー振り分け用（gift/like以外は全部"other"に丸められる）。
+      // 統計での内訳表示のため、share/follow/member等の実種別は historyType に別枠で持たせる。
+      appendOperationsHistoryLine(path.join(__dirname, "operations-history.json"), {
+        at: new Date().toISOString(), type: event.historyType || event.type || "other",
+        sender: event.listenerName || "viewer", commandFile: ensureTxt(event.commandFile),
+        count: event.count || 1, ok: true,
+      });
       if (attempt > 0) {
         console.log(`[DoumaMod] Send ok after retry x${attempt} (${event.type}:${event.commandFile})`);
       }
@@ -1013,7 +1055,16 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
   const tiktok = new WebcastPushConnection(tiktokUsername, {});
   const lastExecAt = new Map(); // cooldown (giftId+sender)
-  const streakLastCount = new Map(); // key: giftId:sender -> lastRepeatCount
+  const streakLastCount = new Map(); // key: giftId:sender -> { count, at }
+  const STREAK_TTL_MS = clampInt(options.streakTtlMs ?? 60000, 5000, 600000, 60000);
+
+  // 長時間配信でMapが無限に膨らむのを防ぐ定期クリーンアップ（5分より古い痕跡を掃除）
+  const stateCleanupTimer = setInterval(() => {
+    const cutoff = Date.now() - 5 * 60 * 1000;
+    for (const [k, v] of lastExecAt) if (v < cutoff) lastExecAt.delete(k);
+    for (const [k, v] of streakLastCount) if ((v?.at ?? 0) < cutoff) streakLastCount.delete(k);
+  }, 60000);
+  if (typeof stateCleanupTimer.unref === "function") stateCleanupTimer.unref();
 
   // RCON/Telnet 実行を直列化しつつ、ギフトをいいねの backlog より優先する。
   // 並列接続による gift_stream:bridge ストレージの上書きを防ぐため、実行自体は常に1本。
@@ -1066,7 +1117,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const listenerName = feature.type === "combo"
       ? (featureEngine.topGifter() || feature.sender) : feature.sender;
     enqueueRcon(`feature:${feature.type}`, () => enqueueDoumaModEvent(doumaMod, {
-      type: "other", commandFile: feature.commandFile,
+      type: "other", historyType: feature.type || "other", commandFile: feature.commandFile,
       count: clampInt(feature.count, 1, 100, 1),
       listenerName: listenerName || "viewer", announce: true,
     }), { priority: 8 });
@@ -1220,20 +1271,10 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
     const baseRepeat = clampInt(mapping.repeat ?? 1, 1, 100, 1);
 
-    // streakは「増えた分(delta)」だけ反応
-    let delta = 1;
-    if (isStreak) {
-      const skey = `${giftId}:${sender}`;
-      const prev = streakLastCount.get(skey) || 0;
-      delta = rcNum - prev;
-      if (delta <= 0) return;
-
-      streakLastCount.set(skey, rcNum);
-
-      if (typeof data.repeatEnd === "boolean" && data.repeatEnd === true) {
-        streakLastCount.delete(skey);
-      }
-    }
+    // streakは「増えた分(delta)」だけ反応（詳細は computeStreakDelta のコメント参照）
+    const delta = isStreak
+      ? computeStreakDelta(streakLastCount, `${giftId}:${sender}`, rcNum, data.repeatEnd, now, STREAK_TTL_MS)
+      : 1;
 
     let times = delta * baseRepeat;
     times = featureEngine.recordGift({ giftId, sender, commandFile: mapping.commandFile, count: times });
@@ -1468,6 +1509,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       console.log(`[Share] from=${sender} -> DoumaMod repeat=${shareRepeat} file=${shareEvent.commandFile}`);
       enqueueRcon("share", () => enqueueDoumaModEvent(doumaMod, {
         type: "other",
+        historyType: "share",
         commandFile: shareEvent.commandFile,
         count: shareRepeat,
         listenerName: sender,
@@ -1522,6 +1564,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       console.log(`[Follow] from=${sender} -> DoumaMod repeat=${followRepeat} file=${followEvent.commandFile}`);
       enqueueRcon("follow", () => enqueueDoumaModEvent(doumaMod, {
         type: "other",
+        historyType: "follow",
         commandFile: followEvent.commandFile,
         count: followRepeat,
         listenerName: sender,
@@ -1575,6 +1618,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       console.log(`[Member] join=${sender} -> DoumaMod repeat=${memberRepeat} file=${memberEvent.commandFile}`);
       enqueueRcon("member", () => enqueueDoumaModEvent(doumaMod, {
         type: "other",
+        historyType: "member",
         commandFile: memberEvent.commandFile,
         count: memberRepeat,
         listenerName: sender,
@@ -1632,4 +1676,5 @@ module.exports = {
   sendDoumaModEvent,
   enqueueDoumaModEvent,
   commandFileToDoumaKey,
+  computeStreakDelta,
 };

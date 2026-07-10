@@ -1,7 +1,7 @@
 {
   "name": "tiktok-bridge-ui",
   "private": true,
-  "version": "1.0.10",
+  "version": "1.0.14",
   "description": "MyGamePack 用の設定編集UI（TikTok Bridge統合UI）",
   "author": "Douma Akahori",
   "type": "module",
@@ -9,9 +9,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "typecheck": "tsc --noEmit",
     "electron:dev": "cross-env ELECTRON_DEV=1 electron .",
     "electron:prod": "electron .",
-    "pack:win": "npm run build && electron-builder --win --x64"
+    "prepare:bridge-runtime": "node scripts/prepare-bridge-runtime.cjs",
+    "pack:win": "npm run build && npm run prepare:bridge-runtime && electron-builder --win --x64"
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
@@ -52,6 +54,20 @@
     "extraResources": [
       {
         "from": "bridge",
+        "to": "bridge",
+        "filter": [
+          "**/*",
+          "!logs/**",
+          "!node/**",
+          "!node_modules/**",
+          "!test/**",
+          "!presets/**",
+          "!operations-history.json",
+          "!runtime-status.json"
+        ]
+      },
+      {
+        "from": "build/bridge-bundle",
         "to": "bridge"
       },
       {

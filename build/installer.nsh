@@ -26,3 +26,15 @@
     Delete "$R8"
   ${endif}
 !macroend
+
+!macro customInstall
+  ; Every completed installer run must return the app to the first-run setup gate.
+  ; The app consumes this marker on its first launch and preserves serverFolder,
+  ; allowing existing users to use the prominent "already set up" recovery action.
+  ; Electron app.getPath("userData") resolves from package name:
+  ; %APPDATA%\tiktok-bridge-ui
+  CreateDirectory "$APPDATA\tiktok-bridge-ui"
+  FileOpen $R0 "$APPDATA\tiktok-bridge-ui\require-initial-setup.flag" w
+  FileWrite $R0 "installed"
+  FileClose $R0
+!macroend
