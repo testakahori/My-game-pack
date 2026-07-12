@@ -861,24 +861,35 @@ async function writeBridgeSyncMarker(dst, signature, stats) {
   await fs.promises.writeFile(path.join(dst, BRIDGE_SYNC_MARKER), JSON.stringify(marker, null, 2), "utf8");
 }
 
-// アプリ更新時に doumacmd Mod jar を既存サーバーの mods/ へ差し替える
-// （bridge 再展開だけでは Mod が旧版のまま残るため）
+// アプリ更新・セットアップ時に doumacmd Mod jar をサーバーの mods/ へ最新版で揃える。
+// 旧実装はテンプレートの「ルート」から jar を探していたため、ルートに残置された
+// 旧版 jar（doumacmd-1.1.1.jar 等）を配布して mods/ の最新版を消す逆向きの動作をしていた。
+// 正しい供給元はテンプレートの mods/ 配下。
 function refreshDoumaModJar(serverFolder) {
   try {
-    const srcServer = path.join(process.resourcesPath, "server", "Douma_Craft");
-    if (!fs.existsSync(srcServer)) return;
+    const srcMods = path.join(getServerTemplatePath(), "mods");
+    if (!fs.existsSync(srcMods)) return;
 
-    const jars = fs.readdirSync(srcServer).filter((f) => /^doumacmd-.*\.jar$/i.test(f));
+    const jars = fs.readdirSync(srcMods).filter((f) => /^doumacmd-.*\.jar$/i.test(f));
     if (jars.length === 0) return;
 
+    // 旧フローの残骸掃除：serverFolder ルートに doumacmd jar が残っていると
+    // setup.bat が mods/ の最新版を削除して旧版を移動してしまうため、必ず撤去する
+    try {
+      for (const stray of fs.readdirSync(serverFolder).filter((f) => /^doumacmd-.*\.jar$/i.test(f))) {
+        fs.unlinkSync(path.join(serverFolder, stray));
+        console.log(`[main] stale doumacmd jar removed from server root: ${stray}`);
+      }
+    } catch { /* ルートを読めなくても mods 差し替えは続行 */ }
+
     const modsDir = path.join(serverFolder, "mods");
-    if (!fs.existsSync(modsDir)) return; // サーバー未セットアップなら setup.bat に任せる
+    fs.mkdirSync(modsDir, { recursive: true });
 
     for (const old of fs.readdirSync(modsDir).filter((f) => /^doumacmd-.*\.jar$/i.test(f))) {
       if (!jars.includes(old)) fs.unlinkSync(path.join(modsDir, old));
     }
     for (const j of jars) {
-      fs.copyFileSync(path.join(srcServer, j), path.join(modsDir, j));
+      fs.copyFileSync(path.join(srcMods, j), path.join(modsDir, j));
     }
     console.log(`[main] doumacmd mod jar refreshed in ${modsDir}: ${jars.join(", ")}`);
   } catch (e) {
@@ -943,10 +954,28 @@ ipcMain.handle("bridge:extractTo", async (_event, targetFolder) => {
   if (!fs.existsSync(src)) throw new Error(`resources/bridge not found: ${src}`);
 
   const dst = path.join(targetFolder, "bridge");
+  const dstConfigPath = path.join(dst, "config.minecraft.json");
+  const hadUserConfig = fs.existsSync(dstConfigPath);
   const result = await copyBridgeDifferential(src, dst, { forceHeavy: true, preserveUserFiles: true });
   await ensureBridgeRuntimeReady(dst, result.stats);
   await writeBridgeSyncMarker(dst, await getBridgeRuntimeSignature(dst), result.stats);
   writeAppConfig({ bridgeVersion: app.getVersion() });
+
+  // 新規セットアップ（既存configなし）の場合、同梱テンプレ由来のアカウント情報を
+  // 引き継がせない。ID はユーザー自身がダッシュボードで入力して承認する。
+  if (!hadUserConfig && fs.existsSync(dstConfigPath)) {
+    try {
+      const fresh = JSON.parse(fs.readFileSync(dstConfigPath, "utf8"));
+      fresh.tiktokUsername = "";
+      if (fresh.rcon) fresh.rcon.password = "";
+      fs.writeFileSync(dstConfigPath, JSON.stringify(fresh, null, 2), "utf8");
+    } catch (e) {
+      console.warn("[bridge:extractTo] fresh config sanitize failed:", e?.message || e);
+    }
+  }
+
+  // 過去バージョンでセットアップされたフォルダを再利用しても mod jar を最新に揃える
+  refreshDoumaModJar(targetFolder);
 
   return { ok: true, dst, stats: result.stats };
 });
@@ -955,6 +984,9 @@ ipcMain.handle("bridge:extractTo", async (_event, targetFolder) => {
 // IPC: サーバー起動 (run.bat)
 // --------------------
 let serverPid  = null;
+let serverProcRef = null;
+const SERVER_LOG_LIMIT = 500;
+const serverLogBuffer = [];
 let bridgePid  = null;
 let bridgeProcRef = null;
 let bridgeStopRequested = false;
@@ -1002,10 +1034,30 @@ function getProcessMetrics(pid) {
   }
 }
 
+function appendServerLog(message) {
+  const text = String(message ?? "").replace(/\r/g, "");
+  for (const line of text.split("\n")) {
+    const trimmed = line.trimEnd();
+    if (!trimmed) continue;
+    serverLogBuffer.push(`[${new Date().toLocaleTimeString("ja-JP")}] ${trimmed}`);
+  }
+  if (serverLogBuffer.length > SERVER_LOG_LIMIT) {
+    serverLogBuffer.splice(0, serverLogBuffer.length - SERVER_LOG_LIMIT);
+  }
+}
+
+function pipeServerStream(stream, prefix) {
+  if (!stream) return;
+  stream.on("data", (chunk) => {
+    appendServerLog(`${prefix}${chunk.toString("utf8")}`);
+  });
+}
+
 ipcMain.handle("server:start", async () => {
   const dir = getServerRoot();
   const bat = path.join(dir, "run.bat");
   if (!fs.existsSync(bat)) throw new Error(`run.bat not found: ${bat}`);
+  if (serverProcRef) return { ok: true, alreadyRunning: true, backup: null };
 
   // 起動前バックアップ。失敗してもサーバー起動は絶対にブロックしない
   // （旧実装は失敗時に throw して Forge が起動不能になる事故があった）。
@@ -1019,27 +1071,98 @@ ipcMain.handle("server:start", async () => {
     }
   }
 
-  const proc = spawn("cmd.exe", ["/k", bat], {
+  // 黒い別窓は開かず、出力をアプリ内（ダッシュボードのForgeログ）へ取り込む。
+  // run.bat 末尾の pause は NO_PAUSE=1 で無効化される。stdin は stop コマンド送信用。
+  serverLogBuffer.length = 0;
+  appendServerLog("[SERVER] Forgeサーバーを起動します");
+  const proc = spawn("cmd.exe", ["/c", bat], {
     cwd: dir,
-    windowsHide: false,
-    detached: true,
-    stdio: "ignore",
+    windowsHide: true,
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, NO_PAUSE: "1" },
   });
+  serverProcRef = proc;
   serverPid = proc.pid;
-  proc.on("exit", () => { serverPid = null; });
-  proc.unref();
+  pipeServerStream(proc.stdout, "");
+  pipeServerStream(proc.stderr, "[stderr] ");
+  proc.on("error", (e) => appendServerLog(`[SERVER] 起動エラー: ${e?.message || e}`));
+  proc.on("exit", (code, signal) => {
+    appendServerLog(`[SERVER] 終了しました code=${code ?? "null"} signal=${signal ?? "null"}`);
+    if (serverProcRef === proc) { serverPid = null; serverProcRef = null; }
+  });
 
   return { ok: true, backup };
 });
 
 // --------------------
-// IPC: サーバー停止
+// IPC: サーバー停止（graceful: stdin へ stop → 15秒待ち → taskkill フォールバック）
 // --------------------
 ipcMain.handle("server:stop", async () => {
-  if (!serverPid) throw new Error("このセッションで起動したサーバーが見つかりません。ウィンドウを直接閉じてください。");
-  spawn("taskkill", ["/F", "/T", "/PID", String(serverPid)], { windowsHide: true });
+  const proc = serverProcRef;
+  const pid = serverPid;
+  if (!proc && !pid) throw new Error("このセッションで起動したサーバーが見つかりません。");
+
+  const waitExit = new Promise((resolve) => {
+    let done = false;
+    const finish = (graceful) => { if (!done) { done = true; resolve(graceful); } };
+    if (proc) proc.once("exit", () => finish(true));
+    setTimeout(() => finish(false), 15000);
+  });
+
+  let wroteStop = false;
+  try {
+    if (proc?.stdin?.writable) {
+      appendServerLog("[SERVER] 停止コマンド（stop）を送信しました");
+      proc.stdin.write("stop\n");
+      wroteStop = true;
+    }
+  } catch { /* stdin が閉じていたら強制停止に回す */ }
+
+  const graceful = wroteStop ? await waitExit : false;
+  if (!graceful && pid) {
+    appendServerLog("[SERVER] 猶予内に終了しなかったため強制停止します");
+    try { spawnSync("taskkill", ["/F", "/T", "/PID", String(pid)], { windowsHide: true, timeout: 10000 }); } catch { /* ベストエフォート */ }
+  }
   serverPid = null;
-  return { ok: true };
+  serverProcRef = null;
+  return { ok: true, graceful };
+});
+
+// --------------------
+// IPC: サーバーログ・稼働状態（ダッシュボードのForgeログパネル用）
+// --------------------
+ipcMain.handle("server:logs", () => ({ ok: true, lines: [...serverLogBuffer] }));
+ipcMain.handle("server:processStatus", () => ({ running: !!serverProcRef, pid: serverPid }));
+
+// --------------------
+// IPC: Minecraft ランチャー/ゲーム本体の稼働検知（Gameノード表示用）
+// --------------------
+// ランチャーはゲーム起動と同時に自動で閉じる設定が既定のため、ゲーム本体
+// （javaw.exe）も検知対象に含める。
+const MINECRAFT_PROC_NAMES = new Set(["minecraftlauncher.exe", "minecraft.exe", "javaw.exe"]);
+ipcMain.handle("minecraft:status", async () => {
+  if (process.platform !== "win32") return { running: false, processes: [] };
+  const csv = await new Promise((resolve) => {
+    let out = "";
+    let settled = false;
+    const finish = () => { if (!settled) { settled = true; resolve(out); } };
+    let p;
+    try {
+      p = spawn("tasklist.exe", ["/FO", "CSV", "/NH"], { windowsHide: true });
+    } catch {
+      return finish();
+    }
+    p.stdout.on("data", (d) => (out += d.toString("utf8")));
+    p.on("close", finish);
+    p.on("error", finish);
+    setTimeout(() => { try { p.kill(); } catch { /* ignore */ } finish(); }, 4000);
+  });
+  const found = new Set();
+  for (const line of String(csv).split("\n")) {
+    const name = (line.split('","')[0] || "").replace(/^"/, "").trim().toLowerCase();
+    if (MINECRAFT_PROC_NAMES.has(name)) found.add(name);
+  }
+  return { running: found.size > 0, processes: [...found] };
 });
 
 // --------------------
@@ -1522,6 +1645,21 @@ ipcMain.handle("dialog:pickFolder", async (_event, title) => {
   return { canceled: false, path: filePaths[0] };
 });
 
+// ファイル選択ダイアログ（Minecraftランチャーの場所指定などに使用）
+ipcMain.handle("dialog:pickFile", async (_event, options) => {
+  const title = String(options?.title || "ファイルを選択");
+  const filters = Array.isArray(options?.filters) && options.filters.length > 0
+    ? options.filters
+    : [{ name: "実行ファイル", extensions: ["exe"] }];
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ["openFile"],
+    title,
+    filters,
+  });
+  if (canceled || filePaths.length === 0) return { canceled: true, path: "" };
+  return { canceled: false, path: filePaths[0] };
+});
+
 ipcMain.handle("folder:open", async (_event, folderPath) => {
   if (!folderPath || typeof folderPath !== "string") throw new Error("folderPath is required");
   if (!fs.existsSync(folderPath)) throw new Error(`フォルダが見つかりません: ${folderPath}`);
@@ -1920,6 +2058,9 @@ ipcMain.handle("server:copyTemplate", async (_event, targetFolder) => {
     if (hasCommandsSrc) {
       await copyRecursiveAsync(commandsSrc, commandsDst, onFileCopied);
     }
+    // copyRecursiveAsync は既存ファイルを上書きしないため、再利用フォルダには
+    // 旧版の doumacmd jar が残り得る。ここで最新版に揃える（ルートの残骸も撤去）。
+    refreshDoumaModJar(targetFolder);
     copyTemplateState = { ...copyTemplateState, state: "done" };
   } catch (err) {
     copyTemplateState = { ...copyTemplateState, state: "error", error: String(err?.message || err) };

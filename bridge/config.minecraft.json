@@ -1,9 +1,9 @@
 {
-  "tiktokUsername": "mikusu_nuts",
+  "tiktokUsername": "",
   "rcon": {
     "host": "127.0.0.1",
     "port": 25575,
-    "password": "y5hit2kucm"
+    "password": ""
   },
   "options": {
     "giftCooldownMs": 300,

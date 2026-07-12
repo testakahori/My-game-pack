@@ -246,7 +246,18 @@ if (import.meta.env.DEV && !win.mygamepack) {
     serverStop: async () => {
       devServerRunning = false;
       addBridgeLog("[FORGE] 開発モード: serverStop");
-      return { ok: true };
+      return { ok: true, graceful: true };
+    },
+    serverLogs: async () => ({
+      ok: true,
+      lines: devServerRunning
+        ? ["[12:00:00] [SERVER] 開発モード: Forgeサーバーログの表示例", "[12:00:01] Done (3.2s)! For help, type \"help\""]
+        : [],
+    }),
+    serverProcessStatus: async () => ({ running: devServerRunning, pid: devServerRunning ? 4321 : null }),
+    minecraftStatus: async () => ({ running: devServerRunning, processes: devServerRunning ? ["javaw.exe"] : [] }),
+    dialogPickFile: async () => {
+      throw new Error("開発ブラウザーではネイティブのファイル選択ダイアログを利用できません");
     },
     bridgeLaunch: async () => {
       devBridgeRunning = true;

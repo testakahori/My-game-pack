@@ -259,6 +259,11 @@ const DashboardPage: React.FC = () => {
   const [log, setLog] = useState<LogEntry[]>([]);
   const [bridgeProcess, setBridgeProcess] = useState<BridgeProcessStatus>({});
   const [bridgeLogs, setBridgeLogs] = useState<string[]>([]);
+  const [serverLogs, setServerLogs] = useState<string[]>([]);
+  const [serverProc, setServerProc] = useState<{ running?: boolean; pid?: number | null }>({});
+  const [gameRunning, setGameRunning] = useState(false);
+  const [launcherPath, setLauncherPath] = useState<string>("");
+  const [allStopBusy, setAllStopBusy] = useState(false);
   const [safety, setSafety] = useState<{ protection: boolean; autoBackup: boolean }>({ protection: false, autoBackup: true });
   const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -279,6 +284,8 @@ const DashboardPage: React.FC = () => {
         const fromLs = (localStorage.getItem(LS_TIKTOK_USER) || "").trim().replace(/^@/, "");
         const initial = fromCfg || fromLs;
         if (initial) setUsername(initial);
+        // config に保存済みの ID ＝ 承認済み。再起動しても承認状態を復元する。
+        if (fromCfg) setAppliedUsername(fromCfg);
       } catch {
         const fromLs = (localStorage.getItem(LS_TIKTOK_USER) || "").trim().replace(/^@/, "");
         if (fromLs) setUsername(fromLs);
@@ -305,6 +312,7 @@ const DashboardPage: React.FC = () => {
           protection: cfg?.options?.protection?.enabled === true,
           autoBackup: appCfg?.autoBackupOnServerStart !== false,
         });
+        if (typeof appCfg?.minecraftLauncherPath === "string") setLauncherPath(appCfg.minecraftLauncherPath);
       } catch { /* 表示は既定値のまま */ }
     })();
   }, [api]);
@@ -328,6 +336,26 @@ const DashboardPage: React.FC = () => {
       } catch {
         /* log polling is optional */
       }
+      // Forgeサーバー：プロセス実態と同期（×やクラッシュで消えたら「停止中」へ戻す）
+      try {
+        const sp = await api.serverProcessStatus?.();
+        if (!disposed && sp) {
+          setServerProc(sp);
+          setForgeState((prev) => {
+            if (sp.running) return prev === "starting" ? prev : "running";
+            return prev === "running" ? "stopped" : prev;
+          });
+        }
+      } catch { /* optional */ }
+      try {
+        const sl = await api.serverLogs?.();
+        if (!disposed && Array.isArray(sl?.lines)) setServerLogs(sl.lines);
+      } catch { /* optional */ }
+      // Minecraftランチャー/ゲーム本体の稼働検知（Gameノード表示用）
+      try {
+        const mc = await api.minecraftStatus?.();
+        if (!disposed && mc) setGameRunning(mc.running === true);
+      } catch { /* optional */ }
     };
     void refreshBridgeRuntime();
     const timer = window.setInterval(refreshBridgeRuntime, 2500);
@@ -457,7 +485,7 @@ const DashboardPage: React.FC = () => {
     const typedUsername = username.trim().replace(/^@/, "");
     const u = typedUsername || existingUsername;
     if (!u) {
-      throw new Error("TikTokユーザー名が未設定です。上の「アカウント」欄に配信アカウント名を入力してください。");
+      throw new Error("TikTok IDが入力されていません。アカウント欄にIDを入力してから「IDを承認する」を押してください。");
     }
 
     // RCON パスワードを RCON_password.txt から自動同期
@@ -508,6 +536,7 @@ const DashboardPage: React.FC = () => {
       try {
         const applied = await applyBridgeConfig();
         setApplyMsg({ type: "ok", text: `適用しました（${applied.mappingCount}件）` });
+        setAppliedUsername(applied.username);
         addLog(`TikTok設定をBRIDGEに適用しました (@${applied.username}, ${applied.mappingCount}件)`, "ok");
       } catch (e: any) {
         setApplyMsg({ type: "error", text: e?.message ?? String(e) });
@@ -564,9 +593,43 @@ const DashboardPage: React.FC = () => {
   };
 
   const handleAllStop = async () => {
-    addLog("すべて停止を開始します…");
-    await handleBridgeStop();
-    await handleServerStop();
+    if (allStopBusy) return;
+    setAllStopBusy(true);
+    addLog("一括停止を開始します…", "info");
+    try {
+      await api.bridgeStop();
+      setBridgeState("stopped");
+      addLog("BRIDGEを停止しました。", "ok");
+    } catch (e: any) {
+      addLog(`BRIDGE停止: ${e?.message ?? String(e)}`, "warn");
+    }
+    try {
+      setForgeState("starting");
+      addLog("Forgeサーバーを停止中…（ワールド保存を待っています）", "info");
+      await api.serverStop();
+      setForgeState("stopped");
+      addLog("Forgeサーバーを停止しました。", "ok");
+    } catch (e: any) {
+      setForgeState("stopped");
+      addLog(`Forgeサーバー停止: ${e?.message ?? String(e)}`, "warn");
+    }
+    addLog("一括停止が完了しました。", "ok");
+    setAllStopBusy(false);
+  };
+
+  const handlePickLauncher = async () => {
+    try {
+      const res = await api.dialogPickFile?.({
+        title: "Minecraftランチャーの実行ファイルを選択",
+        filters: [{ name: "実行ファイル", extensions: ["exe"] }],
+      });
+      if (!res || res.canceled || !res.path) return;
+      await api.appConfigWrite({ minecraftLauncherPath: res.path });
+      setLauncherPath(res.path);
+      addLog(`Minecraftランチャーの場所を設定しました: ${res.path}`, "ok");
+    } catch (e: any) {
+      addLog(`ランチャーの場所設定エラー: ${e?.message ?? String(e)}`, "error");
+    }
   };
 
   const handleWorldSave = async () => {
@@ -597,6 +660,8 @@ const DashboardPage: React.FC = () => {
   };
 
   const tiktokConfigured = username.trim().length > 0;
+  const typedUsername = username.trim().replace(/^@/, "");
+  const idApproved = typedUsername.length > 0 && appliedUsername === typedUsername;
   const worldDisplay = levelName ? levelName.replace(`${WORLD_PREFIX}/`, "") : "未設定";
   const step1: StepStatus = forgeState  === "running" ? "done" : forgeState  === "error" ? "error" : forgeState  === "starting" ? "active" : "pending";
   const stepBridge: StepStatus = bridgeState === "running" ? "done" : bridgeState === "error" ? "error" : bridgeState === "starting" ? "active" : "pending";
@@ -611,10 +676,10 @@ const DashboardPage: React.FC = () => {
   };
 
   const pipeline = [
-    { label: "TikTok", value: tiktokConfigured ? `@${username.trim().replace(/^@/, "")}` : "未設定", icon: "tiktok", state: tiktokConfigured ? (bridgeState === "running" ? "running" : "stopped") : "stopped", tone: "green" },
-    { label: "Forge Server", value: "Forge 1.20.1", icon: "▣", state: forgeState, tone: "red" },
-    { label: "World", value: worldDisplay, icon: "world", state: levelName ? "running" : "stopped", tone: "green" },
-    { label: "Bridge", value: "TikTok → Minecraft", icon: "⛓", state: bridgeState, tone: "red" },
+    { label: "TikTok", value: tiktokConfigured ? `@${typedUsername}` : "未設定", icon: "tiktok", state: tiktokConfigured ? (bridgeState === "running" ? "running" : "stopped") : "stopped", tone: "green", runningText: "接続中" },
+    { label: "Forge Server", value: "Forge 1.20.1", icon: "▣", state: forgeState, tone: "red", runningText: "接続中" },
+    { label: "Game", value: gameRunning ? "Minecraft 検知中" : worldDisplay, icon: "world", state: gameRunning ? "running" : "stopped", tone: "green", runningText: "起動中" },
+    { label: "Bridge", value: "TikTok → Minecraft", icon: "⛓", state: bridgeState, tone: "red", runningText: "接続中" },
   ] as const;
 
   const launchFlow = [
@@ -645,7 +710,7 @@ const DashboardPage: React.FC = () => {
                     <span>{item.icon === "tiktok" ? <TikTokMark /> : item.icon === "world" ? <GrassBlockIcon /> : item.icon}</span>
                   </div>
                   <em className={item.state === "running" ? "is-running" : "is-stopped"}>
-                    ● {item.state === "running" ? "接続中" : item.state === "starting" ? "処理中" : "停止中"}
+                    ● {item.state === "running" ? item.runningText : item.state === "starting" ? "処理中" : "停止中"}
                   </em>
                   <small>{item.value}</small>
                 </div>
@@ -655,9 +720,14 @@ const DashboardPage: React.FC = () => {
           </div>
 
           <div className="cockpit-launch-actions">
-            <button type="button" onClick={handleAllStart} disabled={isBusy} className="cockpit-all-start">
-              <span>▶</span> 一括起動
-            </button>
+            <div className="cockpit-main-actions">
+              <button type="button" onClick={handleAllStart} disabled={isBusy || allStopBusy} className="cockpit-all-start">
+                <span>▶</span> 一括起動
+              </button>
+              <button type="button" onClick={handleAllStop} disabled={allStartBusy || allStopBusy} className="cockpit-all-start cockpit-all-stop">
+                <span>■</span> 一括停止
+              </button>
+            </div>
             <div className="cockpit-bridge-actions" aria-label="BRIDGE単体操作">
               <button type="button" onClick={handleBridgeStop} disabled={isBusy} className="cockpit-bridge-action cockpit-bridge-action--stop">
                 ■ BRIDGE停止
@@ -667,7 +737,13 @@ const DashboardPage: React.FC = () => {
               </button>
             </div>
           </div>
-          <p className="cockpit-all-start-note">すべてのコンポーネントを順番に起動します</p>
+          <p className="cockpit-all-start-note">一括起動＝順番に起動 ／ 一括停止＝ゲーム終了後にBRIDGEとサーバーをまとめて停止</p>
+          <div className="cockpit-launcher-config">
+            <button type="button" onClick={handlePickLauncher}>🎮 ランチャーの場所を指定</button>
+            <span title={launcherPath || undefined}>
+              {launcherPath || "未設定（標準のインストール場所を自動検索します）"}
+            </span>
+          </div>
         </section>
 
         <aside className="cockpit-flow-panel">
@@ -689,22 +765,18 @@ const DashboardPage: React.FC = () => {
           <h2><span><TikTokMark /></span> TikTok 接続設定</h2>
           <label>アカウント</label>
           <div className="cockpit-account-row">
-            <b>@</b><input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="配信アカウント名" />
-            <em className={bridgeState === "running" ? "is-running" : "is-stopped"}>● {bridgeState === "running" ? "接続中" : "未接続"}</em>
+            <b>@</b><input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="配信アカウント名（ID）" />
+            <em className={idApproved ? "is-approved" : "is-unapproved"}>● {idApproved ? "承認済み" : "非承認"}</em>
           </div>
           <button type="button" onClick={handleApplyBridge} disabled={applyBusy} className="cockpit-apply">
             <span>⬡</span>
             <div>
               <b>
-                {applyBusy
-                  ? "適用中…"
-                  : appliedUsername && appliedUsername === username.trim().replace(/^@/, "")
-                  ? "BRIDGE に適用済み"
-                  : "BRIDGE に適用する"}
+                {applyBusy ? "承認中…" : idApproved ? "承認済み" : "IDを承認する"}
               </b>
-              <small>RCON・イベント・ギフト連携</small>
+              <small>RCON・イベント・ギフト連携に適用されます</small>
             </div>
-            <i className={appliedUsername && appliedUsername === username.trim().replace(/^@/, "") && !applyBusy ? "is-applied" : "is-idle"}>●</i>
+            <i className={idApproved && !applyBusy ? "is-applied" : "is-idle"}>●</i>
           </button>
           </section>
 
@@ -745,27 +817,49 @@ const DashboardPage: React.FC = () => {
         </div>
       </section>
 
-      <section className="cockpit-bridge-log-panel">
-        <div className="cockpit-bridge-log-head">
-          <div>
-            <h2>BRIDGEログ</h2>
-            <p>
-              状態: <b className={bridgeProcess.running ? "is-running" : "is-stopped"}>{bridgeProcess.running ? "稼働中" : "停止中"}</b>
-              {bridgeProcess.pid ? <span> PID {bridgeProcess.pid}</span> : null}
-              {typeof bridgeProcess.cpuPercent === "number" ? <span> CPU {bridgeProcess.cpuPercent}%</span> : null}
-              {typeof bridgeProcess.memMb === "number" ? <span> MEM {bridgeProcess.memMb}MB</span> : null}
-            </p>
+      <div className="cockpit-log-panels">
+        <section className="cockpit-bridge-log-panel">
+          <div className="cockpit-bridge-log-head">
+            <div>
+              <h2>BRIDGEログ</h2>
+              <p>
+                状態: <b className={bridgeProcess.running ? "is-running" : "is-stopped"}>{bridgeProcess.running ? "稼働中" : "停止中"}</b>
+                {bridgeProcess.pid ? <span> PID {bridgeProcess.pid}</span> : null}
+                {typeof bridgeProcess.cpuPercent === "number" ? <span> CPU {bridgeProcess.cpuPercent}%</span> : null}
+                {typeof bridgeProcess.memMb === "number" ? <span> MEM {bridgeProcess.memMb}MB</span> : null}
+              </p>
+            </div>
+            <button type="button" onClick={handleBridgeRestart} disabled={isBusy}>↻ BRIDGE再起動</button>
           </div>
-          <button type="button" onClick={handleBridgeRestart} disabled={isBusy}>↻ BRIDGE再起動</button>
-        </div>
-        <div className="cockpit-bridge-log-body">
-          {bridgeLogs.length ? bridgeLogs.slice(-80).map((line, index) => (
-            <p key={`${index}-${line}`}>{line}</p>
-          )) : (
-            <p className="is-muted">BRIDGEログはまだありません。BRIDGEを起動するとここに表示されます。</p>
-          )}
-        </div>
-      </section>
+          <div className="cockpit-bridge-log-body">
+            {bridgeLogs.length ? bridgeLogs.slice(-80).map((line, index) => (
+              <p key={`${index}-${line}`}>{line}</p>
+            )) : (
+              <p className="is-muted">BRIDGEログはまだありません。BRIDGEを起動するとここに表示されます。</p>
+            )}
+          </div>
+        </section>
+
+        <section className="cockpit-bridge-log-panel">
+          <div className="cockpit-bridge-log-head">
+            <div>
+              <h2>Forgeサーバーログ</h2>
+              <p>
+                状態: <b className={serverProc.running ? "is-running" : "is-stopped"}>{serverProc.running ? "稼働中" : "停止中"}</b>
+                {serverProc.pid ? <span> PID {serverProc.pid}</span> : null}
+              </p>
+            </div>
+            <button type="button" onClick={handleServerStop} disabled={isBusy || !serverProc.running}>■ サーバー停止</button>
+          </div>
+          <div className="cockpit-bridge-log-body">
+            {serverLogs.length ? serverLogs.slice(-80).map((line, index) => (
+              <p key={`${index}-${line}`}>{line}</p>
+            )) : (
+              <p className="is-muted">Forgeサーバーのログはここに表示されます（黒い別ウィンドウは開きません）。</p>
+            )}
+          </div>
+        </section>
+      </div>
 
       <div className="cockpit-hidden-actions" aria-hidden="true">
         <button onClick={handleServerStart}>start</button><button onClick={handleServerStop}>stop</button>

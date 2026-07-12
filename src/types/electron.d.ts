@@ -73,8 +73,11 @@ declare global {
       // --------------------
       // サーバー管理（統合UI）
       // --------------------
-      serverStart: () => Promise<{ ok: true; backup?: { ok: boolean; message: string } | null }>;
-      serverStop: () => Promise<{ ok: true }>;
+      serverStart: () => Promise<{ ok: true; alreadyRunning?: boolean; backup?: { ok: boolean; message: string } | null }>;
+      serverStop: () => Promise<{ ok: true; graceful?: boolean }>;
+      serverLogs: () => Promise<{ ok: true; lines: string[] }>;
+      serverProcessStatus: () => Promise<{ running: boolean; pid: number | null }>;
+      minecraftStatus: () => Promise<{ running: boolean; processes: string[] }>;
       bridgeLaunch: () => Promise<{ ok: true }>;
       bridgeStop: () => Promise<{ ok: true }>;
       bridgeRestart: () => Promise<{ ok: true }>;
@@ -89,6 +92,7 @@ declare global {
       serverForgeInstallAtPath: (folderPath: string) => Promise<{ ok: true }>;
       serverRconPasswordRead: () => Promise<{ found: boolean; password: string }>;
       dialogPickFolder: (title?: string) => Promise<{ canceled: boolean; path: string }>;
+      dialogPickFile: (options?: { title?: string; filters?: Array<{ name: string; extensions: string[] }> }) => Promise<{ canceled: boolean; path: string }>;
       folderOpen: (folderPath: string) => Promise<{ ok: true; path: string }>;
       serverSetupAtPath: (folderPath: string) => Promise<{ ok: true }>;
 
@@ -112,12 +116,16 @@ declare global {
         setupComplete: boolean;
         setupRequiredByInstall?: boolean;
         setupRequiredAt?: string;
+        minecraftLauncherPath?: string;
+        autoBackupOnServerStart?: boolean;
       }>;
       appConfigWrite: (data: Partial<{
         serverFolder: string;
         setupComplete: boolean;
         setupRequiredByInstall: boolean;
         setupRequiredAt: string;
+        minecraftLauncherPath: string;
+        autoBackupOnServerStart: boolean;
       }>) => Promise<{ ok: true }>;
 
       // --------------------

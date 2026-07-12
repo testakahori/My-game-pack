@@ -72,11 +72,18 @@ contextBridge.exposeInMainWorld("mygamepack", {
   // サーバー管理（統合UI追加）
   // --------------------
 
-  // run.bat を起動（別ウィンドウ）
+  // run.bat を起動（アプリ内コンソール取り込み）
   serverStart: () => ipcRenderer.invoke("server:start"),
 
-  // サーバー停止
+  // サーバー停止（graceful → 強制のフォールバック）
   serverStop: () => ipcRenderer.invoke("server:stop"),
+
+  // Forgeサーバーのログ・稼働状態（ダッシュボード表示用）
+  serverLogs: () => ipcRenderer.invoke("server:logs"),
+  serverProcessStatus: () => ipcRenderer.invoke("server:processStatus"),
+
+  // Minecraftランチャー/ゲーム本体の稼働検知
+  minecraftStatus: () => ipcRenderer.invoke("minecraft:status"),
 
   // bridge起動.bat を起動（別ウィンドウ）
   bridgeLaunch: () => ipcRenderer.invoke("bridge:launch"),
@@ -135,6 +142,9 @@ contextBridge.exposeInMainWorld("mygamepack", {
 
   // フォルダ選択ダイアログを開く
   dialogPickFolder: (title) => ipcRenderer.invoke("dialog:pickFolder", title || ""),
+
+  // ファイル選択ダイアログを開く（ランチャーの場所指定など）
+  dialogPickFile: (options) => ipcRenderer.invoke("dialog:pickFile", isPlainObject(options) ? options : {}),
 
   folderOpen: (folderPath) => {
     if (!isString(folderPath) || !folderPath.trim()) throw new Error("folderOpen: folderPath is empty");

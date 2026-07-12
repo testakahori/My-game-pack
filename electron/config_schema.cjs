@@ -6,7 +6,9 @@ function validateBridgeConfig(config) {
   if (!config || typeof config !== "object" || Array.isArray(config)) {
     return { ok: false, errors: ["設定全体がJSONオブジェクトではありません"], warnings };
   }
-  if (!String(config.tiktokUsername || "").trim()) errors.push("tiktokUsername が空です");
+  if (!String(config.tiktokUsername || "").trim()) {
+    errors.push("TikTok IDが未承認です（「IDを承認する」ボタンが押されていません）。ダッシュボードでIDを入力して承認してください");
+  }
   const options = config.options || {};
   for (const [name, value, min, max] of [
     ["options.giftCooldownMs", options.giftCooldownMs, 0, 60000],
