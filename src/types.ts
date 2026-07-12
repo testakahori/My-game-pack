@@ -5,6 +5,7 @@ export enum AppPage {
   DASHBOARD = "dashboard",
   GIFTS = "gifts",
   EVENTS = "events",
+  EVENTS2 = "events2",
   TTS = "tts",
   GIFTS_VIEWER = "gifts_viewer",
   WORLD = "world",

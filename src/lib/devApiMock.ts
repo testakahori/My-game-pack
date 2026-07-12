@@ -376,6 +376,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
     operationsHistoryClear: ok,
     operationsStreamStats: async (gapMinutes: number) => ({ ...streamStats, gapMinutes }),
     testEvent: ok,
+    minecraftGrantOp: async () => ({ ok: true, name: "dev_player" }),
     worldBackup: ok,
     presetsList: async () => ["配信用"],
     presetsSave: ok,

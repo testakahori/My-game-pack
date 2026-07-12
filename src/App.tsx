@@ -7,6 +7,7 @@ import GiftSettingsPage from "./components/GiftSettingsPage";
 import InitialSetupPage from "./components/InitialSetupPage";
 import GiftsViewerPage from "./components/GiftsViewerPage";
 import EventSettingsPage from "./components/EventSettingsPage";
+import EventSettings2Page from "./components/EventSettings2Page";
 import TTSSettingsPage from "./components/TTSSettingsPage";
 import OperationsPage from "./components/OperationsPage";
 import StatsDashboardPage from "./components/StatsDashboardPage";
@@ -15,7 +16,8 @@ import MinecraftBlockIcon from "./components/MinecraftBlockIcon";
 const PAGE_TITLE: Partial<Record<AppPage, string>> = {
   [AppPage.DASHBOARD]: "ダッシュボード",
   [AppPage.GIFTS]: "ギフト設定",
-  [AppPage.EVENTS]: "イベント設定",
+  [AppPage.EVENTS]: "イベント設定①",
+  [AppPage.EVENTS2]: "イベント設定②",
   [AppPage.TTS]: "🔊 読み上げ設定",
   [AppPage.GIFTS_VIEWER]: "ギフト一覧",
   [AppPage.SETUP]: "初期セットアップ",
@@ -178,6 +180,12 @@ const App: React.FC = () => {
           {activePage === AppPage.EVENTS && (
             <div className="page-pad p-6">
               <EventSettingsPage onDirtyChange={handleEventsDirtyChange} />
+            </div>
+          )}
+
+          {activePage === AppPage.EVENTS2 && (
+            <div className="page-pad p-6">
+              <EventSettings2Page />
             </div>
           )}
 

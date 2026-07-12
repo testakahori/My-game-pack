@@ -152,6 +152,7 @@ export default function OperationsPage() {
   const [commandFile, setCommandFile] = useState("");
   const [sender, setSender] = useState("テスト視聴者");
   const [count, setCount] = useState(1);
+  const [likeCount, setLikeCount] = useState(100);
   const [notice, setNotice] = useState("");
   const [cfg, setCfg] = useState<any>({});
   const [appCfg, setAppCfg] = useState<any>({});
@@ -259,8 +260,13 @@ export default function OperationsPage() {
   const fire = async (type: "gift" | "like") => {
     try {
       setNotice("テストイベントを送信中…");
-      const result = await api.testEvent({ type, commandFile, count, listenerName: sender });
-      setNotice(result?.ok === false ? `失敗: ${result.message || "送信できませんでした"}` : "テストイベントを送信しました");
+      // いいね発火は本番と同じ「しきい値ラダー」シミュレート（イベント設定①のルールに従う）
+      const result = type === "like"
+        ? await api.testEvent({ type, likeCount, listenerName: sender })
+        : await api.testEvent({ type, commandFile, count, listenerName: sender });
+      setNotice(result?.ok === false
+        ? `失敗: ${result.message || "送信できませんでした"}`
+        : result?.message || "テストイベントを送信しました");
       await refresh();
     } catch (error: any) {
       setNotice(`送信失敗: ${error?.message || String(error)}`);
@@ -401,8 +407,13 @@ export default function OperationsPage() {
             <span><small>Like</small><b>{status.like || 0}</b></span>
             <span><small>Other</small><b>{status.other || 0}</b></span>
             <span><small>成功</small><b className="ok">{status.executed || stats.succeeded || 0}</b></span>
-            <span><small>失敗</small><b className="bad">{status.failed || stats.failed || 0}</b></span>
+            <span
+              title="失敗＝実行したコマンド1行単位の空振り（対象プレイヤー不在・セレクタ不一致など）。ギフトの取りこぼしではありません。"
+            ><small>失敗 ⓘ</small><b className="bad">{status.failed || stats.failed || 0}</b></span>
           </div>
+          <p style={{ margin: "4px 0 0", fontSize: 10, color: "#77899f" }}>
+            ※「失敗」はコマンド1行単位の空振り（プレイヤー不在時の演出コマンド等）で、ギフト不発の数ではありません。
+          </p>
 
           <div className="ops-status-meta">
             <span>TPS <b>{status.tps?.toFixed?.(1) ?? "--"}</b></span>
@@ -473,7 +484,7 @@ export default function OperationsPage() {
               <FieldLabel label="テスト視聴者名">
                 <input value={sender} onChange={(event) => setSender(event.target.value)} placeholder="テスト視聴者" />
               </FieldLabel>
-              <FieldLabel label="発火数">
+              <FieldLabel label="ギフト発火数">
                 <div className="ops-count-row">
                   <input
                     type="number"
@@ -485,6 +496,18 @@ export default function OperationsPage() {
                   <small>回<br />(1〜100)</small>
                 </div>
               </FieldLabel>
+              <FieldLabel label="いいね発火数">
+                <div className="ops-count-row">
+                  <input
+                    type="number"
+                    min={1}
+                    max={10000}
+                    value={likeCount}
+                    onChange={(event) => setLikeCount(Math.max(1, Math.min(10000, Number(event.target.value) || 1)))}
+                  />
+                  <small>いいね<br />(1〜10000)</small>
+                </div>
+              </FieldLabel>
             </div>
             <div className="ops-action-row">
               <button type="button" className="ops-primary-button ops-primary-button--pink" onClick={() => fire("gift")}>
@@ -494,6 +517,9 @@ export default function OperationsPage() {
                 ♥ いいね発火
               </button>
             </div>
+            <p className="ops-test-note" style={{ margin: "6px 0 0", fontSize: 11, color: "#8ba0b8" }}>
+              ♥ いいね発火は「イベント設定①」のしきい値ルールに従って発火します（コマンドファイル選択は使いません）。
+            </p>
           </div>
 
           <div className="ops-preview-log">

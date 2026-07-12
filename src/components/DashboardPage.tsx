@@ -264,6 +264,9 @@ const DashboardPage: React.FC = () => {
   const [gameRunning, setGameRunning] = useState(false);
   const [launcherPath, setLauncherPath] = useState<string>("");
   const [allStopBusy, setAllStopBusy] = useState(false);
+  const [mcId, setMcId] = useState("");
+  const [mcIdBusy, setMcIdBusy] = useState(false);
+  const [mcIdMsg, setMcIdMsg] = useState<{ type: "ok" | "error"; text: string } | null>(null);
   const [safety, setSafety] = useState<{ protection: boolean; autoBackup: boolean }>({ protection: false, autoBackup: true });
   const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -313,6 +316,7 @@ const DashboardPage: React.FC = () => {
           autoBackup: appCfg?.autoBackupOnServerStart !== false,
         });
         if (typeof appCfg?.minecraftLauncherPath === "string") setLauncherPath(appCfg.minecraftLauncherPath);
+        if (typeof appCfg?.minecraftPlayerName === "string") setMcId(appCfg.minecraftPlayerName);
       } catch { /* 表示は既定値のまま */ }
     })();
   }, [api]);
@@ -522,6 +526,22 @@ const DashboardPage: React.FC = () => {
     addLog("一括起動を開始します…", "info");
     let stage: "config" | "forge" | "minecraft" | "bridge" | "done" = "config";
 
+    // 読み上げ（TTS）が有効ならエンジンを裏で自動起動する。
+    // エンジン未起動だと読み上げが無言のまま失敗し続けるため（今回の読み上げ不発の真因）。
+    void (async () => {
+      try {
+        const tts = await api.ttsSettingsRead?.();
+        if (!tts?.enabled) return;
+        addLog(`読み上げエンジン（${tts.engine}）を確認・起動しています…`, "info");
+        const launched = await api.ttsLaunchEngine?.(tts.engine);
+        if (launched?.ok) {
+          addLog(`読み上げエンジン: ${launched.alreadyRunning ? "起動済みです" : "起動しました"}。コメント・ギフトを読み上げます。`, "ok");
+        } else {
+          addLog(`読み上げエンジンを起動できませんでした: ${launched?.message || "不明"}（読み上げ設定ページから手動起動してください）`, "warn");
+        }
+      } catch { /* 読み上げは配信継続に必須ではない */ }
+    })();
+
     try {
       if (isWorldDirty) {
         setWorldSaving(true);
@@ -578,6 +598,17 @@ const DashboardPage: React.FC = () => {
         addLog(`ゲームルール適用をスキップ: ${ge?.message ?? String(ge)}`, "warn");
       }
 
+      // マイクラIDが設定済みならOP権限を自動付与
+      try {
+        const appCfg = await api.appConfigRead?.();
+        if (appCfg?.minecraftPlayerName) {
+          await api.minecraftGrantOp?.();
+          addLog(`マイクラID「${appCfg.minecraftPlayerName}」にOP権限を付与しました。`, "ok");
+        }
+      } catch (opErr: any) {
+        addLog(`OP権限の自動付与をスキップ: ${opErr?.message ?? String(opErr)}`, "warn");
+      }
+
       stage = "done";
       addLog("一括起動が完了しました。", "ok");
     } catch (e: any) {
@@ -615,6 +646,30 @@ const DashboardPage: React.FC = () => {
     }
     addLog("一括停止が完了しました。", "ok");
     setAllStopBusy(false);
+  };
+
+  const handleSaveMcId = async () => {
+    const name = mcId.trim();
+    if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) {
+      setMcIdMsg({ type: "error", text: "英数字と _ で3〜16文字のマイクラIDを入力してください。" });
+      return;
+    }
+    setMcIdBusy(true); setMcIdMsg(null);
+    try {
+      await api.appConfigWrite({ minecraftPlayerName: name });
+      addLog(`マイクラIDを保存しました: ${name}`, "ok");
+      // サーバー稼働中ならその場でOP付与。停止中でも一括起動時に自動付与される。
+      if (serverProc.running) {
+        await api.minecraftGrantOp?.();
+        setMcIdMsg({ type: "ok", text: `${name} にOP権限を付与しました。` });
+        addLog(`${name} にOP権限を付与しました。`, "ok");
+      } else {
+        setMcIdMsg({ type: "ok", text: "保存しました。次回の一括起動時に自動でOP権限を付与します。" });
+      }
+    } catch (e: any) {
+      setMcIdMsg({ type: "error", text: `OP付与エラー: ${e?.message ?? String(e)}` });
+      addLog(`OP付与エラー: ${e?.message ?? String(e)}`, "error");
+    } finally { setMcIdBusy(false); }
   };
 
   const handlePickLauncher = async () => {
@@ -778,6 +833,33 @@ const DashboardPage: React.FC = () => {
             </div>
             <i className={idApproved && !applyBusy ? "is-applied" : "is-idle"}>●</i>
           </button>
+
+          <label style={{ marginTop: 14 }}>マイクラID（OP自動付与）</label>
+          <div className="cockpit-account-row">
+            <b>⛏</b>
+            <input
+              value={mcId}
+              onChange={(e) => { setMcId(e.target.value); setMcIdMsg(null); }}
+              placeholder="Minecraft のプレイヤーID"
+            />
+            <button
+              type="button"
+              onClick={handleSaveMcId}
+              disabled={mcIdBusy}
+              style={{
+                minHeight: 30, padding: "0 12px", borderRadius: 9, whiteSpace: "nowrap",
+                border: "1px solid rgba(39,216,255,0.5)", background: "rgba(7,50,73,0.75)",
+                color: "#d5f2ff", fontSize: 11, fontWeight: 800,
+              }}
+            >
+              {mcIdBusy ? "付与中…" : "OP権限を付与"}
+            </button>
+          </div>
+          {mcIdMsg && (
+            <small style={{ display: "block", marginTop: 6, color: mcIdMsg.type === "ok" ? "#9acd32" : "#ff6578" }}>
+              {mcIdMsg.text}
+            </small>
+          )}
           </section>
 
           <section className="cockpit-info-card cockpit-world-card">

@@ -33,6 +33,8 @@ const { FeatureEngine, parseWeightedList, chooseWeighted } = require("./feature_
 let runtimeProtection = { enabled: false };
 let doumaWebSocket = null;
 let doumaWebSocketStopping = false;
+// Mod からのプッシュ通知（death など）を main() 側で購読するためのフック
+let onDoumaWsMessage = null;
 
 function connectDoumaWebSocket({ host, port }) {
   if (typeof WebSocket !== "function") return;
@@ -44,6 +46,10 @@ function connectDoumaWebSocket({ host, port }) {
     socket.addEventListener("message", event => {
       try {
         const status = JSON.parse(String(event.data));
+        if (status.type === "death") {
+          try { onDoumaWsMessage?.(status); } catch {}
+          return;
+        }
         if (status.type !== "ack") {
           fs.writeFileSync(path.join(__dirname, "runtime-status.json"),
             JSON.stringify({ at: new Date().toISOString(), ...status }, null, 2), "utf8");
@@ -188,6 +194,15 @@ function ttsHttpPost(port, reqPath, body, timeoutMs = 15000) {
   });
 }
 
+// エンジン未起動のときに読み上げが「無言で」失敗し続けるのを可視化する（60秒に1回まで）
+let lastTtsWarnAt = 0;
+function warnTtsEngineDown(engine, detail) {
+  const now = Date.now();
+  if (now - lastTtsWarnAt < 60000) return;
+  lastTtsWarnAt = now;
+  console.warn(`[TTS] 読み上げエンジン(${engine})に接続できません（${detail}）。読み上げ設定ページからエンジンを起動してください。エンジンが起動するまでコメント・ギフトは読み上げられません。`);
+}
+
 async function speakText(text, cfg) {
   try {
     const port = TTS_PORTS[cfg.engine] || TTS_PORTS.voicevox;
@@ -198,7 +213,10 @@ async function speakText(text, cfg) {
       `/audio_query?speaker=${speakerId}&text=${encodeURIComponent(text)}`,
       "", 10000
     );
-    if (queryRes.status !== 200) return;
+    if (queryRes.status !== 200) {
+      warnTtsEngineDown(cfg.engine, `audio_query HTTP ${queryRes.status}`);
+      return;
+    }
 
     const query = JSON.parse(queryRes.body.toString());
     query.speedScale = cfg.speedScale ?? 1.2;
@@ -224,7 +242,7 @@ async function speakText(text, cfg) {
       () => { try { fs.unlinkSync(tmpWav); } catch {} }
     );
   } catch (e) {
-    console.warn("[TTS] speakText error:", e?.message || e);
+    warnTtsEngineDown(cfg.engine, e?.message || e);
   }
 }
 
@@ -595,6 +613,42 @@ function sendDoumaModEvent({ host, port, type, commandFile, count, listenerName,
   });
 }
 
+// Minecraft の ID 系文字列（サウンド・パーティクル）を安全化。コマンド差し込み対策。
+function sanitizeMcId(value, fallback) {
+  const v = String(value || "").trim().toLowerCase().replace(/[^a-z0-9_.:\-]/g, "");
+  return v || fallback;
+}
+
+// 生コマンド配列を Mod の /douma/exec へ送る（ルーレット演出フレームなど、
+// Bridge 側で setTimeout によるタイミング制御をしたいとき用。Mod v1.2.0 以降）。
+// 注意: Mod 側パーサーの都合で commands はペイロードの末尾に置くこと。
+function sendDoumaExec({ host, port }, commands, listenerName = "system") {
+  const payload = JSON.stringify({ listenerName, commands });
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: host,
+      port,
+      path: "/douma/exec",
+      method: "POST",
+      timeout: 1500,
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(payload),
+      },
+    }, (res) => {
+      res.resume();
+      res.on("end", () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) resolve();
+        else reject(new Error(`DoumaMod exec HTTP ${res.statusCode}`));
+      });
+    });
+    req.on("timeout", () => req.destroy(new Error("DoumaMod exec timeout")));
+    req.on("error", reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
 // operations-history.json は bridge（このプロセス）と electron（main）の両方が書き込む。
 // 従来の「全体読み込み→unshift→全体書き込み」は同時書き込みで履歴が巻き戻る事故があったため、
 // 追記のみ（JSONL: 1行1イベント・古い順）に変更した。旧フォーマット（JSON配列）は初回書き込み時に
@@ -633,6 +687,9 @@ async function enqueueDoumaModEvent(doumaMod, event, opts = {}) {
         at: new Date().toISOString(), type: event.historyType || event.type || "other",
         sender: event.listenerName || "viewer", commandFile: ensureTxt(event.commandFile),
         count: event.count || 1, ok: true,
+        // ダイヤ集計用（giftのみ）。diamond は1個あたりの単価、合計は diamond×count。
+        ...(event.giftId ? { giftId: String(event.giftId) } : {}),
+        ...(Number(event.diamond) > 0 ? { diamond: Number(event.diamond) } : {}),
       });
       if (attempt > 0) {
         console.log(`[DoumaMod] Send ok after retry x${attempt} (${event.type}:${event.commandFile})`);
@@ -854,6 +911,10 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   let followEvent      = config.followEvent      ?? null;
   let memberEvent      = config.memberEvent      ?? null;
   let unmappedGiftEvent = config.unmappedGiftEvent ?? null;
+  // イベント設定②（ルーレット / デスルーレット / コメントギフト）
+  let rouletteCfg      = config.roulette      ?? null;
+  let deathRouletteCfg = config.deathRoulette ?? null;
+  let commentGiftsCfg  = config.commentGifts  ?? null;
 
   if (!tiktokUsername) {
     console.error("[ERROR] tiktokUsername is empty in config");
@@ -952,6 +1013,9 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       followEvent       = newCfg.followEvent       ?? null;
       memberEvent       = newCfg.memberEvent       ?? null;
       unmappedGiftEvent = newCfg.unmappedGiftEvent ?? null;
+      rouletteCfg       = newCfg.roulette          ?? null;
+      deathRouletteCfg  = newCfg.deathRoulette     ?? null;
+      commentGiftsCfg   = newCfg.commentGifts      ?? null;
       // mappings も再構築
       const newMappings = Array.isArray(newCfg.mappings) ? newCfg.mappings : [];
       mappingById.clear();
@@ -1108,6 +1172,111 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     }
   }
 
+  // --------------------
+  // ルーレット（イベント設定②）
+  // --------------------
+  // 演出フレームは Mod v1.2.0 の /douma/exec に setTimeout 刻みで送り、
+  // 当選コマンドは通常のイベントとして発火する。
+  const ROULETTE_COLORS = ["yellow", "aqua", "light_purple", "green", "red", "gold"];
+  let rouletteBusy = false;
+
+  function normalizeRouletteItems(rl) {
+    return (Array.isArray(rl?.items) ? rl.items : [])
+      .filter((item) => item && String(item.commandFile || "").trim())
+      .map((item) => ({
+        commandFile: ensureTxt(String(item.commandFile).trim()),
+        label: String(item.label || item.commandFile).replace(/\.txt$/i, "").slice(0, 24),
+        weight: Math.max(1, Number(item.weight || 1)),
+      }));
+  }
+
+  function fireRouletteWinner(winner, triggerName, historyType) {
+    enqueueRcon(`roulette:${winner.commandFile}`, () => enqueueDoumaModEvent(doumaMod, {
+      type: "other",
+      historyType: historyType || "roulette",
+      commandFile: winner.commandFile,
+      count: 1,
+      listenerName: triggerName || "roulette",
+      announce: false,
+    }), { priority: 8 });
+  }
+
+  function runRoulette(rl, triggerName, historyType) {
+    if (!doumaMod) return false;
+    const items = normalizeRouletteItems(rl);
+    if (items.length === 0) return false;
+
+    const winner = chooseWeighted(items);
+    if (!winner) return false;
+
+    // 連続発動中は演出をスキップして即発火（title が競合してチカチカするのを防ぐ）
+    if (rouletteBusy) {
+      console.log(`[Roulette] busy → 演出なしで即発火: ${winner.commandFile}`);
+      fireRouletteWinner(winner, triggerName, historyType);
+      return true;
+    }
+
+    rouletteBusy = true;
+    const stopSound = sanitizeMcId(rl.stopSound, "entity.player.levelup");
+    const particle = sanitizeMcId(rl.particle, "minecraft:totem_of_undying");
+    const frames = 12;
+    let delay = 0;
+    let step = 110;
+    for (let i = 0; i < frames; i++) {
+      const item = items[Math.floor(Math.random() * items.length)];
+      const color = ROULETTE_COLORS[i % ROULETTE_COLORS.length];
+      delay += step;
+      step = Math.min(500, Math.round(step * 1.18)); // だんだん減速
+      setTimeout(() => {
+        sendDoumaExec(doumaMod, [
+          "title @a times 0 12 4",
+          `title @a title {"text":"${mcJsonStringEscape(item.label, 30)}","color":"${color}","bold":true}`,
+          `title @a subtitle {"text":"ルーレット回転中…","color":"gray"}`,
+          "playsound block.note_block.hat master @a ~ ~ ~ 0.7 1.4",
+        ], triggerName).catch(() => {});
+      }, delay);
+    }
+    setTimeout(() => {
+      sendDoumaExec(doumaMod, [
+        "title @a times 5 55 15",
+        `title @a title {"text":"▶ ${mcJsonStringEscape(winner.label, 26)} ◀","color":"gold","bold":true}`,
+        `title @a subtitle {"text":"${mcJsonStringEscape(triggerName || "ルーレット", 30)}","color":"green"}`,
+        `playsound ${stopSound} master @a ~ ~ ~ 1 1`,
+        `execute at @a run particle ${particle} ~ ~1 ~ 0.8 1 0.8 0.08 30 force`,
+      ], triggerName).catch(() => {});
+      fireRouletteWinner(winner, triggerName, historyType);
+      rouletteBusy = false;
+    }, delay + 700);
+
+    console.log(`[Roulette] ${items.length}項目から抽選 → ${winner.commandFile} (weight=${winner.weight})`);
+    return true;
+  }
+
+  // Mod への発火を一元化：commandFile が roulette（仮想コマンド）ならルーレットに差し替える
+  function dispatchDoumaEvent(label, event, opts = {}) {
+    if (
+      rouletteCfg?.enabled &&
+      commandFileToDoumaKey(event.commandFile) === "roulette" &&
+      runRoulette(rouletteCfg, event.listenerName, event.historyType || "roulette")
+    ) {
+      return;
+    }
+    enqueueRcon(label, () => enqueueDoumaModEvent(doumaMod, event), opts);
+  }
+
+  // デスルーレット：Mod からの death 通知（WS）で発動
+  onDoumaWsMessage = (status) => {
+    if (status?.type !== "death") return;
+    const rl = deathRouletteCfg;
+    if (!rl || rl.enabled !== true) return;
+    const deaths = Number(status.deaths || 0);
+    const every = clampInt(rl.everyDeaths ?? 1, 1, 1000, 1);
+    if (deaths > 0 && deaths % every === 0) {
+      console.log(`[DeathRoulette] deaths=${deaths}（${every}回ごと）→ ルーレット始動`);
+      runRoulette(rl, String(status.player || "player"), "death_roulette");
+    }
+  };
+
   const featureEngine = new FeatureEngine(options.gameplay || {}, feature => {
     if (!feature?.commandFile) return;
     if (!doumaMod) {
@@ -1116,11 +1285,11 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     }
     const listenerName = feature.type === "combo"
       ? (featureEngine.topGifter() || feature.sender) : feature.sender;
-    enqueueRcon(`feature:${feature.type}`, () => enqueueDoumaModEvent(doumaMod, {
+    dispatchDoumaEvent(`feature:${feature.type}`, {
       type: "other", historyType: feature.type || "other", commandFile: feature.commandFile,
       count: clampInt(feature.count, 1, 100, 1),
       listenerName: listenerName || "viewer", announce: true,
-    }), { priority: 8 });
+    }, { priority: 8 });
   });
 
   async function connectTikTokWithRetry() {
@@ -1195,13 +1364,15 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         if (doumaMod) {
           const unmappedRepeat = clampInt(unmappedGiftEvent.repeat ?? 1, 1, 100, 1);
           console.log(`[Gift] (unmapped) -> DoumaMod file=${unmappedGiftEvent.commandFile} repeat=${unmappedRepeat}`);
-          enqueueRcon(`unmapped:${giftId}`, () => enqueueDoumaModEvent(doumaMod, {
+          dispatchDoumaEvent(`unmapped:${giftId}`, {
             type: "gift",
             commandFile: unmappedGiftEvent.commandFile,
             count: unmappedRepeat,
             listenerName: sender,
             announce: announceEnabled,
-          }), { priority: 10 });
+            giftId,
+            diamond: Number(data.diamondCount ?? data.extendedGiftInfo?.diamond_count ?? 0) || 0,
+          }, { priority: 10 });
           return;
         }
         const resolved = resolveCommands(unmappedMap);
@@ -1283,13 +1454,15 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       console.log(
         `[Gift] id=${giftId} name="${mapping.name}" from=${sender}${repeatText} -> DoumaMod file=${mapping.commandFile} count=${times}`
       );
-      enqueueRcon(`gift:${giftId}`, () => enqueueDoumaModEvent(doumaMod, {
+      dispatchDoumaEvent(`gift:${giftId}`, {
         type: "gift",
         commandFile: mapping.commandFile,
         count: times,
         listenerName: sender,
         announce: announceEnabled,
-      }), { priority: 10 });
+        giftId,
+        diamond: Number(data.diamondCount ?? data.extendedGiftInfo?.diamond_count ?? 0) || 0,
+      }, { priority: 10 });
     } else {
     const resolved = resolveCommands(mapping);
     if (!resolved.ok) {
@@ -1370,20 +1543,82 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // --------------------
   // コメント読み上げ（TTS）
   // --------------------
+  const commentGiftLastAt = new Map(); // rule毎の連投クールダウン
+
   tiktok.on("chat", async (data) => {
     if (isPreConnectionEvent(data)) return;
     if (isMuted(data)) return;
-    const ttsCfg = loadTtsConfig();
-    if (!ttsCfg.enabled || !ttsCfg.commentEnabled) return;
 
     const sender = getStableSender(data);
     const text = String(data.comment || "").trim();
     if (!text) return;
     featureEngine.recordComment(text, sender);
 
+    // コメントギフト（イベント設定②）：設定した文字列を含むコメントでコマンド発動。
+    // TTS の有効/無効とは独立して動く。
+    if (commentGiftsCfg?.enabled && doumaMod) {
+      for (const rule of (Array.isArray(commentGiftsCfg.rules) ? commentGiftsCfg.rules : [])) {
+        if (!rule || rule.enabled === false) continue;
+        const match = String(rule.match || "").trim();
+        if (!match || !rule.commandFile || !text.includes(match)) continue;
+
+        const ruleKey = `${match}|${rule.commandFile}`;
+        const lastAt = commentGiftLastAt.get(ruleKey) || 0;
+        if (Date.now() - lastAt < 3000) continue; // 3秒クールダウン（連投スパム対策）
+        commentGiftLastAt.set(ruleKey, Date.now());
+
+        const repeat = clampInt(rule.repeat ?? 1, 1, 100, 1);
+        console.log(`[CommentGift] "${match}" from=${sender} -> ${rule.commandFile} x${repeat}`);
+        dispatchDoumaEvent(`comment:${rule.commandFile}`, {
+          type: "other",
+          historyType: "comment",
+          commandFile: rule.commandFile,
+          count: repeat,
+          listenerName: sender,
+          announce: announceEnabled,
+        }, { priority: 6 });
+
+        if (rule.sound || rule.particle) {
+          const extras = [];
+          if (rule.sound) extras.push(`playsound ${sanitizeMcId(rule.sound, "entity.experience_orb.pickup")} master @a ~ ~ ~ 1 1`);
+          if (rule.particle) extras.push(`execute at @a run particle ${sanitizeMcId(rule.particle, "minecraft:happy_villager")} ~ ~1 ~ 0.6 0.8 0.6 0.05 20 force`);
+          sendDoumaExec(doumaMod, extras, sender).catch(() => {});
+        }
+      }
+    }
+
+    const ttsCfg = loadTtsConfig();
+    if (!ttsCfg.enabled || !ttsCfg.commentEnabled) return;
     const readText = sender ? `${sender}、${text}` : text;
     enqueueSpeech(readText, ttsCfg, ttsNgWords);
   });
+
+  // --------------------
+  // 視聴者数メトリクス（配信統計の同接表示用）
+  // --------------------
+  // roomUser イベントの viewerCount を60秒ごとに JSONL 追記。30日より古い行は起動時に削除。
+  const metricsPath = path.join(__dirname, "stream-metrics.jsonl");
+  try {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const kept = fs.readFileSync(metricsPath, "utf8").split("\n").filter(Boolean)
+      .filter((line) => {
+        try { return (Date.parse(JSON.parse(line).at) || 0) >= cutoff; } catch { return false; }
+      });
+    fs.writeFileSync(metricsPath, kept.length ? kept.join("\n") + "\n" : "", "utf8");
+  } catch { /* ファイルが無ければ何もしない */ }
+
+  let currentViewers = 0;
+  tiktok.on("roomUser", (data) => {
+    const v = Number(data?.viewerCount ?? 0);
+    if (Number.isFinite(v) && v >= 0) currentViewers = v;
+  });
+  const viewerMetricsTimer = setInterval(() => {
+    if (currentViewers <= 0) return;
+    try {
+      fs.appendFileSync(metricsPath, JSON.stringify({ at: new Date().toISOString(), viewers: currentViewers }) + "\n", "utf8");
+    } catch { /* 記録失敗は無視 */ }
+  }, 60000);
+  if (typeof viewerMetricsTimer.unref === "function") viewerMetricsTimer.unref();
 
   // --------------------
   // Like イベント（X いいねごとにコマンド発火）
@@ -1408,13 +1643,13 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     setTimeout(() => {
       likeBatch.delete(commandFile);
       console.log(`[Like] batched -> DoumaMod file=${commandFile} count=${entry.count}`);
-      enqueueRcon(`like:${commandFile}`, () => enqueueDoumaModEvent(doumaMod, {
+      dispatchDoumaEvent(`like:${commandFile}`, {
         type: "like",
         commandFile,
         count: entry.count,
         listenerName: entry.sender,
         announce: entry.announce,
-      }), { priority: 0 });
+      }, { priority: 0 });
     }, LIKE_BATCH_MS);
   }
 
@@ -1507,14 +1742,14 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const shareRepeat = clampInt(shareEvent.repeat ?? 1, 1, 100, 1);
     if (doumaMod) {
       console.log(`[Share] from=${sender} -> DoumaMod repeat=${shareRepeat} file=${shareEvent.commandFile}`);
-      enqueueRcon("share", () => enqueueDoumaModEvent(doumaMod, {
+      dispatchDoumaEvent("share", {
         type: "other",
         historyType: "share",
         commandFile: shareEvent.commandFile,
         count: shareRepeat,
         listenerName: sender,
         announce: announceEnabled,
-      }), { priority: 5 });
+      }, { priority: 5 });
       return;
     }
 
@@ -1562,14 +1797,14 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const followRepeat = clampInt(followEvent.repeat ?? 1, 1, 100, 1);
     if (doumaMod) {
       console.log(`[Follow] from=${sender} -> DoumaMod repeat=${followRepeat} file=${followEvent.commandFile}`);
-      enqueueRcon("follow", () => enqueueDoumaModEvent(doumaMod, {
+      dispatchDoumaEvent("follow", {
         type: "other",
         historyType: "follow",
         commandFile: followEvent.commandFile,
         count: followRepeat,
         listenerName: sender,
         announce: announceEnabled,
-      }), { priority: 5 });
+      }, { priority: 5 });
       return;
     }
 
@@ -1616,14 +1851,14 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const memberRepeat = clampInt(memberEvent.repeat ?? 1, 1, 100, 1);
     if (doumaMod) {
       console.log(`[Member] join=${sender} -> DoumaMod repeat=${memberRepeat} file=${memberEvent.commandFile}`);
-      enqueueRcon("member", () => enqueueDoumaModEvent(doumaMod, {
+      dispatchDoumaEvent("member", {
         type: "other",
         historyType: "member",
         commandFile: memberEvent.commandFile,
         count: memberRepeat,
         listenerName: sender,
         announce: false,
-      }), { priority: 3 });
+      }, { priority: 3 });
       return;
     }
 

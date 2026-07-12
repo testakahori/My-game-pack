@@ -111,6 +111,9 @@ contextBridge.exposeInMainWorld("mygamepack", {
   // Minecraft ランチャー起動
   minecraftLaunch: () => ipcRenderer.invoke("minecraft:launch"),
 
+  // マイクラIDへ OP 権限を付与（app-config の minecraftPlayerName を使用）
+  minecraftGrantOp: () => ipcRenderer.invoke("minecraft:grantOp"),
+
   // Bridge を指定フォルダ/bridge/ へ展開（初期セットアップ時）
   bridgeExtractTo: (targetFolder) => {
     if (!isString(targetFolder) || !targetFolder.trim()) throw new Error("bridgeExtractTo: targetFolder is empty");

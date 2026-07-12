@@ -6,11 +6,13 @@ type StreamStat = {
   start: string; end: string; durationMs: number; events: number;
   gift: number; like: number; share: number; follow: number; member: number; other: number;
   succeeded: number; failed: number;
+  diamonds?: number; maxViewers?: number; avgViewers?: number;
   uniqueSenders: number; topCommands: NameCount[]; topSenders: NameCount[];
 };
 type StreamStats = {
   gapMinutes: number;
-  overall: { streams: number; events: number; gift: number; like: number; share: number; follow: number; member: number; other: number; succeeded: number; failed: number };
+  overall: { streams: number; events: number; gift: number; like: number; share: number; follow: number; member: number; other: number; succeeded: number; failed: number; diamonds?: number };
+  monthly?: { month: string; streams: number; totalDurationMs: number; diamonds: number };
   streams: StreamStat[];
 };
 type HistoryRow = { at: string; type: string; sender: string; commandFile: string; count: number; ok: boolean };
@@ -67,6 +69,9 @@ export default function StatsDashboardPage() {
   });
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<"dashboard" | "list" | "detail">("dashboard");
+  const [detailIndex, setDetailIndex] = useState<number>(0);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -160,8 +165,51 @@ export default function StatsDashboardPage() {
     <div className="stats-page stats-design-page page-surface max-w-none">
       <section className="stats-summary-panel">
         <div className="stats-heading-row">
-          <div><h1>配信統計ダッシュボード</h1><p>配信イベントの集計と分析をリアルタイム更新します。</p></div>
-          <div><button onClick={() => refresh()}>↻ 更新</button></div>
+          <div style={{ position: "relative" }}>
+            <h1
+              onClick={() => setMenuOpen((v) => !v)}
+              style={{ cursor: "pointer", userSelect: "none" }}
+              title="クリックでメニューを開く"
+            >
+              配信統計{view === "list" ? "（配信集計）" : view === "detail" ? "（配信詳細）" : "ダッシュボード"} <span style={{ fontSize: 14, opacity: 0.7 }}>▾</span>
+            </h1>
+            <p>配信イベントの集計と分析をリアルタイム更新します。データは30日間保持されます。</p>
+            {menuOpen && (
+              <div
+                style={{
+                  position: "absolute", top: "100%", left: 0, zIndex: 30, marginTop: 6,
+                  background: "#0b1524", border: "1px solid rgba(39,216,255,0.4)", borderRadius: 12,
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.6)", overflow: "hidden", minWidth: 220,
+                }}
+              >
+                {[
+                  { key: "dashboard", label: "📊 配信統計ダッシュボード" },
+                  { key: "list", label: "📅 配信集計を見る" },
+                ].map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => { setView(item.key as "dashboard" | "list"); setMenuOpen(false); }}
+                    style={{
+                      display: "block", width: "100%", textAlign: "left", padding: "10px 14px",
+                      fontSize: 13, fontWeight: 700, color: "#d5e6f7",
+                      background: view === item.key ? "rgba(39,216,255,0.12)" : "transparent",
+                      border: "none", cursor: "pointer",
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div className="stats-summary-tile stats-summary-tile--green" style={{ minWidth: 150 }}>
+              <span>🕒</span><small>今月の配信合計時間</small>
+              <b>{data.monthly ? fmtDuration(data.monthly.totalDurationMs) : "0分"}</b>
+            </div>
+            <button onClick={() => refresh()}>↻ 更新</button>
+          </div>
         </div>
         <div className="stats-summary-grid">
           {[
@@ -169,8 +217,8 @@ export default function StatsDashboardPage() {
             ["⌁","総イベント",o.events,"violet"],
             ["🎁","ギフト",o.gift,"pink"],
             ["♥","いいね",o.like,"pink"],
+            ["💎","総ダイヤ",o.diamonds ?? 0,"violet"],
             ["✓","成功率",success,"green"],
-            ["×","失敗",o.failed,"red"],
           ].map(([icon,label,value,tone]) => (
             <div className={`stats-summary-tile stats-summary-tile--${tone}`} key={String(label)}>
               <span>{icon}</span><small>{label}</small><b>{value}</b>
@@ -179,7 +227,126 @@ export default function StatsDashboardPage() {
         </div>
       </section>
 
-      {loading && !latest ? <section className="stats-empty">集計中…</section> : !latest ? (
+      {/* ══ 配信集計リスト ══ */}
+      {view === "list" && (
+        <section className="stats-analytics-card" style={{ padding: 18 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <h2 style={{ margin: 0 }}>配信集計 <small style={{ color: "#77899f" }}>（直近30日・{data.streams.length}配信）</small></h2>
+            <button type="button" onClick={() => setView("dashboard")} style={{ fontSize: 12 }}>← ダッシュボードへ戻る</button>
+          </div>
+          {data.streams.length === 0 ? (
+            <p className="stats-no-data">まだ配信データがありません。</p>
+          ) : (
+            <div className="stats-table" style={{ fontSize: 13 }}>
+              <p style={{ fontWeight: 800, color: "#8ba0b8" }}>
+                <span style={{ minWidth: 170 }}>日付（クリックで詳細）</span>
+                <b>配信時間</b>
+                <em>総配信時間（累計）</em>
+                <strong>💎 総ダイヤ</strong>
+              </p>
+              {data.streams.map((s, index) => {
+                // 累計は古い配信からの積み上げ（streams は新しい順なので後ろから足す）
+                const cumulative = data.streams.slice(index).reduce((a, x) => a + x.durationMs, 0);
+                return (
+                  <p key={s.start}>
+                    <button
+                      type="button"
+                      onClick={() => { setDetailIndex(index); setView("detail"); }}
+                      style={{
+                        background: "none", border: "none", cursor: "pointer", padding: 0,
+                        color: "#3fd5ff", fontWeight: 800, textDecoration: "underline", fontSize: 13, minWidth: 170, textAlign: "left",
+                      }}
+                    >
+                      {fmtRange(s.start, s.end)}
+                    </button>
+                    <b>{fmtDuration(s.durationMs)}</b>
+                    <em>{fmtDuration(cumulative)}</em>
+                    <strong>💎 {s.diamonds ?? 0}</strong>
+                  </p>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* ══ 配信別詳細 ══ */}
+      {view === "detail" && (() => {
+        const s = data.streams[detailIndex];
+        if (!s) return <section className="stats-empty">配信データが見つかりません。<button type="button" onClick={() => setView("list")}>一覧へ戻る</button></section>;
+        const detailRows = history
+          .map((r) => ({ ...r, t: Date.parse(r.at) || 0 }))
+          .filter((r) => r.t >= (Date.parse(s.start) || 0) && r.t <= (Date.parse(s.end) || 0));
+        const kinds = Math.max(1, s.gift + s.like + s.share + s.follow + s.member + s.other);
+        return (
+          <>
+            <section className="stats-session-panel">
+              <div className="stats-session-title">
+                <span>配信詳細</span>
+                <h2>{fmtRange(s.start, s.end)}</h2>
+                <em>{fmtDuration(s.durationMs)}</em>
+                <small>
+                  <button type="button" onClick={() => setView("list")} style={{ fontSize: 11 }}>← 配信集計へ戻る</button>
+                </small>
+              </div>
+              <div className="stats-session-metrics">
+                {[
+                  ["🕒","配信時間",fmtDuration(s.durationMs),""],
+                  ["♟","視聴者数（イベント参加）",s.uniqueSenders,"人"],
+                  ["📈","最高同接",s.maxViewers || 0,"人"],
+                  ["📊","平均同接",s.avgViewers || 0,"人"],
+                  ["🎁","ギフト",s.gift,""],
+                  ["♥","いいね",s.like,""],
+                  ["💎","ダイヤモンド",s.diamonds ?? 0,""],
+                  ["✓","成功率",successRate(s.succeeded, s.succeeded + s.failed),""],
+                ].map(([icon,label,value,suffix]) => (
+                  <div key={String(label)}><span>{icon}</span><small>{label}</small><b>{value}{suffix}</b></div>
+                ))}
+              </div>
+            </section>
+            <div className="stats-analytics-grid">
+              <section className="stats-analytics-card">
+                <h2>イベント内訳</h2>
+                <div className="stats-stack">
+                  <span style={{width:`${(s.gift/kinds)*100}%`}} />
+                  <i style={{width:`${(s.like/kinds)*100}%`}} />
+                  <b style={{width:`${((s.share+s.follow+s.member+s.other)/kinds)*100}%`}} />
+                </div>
+                {[["ギフト",s.gift,"pink"],["いいね",s.like,"violet"],["シェア",s.share,"green"],["フォロー",s.follow,"amber"],["訪問",s.member,"amber"],["その他",s.other,"blue"]].map(([label,value,tone]) => (
+                  <p key={String(label)}><span className={`dot dot--${tone}`} />{label}<b>{value}</b><em>{Math.round((Number(value)/kinds)*100)}%</em></p>
+                ))}
+                <footer>合計 <b>{s.events}</b> イベント</footer>
+              </section>
+              <section className="stats-analytics-card stats-top-card">
+                <h2>トップギフター</h2>
+                {s.topSenders.length ? (
+                  s.topSenders.slice(0,3).map((sender,index) => <p className="stats-ranker" key={sender.name}><span>{index+1}</span><b>{sender.name}</b><em>×{sender.count}</em></p>)
+                ) : <p className="stats-no-data">データなし</p>}
+                <h2>人気コマンド</h2>
+                {s.topCommands.length ? (
+                  s.topCommands.slice(0,3).map((c,index) => <p className="stats-ranker" key={c.name}><span>{index+1}</span><b>{c.name}</b><em>×{c.count}</em></p>)
+                ) : <p className="stats-no-data">データなし</p>}
+              </section>
+              <section className="stats-analytics-card" style={{ gridColumn: "span 2" }}>
+                <h2>この配信のイベント（直近20件）</h2>
+                <div className="stats-table">
+                  {detailRows.length === 0 ? <p className="stats-no-data">データなし</p> : detailRows.slice(-20).reverse().map((row, index) => (
+                    <p key={`${row.at}-${index}`}>
+                      <time>{fmtTime(row.at)}</time>
+                      <span>{EVENT_ICON[row.type] || "⚡"} {EVENT_LABEL[row.type] || row.type}</span>
+                      <b>{row.commandFile}</b>
+                      <em>{row.sender}</em>
+                      <strong>×{row.count}</strong>
+                    </p>
+                  ))}
+                </div>
+              </section>
+            </div>
+          </>
+        );
+      })()}
+
+      {view === "dashboard" && (loading && !latest ? <section className="stats-empty">集計中…</section> : !latest ? (
         <section className="stats-empty">まだイベント履歴がありません。運用センターでテストイベントを発火すると集計されます。</section>
       ) : (
         <>
@@ -287,7 +454,7 @@ export default function StatsDashboardPage() {
             </section>
           </div>
         </>
-      )}
+      ))}
     </div>
   );
 }

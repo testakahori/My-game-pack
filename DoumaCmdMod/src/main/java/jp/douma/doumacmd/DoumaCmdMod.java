@@ -14,6 +14,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -65,6 +66,7 @@ public class DoumaCmdMod {
     private long failedCommands = 0;
     private volatile String lastError = "";
     private long protectedSkips = 0;
+    private long playerDeaths = 0;
 
     public DoumaCmdMod() {
         MinecraftForge.EVENT_BUS.register(this);
@@ -92,6 +94,16 @@ public class DoumaCmdMod {
             likeQueue.clear();
             otherQueue.clear();
         }
+    }
+
+    // プレイヤー死亡の検知（デスルーレット用）。累計死亡数を WS で Bridge へ通知する。
+    @SubscribeEvent
+    public void onLivingDeath(LivingDeathEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player)) return;
+        playerDeaths++;
+        broadcastWebSocket("{\"type\":\"death\",\"player\":\""
+            + jsonEscape(player.getGameProfile().getName())
+            + "\",\"deaths\":" + playerDeaths + "}");
     }
 
     @SubscribeEvent
@@ -168,6 +180,7 @@ public class DoumaCmdMod {
         try {
             bridgeServer = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 32);
             bridgeServer.createContext("/douma/event", exchange -> handleBridgeEvent(server, exchange));
+            bridgeServer.createContext("/douma/exec", exchange -> handleBridgeExec(server, exchange));
             bridgeServer.createContext("/douma/status", this::handleBridgeStatus);
             bridgeServer.setExecutor(Executors.newSingleThreadExecutor(r -> {
                 Thread t = new Thread(r, "DoumaCmdMod-BridgeHttp");
@@ -229,6 +242,55 @@ public class DoumaCmdMod {
         sendHttp(exchange, 202, "{\"ok\":true,\"queued\":true}");
     }
 
+    // 生コマンド配列の実行（ルーレット演出などBridge側でタイミング制御するフレーム用）。
+    // 127.0.0.1 バインドのHTTPのみ。otherキュー経由・出力抑制・失敗は統計に計上しない。
+    private static final int MAX_EXEC_COMMANDS = 40;
+    private static final int MAX_EXEC_COMMAND_LENGTH = 500;
+
+    private void handleBridgeExec(MinecraftServer server, HttpExchange exchange) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendHttp(exchange, 405, "{\"ok\":false,\"error\":\"method_not_allowed\"}");
+            return;
+        }
+        String body = readHttpBody(exchange);
+        List<String> commands = jsonStringArray(body, "commands");
+        if (commands.isEmpty()) {
+            sendHttp(exchange, 400, "{\"ok\":false,\"error\":\"commands_required\"}");
+            return;
+        }
+        if (commands.size() > MAX_EXEC_COMMANDS) commands = commands.subList(0, MAX_EXEC_COMMANDS);
+        List<String> safe = new ArrayList<>();
+        for (String c : commands) {
+            String v = c == null ? "" : c.trim();
+            if (v.isEmpty() || v.length() > MAX_EXEC_COMMAND_LENGTH) continue;
+            safe.add(v);
+        }
+        if (safe.isEmpty()) {
+            sendHttp(exchange, 400, "{\"ok\":false,\"error\":\"commands_required\"}");
+            return;
+        }
+        String listenerName = BridgeEvent.jsonString(body, "listenerName", "viewer");
+        BridgeEvent event = BridgeEvent.inline(safe, listenerName);
+        if (!enqueueBridgeEvent(event)) {
+            sendHttp(exchange, 429, "{\"ok\":false,\"error\":\"queue_full\"}");
+            return;
+        }
+        sendHttp(exchange, 202, "{\"ok\":true,\"queued\":true}");
+    }
+
+    // "commands":["...","..."] を取り出す。コマンド文字列に ] が含まれても壊れないよう、
+    // 配列部分は最後の ] まで貪欲にマッチさせる（exec ペイロードでは commands が末尾要素）。
+    private static List<String> jsonStringArray(String json, String name) {
+        List<String> out = new ArrayList<>();
+        if (json == null || json.isBlank()) return out;
+        Pattern arr = Pattern.compile("\"" + Pattern.quote(name) + "\"\\s*:\\s*\\[(.*)\\]", Pattern.DOTALL);
+        Matcher m = arr.matcher(json);
+        if (!m.find()) return out;
+        Matcher item = Pattern.compile("\"((?:\\\\.|[^\"])*)\"").matcher(m.group(1));
+        while (item.find()) out.add(BridgeEvent.unescapeJsonString(item.group(1)));
+        return out;
+    }
+
     private String readHttpBody(HttpExchange exchange) throws IOException {
         InputStream in = exchange.getRequestBody();
         byte[] buf = in.readNBytes(MAX_HTTP_BODY_BYTES + 1);
@@ -269,6 +331,7 @@ public class DoumaCmdMod {
         double tps = tickMs <= 0 ? 20.0 : Math.min(20.0, 1000.0 / tickMs);
         return "{\"ok\":true,\"gift\":" + gift + ",\"like\":" + like + ",\"other\":" + other
             + ",\"executed\":" + executedCommands + ",\"failed\":" + failedCommands
+            + ",\"deaths\":" + playerDeaths
             + ",\"protectedSkips\":" + protectedSkips
             + ",\"lastError\":\"" + jsonEscape(lastError) + "\",\"tps\":" + String.format(Locale.ROOT, "%.2f", tps)
             + ",\"tickMs\":" + String.format(Locale.ROOT, "%.2f", tickMs)
@@ -442,6 +505,20 @@ public class DoumaCmdMod {
      * 実行したコマンド数を返す。event.remaining / event.announced を更新する。
      */
     private int executeEventSlice(MinecraftServer server, BridgeEvent event, int commandBudget) {
+        // /douma/exec の生コマンド：演出フレームなので失敗は統計に計上しない
+        if (event.inlineCommands != null) {
+            CommandSourceStack silentInline = server.createCommandSourceStack().withPermission(4).withSuppressedOutput();
+            int usedInline = 0;
+            while (event.remaining > 0 && (usedInline == 0 || usedInline + event.inlineCommands.size() <= commandBudget)) {
+                for (String raw : event.inlineCommands) {
+                    performSilent(server, silentInline, applyPlaceholdersMinecraft(raw, event.listenerName), false);
+                    usedInline++;
+                }
+                event.remaining--;
+            }
+            return usedInline;
+        }
+
         Path file;
         try {
             file = resolveCommandFile(server, event.key);
@@ -492,13 +569,15 @@ public class DoumaCmdMod {
             String titleJson    = "{\"text\":\"" + mcJsonStringEscape(title, 60) + "\",\"color\":\"yellow\",\"bold\":true}";
             String subtitleJson = "{\"text\":\"" + mcJsonStringEscape(subtitleText, 60) + "\",\"color\":\"green\"}";
 
-            performSilent(server, silent, "title @a times 10 70 10");
-            performSilent(server, silent, "title @a title "    + titleJson);
-            performSilent(server, silent, "title @a subtitle " + subtitleJson);
+            // 飾りコマンド（title/playsound/particle）はプレイヤー不在時などに result 0 を
+            // 返すのが常態のため、失敗統計には計上しない（統計汚染の主因だった）
+            performSilent(server, silent, "title @a times 10 70 10", false);
+            performSilent(server, silent, "title @a title "    + titleJson, false);
+            performSilent(server, silent, "title @a subtitle " + subtitleJson, false);
             String sound = parsed.meta.getOrDefault("SOUND", "entity.experience_orb.pickup");
             String particle = parsed.meta.getOrDefault("PARTICLE", "minecraft:happy_villager");
-            performSilent(server, silent, "playsound " + sound + " master @a ~ ~ ~ 0.8 1");
-            performSilent(server, silent, "execute at @a run particle " + particle + " ~ ~1 ~ 0.6 0.8 0.6 0.05 18 force");
+            performSilent(server, silent, "playsound " + sound + " master @a ~ ~ ~ 0.8 1", false);
+            performSilent(server, silent, "execute at @a run particle " + particle + " ~ ~1 ~ 0.6 0.8 0.6 0.05 18 force", false);
             event.announced = true;
             used += 5;
         }
@@ -526,9 +605,17 @@ public class DoumaCmdMod {
         // 分割実行用の状態（tickスレッドのみが更新。enqueue時の合流は未着手イベントに限る）
         int remaining;
         boolean announced;
+        // /douma/exec 用：ファイルではなく生コマンド配列を実行する（null ならファイル実行）
+        List<String> inlineCommands;
 
         BridgeEvent(String type, String key, int count, String listenerName, boolean announce) {
             this(type, key, count, listenerName, announce, false, 0, 0, 0, 0);
+        }
+
+        static BridgeEvent inline(List<String> commands, String listenerName) {
+            BridgeEvent event = new BridgeEvent("other", "_inline", 1, listenerName, false);
+            event.inlineCommands = commands;
+            return event;
         }
 
         BridgeEvent(String type, String key, int count, String listenerName, boolean announce,
@@ -623,6 +710,10 @@ public class DoumaCmdMod {
      * コマンドを「出力を抑制」して実行（赤ログを出さない）
      */
     private boolean performSilent(MinecraftServer server, CommandSourceStack silentSource, String commandLine) {
+        return performSilent(server, silentSource, commandLine, true);
+    }
+
+    private boolean performSilent(MinecraftServer server, CommandSourceStack silentSource, String commandLine, boolean countFailure) {
         try {
             int result = server.getCommands().performPrefixedCommand(silentSource, commandLine);
             executedCommands++;
@@ -630,7 +721,7 @@ public class DoumaCmdMod {
                 // execute if/unless の条件不成立（result 0）は正常系。召喚txtは
                 // 「上空が空いていれば頭上／塞がっていれば足元」の2行フォールバックで
                 // 毎回必ず片方が result 0 になるため、失敗計上すると統計が汚染される。
-                if (!isConditionalCommand(commandLine)) {
+                if (countFailure && !isConditionalCommand(commandLine)) {
                     recordFailure(commandLine + ": command returned 0");
                 }
                 return false;
@@ -639,7 +730,7 @@ public class DoumaCmdMod {
         } catch (Exception e) {
             // 失敗時だけは最低限プレイヤーに知らせたいなら、ここで sendFailure してもOK
             // 今回は「赤文字ゼロ優先」なので silent のまま false を返す
-            recordFailure(commandLine + ": " + e.getMessage());
+            if (countFailure) recordFailure(commandLine + ": " + e.getMessage());
             return false;
         }
     }

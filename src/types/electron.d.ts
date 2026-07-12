@@ -84,6 +84,7 @@ declare global {
       bridgeProcessStatus: () => Promise<any>;
       bridgeLogs: () => Promise<{ ok: true; lines: string[] }>;
       minecraftLaunch: () => Promise<{ ok: true }>;
+      minecraftGrantOp: () => Promise<{ ok: true; name: string }>;
       serverGamerulesApply: () => Promise<{ ok: true }>;
       serverDatapackDeployNightVision: () => Promise<{ ok: true }>;
       serverPropsRead: () => Promise<Record<string, string>>;
@@ -117,6 +118,7 @@ declare global {
         setupRequiredByInstall?: boolean;
         setupRequiredAt?: string;
         minecraftLauncherPath?: string;
+        minecraftPlayerName?: string;
         autoBackupOnServerStart?: boolean;
       }>;
       appConfigWrite: (data: Partial<{
@@ -125,6 +127,7 @@ declare global {
         setupRequiredByInstall: boolean;
         setupRequiredAt: string;
         minecraftLauncherPath: string;
+        minecraftPlayerName: string;
         autoBackupOnServerStart: boolean;
       }>) => Promise<{ ok: true }>;
 

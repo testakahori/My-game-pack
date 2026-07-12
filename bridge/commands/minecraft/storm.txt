@@ -1,0 +1,13 @@
+# TITLE: 暴風雨
+# SUBTITLE: {ListenerName}
+# CATEGORY: 天変地異
+# SOUND: entity.lightning_bolt.thunder
+# PARTICLE: minecraft:cloud
+// 5分間の激しい雷雨。強烈な向かい風で移動速度が約10分の1になる
+weather thunder 300
+effect give @a minecraft:slowness 300 5 true
+execute at @a run playsound entity.lightning_bolt.thunder master @a ~ ~ ~ 1.6 0.8
+execute at @a run playsound weather.rain.above master @a ~ ~ ~ 1.4 0.8
+execute at @a run particle minecraft:cloud ~ ~2 ~ 6 3 6 0.4 250 force
+execute at @a run summon minecraft:lightning_bolt ~8 ~ ~
+execute at @a run summon minecraft:lightning_bolt ~-9 ~ ~5

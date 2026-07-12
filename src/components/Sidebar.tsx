@@ -13,6 +13,7 @@ const LOCKED_PAGES: AppPage[] = [
   AppPage.DASHBOARD,
   AppPage.GIFTS,
   AppPage.EVENTS,
+  AppPage.EVENTS2,
   AppPage.TTS,
   AppPage.GIFTS_VIEWER,
   AppPage.OPERATIONS,
@@ -41,9 +42,15 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     page: AppPage.EVENTS,
-    label: "イベント設定",
+    label: "イベント設定①",
     sub: "いいね・シェア・訪問",
     icon: "🎯",
+  },
+  {
+    page: AppPage.EVENTS2,
+    label: "イベント設定②",
+    sub: "ルーレット・コメント",
+    icon: "🎡",
   },
   {
     page: AppPage.TTS,
@@ -83,6 +90,7 @@ const NavGlyph: React.FC<{ page: AppPage }> = ({ page }) => {
     [AppPage.DASHBOARD]: <><path {...common} d="M3 11.5 12 4l9 7.5" /><path {...common} d="M5.5 10v9h13v-9M9 19v-6h6v6" /></>,
     [AppPage.GIFTS]: <><path {...common} d="M4 9h16v11H4zM3 6h18v4H3zM12 6v14" /><path {...common} d="M12 6c-4 0-5-5-1-4 2 .5 1 4 1 4Zm0 0c4 0 5-5 1-4-2 .5-1 4-1 4Z" /></>,
     [AppPage.EVENTS]: <><circle {...common} cx="12" cy="12" r="8" /><circle {...common} cx="12" cy="12" r="4" /><path {...common} d="m12 12 7-7M16 5h3v3" /></>,
+    [AppPage.EVENTS2]: <><circle {...common} cx="12" cy="12" r="8" /><path {...common} d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3 6.3 17.7" /><circle {...common} cx="12" cy="12" r="2.2" /></>,
     [AppPage.TTS]: <><path {...common} d="M4 10v4h4l5 4V6L8 10H4Z" /><path {...common} d="M16 9c1 2 1 4 0 6M19 6c3 4 3 8 0 12" /></>,
     [AppPage.GIFTS_VIEWER]: <><path {...common} d="M7 4c3 0 5 3 5 7-4 0-7-2-7-5 0-1 1-2 2-2ZM17 4c-3 0-5 3-5 7 4 0 7-2 7-5 0-1-1-2-2-2Z" /><path {...common} d="M12 11v10M12 14l-4 5M12 14l4 5" /></>,
     [AppPage.OPERATIONS]: <><path {...common} d="M12 3 4.5 6v5c0 5 3 8 7.5 10 4.5-2 7.5-5 7.5-10V6L12 3Z" /><path {...common} d="m8.5 12 2.2 2.2 4.8-5" /></>,

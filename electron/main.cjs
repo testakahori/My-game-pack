@@ -264,6 +264,7 @@ if (!gotLock) {
 
 app.whenReady().then(() => {
   consumeInstallerSetupReset();
+  pruneOperationsHistoryOldRows(30);
   installProdOnlyCsp();
   createWindow();
   scheduleBridgeSync();
@@ -1357,6 +1358,35 @@ function appendOperationsHistory(row) {
   } catch { /* ignore */ }
 }
 
+// 30日より古いイベント履歴を起動時に削除（配信集計リストの保持期間）
+function pruneOperationsHistoryOldRows(days = 30) {
+  const historyPath = getOperationsHistoryPath();
+  try {
+    migrateOperationsHistoryToJsonlIfNeeded(historyPath);
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    const lines = fs.readFileSync(historyPath, "utf8").split("\n").filter((l) => l.trim());
+    const kept = lines.filter((line) => {
+      try { return (Date.parse(JSON.parse(line).at) || 0) >= cutoff; } catch { return false; }
+    });
+    if (kept.length !== lines.length) {
+      fs.writeFileSync(historyPath, kept.length ? kept.join("\n") + "\n" : "", "utf8");
+      console.log(`[stats] pruned operations history: ${lines.length} -> ${kept.length} rows (${days}d)`);
+    }
+  } catch { /* ファイルが無ければ何もしない */ }
+}
+
+// bridge が記録する視聴者数メトリクス（stream-metrics.jsonl）を読む
+function readViewerMetrics() {
+  const p = path.join(getBridgeBatDir(), "stream-metrics.jsonl");
+  try {
+    return fs.readFileSync(p, "utf8").split("\n").filter(Boolean)
+      .map((line) => { try { return JSON.parse(line); } catch { return null; } })
+      .filter(Boolean)
+      .map((r) => ({ t: Date.parse(r.at) || 0, viewers: Number(r.viewers) || 0 }))
+      .filter((r) => r.t > 0);
+  } catch { return []; }
+}
+
 ipcMain.handle("mod:status", async () => {
   try { return { online: true, ...(await requestDouma("GET", "/douma/status")) }; }
   catch (e) { return { online: false, error: e.message }; }
@@ -1365,15 +1395,61 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
   let bridgeCfg = {};
   try { bridgeCfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch {}
   const protection = bridgeCfg.options?.protection || {};
-  const payload = {
-    type: value?.type === "like" ? "like" : "gift",
-    key: path.basename(String(value?.commandFile || ""), ".txt"),
-    count: Math.max(1, Math.min(100, Number(value?.count || 1))),
-    listenerName: String(value?.listenerName || "テスト視聴者").slice(0, 40),
-    announce: true,
+  const protectionPayload = {
     protectionEnabled: protection.enabled === true,
     protectX1: Number(protection.x1 || 0), protectX2: Number(protection.x2 || 0),
     protectZ1: Number(protection.z1 || 0), protectZ2: Number(protection.z2 || 0),
+  };
+  const listenerName = String(value?.listenerName || "テスト視聴者").slice(0, 40);
+
+  // いいね発火テスト：本番と同じ「しきい値ラダー」をシミュレートする。
+  // 旧実装は選択中の commandFile を type=like で直送しており、実質ギフト発火と
+  // 同じ動きだった（Mod は type をキュー振り分けにしか使わない）。
+  if (value?.type === "like") {
+    const likeCount = Math.max(1, Math.min(10000, Number(value?.likeCount ?? value?.count ?? 1)));
+    const rules = (Array.isArray(bridgeCfg.likeEvents) ? bridgeCfg.likeEvents : [])
+      .filter((r) => r && r.enabled !== false && r.commandFile && Number(r.threshold) > 0);
+    if (rules.length === 0) {
+      return { ok: false, message: "いいねイベントが未設定です。イベント設定①でしきい値ルールを追加してください。" };
+    }
+    const fired = [];
+    let anyOk = false;
+    for (const rule of rules) {
+      const threshold = Math.max(1, Number(rule.threshold));
+      const triggers = Math.floor(likeCount / threshold);
+      if (triggers <= 0) continue;
+      const repeat = Math.max(1, Math.min(100, Number(rule.repeat || 1)));
+      const count = Math.max(1, Math.min(100, triggers * repeat));
+      const payload = {
+        type: "like",
+        key: path.basename(String(rule.commandFile), ".txt"),
+        count,
+        listenerName,
+        announce: threshold >= 100,
+        ...protectionPayload,
+      };
+      let result;
+      try { await requestDouma("POST", "/douma/event", payload); result = { ok: true }; anyOk = true; }
+      catch (e) { result = { ok: false, message: e.message }; }
+      appendOperationsHistory({ at: new Date().toISOString(), type: "like", sender: listenerName,
+        commandFile: `${payload.key}.txt`, count, ...result });
+      fired.push({ commandFile: `${payload.key}.txt`, threshold, count, ok: result.ok });
+    }
+    if (fired.length === 0) {
+      const minThreshold = Math.min(...rules.map((r) => Number(r.threshold)));
+      return { ok: false, message: `いいね${likeCount}回では最小しきい値（${minThreshold}）に届きません。` };
+    }
+    const detail = fired.map((f) => `${f.commandFile}×${f.count}`).join(" / ");
+    return { ok: anyOk, fired, message: `いいね${likeCount}回 → ${fired.length}ルール発火（${detail}）` };
+  }
+
+  const payload = {
+    type: "gift",
+    key: path.basename(String(value?.commandFile || ""), ".txt"),
+    count: Math.max(1, Math.min(100, Number(value?.count || 1))),
+    listenerName,
+    announce: true,
+    ...protectionPayload,
   };
   let result;
   try { await requestDouma("POST", "/douma/event", payload); result = { ok: true }; }
@@ -1381,6 +1457,23 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
   appendOperationsHistory({ at: new Date().toISOString(), type: payload.type, sender: payload.listenerName,
     commandFile: `${payload.key}.txt`, count: payload.count, ...result });
   return result;
+});
+
+// --------------------
+// IPC: マイクラIDへ OP 権限を付与（_op.txt を書いて Mod 経由で実行）
+// --------------------
+ipcMain.handle("minecraft:grantOp", async () => {
+  const name = String(readAppConfig().minecraftPlayerName || "").trim();
+  if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) {
+    throw new Error("マイクラIDが未設定か形式が不正です（英数字と_で3〜16文字）。ダッシュボードで保存してください。");
+  }
+  const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "_op.txt"), `# TITLE: OP付与\nop ${name}\n`, "utf8");
+  await requestDouma("POST", "/douma/event", {
+    type: "other", key: "_op", count: 1, listenerName: "system", announce: false,
+  });
+  return { ok: true, name };
 });
 ipcMain.handle("operations:history", () => readOperationsHistory());
 ipcMain.handle("operations:history:clear", () => {
@@ -1500,11 +1593,14 @@ function computeStreamStats(gapMinutes) {
   const top = (obj) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, 3)
     .map(([name, count]) => ({ name, count }));
 
+  const viewerMetrics = readViewerMetrics();
+
   const summarize = (b) => {
     const byCommand = {}, bySender = {};
     // type は gift/like に加えて、historyType経由で share/follow/member が実値として記録される
     // （Mod向けキューは常に"other"だが、統計上の内訳はここで区別する）。それ以外は other に集約。
     let gift = 0, like = 0, share = 0, follow = 0, member = 0, other = 0, succeeded = 0, failed = 0;
+    let diamonds = 0;
     for (const r of b.rows) {
       const amount = Number(r.count || 1);
       if (r.ok) succeeded++; else failed++;
@@ -1514,15 +1610,25 @@ function computeStreamStats(gapMinutes) {
       else if (r.type === "follow") follow += amount;
       else if (r.type === "member") member += amount;
       else other += amount;
+      if (Number(r.diamond) > 0) diamonds += Number(r.diamond) * amount;
       byCommand[r.commandFile || "unknown"] = (byCommand[r.commandFile || "unknown"] || 0) + amount;
       bySender[r.sender || "unknown"] = (bySender[r.sender || "unknown"] || 0) + amount;
     }
+    // 配信区間内の視聴者数（bridge が60秒毎に記録）から 最高同接/平均 を求める
+    const windowMetrics = viewerMetrics.filter((m) => m.t >= b.startT - 60000 && m.t <= b.lastT + 60000);
+    const maxViewers = windowMetrics.length ? Math.max(...windowMetrics.map((m) => m.viewers)) : 0;
+    const avgViewers = windowMetrics.length
+      ? Math.round(windowMetrics.reduce((a, m) => a + m.viewers, 0) / windowMetrics.length)
+      : 0;
     return {
       start: new Date(b.startT).toISOString(),
       end: new Date(b.lastT).toISOString(),
       durationMs: b.lastT - b.startT,
       events: b.rows.length,
       gift, like, share, follow, member, other, succeeded, failed,
+      diamonds,
+      maxViewers,
+      avgViewers,
       uniqueSenders: Object.keys(bySender).length,
       topCommands: top(byCommand),
       topSenders: top(bySender),
@@ -1530,7 +1636,16 @@ function computeStreamStats(gapMinutes) {
   };
 
   const streams = buckets.map(summarize).reverse(); // 新しい配信を先頭に
-  const sum = (key) => streams.reduce((a, s) => a + s[key], 0);
+  const sum = (key) => streams.reduce((a, s) => a + (s[key] || 0), 0);
+
+  // 今月（ローカル時刻基準）の配信合計時間
+  const now = new Date();
+  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const monthStreams = streams.filter((s) => {
+    const d = new Date(s.start);
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  });
+
   return {
     gapMinutes: gapMs / 60000,
     overall: {
@@ -1539,6 +1654,13 @@ function computeStreamStats(gapMinutes) {
       gift: sum("gift"), like: sum("like"), share: sum("share"), follow: sum("follow"),
       member: sum("member"), other: sum("other"),
       succeeded: sum("succeeded"), failed: sum("failed"),
+      diamonds: sum("diamonds"),
+    },
+    monthly: {
+      month: monthKey,
+      streams: monthStreams.length,
+      totalDurationMs: monthStreams.reduce((a, s) => a + s.durationMs, 0),
+      diamonds: monthStreams.reduce((a, s) => a + (s.diamonds || 0), 0),
     },
     streams,
   };

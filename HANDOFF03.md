@@ -163,6 +163,131 @@ push 済みでもある。
 7. ランチャーを C ドライブ以外に入れている場合：「🎮 ランチャーの場所を指定」で
    exe を選んでから一括起動。
 
+---
+
+# 第2弾（2026-07-12 午後）計画書
+
+ユーザー要望8件＋調査結果。対象バージョン: アプリ v1.0.16 / Mod v1.2.0。
+
+## 調査で確定した事実
+
+- **TTS が動かない件**: bridge の TTS 実装は正常（gift/chat ハンドラーで enqueueSpeech）。
+  ただし VOICEVOX エンジンが起動していないと `speakText` が**無言で**失敗する
+  （audio_query 非200 は警告すら出ない）。一括起動フローでエンジンを起動しておらず、
+  ユーザーが手動で VOICEVOX を立ち上げない限り読み上げは鳴らない。
+  → 修正: ①一括起動時に読み上げ設定が有効ならエンジン自動起動（ttsLaunchEngine）
+  ②bridge にエンジン未接続の警告ログ（60秒に1回まで）を追加。
+  ※「視聴者にも聞こえる」は PC スピーカー音を配信ソフトが拾う構成（デスクトップ音声
+  キャプチャ）。コード側は PC で確実に鳴らすところまで。
+- **いいね発火がギフト発火になる件**: 運用センターの fire("like") は選択中の
+  commandFile を type=like で Mod に直送するだけで、Mod は type をキュー振り分けにしか
+  使わない。＝「いいねらしさ」ゼロ。→ 修正: いいね発火は config.likeEvents の
+  しきい値ラダーをシミュレート（入力いいね数から各ルールの発火回数を計算して発火）。
+  入力欄: ギフト発火数(1-100) / いいね発火数(1-10000) に分離。
+- **Mod 死活監視の失敗 3127 の正体**: failed は「コマンド1行単位で戻り値0 or 例外」。
+  ギフト不発ではない。主犯は announce の飾りコマンド（title/playsound/particle）が
+  プレイヤー不在時に0を返すケースと、対象セレクタ不一致。
+  → 修正: 飾りコマンドの失敗はカウントしない（Mod v1.2.0）。
+- Mod のコマンド実行は「1 tick に最大60行、ファイル単位で順次」。行間ディレイ機構は
+  無い。→ ルーレットの回転演出は **bridge 側で setTimeout しながら Mod の新エンドポイント
+  /douma/exec（生コマンド配列を実行）へフレームを送る**方式にする。
+
+## 設計
+
+### Mod v1.2.0（DoumaCmdMod.java）
+1. `/douma/exec`（POST, 127.0.0.1のみ）: `{commands:["title ..."], count?}` を
+   BridgeEvent(inlineCommands) として otherQueue へ。announce なし。
+2. 死亡検知: `LivingDeathEvent` で ServerPlayer の死亡を数え、WS で
+   `{type:"death", player, deaths}` をブロードキャスト。status JSON に `deaths` 追加。
+3. announce の飾り5コマンドは失敗カウント対象外に（performSilentCosmetic）。
+4. version 1.1.2 → 1.2.0。ビルドは `gradlew build --offline -Dnet.minecraftforge.gradle.check.certs=false`、
+   配置3箇所（実サーバー/テンプレmods/クライアント）。
+
+### bridge/index.js
+1. TTS: エンジン未接続警告（60s throttle）。
+2. `sendDoumaExec(doumaMod, commands)` ヘルパー（/douma/exec）。
+3. **ルーレット**: config.roulette = { enabled, items:[{commandFile,label,weight}],
+   stopSound, particle }。`enqueueDoumaModEvent` の入口で key==="roulette" を
+   インターセプトして runRoulette()：約12フレーム、間隔 120ms×1.15^i で
+   title 差し替え＋クリック音 → 停止時に当選 title＋停止音＋パーティクル →
+   当選 commandFile を通常イベントとして発火。ホットリロード対応。
+4. **デスルーレット**: config.deathRoulette = { enabled, everyDeaths, items,
+   stopSound, particle }。Mod WS の death メッセージで deaths % everyDeaths === 0 の
+   とき runRoulette。
+5. **コメントギフト**: config.commentGifts = { enabled, rules:[{match, commandFile,
+   repeat, sound, particle, enabled}] }。chat ハンドラーで部分一致（ルール毎3秒
+   クールダウン）→ 発火＋sound/particle を exec で送出。historyType "comment"。
+6. **視聴者メトリクス**: roomUser イベントで viewerCount 追跡、60秒毎に
+   bridge/stream-metrics.jsonl へ {at, viewers} 追記（30日で prune）。
+7. **ダイヤ記録**: gift ハンドラーから giftId / diamond(単価×個数) を history 行に追加。
+
+### electron/main.cjs
+1. mod:testEvent の like 分岐: likeCount(1-10000) → likeEvents ラダーを解決して発火。
+2. `minecraft:grantOp`: appConfig.minecraftPlayerName（英数_ 3-16字に検証）→
+   commands dir に `_op.txt`（`op <name>`）を書いて key=_op で発火。
+3. 起動時に operations-history / stream-metrics を30日で prune。
+4. operations:streamStats の返り値に diamond 合計と monthly（今月合計時間）を追加。
+   `operations:viewerMetrics` IPC 追加（区間の平均/最高同接を UI で計算）。
+
+### UI
+1. **OperationsPage**: ギフト発火数/いいね発火数の2入力。Mod死活監視の失敗値に
+   説明文（コマンド空振りでありギフト不発ではない）。
+2. **DashboardPage**: TikTok接続設定の下にマイクラID入力＋「OP権限を付与」。
+   保存で appConfig.minecraftPlayerName、一括起動のゲームルール適用後に自動 grantOp。
+   一括起動時に TTS 有効ならエンジン自動起動。
+3. **イベント設定②**（新ページ AppPage.EVENTS2）: ①のデザイン踏襲。
+   ルーレット / デスルーレット / コメントギフト の3セクション。各セクションに
+   ToggleSlider（適用）と保存ボタン。項目追加は＋ボタン、コマンドはプルダウン、
+   確率(重み)数値、効果音・パーティクルはプリセット＋カスタム入力。
+   ルーレット保存時に roulette.txt（ギフト割当用の仮想コマンド）を自動生成。
+   サイドバー: イベント設定①（既存の文言変更）/ イベント設定②を追加。
+4. **StatsDashboardPage**: ヘッダーに「今月の配信合計時間」タイル。タイトル横の
+   ▾メニュー「配信集計を見る」→ 一覧（日付/配信時間/総配信時間/総ダイヤ）→
+   日付クリックで配信別詳細（視聴者・最高同接・ギフト/いいね内訳・ダイヤ・
+   トップギフター等をカード表示）。データは30日で自動削除（main側prune）。
+
+### 新コマンド txt（bridge/commands/minecraft/）
+- hurricane.txt ハリケーン: 周囲の全エンティティ＋プレイヤーに浮遊(高amp)→落下、
+  風音＋雲パーティクル。
+- storm.txt 暴風雨: weather thunder、鈍足V(300秒＝約10倍遅い)、雷召喚、雨音。
+- fissure.txt 地割れ: プレイヤー前方に fill で亀裂（数本、段差つき）、轟音＋土煙。
+  DESTRUCTIVE: true（拠点保護対象）。
+- roulette.txt: ルーレット用の仮想コマンド（Bridge が横取り。無効時は案内表示のみ）。
+
+## 第2弾 進捗記録
+
+- [x] Mod v1.2.0: LivingDeathEvent→WS death 通知、/douma/exec（生コマンド・inline実行・
+  失敗統計に計上しない）、announce 飾り5コマンドの失敗カウント除外、status に deaths。
+  gradle offline ビルド成功 → doumacmd-1.2.0.jar を3箇所に配置（旧版撤去済み）。
+- [x] bridge: TTS エンジン未接続の警告（60s throttle）／sendDoumaExec／
+  ルーレットエンジン（12フレーム減速回転→当選 title＋効果音＋パーティクル→発火。
+  busy 中は演出スキップ）／dispatchDoumaEvent で key=roulette を横取り／
+  デスルーレット（WS death, everyDeaths の倍数で発動）／コメントギフト
+  （部分一致・ルール毎3秒CD・sound/particle は exec で送出）／
+  roomUser→stream-metrics.jsonl（60秒毎・30日prune）／history 行に giftId/diamond。
+- [x] main.cjs: mod:testEvent の like をしきい値ラダーのシミュレートに変更
+  （likeCount 1〜10000）／minecraft:grantOp（_op.txt→key=_op）／
+  起動時 pruneOperationsHistoryOldRows(30)／streamStats に diamonds・
+  maxViewers/avgViewers（stream-metrics 参照）・monthly（今月合計時間）。
+- [x] UI: 運用センター＝ギフト発火数/いいね発火数の2入力＋失敗カウントの説明文。
+  ダッシュボード＝マイクラID入力→OP付与（一括起動時も自動）＋TTSエンジン自動起動。
+  イベント設定②ページ新設（3セクション、ToggleSlider適用＋保存、プリセット＋
+  カスタムの効果音/パーティクル、重み→確率%表示、＋で無制限追加）。
+  配信統計＝タイトル▾メニュー「配信集計を見る」→一覧（日付/配信時間/累計/💎）→
+  日付クリックで配信詳細（最高同接・平均同接・ダイヤ・内訳・トップギフター）。
+  ヘッダーに今月の配信合計時間タイル。
+- [x] 検証: typecheck 0 error / bridge 回帰 11/11 PASS（roulette.txt の
+  「コマンド0件」健全性チェックはフォールバック案内行の追加で解消）
+- [ ] v1.0.16 EXE ビルド → GitHub Release 公開（実行中）
+
+## Mod死活監視「失敗」の説明（ユーザー質問への回答）
+
+失敗カウント＝「実行したコマンド1行ごとの空振り（戻り値0 or 例外）」であり、
+ギフトの取りこぼし数ではない。主因はプレイヤー不在・死亡中のときの演出コマンド
+（title/playsound/particle）や、対象がいないセレクタ。ギフト自体はキュー投入時点で
+202 を返しており、取りこぼす場合は 429（queue_full）としてBridge側でリトライされる。
+v1.2.0 から演出コマンドは失敗カウント対象外にしたため、今後この数値は大幅に減る。
+
 ## 留意事項
 
 - 旧リポジトリ時代の git 履歴に開発機の RCON パスワードと TikTok ID が残っている
