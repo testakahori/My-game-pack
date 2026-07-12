@@ -278,7 +278,22 @@ push 済みでもある。
   ヘッダーに今月の配信合計時間タイル。
 - [x] 検証: typecheck 0 error / bridge 回帰 11/11 PASS（roulette.txt の
   「コマンド0件」健全性チェックはフォールバック案内行の追加で解消）
-- [ ] v1.0.16 EXE ビルド → GitHub Release 公開（実行中）
+- [x] v1.0.16 EXE ビルド完了（`npm run pack:win` exit 0、289MB）。同梱物検証済み＝
+  テンプレ mods は doumacmd-1.2.0.jar のみ／config は tiktokUsername・rcon.password 空／
+  新コマンドtxt 4種（hurricane/storm/fissure/roulette）同梱。
+- [x] コミット（d0f6504）→ origin/main へ push 済み。秘密情報スキャン合格。
+- [x] GitHub Release v1.0.16 公開（testakahori/My-game-pack）。資産＝ダッシュ名 exe＋
+  blockmap＋latest.yml（exe の sha512 が latest.yml と一致確認済み）。
+  → 1.0.15 からの electron-updater 自動更新が有効になる。
+
+## 実機での確認手順（ユーザー向け）
+
+1. 既存 v1.0.15 を起動 → 自動更新ダイアログで v1.0.16 を適用（または Release から
+   `MyGamePack-Bridge-UI-Setup-1.0.16.exe` を手動DL）。
+2. 「環境構築」を実行 → **Minecraftサーバーを再起動**して Mod v1.2.0 を有効化。
+3. ダッシュボードで TikTok ID を承認、マイクラID を入力して OP 付与。
+4. イベント設定②でルーレット/デスルーレット/コメントギフトを設定。
+5. 一括起動で TTS エンジンが自動起動することを確認（読み上げが鳴る）。
 
 ## Mod死活監視「失敗」の説明（ユーザー質問への回答）
 
