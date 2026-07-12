@@ -676,7 +676,7 @@ export default function OperationsPage() {
           </div>
 
           <div className="ops-updater-meta">
-            <span>リポジトリ: github.com/testakahori/minecraft-tiktok-bridge</span>
+            <span>リポジトリ: github.com/testakahori/My-game-pack</span>
           </div>
 
           <div className="ops-update-cta">

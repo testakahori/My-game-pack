@@ -44,7 +44,7 @@
     "publish": {
       "provider": "github",
       "owner": "testakahori",
-      "repo": "minecraft-tiktok-bridge"
+      "repo": "My-game-pack"
     },
     "files": [
       "dist/**",
