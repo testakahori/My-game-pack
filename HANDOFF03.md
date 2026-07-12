@@ -137,5 +137,36 @@ push 済みでもある。
   - 「🎮 ランチャーの場所を指定」ボタン（exe 選択→app-config の minecraftLauncherPath へ保存。
     既存の起動候補ロジックが最優先で使用）
 - [x] 検証: typecheck 0 error / electron 構文 OK / bridge 回帰 11/11 PASS（13:00）
-- [ ] I: v1.0.15 ビルド & GitHub Release 公開（ビルド実行中）
-- [ ] 最終コミット・push
+- [x] I: v1.0.15 ビルド & GitHub Release 公開（13:15）
+  - `MyGamePack Bridge UI Setup 1.0.15.exe`
+    SHA-256 `4880225CB22D96C2B3841638F5E4E57C7E3D711B1F1D20BEEFA3CDE62883EC3F`
+  - win-unpacked で同梱検証：テンプレートルートに doumacmd なし／mods は 1.1.2 のみ／
+    config の tiktokUsername・rcon.password は空
+  - https://github.com/testakahori/My-game-pack/releases/tag/v1.0.15 に
+    Setup.exe / .blockmap / latest.yml を公開（アセット名は latest.yml が参照する
+    ダッシュ区切り `MyGamePack-Bridge-UI-Setup-1.0.15.exe` に合わせた）
+  - `releases/latest/download/latest.yml` が取得可能なことを確認済み → 以後のバージョン
+    から「更新を確認」で自動更新が動く
+- [x] 最終コミット・push（fb6fbaa ほか）
+
+## 次にやること（実機確認・ユーザー作業）
+
+1. **v1.0.15 を手動インストール**（v1.0.14 は旧 private リポジトリを見ているため
+   自動更新できない。今回だけ手動。以後は自動更新が効く）。
+2. 初期セットアップをやり直す場合：ID 欄が空＝赤「非承認」で始まるか、
+   ID 入力→「IDを承認する」→黄緑「承認済み」になるか。
+3. 一括起動：黒い別窓が出ず、ダッシュボード下部の「Forgeサーバーログ」に
+   起動ログが流れるか。Game ノードがランチャー起動で「起動中」になるか。
+4. ゲーム終了後に「一括停止」→ BRIDGE・Forge とも停止し、表示が「停止中」になるか。
+5. mods フォルダに doumacmd-1.1.2.jar だけが入っているか（1.1.1 が消えているか）。
+6. 運用センターの「更新を確認」がエラーなく「最新です」になるか。
+7. ランチャーを C ドライブ以外に入れている場合：「🎮 ランチャーの場所を指定」で
+   exe を選んでから一括起動。
+
+## 留意事項
+
+- 旧リポジトリ時代の git 履歴に開発機の RCON パスワードと TikTok ID が残っている
+  （public 化前のコミット含め公開済み）。RCON は localhost バインドなので実害は
+  限定的だが、開発機の RCON_password.txt は作り直しを推奨。
+- setup.bat の「ルート jar を mods へ移動」ロジックは互換のため残置。テンプレートの
+  ルートに jar を置かない運用を守ること（refreshDoumaModJar がルート残骸を自動撤去）。
