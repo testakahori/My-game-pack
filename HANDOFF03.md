@@ -286,6 +286,58 @@ push 済みでもある。
   blockmap＋latest.yml（exe の sha512 が latest.yml と一致確認済み）。
   → 1.0.15 からの electron-updater 自動更新が有効になる。
 
+## 【次セッションのタスク】面白コマンドを全部作る（ユーザー承認済み 2026-07-12）
+
+ユーザーが「提案してくれたコマンド全部作って」と承認。既存 txt と同じ書式で
+`bridge/commands/minecraft/` に追加する。作ったら EventSettings① / ②の
+コマンドプルダウンにも自動で載る（ファイル走査のはず。要確認）。
+
+### txt 書式リファレンス（既存に合わせる）
+- 先頭に `# TITLE:` `# CATEGORY:` を必ず入れる。演出系は `# SOUND:` `# PARTICLE:`。
+- 地形を壊すものは `# DESTRUCTIVE: true`（拠点保護対象になる）。
+- `# SUBTITLE: {ListenerName}` でギフト送信者名を差し込める。
+- `//` はコメント行（実行されない）。1行1コマンド。行間ディレイは Mod 非対応。
+- セレクタは基本 `@a`（全員）/ `@p`（近い人）/ `@e`（エンティティ）。
+  地形・召喚は `execute at @p run ...` で座標基準にする。既存の fissure.txt /
+  hurricane.txt / storm.txt が良いお手本。
+- 効果音IDは `entity.wither.spawn` 等、パーティクルは `minecraft:explosion` 等。
+
+### 作るコマンド一覧（21件）
+**天変地異系**
+- [ ] meteor.txt メテオ落下: 頭上に fireball/tnt を複数召喚して着弾。爆発音＋炎パーティクル。
+      DESTRUCTIVE 検討（TNTなら true）。
+- [ ] iceage.txt 氷河期: 周囲を ice/snow に一時変換＋鈍足＋パウダースノー。融解演出。DESTRUCTIVE: true。
+- [ ] volcano.txt 火山噴火: 足元から magma_block 噴出＋上空から火の弾。溶岩音。DESTRUCTIVE: true。
+- [ ] tornado.txt 竜巻: エンティティを1点へ吸い寄せ→吹き飛ばし（ハリケーンの逆）。風音。
+- [ ] flood.txt 洪水: 周囲低地を一時的に water で満たす。水音。DESTRUCTIVE: true。
+
+**襲撃・モブ系**
+- [ ] zombiewave.txt ゾンビ襲撃ウェーブ: zombie/skeleton の群れを周囲に時間差スポーン（同一tick可）。
+- [ ] chickenrain.txt 鶏の大群: 大量の chicken を頭上に summon（ネタ枠）。
+- [ ] bossrush.txt ボスラッシュ: wither / warden を召喚（デスルーレットの罰ゲーム向き）。
+- [ ] petsummon.txt ペット召喚: 名前付き wolf/cat を味方付与（ギフトご褒美枠）。
+
+**トラップ・悪戯系**
+- [ ] lavafloor.txt 床マグマ化: 足元を数秒だけ lava→元に戻す（Bridge側で戻す or fill 2回）。DESTRUCTIVE注意。
+- [ ] skytrap.txt 天空トラップ: プレイヤーを上空へ tp して落下。
+- [ ] randomtp.txt ランダムテレポート: 半径数百ブロックのどこかへ spreadplayers。
+- [ ] antigravity.txt 重力反転: 高レベル levitation で天井に張り付かせる。
+- [ ] anvildrop.txt 空からアンビル: 頭上に anvil を落下 summon（圧殺ネタ）。
+- [ ] darkness.txt 暗黒: 高レベル blindness＋darkness で画面を真っ暗に。
+
+**変身・ステータス系**
+- [ ] giant.txt 巨大化 / [ ] tiny.txt 縮小: attribute の scale でサイズ変更（1.20.5+）。要MCバージョン確認。
+- [ ] superjump.txt スーパージャンプ: jump_boost 高レベル。
+- [ ] bullettime.txt 弾丸タイム: 自分 speed↑・周囲 slowness↑。
+- [ ] richtime.txt 金持ちタイム: diamond/emerald を空から降らす（大型ギフトご褒美枠）。
+- [ ] invisible.txt 透明人間: invisibility 一定時間。
+
+### 完了後
+- bridge 回帰テスト（`node bridge/test/...` 11/11 PASS 維持、新txtの「コマンド0件」に注意）。
+- 必要なら patch リリース（v1.0.17）。txt は同梱リソースなので EXE 再ビルドで反映。
+  ※ txt だけの追加なら既存インストールの `resources/bridge/commands/minecraft/` に
+    配ることも可能だが、正式には再ビルド＋Releaseが筋。
+
 ## 実機での確認手順（ユーザー向け）
 
 1. 既存 v1.0.15 を起動 → 自動更新ダイアログで v1.0.16 を適用（または Release から
