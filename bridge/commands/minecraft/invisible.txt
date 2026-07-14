@@ -1,0 +1,9 @@
+# TITLE: 透明人間
+# SUBTITLE: {ListenerName}
+# CATEGORY: 変身ステータス
+# SOUND: entity.illusioner.mirror_move
+# PARTICLE: minecraft:poof
+// 60秒間すがたが消える。装備は見えたままなので全裸推奨
+execute at @p run playsound entity.illusioner.mirror_move master @a ~ ~ ~ 1.5 0.9
+effect give @p minecraft:invisibility 60 0 true
+execute at @p run particle minecraft:poof ~ ~1 ~ 1 1 1 0.1 60 force

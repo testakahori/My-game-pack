@@ -407,6 +407,43 @@ function writeAppConfig(data) {
   fs.writeFileSync(p, JSON.stringify(next, null, 2), "utf-8");
 }
 
+// --------------------
+// 運営ログイン認証
+// --------------------
+// リポジトリは public のため平文パスワードは一切置かない。PBKDF2ハッシュのみを埋め込む。
+// ログイン成功後は authEmail + authToken(HMAC) を app-config.json に保存し、次回起動時は
+// トークン再計算で照合する（パスワード自体は保存しない）。
+const OPERATOR_AUTH = {
+  salt: "7386675f657b9bf8708aaf5b56319aa6",
+  hash: "808e8324ec2fe69ac03b30d675bdb2602e131010435f44bc1bb6374e5b2c019b",
+  iterations: 210000,
+  keyLen: 32,
+};
+
+function verifyOperatorPassword(password) {
+  const derived = crypto.pbkdf2Sync(
+    String(password),
+    OPERATOR_AUTH.salt,
+    OPERATOR_AUTH.iterations,
+    OPERATOR_AUTH.keyLen,
+    "sha256"
+  );
+  const expected = Buffer.from(OPERATOR_AUTH.hash, "hex");
+  return derived.length === expected.length && crypto.timingSafeEqual(derived, expected);
+}
+
+function operatorLoginToken(email) {
+  return crypto
+    .createHmac("sha256", OPERATOR_AUTH.hash)
+    .update(String(email).trim().toLowerCase())
+    .digest("hex");
+}
+
+function isValidLoginEmail(email) {
+  const v = String(email || "").trim();
+  return v.length >= 5 && v.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
+}
+
 /**
  * The NSIS installer writes this one-shot marker after every successful install.
  * Consuming it here makes an installed build always open behind the setup gate,
@@ -2112,6 +2149,39 @@ ipcMain.handle("app:config:read", async () => readAppConfig());
 ipcMain.handle("app:config:write", async (_event, data) => {
   if (typeof data !== "object" || data === null) throw new Error("data must be an object");
   writeAppConfig(data);
+  return { ok: true };
+});
+
+// --------------------
+// IPC: 運営ログイン認証
+// --------------------
+ipcMain.handle("auth:status", async () => {
+  const cfg = readAppConfig();
+  const email = String(cfg.authEmail || "").trim();
+  if (!email || !cfg.authToken) return { authenticated: false, email: "" };
+  const valid = cfg.authToken === operatorLoginToken(email);
+  return { authenticated: valid, email: valid ? email : "" };
+});
+
+ipcMain.handle("auth:login", async (_event, payload) => {
+  const email = String(payload?.email || "").trim();
+  const password = String(payload?.password || "");
+  if (!isValidLoginEmail(email)) {
+    return { ok: false, message: "メールアドレスの形式が正しくありません" };
+  }
+  if (!verifyOperatorPassword(password)) {
+    return { ok: false, message: "パスワードが違います" };
+  }
+  writeAppConfig({
+    authEmail: email,
+    authToken: operatorLoginToken(email),
+    authLoginAt: new Date().toISOString(),
+  });
+  return { ok: true, email };
+});
+
+ipcMain.handle("auth:logout", async () => {
+  writeAppConfig({ authEmail: "", authToken: "" });
   return { ok: true };
 });
 

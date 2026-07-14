@@ -1,0 +1,10 @@
+# TITLE: 弾丸タイム
+# SUBTITLE: {ListenerName}
+# CATEGORY: 変身ステータス
+# SOUND: block.beacon.activate
+# PARTICLE: minecraft:end_rod
+// 自分だけ超加速、周囲のMOBはスローモーション（20秒）
+execute at @p run playsound block.beacon.activate master @a ~ ~ ~ 1.6 0.7
+effect give @p minecraft:speed 20 3 true
+execute at @p as @e[distance=..20,type=!minecraft:player,type=!minecraft:item,type=!minecraft:experience_orb,type=!minecraft:armor_stand,type=!minecraft:item_frame] run effect give @s minecraft:slowness 20 6 true
+execute at @p run particle minecraft:end_rod ~ ~1 ~ 3 2 3 0.05 120 force

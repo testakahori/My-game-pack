@@ -1,0 +1,14 @@
+# TITLE: ペット召喚
+# SUBTITLE: {ListenerName}
+# CATEGORY: 襲撃モブ
+# SOUND: entity.wolf.ambient
+# PARTICLE: minecraft:heart
+// 名前つきのオオカミとネコが遊びに来る。骨と魚も貰えるのでその場で手なずけられる
+execute at @p run playsound entity.wolf.ambient master @a ~ ~ ~ 1.5 1.0
+execute at @p run playsound entity.cat.purreow master @a ~ ~ ~ 1.4 1.0
+execute at @p run summon minecraft:wolf ~2 ~ ~1 {CustomName:'{"text":"わんこ"}',CustomNameVisible:1b}
+execute at @p run summon minecraft:wolf ~-2 ~ ~2 {CustomName:'{"text":"もふ"}',CustomNameVisible:1b}
+execute at @p run summon minecraft:cat ~1 ~ ~-2 {CustomName:'{"text":"にゃんこ"}',CustomNameVisible:1b}
+give @p minecraft:bone 8
+give @p minecraft:cod 8
+execute at @p run particle minecraft:heart ~ ~1 ~ 2 1 2 0.05 30 force

@@ -1,0 +1,11 @@
+# TITLE: ランダムテレポート
+# SUBTITLE: {ListenerName}
+# CATEGORY: トラップ悪戯
+# SOUND: entity.enderman.teleport
+# PARTICLE: minecraft:portal
+// 半径300ブロック以内のどこかへ強制ワープ。帰り道は自力で
+execute at @p run playsound entity.enderman.teleport master @a ~ ~ ~ 1.8 0.5
+execute at @p run particle minecraft:portal ~ ~1 ~ 2 2 2 0.8 250 force
+execute at @p run spreadplayers ~ ~ 50 300 false @p
+execute at @p run playsound entity.enderman.teleport master @a ~ ~ ~ 1.5 1.2
+effect give @p minecraft:nausea 8 0 true

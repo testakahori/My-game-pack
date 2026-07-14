@@ -1,0 +1,13 @@
+# TITLE: 竜巻
+# SUBTITLE: {ListenerName}
+# CATEGORY: 天変地異
+# SOUND: item.elytra.flying
+# PARTICLE: minecraft:cloud
+// 周囲のMOBを1点に吸い寄せてから空高く巻き上げる（ハリケーンの逆バージョン）
+execute at @p run playsound item.elytra.flying master @a ~ ~ ~ 1.6 0.4
+execute at @p run playsound entity.ender_dragon.flap master @a ~ ~ ~ 1.4 0.7
+execute at @p run particle minecraft:cloud ~ ~1 ~ 1 8 1 0.4 250 force
+execute at @p run particle minecraft:sweep_attack ~ ~3 ~ 1 6 1 0.2 80 force
+execute at @p as @e[distance=3..16,type=!minecraft:player,type=!minecraft:item,type=!minecraft:experience_orb,type=!minecraft:armor_stand,type=!minecraft:item_frame] run tp @s @p
+execute at @p as @e[distance=..3,type=!minecraft:player,type=!minecraft:item,type=!minecraft:experience_orb,type=!minecraft:armor_stand,type=!minecraft:item_frame] run effect give @s minecraft:levitation 3 19 true
+effect give @a minecraft:nausea 8 0 true

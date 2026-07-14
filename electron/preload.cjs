@@ -222,6 +222,18 @@ contextBridge.exposeInMainWorld("mygamepack", {
   },
 
   // --------------------
+  // 運営ログイン認証
+  // --------------------
+  authStatus: () => ipcRenderer.invoke("auth:status"),
+
+  authLogin: (payload) => {
+    if (!isPlainObject(payload)) throw new Error("authLogin: payload must be an object");
+    return ipcRenderer.invoke("auth:login", payload);
+  },
+
+  authLogout: () => ipcRenderer.invoke("auth:logout"),
+
+  // --------------------
   // App config
   // --------------------
   appConfigRead: () => ipcRenderer.invoke("app:config:read"),

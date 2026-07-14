@@ -110,6 +110,13 @@ declare global {
       gvSettingsWrite: (v: { username: string }) => Promise<{ ok: true }>;
 
       // --------------------
+      // 運営ログイン認証
+      // --------------------
+      authStatus: () => Promise<{ authenticated: boolean; email: string }>;
+      authLogin: (payload: { email: string; password: string }) => Promise<{ ok: boolean; email?: string; message?: string }>;
+      authLogout: () => Promise<{ ok: true }>;
+
+      // --------------------
       // App config
       // --------------------
       appConfigRead: () => Promise<{

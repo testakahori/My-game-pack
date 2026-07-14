@@ -1,0 +1,16 @@
+# TITLE: 空からアンビル
+# SUBTITLE: {ListenerName}
+# CATEGORY: トラップ悪戯
+# DESTRUCTIVE: true
+# SOUND: block.anvil.land
+# PARTICLE: minecraft:crit
+// 頭上から金床の雨。当たると痛いし避けても地面に金床が残る
+execute at @p run playsound block.anvil.fall master @a ~ ~ ~ 1.6 0.7
+execute at @p run summon minecraft:falling_block ~ ~14 ~ {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~1 ~16 ~1 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-1 ~15 ~1 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~1 ~17 ~-1 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-1 ~18 ~-1 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~2 ~15 ~0 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-2 ~16 ~0 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run particle minecraft:crit ~ ~10 ~ 3 4 3 0.1 100 force

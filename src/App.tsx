@@ -12,6 +12,7 @@ import TTSSettingsPage from "./components/TTSSettingsPage";
 import OperationsPage from "./components/OperationsPage";
 import StatsDashboardPage from "./components/StatsDashboardPage";
 import MinecraftBlockIcon from "./components/MinecraftBlockIcon";
+import LoginPage from "./components/LoginPage";
 
 const PAGE_TITLE: Partial<Record<AppPage, string>> = {
   [AppPage.DASHBOARD]: "ダッシュボード",
@@ -29,6 +30,8 @@ const App: React.FC = () => {
   const [activePage, setActivePage] = useState<AppPage>(AppPage.SETUP);
   const [setupComplete, setSetupComplete] = useState(false);
   const [configLoaded, setConfigLoaded] = useState(false);
+  // 認証状態: checking=起動時確認中 / authed=ログイン済み / unauthed=ログイン画面を表示
+  const [authState, setAuthState] = useState<"checking" | "authed" | "unauthed">("checking");
   const [appVersion, setAppVersion] = useState("");
   const [clock, setClock] = useState(new Date());
   const [headerStatus, setHeaderStatus] = useState({ bridgeRunning: false, modOnline: false });
@@ -92,6 +95,19 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const api = (window as any).mygamepack;
+    (async () => {
+      try {
+        const status = await api?.authStatus?.();
+        setAuthState(status?.authenticated ? "authed" : "unauthed");
+      } catch {
+        // authStatus 非対応ビルド（旧preload等）ではログイン画面でブロックせず通す
+        setAuthState("authed");
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
     const timer = window.setInterval(() => setClock(new Date()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
@@ -127,12 +143,16 @@ const App: React.FC = () => {
     setActivePage(AppPage.SETUP);
   };
 
-  if (!configLoaded) {
+  if (!configLoaded || authState === "checking") {
     return (
       <div className="flex h-screen bg-gray-900 items-center justify-center text-gray-400 text-sm">
         読み込み中…
       </div>
     );
+  }
+
+  if (authState === "unauthed") {
+    return <LoginPage onLoginSuccess={() => setAuthState("authed")} />;
   }
 
   return (

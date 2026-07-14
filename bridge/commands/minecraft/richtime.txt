@@ -1,0 +1,16 @@
+# TITLE: 金持ちタイム
+# SUBTITLE: {ListenerName}
+# CATEGORY: 変身ステータス
+# SOUND: entity.player.levelup
+# PARTICLE: minecraft:happy_villager
+// 空からダイヤ・エメラルド・金塊が降ってくる大盤振る舞い（大型ギフトご褒美枠）
+execute at @p run playsound entity.player.levelup master @a ~ ~ ~ 1.6 1.0
+execute at @p run playsound block.amethyst_block.chime master @a ~ ~ ~ 1.5 0.8
+execute at @p run summon minecraft:item ~1 ~10 ~1 {Item:{id:"minecraft:diamond",Count:3b}}
+execute at @p run summon minecraft:item ~-2 ~12 ~2 {Item:{id:"minecraft:diamond",Count:2b}}
+execute at @p run summon minecraft:item ~2 ~11 ~-2 {Item:{id:"minecraft:emerald",Count:4b}}
+execute at @p run summon minecraft:item ~-1 ~13 ~-1 {Item:{id:"minecraft:emerald",Count:3b}}
+execute at @p run summon minecraft:item ~3 ~10 ~0 {Item:{id:"minecraft:gold_ingot",Count:5b}}
+execute at @p run summon minecraft:item ~0 ~12 ~3 {Item:{id:"minecraft:gold_ingot",Count:4b}}
+execute at @p run summon minecraft:item ~-3 ~11 ~-3 {Item:{id:"minecraft:diamond",Count:1b}}
+execute at @p run particle minecraft:happy_villager ~ ~5 ~ 3 4 3 0.1 150 force

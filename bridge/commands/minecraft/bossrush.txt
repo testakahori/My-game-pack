@@ -1,0 +1,14 @@
+# TITLE: ボスラッシュ
+# SUBTITLE: {ListenerName}
+# CATEGORY: 襲撃モブ
+# DESTRUCTIVE: true
+# SOUND: entity.wither.spawn
+# PARTICLE: minecraft:sculk_soul
+// ウィザーとウォーデンが同時襲来する最凶コマンド。デスルーレットの罰ゲーム向き
+execute at @p run playsound entity.wither.spawn master @a ~ ~ ~ 1.8 0.9
+execute at @p run playsound entity.warden.emerge master @a ~ ~ ~ 1.6 0.8
+execute at @p run summon minecraft:wither ~10 ~3 ~8
+execute at @p run summon minecraft:warden ~-9 ~ ~-8
+execute at @p run particle minecraft:sculk_soul ~ ~1 ~ 6 3 6 0.1 200 force
+execute at @p run particle minecraft:large_smoke ~10 ~3 ~8 2 2 2 0.05 80 force
+effect give @a minecraft:darkness 8 0 true

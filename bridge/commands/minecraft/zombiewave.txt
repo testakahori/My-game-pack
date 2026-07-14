@@ -1,0 +1,19 @@
+# TITLE: ゾンビ襲撃ウェーブ
+# SUBTITLE: {ListenerName}
+# CATEGORY: 襲撃モブ
+# SOUND: event.raid.horn
+# PARTICLE: minecraft:soul
+// 襲撃のホーンとともにゾンビとスケルトンの群れが周囲から迫ってくる
+execute at @p run playsound event.raid.horn master @a ~ ~ ~ 1.8 0.8
+execute at @p run playsound entity.zombie.ambient master @a ~ ~ ~ 1.5 0.6
+execute at @p run summon minecraft:zombie ~7 ~ ~2
+execute at @p run summon minecraft:zombie ~-6 ~ ~4
+execute at @p run summon minecraft:zombie ~3 ~ ~-7
+execute at @p run summon minecraft:zombie ~-4 ~ ~-6
+execute at @p run summon minecraft:zombie ~8 ~ ~-3
+execute at @p run summon minecraft:zombie ~-8 ~ ~-1
+execute at @p run summon minecraft:skeleton ~9 ~ ~5
+execute at @p run summon minecraft:skeleton ~-7 ~ ~7
+execute at @p run summon minecraft:skeleton ~5 ~ ~9
+execute at @p run summon minecraft:skeleton ~-2 ~ ~-9
+execute at @p run particle minecraft:soul ~ ~1 ~ 8 2 8 0.05 120 force

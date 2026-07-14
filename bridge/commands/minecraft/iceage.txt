@@ -1,0 +1,16 @@
+# TITLE: 氷河期
+# SUBTITLE: {ListenerName}
+# CATEGORY: 天変地異
+# DESTRUCTIVE: true
+# SOUND: entity.player.hurt_freeze
+# PARTICLE: minecraft:snowflake
+// 周囲の地面が凍りつき雪が積もる。パウダースノーの罠つき。鈍足で動きも凍える
+execute at @p run playsound entity.player.hurt_freeze master @a ~ ~ ~ 1.6 0.7
+execute at @p run playsound block.glass.place master @a ~ ~ ~ 1.4 0.5
+execute at @p run fill ~-6 ~-1 ~-6 ~6 ~-1 ~6 minecraft:ice
+execute at @p run fill ~-6 ~ ~-6 ~6 ~ ~6 minecraft:snow replace minecraft:air
+execute at @p run setblock ~4 ~ ~3 minecraft:powder_snow
+execute at @p run setblock ~-3 ~ ~-4 minecraft:powder_snow
+execute at @p run setblock ~2 ~ ~-5 minecraft:powder_snow
+effect give @a minecraft:slowness 15 2 true
+execute at @p run particle minecraft:snowflake ~ ~2 ~ 6 3 6 0.05 250 force

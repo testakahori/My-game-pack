@@ -1,0 +1,16 @@
+# TITLE: メテオ落下
+# SUBTITLE: {ListenerName}
+# CATEGORY: 天変地異
+# DESTRUCTIVE: true
+# SOUND: entity.generic.explode
+# PARTICLE: minecraft:flame
+// 頭上から火の玉が複数落下して着弾爆発する（1.20.1: fireballの加速はpowerタグ）
+execute at @p run playsound entity.lightning_bolt.impact master @a ~ ~ ~ 1.6 0.5
+execute at @p run playsound entity.blaze.shoot master @a ~ ~ ~ 1.4 0.6
+execute at @p run particle minecraft:flame ~ ~20 ~ 6 8 6 0.1 200 force
+execute at @p run particle minecraft:lava ~ ~2 ~ 4 2 4 0.05 80 force
+execute at @p run summon minecraft:fireball ~4 ~32 ~3 {ExplosionPower:2b,power:[0.0,-1.5,0.0]}
+execute at @p run summon minecraft:fireball ~-5 ~36 ~-2 {ExplosionPower:2b,power:[0.0,-1.5,0.0]}
+execute at @p run summon minecraft:fireball ~2 ~40 ~-6 {ExplosionPower:2b,power:[0.0,-1.5,0.0]}
+execute at @p run summon minecraft:fireball ~-3 ~44 ~5 {ExplosionPower:2b,power:[0.0,-1.5,0.0]}
+execute at @p run summon minecraft:fireball ~7 ~38 ~-4 {ExplosionPower:2b,power:[0.0,-1.5,0.0]}

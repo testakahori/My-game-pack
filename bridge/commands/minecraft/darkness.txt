@@ -1,0 +1,12 @@
+# TITLE: 暗黒
+# SUBTITLE: {ListenerName}
+# CATEGORY: トラップ悪戯
+# SOUND: entity.warden.ambient
+# PARTICLE: minecraft:large_smoke
+// 画面が真っ暗になりウォーデンの唸り声だけが響く恐怖演出
+execute at @p run playsound entity.warden.ambient master @a ~ ~ ~ 1.8 0.6
+execute at @p run playsound ambient.cave master @a ~ ~ ~ 1.6 0.5
+effect give @a minecraft:darkness 15 0 true
+effect give @a minecraft:blindness 15 1 true
+execute at @p run particle minecraft:large_smoke ~ ~1 ~ 4 2 4 0.05 150 force
+execute at @p run particle minecraft:squid_ink ~ ~2 ~ 3 2 3 0.05 80 force

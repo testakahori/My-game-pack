@@ -81,6 +81,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
   const now = new Date().toISOString();
   let devServerRunning = false;
   let devBridgeRunning = false;
+  let devAuthState = true;
   const devBridgeLogs: string[] = [
     `[${new Date().toLocaleTimeString("ja-JP")}] [BRIDGE] 開発モードで待機中`,
   ];
@@ -377,6 +378,17 @@ if (import.meta.env.DEV && !win.mygamepack) {
     operationsStreamStats: async (gapMinutes: number) => ({ ...streamStats, gapMinutes }),
     testEvent: ok,
     minecraftGrantOp: async () => ({ ok: true, name: "dev_player" }),
+    // 認証: devプレビューではログイン済み扱い。authLogout→authLoginでログイン画面の動作確認可
+    authStatus: async () => ({ authenticated: devAuthState, email: devAuthState ? "dev@example.com" : "" }),
+    authLogin: async (payload: { email: string; password: string }) => {
+      if (!payload?.email || !payload?.password) return { ok: false, message: "メールアドレスとパスワードを入力してください" };
+      devAuthState = true;
+      return { ok: true, email: payload.email };
+    },
+    authLogout: async () => {
+      devAuthState = false;
+      return { ok: true as const };
+    },
     worldBackup: ok,
     presetsList: async () => ["配信用"],
     presetsSave: ok,

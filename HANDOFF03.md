@@ -304,39 +304,67 @@ push 済みでもある。
 
 ### 作るコマンド一覧（21件）
 **天変地異系**
-- [ ] meteor.txt メテオ落下: 頭上に fireball/tnt を複数召喚して着弾。爆発音＋炎パーティクル。
+- [x] meteor.txt メテオ落下: 頭上に fireball/tnt を複数召喚して着弾。爆発音＋炎パーティクル。
       DESTRUCTIVE 検討（TNTなら true）。
-- [ ] iceage.txt 氷河期: 周囲を ice/snow に一時変換＋鈍足＋パウダースノー。融解演出。DESTRUCTIVE: true。
-- [ ] volcano.txt 火山噴火: 足元から magma_block 噴出＋上空から火の弾。溶岩音。DESTRUCTIVE: true。
-- [ ] tornado.txt 竜巻: エンティティを1点へ吸い寄せ→吹き飛ばし（ハリケーンの逆）。風音。
-- [ ] flood.txt 洪水: 周囲低地を一時的に water で満たす。水音。DESTRUCTIVE: true。
+- [x] iceage.txt 氷河期: 周囲を ice/snow に一時変換＋鈍足＋パウダースノー。融解演出。DESTRUCTIVE: true。
+- [x] volcano.txt 火山噴火: 足元から magma_block 噴出＋上空から火の弾。溶岩音。DESTRUCTIVE: true。
+- [x] tornado.txt 竜巻: エンティティを1点へ吸い寄せ→吹き飛ばし（ハリケーンの逆）。風音。
+- [x] flood.txt 洪水: 周囲低地を一時的に water で満たす。水音。DESTRUCTIVE: true。
 
 **襲撃・モブ系**
-- [ ] zombiewave.txt ゾンビ襲撃ウェーブ: zombie/skeleton の群れを周囲に時間差スポーン（同一tick可）。
-- [ ] chickenrain.txt 鶏の大群: 大量の chicken を頭上に summon（ネタ枠）。
-- [ ] bossrush.txt ボスラッシュ: wither / warden を召喚（デスルーレットの罰ゲーム向き）。
-- [ ] petsummon.txt ペット召喚: 名前付き wolf/cat を味方付与（ギフトご褒美枠）。
+- [x] zombiewave.txt ゾンビ襲撃ウェーブ: zombie/skeleton の群れを周囲に時間差スポーン（同一tick可）。
+- [x] chickenrain.txt 鶏の大群: 大量の chicken を頭上に summon（ネタ枠）。
+- [x] bossrush.txt ボスラッシュ: wither / warden を召喚（デスルーレットの罰ゲーム向き）。
+- [x] petsummon.txt ペット召喚: 名前付き wolf/cat を味方付与（ギフトご褒美枠）。
 
 **トラップ・悪戯系**
-- [ ] lavafloor.txt 床マグマ化: 足元を数秒だけ lava→元に戻す（Bridge側で戻す or fill 2回）。DESTRUCTIVE注意。
-- [ ] skytrap.txt 天空トラップ: プレイヤーを上空へ tp して落下。
-- [ ] randomtp.txt ランダムテレポート: 半径数百ブロックのどこかへ spreadplayers。
-- [ ] antigravity.txt 重力反転: 高レベル levitation で天井に張り付かせる。
-- [ ] anvildrop.txt 空からアンビル: 頭上に anvil を落下 summon（圧殺ネタ）。
-- [ ] darkness.txt 暗黒: 高レベル blindness＋darkness で画面を真っ暗に。
+- [x] lavafloor.txt 床マグマ化: 足元を数秒だけ lava→元に戻す（Bridge側で戻す or fill 2回）。DESTRUCTIVE注意。
+- [x] skytrap.txt 天空トラップ: プレイヤーを上空へ tp して落下。
+- [x] randomtp.txt ランダムテレポート: 半径数百ブロックのどこかへ spreadplayers。
+- [x] antigravity.txt 重力反転: 高レベル levitation で天井に張り付かせる。
+- [x] anvildrop.txt 空からアンビル: 頭上に anvil を落下 summon（圧殺ネタ）。
+- [x] darkness.txt 暗黒: 高レベル blindness＋darkness で画面を真っ暗に。
 
 **変身・ステータス系**
-- [ ] giant.txt 巨大化 / [ ] tiny.txt 縮小: attribute の scale でサイズ変更（1.20.5+）。要MCバージョン確認。
-- [ ] superjump.txt スーパージャンプ: jump_boost 高レベル。
-- [ ] bullettime.txt 弾丸タイム: 自分 speed↑・周囲 slowness↑。
-- [ ] richtime.txt 金持ちタイム: diamond/emerald を空から降らす（大型ギフトご褒美枠）。
-- [ ] invisible.txt 透明人間: invisibility 一定時間。
+- [x] giant.txt 巨大化 / [x] tiny.txt 縮小: attribute の scale でサイズ変更（1.20.5+）。要MCバージョン確認。
+      → MC 1.20.1 のため scale 非対応を確認。効果（strength/weakness等）による代替実装で完了。
+- [x] superjump.txt スーパージャンプ: jump_boost 高レベル。
+- [x] bullettime.txt 弾丸タイム: 自分 speed↑・周囲 slowness↑。
+- [x] richtime.txt 金持ちタイム: diamond/emerald を空から降らす（大型ギフトご褒美枠）。
+- [x] invisible.txt 透明人間: invisibility 一定時間。
 
 ### 完了後
 - bridge 回帰テスト（`node bridge/test/...` 11/11 PASS 維持、新txtの「コマンド0件」に注意）。
 - 必要なら patch リリース（v1.0.17）。txt は同梱リソースなので EXE 再ビルドで反映。
   ※ txt だけの追加なら既存インストールの `resources/bridge/commands/minecraft/` に
     配ることも可能だが、正式には再ビルド＋Releaseが筋。
+
+## 【2026-07-14 完了】面白コマンド21件＋運営ログイン機能
+
+### 面白コマンド21件（全て実装済み）
+- `bridge/commands/minecraft/` に21ファイル追加。既存書式（TITLE/CATEGORY/SOUND/PARTICLE/
+  DESTRUCTIVE/SUBTITLE）準拠。回帰テスト 11/11 PASS（txt健全性チェック含む）。
+- カテゴリ: 天変地異（meteor/iceage/volcano/tornado/flood）、襲撃モブ（zombiewave/
+  chickenrain/bossrush/petsummon）、トラップ悪戯（lavafloor/skytrap/randomtp/antigravity/
+  anvildrop/darkness）、変身ステータス（giant/tiny/superjump/bullettime/richtime/invisible）。
+- MC 1.20.1 制約への対応: scale attribute 非対応→giant/tiny は効果代替。行間ディレイ
+  非対応→lavafloor は「数秒後に戻す」ではなくマグマブロック床で実装。
+- fireball の落下加速は 1.20.1 の `power:[x,y,z]` タグを使用（1.20.3+の acceleration とは別物）。
+
+### 運営ログイン機能（メールID＋運営パスワード）
+- 起動時に認証ゲート表示。メールアドレス＋運営配布パスワードでログイン。
+- **平文パスワードはリポジトリに一切置かない**（public リポジトリのため）。
+  main.cjs には PBKDF2-SHA256（210,000回、ソルト付き）のハッシュのみ埋め込み。
+  平文は運営のみが別途保管（このファイルにも書かない）。
+- ログイン成功で `app-config.json` に authEmail + authToken（HMAC-SHA256）を保存。
+  次回起動はトークン照合でスキップ。`auth:logout` IPC でログアウト可（UI未配線）。
+- 変更ファイル: electron/main.cjs（OPERATOR_AUTH＋auth:status/login/logout IPC）、
+  electron/preload.cjs、src/types/electron.d.ts、src/lib/devApiMock.ts（devは初期ログイン済み、
+  authLogout→ログイン画面確認可）、src/components/LoginPage.tsx（新規）、src/App.tsx（ゲート）。
+- 検証済み: node --check OK / tsc --noEmit OK / vite build OK / 正しいパスワードのみ通過。
+- ⚠️ 限界の認識: クライアント内蔵認証は「鍵のかかったドア」程度の抑止力。ソース公開のため
+  改造ビルドで迂回可能。テスター配布フェーズ用であり、有料サブスク開始時はサーバー側
+  ライセンス認証への移行が必要（本文の提案参照）。
 
 ## 実機での確認手順（ユーザー向け）
 

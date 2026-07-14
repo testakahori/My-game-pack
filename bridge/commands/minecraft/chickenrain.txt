@@ -1,0 +1,24 @@
+# TITLE: 鶏の大群
+# SUBTITLE: {ListenerName}
+# CATEGORY: 襲撃モブ
+# SOUND: entity.chicken.ambient
+# PARTICLE: minecraft:poof
+// 空から大量のニワトリが降ってくる。ただそれだけのネタ枠
+execute at @p run playsound entity.chicken.ambient master @a ~ ~ ~ 1.8 1.2
+execute at @p run playsound entity.chicken.egg master @a ~ ~ ~ 1.5 0.8
+execute at @p run summon minecraft:chicken ~1 ~12 ~1
+execute at @p run summon minecraft:chicken ~-2 ~14 ~2
+execute at @p run summon minecraft:chicken ~3 ~11 ~-2
+execute at @p run summon minecraft:chicken ~-1 ~15 ~-3
+execute at @p run summon minecraft:chicken ~2 ~13 ~3
+execute at @p run summon minecraft:chicken ~-3 ~12 ~-1
+execute at @p run summon minecraft:chicken ~4 ~14 ~2
+execute at @p run summon minecraft:chicken ~-4 ~11 ~4
+execute at @p run summon minecraft:chicken ~0 ~16 ~-4
+execute at @p run summon minecraft:chicken ~5 ~13 ~0
+execute at @p run summon minecraft:chicken ~-5 ~12 ~-2
+execute at @p run summon minecraft:chicken ~2 ~15 ~5
+execute at @p run summon minecraft:chicken ~-2 ~11 ~-5
+execute at @p run summon minecraft:chicken ~0 ~14 ~0
+execute at @p run summon minecraft:chicken ~3 ~12 ~-3
+execute at @p run particle minecraft:poof ~ ~8 ~ 4 4 4 0.05 100 force
