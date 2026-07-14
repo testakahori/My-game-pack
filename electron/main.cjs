@@ -414,8 +414,8 @@ function writeAppConfig(data) {
 // ログイン成功後は authEmail + authToken(HMAC) を app-config.json に保存し、次回起動時は
 // トークン再計算で照合する（パスワード自体は保存しない）。
 const OPERATOR_AUTH = {
-  salt: "7386675f657b9bf8708aaf5b56319aa6",
-  hash: "808e8324ec2fe69ac03b30d675bdb2602e131010435f44bc1bb6374e5b2c019b",
+  salt: "fa2e3d72dcba1a83977e4cac983c5366",
+  hash: "8365be19bbae0379de9af9cb411e3883ae9faa82d6eb244ce5e1725a810d1c0c",
   iterations: 210000,
   keyLen: 32,
 };
