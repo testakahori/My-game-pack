@@ -1,6 +1,7 @@
 # TITLE: 雷落下！
 # SUBTITLE: カミナリ落下でピグリン化、ウィッチ化を狙います
 # CATEGORY: 妨害系
+// 周囲のモブに雷が降り注ぐ
 
 execute at @p[distance=1..] run execute at @e[type=!minecraft:player,distance=..30, sort=nearest,limit=30] run summon minecraft:lightning_bolt ~ ~ ~
 

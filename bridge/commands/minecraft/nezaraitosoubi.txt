@@ -1,6 +1,7 @@
 # TITLE: ネザーライト装備！
 # SUBTITLE: ネザーライト装備が手に入る
 # CATEGORY: お助け
+// 最強のネザライト装備一式をプレゼント
 
 
 item replace entity @p armor.head with minecraft:netherite_helmet

@@ -1,0 +1,14 @@
+# TITLE: 女神の祝福
+# SUBTITLE: {ListenerName}
+# CATEGORY: お助け系
+# SOUND: ui.toast.challenge_complete
+# PARTICLE: minecraft:end_rod
+// 3分間の神モード：攻撃力アップ＋満タンHPの上に黄色ハート追加＋攻撃を一切受け付けない
+execute at @p run playsound ui.toast.challenge_complete master @a ~ ~ ~ 1.6 1.2
+execute at @p run playsound block.beacon.activate master @a ~ ~ ~ 1.4 1.0
+execute at @p run particle minecraft:end_rod ~ ~1 ~ 1 2 1 0.05 200 force
+execute at @p run particle minecraft:heart ~ ~2 ~ 0.8 0.6 0.8 0.1 30 force
+effect give @p minecraft:strength 180 1 true
+effect give @p minecraft:absorption 180 1 true
+effect give @p minecraft:resistance 180 4 true
+effect give @p minecraft:fire_resistance 180 0 true

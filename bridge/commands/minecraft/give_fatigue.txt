@@ -1,6 +1,7 @@
 # TITLE: 採掘速度低下10秒！
 # SUBTITLE: 採掘速度低下10秒
 # CATEGORY: 妨害系
+// 10秒間採掘がほとんどできなくなる
 
 # {PlayerMe} は未実装プレースホルダだったため @a に修正（常に失敗していた）
 effect give @a minecraft:mining_fatigue 10 3

@@ -1,6 +1,7 @@
 # TITLE: アーマーゾンビ!
 # SUBTITLE: アーマーゾンビがプレイヤー付近に落下します
 # CATEGORY: 敵対MOB
+// 鉄装備で武装したゾンビが出現
 
 # 上空が開いていれば頭上から落下、塞がっていれば足元に出現（視線に依存しない）
 execute at @p if block ~ ~3 ~ air run summon minecraft:zombie ~ ~3 ~ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\"",HandItems:[{id:iron_sword,Count:1}],ArmorItems:[{id:iron_boots,Count:1},{id:iron_leggings,Count:1},{id:iron_chestplate,Count:1},{id:iron_helmet,Count:1}],ArmorDropChances:[0.0F,0.0F,0.0F,0.0F],HandDropChances:[0.0F]}

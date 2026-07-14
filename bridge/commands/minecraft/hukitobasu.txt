@@ -1,6 +1,7 @@
 # TITLE: 吹き飛ばす！
 # SUBTITLE: 吹き飛ばす
 # CATEGORY: 妨害系
+// 爆発と共にプレイヤーを空高く打ち上げる
 
 execute as @a at @s run effect give @s levitation 1 10 true
 execute as @a at @s run particle explosion_emitter ~ ~1.0 ~ 0.1 0.1 0.1 0 1 force

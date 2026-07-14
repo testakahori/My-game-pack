@@ -1,5 +1,6 @@
 # TITLE: エンダーパール！
 # SUBTITLE: エンダーパール追加
 # CATEGORY: お助け系
+// エンダーパール2個をプレゼント
 
 execute at @a run give @a minecraft:ender_pearl 2

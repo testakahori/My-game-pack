@@ -1,0 +1,11 @@
+# TITLE: 無敵
+# SUBTITLE: {ListenerName}
+# CATEGORY: 変身ステータス
+# SOUND: item.totem.use
+# PARTICLE: minecraft:totem_of_undying
+// 1分間どんな攻撃もダメージゼロ。溶岩も爆発もこわくない
+execute at @p run playsound item.totem.use master @a ~ ~ ~ 1.5 1.0
+execute at @p run particle minecraft:totem_of_undying ~ ~1 ~ 0.8 1.2 0.8 0.3 120 force
+effect give @p minecraft:resistance 60 4 true
+effect give @p minecraft:fire_resistance 60 0 true
+execute at @p run playsound block.beacon.power_select master @a ~ ~ ~ 1.3 1.4

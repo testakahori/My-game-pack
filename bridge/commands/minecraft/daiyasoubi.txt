@@ -1,6 +1,7 @@
 # TITLE: ダイヤ装備!
 # SUBTITLE: ダイヤ装備を付与
 # CATEGORY: お助け系
+// ダイヤ装備一式を身につけさせる
 
 item replace entity @p armor.head with minecraft:diamond_helmet
 item replace entity @p armor.chest with minecraft:diamond_chestplate

@@ -1,6 +1,7 @@
 # TITLE: 全員集合！
 # SUBTITLE: プレイヤー位置に全てをテレポート
 # CATEGORY: 妨害系
+// 周囲のモブ全員をプレイヤーの足元へ強制集合させる
 
 execute at @p run tp @e[type=!minecraft:minecart] ~ ~ ~
 execute as @e[type=!minecraft:minecart] at @s run tp @s ~ ~-1 ~

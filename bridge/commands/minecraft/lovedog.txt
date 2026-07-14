@@ -1,6 +1,7 @@
 # TITLE: 愛犬が来た！
 # SUBTITLE: {ListenerName}さんの愛犬が召喚された
 # CATEGORY: 友好MOB
+// なついたオオカミ（愛犬）が仲間になる
 
 # 上空が開いていれば頭上から落下、塞がっていれば足元に出現（視線に依存しない）
 execute at @p if block ~ ~3 ~ air run summon minecraft:wolf ~ ~3 ~ {CustomName:'{"text":"{ListenerName}"}',CustomNameVisible:1b,Tame:1b,Tags:["giftwolf_new"]}

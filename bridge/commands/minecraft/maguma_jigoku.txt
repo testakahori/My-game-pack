@@ -1,5 +1,6 @@
 # TITLE: マグマ地獄
 # SUBTITLE: 頭上にマグマ5x5
 # CATEGORY: 妨害系
+// 頭上から大量の溶岩が降ってくる大惨事
 
 execute as @a at @s run fill ~-5 ~2 ~-5 ~5 ~10 ~5 minecraft:lava

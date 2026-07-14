@@ -1,6 +1,7 @@
 # TITLE: 金りんご
 # SUBTITLE: 金りんごを付与
 # CATEGORY: お助け系
+// エンチャント金リンゴをプレゼント
 
 
 execute at @a run give @a enchanted_golden_apple 1

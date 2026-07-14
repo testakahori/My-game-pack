@@ -1,6 +1,7 @@
 # TITLE: クリーパー！
 # SUBTITLE: クリーパー追加
 # CATEGORY: 敵対MOB
+// 足元にクリーパー出現、即爆発カウント開始
 
 # 足元(~ ~ ~)に召喚：プレイヤーが立てている空間なので、坑道や狭所でも確実に出現する
 execute at @p run summon minecraft:creeper ~ ~ ~ {Fuse:15,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}

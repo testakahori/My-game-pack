@@ -1,6 +1,7 @@
 # TITLE: TNTの雨
 # SUBTITLE: 上空からバラバラとTNT落下
 # CATEGORY: 妨害系
+// 上空からTNTが雨のように降ってくる
 
 execute at @p if block ~ ~30 ~ air run summon tnt ~-2 ~30 ~ {Fuse:60}
 execute at @p if block ~ ~30 ~ air run summon tnt ~ ~33 ~3 {Fuse:60}

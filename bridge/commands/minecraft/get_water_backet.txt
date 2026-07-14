@@ -1,5 +1,6 @@
 # TITLE: 水入りバケツ！
 # SUBTITLE: 水入りばけつ
 # CATEGORY: お助け系
+// 水入りバケツをプレゼント
 
 execute at @a run give @a water_bucket 1

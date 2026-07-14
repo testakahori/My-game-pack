@@ -1,5 +1,6 @@
 # TITLE: 鉄ピッケル！
 # SUBTITLE: 鉄のピッケル付与
 # CATEGORY: お助け系
+// 鉄ピッケルをプレゼント
 
 execute at @a run give @a minecraft:iron_pickaxe

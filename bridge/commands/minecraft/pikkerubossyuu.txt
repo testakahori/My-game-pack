@@ -1,6 +1,7 @@
 # TITLE: ピッケル没収！
 # SUBTITLE: すべてのピッケル没収
 # CATEGORY: 妨害
+// 持っているツルハシを全て没収
 
 clear @p minecraft:wooden_pickaxe
 clear @p minecraft:stone_pickaxe

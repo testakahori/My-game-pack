@@ -1,6 +1,7 @@
 # TITLE: ガスト！
 # SUBTITLE: ガストが現れる
 # CATEGORY: 敵対MOB
+// 頭上にガスト出現、火の玉に注意
 
 # ガストは巨体(4x4)なので広い上空を優先、塞がっていれば頭上1ブロックに出現
 execute at @p if block ~ ~8 ~ air run summon minecraft:ghast ~ ~8 ~ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}

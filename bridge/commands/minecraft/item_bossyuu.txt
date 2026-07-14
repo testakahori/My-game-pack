@@ -1,6 +1,7 @@
 # TITLE: アイテム全没収
 # SUBTITLE: 持っているアイテムを全没収
 # CATEGORY: 妨害系
+// インベントリのアイテムを全て没収
 
 clear @p
 

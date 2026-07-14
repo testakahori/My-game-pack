@@ -1,6 +1,7 @@
 # TITLE: TNT大爆発
 # SUBTITLE: とにかくドッカン
 # CATEGORY: 妨害系
+// 超大量のTNTで周囲一帯が吹き飛ぶ
 
 
 

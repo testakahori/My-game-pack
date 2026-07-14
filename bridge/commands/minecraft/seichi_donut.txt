@@ -1,6 +1,7 @@
 # TITLE: 砂落下！
 # SUBTITLE: 頭上に砂を落下
 # CATEGORY: 妨害系
+// 上空からドーナツ状の赤砂が降ってくる
 
 execute at @p run fill ~-5 ~35 ~-5 ~5 ~38 ~5 minecraft:red_sand
 execute at @p run fill ~-1 ~37 ~-1 ~1 ~38 ~1 minecraft:air replace minecraft:red_sand

@@ -2284,7 +2284,7 @@ ipcMain.handle("bridge:commands:list", async () => {
 });
 
 // --------------------
-// IPC: bridge/commands/minecraft/ の TITLE + CATEGORY メタ情報一覧
+// IPC: bridge/commands/minecraft/ の TITLE + CATEGORY + 説明文 メタ情報一覧
 // --------------------
 ipcMain.handle("bridge:commands:readMeta", async () => {
   const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
@@ -2293,14 +2293,18 @@ ipcMain.handle("bridge:commands:readMeta", async () => {
   return files.map((name) => {
     let title = name;
     let category = "";
+    let description = "";
     try {
       const content = fs.readFileSync(path.join(dir, name), "utf8");
       const titleMatch = content.match(/^#\s*TITLE:\s*(.+)$/m);
       if (titleMatch) title = titleMatch[1].trim();
       const catMatch = content.match(/^#\s*CATEGORY:\s*(.+)$/m);
       if (catMatch) category = catMatch[1].trim();
+      // 説明文はファイル先頭の // コメント行（コマンド一覧ページの表示用）
+      const descMatch = content.match(/^\/\/\s*(.+)$/m);
+      if (descMatch) description = descMatch[1].trim();
     } catch {}
-    return { name, title, category };
+    return { name, title, category, description };
   });
 });
 

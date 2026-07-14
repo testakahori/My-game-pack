@@ -1,6 +1,7 @@
 # TITLE: 殺人うさぎ！
 # SUBTITLE: 殺人うさぎ追加
 # CATEGORY: 敵対MOB
+// 見た目は可愛い殺人うさぎが襲ってくる
 
 # 上空が開いていれば頭上から落下、塞がっていれば足元に出現（視線に依存しない）
 execute at @p if block ~ ~3 ~ air run summon minecraft:rabbit ~ ~3 ~ {Tags:["gift_spawn_new"],RabbitType:99,Attributes:[{Name:"generic.max_health",Base:10}],Health:10f,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}

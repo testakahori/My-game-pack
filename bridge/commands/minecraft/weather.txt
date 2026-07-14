@@ -1,6 +1,7 @@
 # TITLE: 強制雨
 # SUBTITLE: 強制的に雨降らす
 # CATEGORY: 妨害系
+// 10分間の雷雨に天候を変更
 
 weather thunder 600s
 #time set night

@@ -1,5 +1,6 @@
 # TITLE: 木材追加！
 # SUBTITLE: 木材を追加
 # CATEGORY: お助け系
+// オークの木材10個をプレゼント
 
 execute at @a run give @a minecraft:oak_wood 10

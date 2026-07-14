@@ -6283,6 +6283,232 @@ button.tts-status-card:hover {
     inset 0 0 52px rgba(46, 255, 209, .12);
 }
 
+/* ============================================================
+   コマンド一覧ページ（/douma チートシート）
+   ギフト一覧 (gift-catalog-v2) と同じダークネイビー＋シアンのテイスト
+   ============================================================ */
+.commands-page {
+  max-width: 1280px;
+  margin-inline: auto;
+  padding-bottom: 40px;
+}
+
+.cmd-usage-banner {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 16px 18px;
+  border: 1px solid rgba(30, 203, 255, 0.42);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 6% 20%, rgba(24, 217, 255, 0.14), transparent 45%),
+    linear-gradient(145deg, rgba(9, 30, 55, 0.92), rgba(5, 13, 29, 0.96));
+  box-shadow: 0 0 24px rgba(24, 217, 255, 0.1), inset 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.cmd-usage-banner__icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  font-size: 26px;
+  border-radius: 12px;
+  background: rgba(24, 217, 255, 0.1);
+  border: 1px solid rgba(24, 217, 255, 0.3);
+}
+
+.cmd-usage-banner b {
+  color: #eaf7ff;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.cmd-usage-banner p {
+  margin: 5px 0 0;
+  color: #93a5bd;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.cmd-usage-banner code {
+  padding: 1px 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(24, 217, 255, 0.32);
+  background: rgba(1, 10, 24, 0.9);
+  color: #4ce4ff;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.cmd-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.cmd-toolbar .gift-catalog-search {
+  flex: 0 0 260px;
+}
+
+.cmd-category-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  flex: 1;
+}
+
+.cmd-category-chips button {
+  padding: 7px 13px;
+  border: 1px solid rgba(76, 112, 155, 0.44);
+  border-radius: 999px;
+  background: rgba(4, 13, 28, 0.82);
+  color: #92a4bc;
+  font-size: 11.5px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.cmd-category-chips button:hover {
+  border-color: rgba(24, 217, 255, 0.5);
+  color: #d9f2ff;
+}
+
+.cmd-category-chips button.is-active {
+  border-color: rgba(24, 217, 255, 0.72);
+  background: rgba(10, 62, 88, 0.6);
+  color: #4ce4ff;
+  box-shadow: 0 0 14px rgba(24, 217, 255, 0.18);
+}
+
+.cmd-toolbar-count {
+  color: #7f8ba0;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.cmd-toolbar-count b {
+  color: #4ce4ff;
+  font-size: 15px;
+}
+
+.cmd-category-section {
+  margin-bottom: 22px;
+}
+
+.cmd-category-header {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-bottom: 10px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid rgba(63, 98, 143, 0.4);
+}
+
+.cmd-category-header__icon {
+  font-size: 17px;
+}
+
+.cmd-category-header h2 {
+  margin: 0;
+  color: #f2f9ff;
+  font-size: 15.5px;
+  font-weight: 950;
+  letter-spacing: -0.02em;
+}
+
+.cmd-category-header small {
+  color: #7f8ba0;
+  font-size: 11px;
+}
+
+.cmd-category-header em {
+  margin-left: auto;
+  color: #61c9e8;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.cmd-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(252px, 1fr));
+  gap: 10px;
+}
+
+.cmd-card {
+  display: grid;
+  gap: 7px;
+  padding: 13px 14px;
+  text-align: left;
+  border: 1px solid rgba(73, 112, 162, 0.46);
+  border-radius: 11px;
+  background:
+    radial-gradient(circle at 90% 0%, rgba(126, 76, 255, 0.08), transparent 42%),
+    linear-gradient(145deg, rgba(10, 24, 43, 0.9), rgba(5, 13, 29, 0.96));
+  cursor: pointer;
+  transition: all 0.16s;
+}
+
+.cmd-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(24, 217, 255, 0.62);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 0 18px rgba(24, 217, 255, 0.14);
+}
+
+.cmd-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cmd-card__head b {
+  color: #f4faff;
+  font-size: 13.5px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+}
+
+.cmd-card__copy {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border: 1px solid rgba(24, 217, 255, 0.35);
+  border-radius: 7px;
+  color: #4ce4ff;
+  font-size: 10px;
+  font-weight: 800;
+  opacity: 0.55;
+  transition: opacity 0.15s;
+}
+
+.cmd-card:hover .cmd-card__copy {
+  opacity: 1;
+}
+
+.cmd-card__desc {
+  margin: 0;
+  color: #93a5bd;
+  font-size: 11.5px;
+  line-height: 1.6;
+  min-height: 2.6em;
+}
+
+.cmd-card__code {
+  padding: 6px 9px;
+  border-radius: 7px;
+  border: 1px solid rgba(45, 82, 128, 0.55);
+  background: rgba(1, 8, 21, 0.9);
+  color: #7be9a8;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
 .setup-complete-portal-scene {
   position: absolute;
   inset: 0;

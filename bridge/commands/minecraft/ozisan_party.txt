@@ -1,6 +1,7 @@
 # TITLE: おじさんパーティ
 # SUBTITLE: おじさん系のMOBを中心として召喚
 # CATEGORY: 敵対MOB
+// ファントムに乗ったウィッチの大群が来襲
 
 # 各MOBは「上空が開いていれば頭上から、塞がっていれば足元」に出現（視線に依存しない）
 execute at @p if block ~ ~30 ~ air run summon minecraft:phantom ~ ~30 ~ {Tags:["gift_spawn_new"],NoGravity:1b,CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,Passengers:[{id:"minecraft:witch",CustomName:"\"{ListenerName}\"",CustomNameVisible:1b,ActiveEffects:[{Id:12,Amplifier:0,Duration:999999,ShowParticles:0b}]}]}

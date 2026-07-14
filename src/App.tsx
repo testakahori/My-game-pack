@@ -6,6 +6,7 @@ import DashboardPage from "./components/DashboardPage";
 import GiftSettingsPage from "./components/GiftSettingsPage";
 import InitialSetupPage from "./components/InitialSetupPage";
 import GiftsViewerPage from "./components/GiftsViewerPage";
+import CommandsListPage from "./components/CommandsListPage";
 import EventSettingsPage from "./components/EventSettingsPage";
 import EventSettings2Page from "./components/EventSettings2Page";
 import TTSSettingsPage from "./components/TTSSettingsPage";
@@ -21,6 +22,7 @@ const PAGE_TITLE: Partial<Record<AppPage, string>> = {
   [AppPage.EVENTS2]: "イベント設定②",
   [AppPage.TTS]: "🔊 読み上げ設定",
   [AppPage.GIFTS_VIEWER]: "ギフト一覧",
+  [AppPage.COMMANDS]: "コマンド一覧",
   [AppPage.SETUP]: "初期セットアップ",
   [AppPage.OPERATIONS]: "運用センター",
   [AppPage.STATS]: "配信統計",
@@ -228,6 +230,12 @@ const App: React.FC = () => {
                 onSetupComplete={handleSetupComplete}
                 onResetSetup={handleResetSetup}
               />
+            </div>
+          )}
+
+          {activePage === AppPage.COMMANDS && (
+            <div className="page-pad p-6">
+              <CommandsListPage />
             </div>
           )}
 

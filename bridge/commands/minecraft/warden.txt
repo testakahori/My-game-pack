@@ -1,6 +1,7 @@
 # TITLE: ウォーデン
 # SUBTITLE: ウォーデンを召喚
 # CATEGORY: 妨害系|敵対MOB
+// 最強モブのウォーデンが出現
 
 # 1. ウォーデンを召喚（上空が開いていれば頭上、塞がっていれば足元。視線に依存しない）
 execute at @p if block ~ ~3 ~ air run summon minecraft:warden ~ ~3 ~

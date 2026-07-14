@@ -16,6 +16,7 @@ const LOCKED_PAGES: AppPage[] = [
   AppPage.EVENTS2,
   AppPage.TTS,
   AppPage.GIFTS_VIEWER,
+  AppPage.COMMANDS,
   AppPage.OPERATIONS,
   AppPage.STATS,
 ];
@@ -65,6 +66,12 @@ const NAV_ITEMS: NavItem[] = [
     icon: "🎀",
   },
   {
+    page: AppPage.COMMANDS,
+    label: "コマンド一覧",
+    sub: "/douma チートシート",
+    icon: "⌨️",
+  },
+  {
     page: AppPage.OPERATIONS,
     label: "運用センター",
     sub: "監視・テスト・安全設定",
@@ -93,6 +100,7 @@ const NavGlyph: React.FC<{ page: AppPage }> = ({ page }) => {
     [AppPage.EVENTS2]: <><circle {...common} cx="12" cy="12" r="8" /><path {...common} d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3 6.3 17.7" /><circle {...common} cx="12" cy="12" r="2.2" /></>,
     [AppPage.TTS]: <><path {...common} d="M4 10v4h4l5 4V6L8 10H4Z" /><path {...common} d="M16 9c1 2 1 4 0 6M19 6c3 4 3 8 0 12" /></>,
     [AppPage.GIFTS_VIEWER]: <><path {...common} d="M7 4c3 0 5 3 5 7-4 0-7-2-7-5 0-1 1-2 2-2ZM17 4c-3 0-5 3-5 7 4 0 7-2 7-5 0-1-1-2-2-2Z" /><path {...common} d="M12 11v10M12 14l-4 5M12 14l4 5" /></>,
+    [AppPage.COMMANDS]: <><rect {...common} x="3" y="5" width="18" height="14" rx="2" /><path {...common} d="m7 9 3 3-3 3M12 15h5" /></>,
     [AppPage.OPERATIONS]: <><path {...common} d="M12 3 4.5 6v5c0 5 3 8 7.5 10 4.5-2 7.5-5 7.5-10V6L12 3Z" /><path {...common} d="m8.5 12 2.2 2.2 4.8-5" /></>,
     [AppPage.STATS]: <><path {...common} d="M5 20V11h3v9M11 20V5h3v15M17 20v-7h3v7M3 20h19" /></>,
     [AppPage.SETUP]: <><path {...common} d="M14.7 6.3a4 4 0 0 0-5-5l2.1 2.1-3 3-2.1-2.1a4 4 0 0 0 5 5l7 7a2 2 0 0 1-3 3l-7-7a4 4 0 0 0-5-5" /></>,

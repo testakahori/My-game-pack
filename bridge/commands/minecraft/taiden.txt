@@ -1,6 +1,7 @@
 # TITLE: 帯電クリーパー
 # SUBTITLE: 帯電クリーパーがプレイヤー付近落下
 # CATEGORY: 敵対MOB
+// 爆発力2倍の帯電クリーパーが出現
 
 # 上空が開いていれば頭上から落下、塞がっていれば（坑道内など）足元に出現
 execute at @p if block ~ ~3 ~ air run summon minecraft:creeper ~ ~3 ~ {Tags:["gift_spawn_new"],powered:1b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
