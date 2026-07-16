@@ -3,14 +3,50 @@
 # CATEGORY: 変身ステータス
 # SOUND: entity.player.levelup
 # PARTICLE: minecraft:happy_villager
-// 空からダイヤ・エメラルド・金塊が降ってくる大盤振る舞い（大型ギフトご褒美枠）
+// 空からダイヤ・エメラルド・金塊の大豪雨！宝石ブロックまで降ってくる大盤振る舞い（大型ギフトご褒美枠）
 execute at @p run playsound entity.player.levelup master @a ~ ~ ~ 1.6 1.0
 execute at @p run playsound block.amethyst_block.chime master @a ~ ~ ~ 1.5 0.8
-execute at @p run summon minecraft:item ~1 ~10 ~1 {Item:{id:"minecraft:diamond",Count:3b}}
-execute at @p run summon minecraft:item ~-2 ~12 ~2 {Item:{id:"minecraft:diamond",Count:2b}}
-execute at @p run summon minecraft:item ~2 ~11 ~-2 {Item:{id:"minecraft:emerald",Count:4b}}
-execute at @p run summon minecraft:item ~-1 ~13 ~-1 {Item:{id:"minecraft:emerald",Count:3b}}
-execute at @p run summon minecraft:item ~3 ~10 ~0 {Item:{id:"minecraft:gold_ingot",Count:5b}}
-execute at @p run summon minecraft:item ~0 ~12 ~3 {Item:{id:"minecraft:gold_ingot",Count:4b}}
-execute at @p run summon minecraft:item ~-3 ~11 ~-3 {Item:{id:"minecraft:diamond",Count:1b}}
-execute at @p run particle minecraft:happy_villager ~ ~5 ~ 3 4 3 0.1 150 force
+execute at @p run playsound entity.experience_orb.pickup master @a ~ ~ ~ 1.4 0.7
+// 第1波：真上からダイヤの雨
+execute at @p run summon minecraft:item ~1 ~10 ~1 {Item:{id:"minecraft:diamond",Count:4b}}
+execute at @p run summon minecraft:item ~-2 ~12 ~2 {Item:{id:"minecraft:diamond",Count:3b}}
+execute at @p run summon minecraft:item ~2 ~11 ~-2 {Item:{id:"minecraft:diamond",Count:4b}}
+execute at @p run summon minecraft:item ~-1 ~13 ~-1 {Item:{id:"minecraft:diamond",Count:3b}}
+execute at @p run summon minecraft:item ~3 ~10 ~0 {Item:{id:"minecraft:diamond",Count:2b}}
+execute at @p run summon minecraft:item ~0 ~14 ~3 {Item:{id:"minecraft:diamond",Count:3b}}
+execute at @p run summon minecraft:item ~-3 ~11 ~-3 {Item:{id:"minecraft:diamond",Count:4b}}
+execute at @p run summon minecraft:item ~4 ~12 ~2 {Item:{id:"minecraft:diamond",Count:2b}}
+execute at @p run summon minecraft:item ~-4 ~13 ~1 {Item:{id:"minecraft:diamond",Count:3b}}
+execute at @p run summon minecraft:item ~2 ~15 ~4 {Item:{id:"minecraft:diamond",Count:2b}}
+// 第2波：エメラルドの雨
+execute at @p run summon minecraft:item ~2 ~16 ~-3 {Item:{id:"minecraft:emerald",Count:5b}}
+execute at @p run summon minecraft:item ~-1 ~17 ~-1 {Item:{id:"minecraft:emerald",Count:4b}}
+execute at @p run summon minecraft:item ~-3 ~16 ~2 {Item:{id:"minecraft:emerald",Count:5b}}
+execute at @p run summon minecraft:item ~1 ~18 ~1 {Item:{id:"minecraft:emerald",Count:4b}}
+execute at @p run summon minecraft:item ~4 ~17 ~-2 {Item:{id:"minecraft:emerald",Count:3b}}
+execute at @p run summon minecraft:item ~-4 ~18 ~-4 {Item:{id:"minecraft:emerald",Count:4b}}
+execute at @p run summon minecraft:item ~0 ~19 ~4 {Item:{id:"minecraft:emerald",Count:5b}}
+execute at @p run summon minecraft:item ~3 ~19 ~3 {Item:{id:"minecraft:emerald",Count:3b}}
+execute at @p run summon minecraft:item ~-2 ~20 ~-2 {Item:{id:"minecraft:emerald",Count:4b}}
+execute at @p run summon minecraft:item ~2 ~20 ~-4 {Item:{id:"minecraft:emerald",Count:3b}}
+// 第3波：金塊シャワー
+execute at @p run summon minecraft:item ~3 ~22 ~1 {Item:{id:"minecraft:gold_ingot",Count:8b}}
+execute at @p run summon minecraft:item ~-3 ~23 ~-1 {Item:{id:"minecraft:gold_ingot",Count:6b}}
+execute at @p run summon minecraft:item ~1 ~22 ~-3 {Item:{id:"minecraft:gold_ingot",Count:7b}}
+execute at @p run summon minecraft:item ~-1 ~24 ~3 {Item:{id:"minecraft:gold_ingot",Count:8b}}
+execute at @p run summon minecraft:item ~4 ~23 ~4 {Item:{id:"minecraft:gold_ingot",Count:5b}}
+execute at @p run summon minecraft:item ~-4 ~25 ~-4 {Item:{id:"minecraft:gold_ingot",Count:6b}}
+execute at @p run summon minecraft:item ~0 ~24 ~-4 {Item:{id:"minecraft:gold_ingot",Count:7b}}
+execute at @p run summon minecraft:item ~-2 ~25 ~4 {Item:{id:"minecraft:gold_ingot",Count:6b}}
+// 第4波：ジャックポット！宝石ブロックと金リンゴまで降ってくる
+execute at @p run summon minecraft:item ~1 ~27 ~-1 {Item:{id:"minecraft:diamond_block",Count:1b}}
+execute at @p run summon minecraft:item ~-2 ~28 ~2 {Item:{id:"minecraft:emerald_block",Count:1b}}
+execute at @p run summon minecraft:item ~2 ~28 ~2 {Item:{id:"minecraft:gold_block",Count:2b}}
+execute at @p run summon minecraft:item ~-1 ~29 ~-2 {Item:{id:"minecraft:diamond_block",Count:1b}}
+execute at @p run summon minecraft:item ~0 ~30 ~1 {Item:{id:"minecraft:golden_apple",Count:2b}}
+execute at @p run summon minecraft:item ~3 ~29 ~-3 {Item:{id:"minecraft:emerald_block",Count:1b}}
+execute at @p run summon minecraft:item ~-3 ~30 ~3 {Item:{id:"minecraft:gold_block",Count:1b}}
+// キラキラ演出
+execute at @p run particle minecraft:happy_villager ~ ~5 ~ 4 6 4 0.1 250 force
+execute at @p run particle minecraft:end_rod ~ ~8 ~ 3 5 3 0.05 120 force
+execute at @p run particle minecraft:totem_of_undying ~ ~3 ~ 2 3 2 0.15 100 force

@@ -76,6 +76,7 @@ declare global {
       serverStart: () => Promise<{ ok: true; alreadyRunning?: boolean; backup?: { ok: boolean; message: string } | null }>;
       serverStop: () => Promise<{ ok: true; graceful?: boolean }>;
       serverLogs: () => Promise<{ ok: true; lines: string[] }>;
+      serverCommand: (command: string) => Promise<{ ok: true }>;
       serverProcessStatus: () => Promise<{ running: boolean; pid: number | null }>;
       minecraftStatus: () => Promise<{ running: boolean; processes: string[] }>;
       bridgeLaunch: () => Promise<{ ok: true }>;
@@ -84,7 +85,7 @@ declare global {
       bridgeProcessStatus: () => Promise<any>;
       bridgeLogs: () => Promise<{ ok: true; lines: string[] }>;
       minecraftLaunch: () => Promise<{ ok: true }>;
-      minecraftGrantOp: () => Promise<{ ok: true; name: string }>;
+      minecraftGrantOp: () => Promise<{ ok: true; name: string; offline?: boolean; message?: string }>;
       serverGamerulesApply: () => Promise<{ ok: true }>;
       serverDatapackDeployNightVision: () => Promise<{ ok: true }>;
       serverPropsRead: () => Promise<Record<string, string>>;

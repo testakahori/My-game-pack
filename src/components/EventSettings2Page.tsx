@@ -9,6 +9,7 @@ type RouletteItem = {
   commandFile: string;
   label: string;
   weight: number;
+  repeat: number;
 };
 
 type RouletteConfig = {
@@ -62,6 +63,7 @@ function normItems(raw: any): RouletteItem[] {
     commandFile: String(item?.commandFile ?? ""),
     label: String(item?.label ?? ""),
     weight: Math.max(1, Number(item?.weight ?? 1)),
+    repeat: Math.max(1, Math.min(100, Number(item?.repeat ?? 1) || 1)),
   }));
 }
 
@@ -155,8 +157,8 @@ function RouletteItemsEditor({
 
   return (
     <div className="space-y-2">
-      <div className="hidden md:grid grid-cols-[1fr_180px_90px_70px_40px] gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-wider px-1">
-        <span>実行コマンド</span><span>表示ラベル（回転中の文字）</span><span>重み</span><span>確率</span><span></span>
+      <div className="hidden md:grid grid-cols-[1fr_180px_70px_90px_70px_40px] gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-wider px-1">
+        <span>実行コマンド</span><span>表示ラベル（回転中の文字）</span><span>回数</span><span>重み</span><span>確率</span><span></span>
       </div>
       {items.length === 0 && (
         <div className="text-center py-6 border border-dashed border-gray-700 rounded-xl text-gray-500 text-sm">
@@ -164,7 +166,7 @@ function RouletteItemsEditor({
         </div>
       )}
       {items.map((item) => (
-        <div key={item.id} className="grid grid-cols-1 md:grid-cols-[1fr_180px_90px_70px_40px] gap-2 items-center bg-gray-900/50 border border-gray-700/60 rounded-xl p-2">
+        <div key={item.id} className="grid grid-cols-1 md:grid-cols-[1fr_180px_70px_90px_70px_40px] gap-2 items-center bg-gray-900/50 border border-gray-700/60 rounded-xl p-2">
           <CmdSelect value={item.commandFile} onChange={(v) => update(item.id, { commandFile: v, label: item.label || v.replace(/\.txt$/i, "") })} commandFiles={commandFiles} />
           <input
             type="text"
@@ -172,6 +174,15 @@ function RouletteItemsEditor({
             onChange={(e) => update(item.id, { label: e.target.value })}
             placeholder="例: クリーパー地獄"
             className="bg-gray-900 border border-gray-600 rounded-xl px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+          />
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={item.repeat}
+            onChange={(e) => update(item.id, { repeat: Math.max(1, Math.min(100, Number(e.target.value) || 1)) })}
+            title="当選時にこのコマンドを実行する回数"
+            className="bg-gray-900 border border-gray-600 rounded-xl px-2 py-2.5 text-sm text-center text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
           />
           <input
             type="number"
@@ -192,7 +203,7 @@ function RouletteItemsEditor({
       ))}
       <button
         type="button"
-        onClick={() => onChange([...items, { id: newId(), commandFile: "", label: "", weight: 1 }])}
+        onClick={() => onChange([...items, { id: newId(), commandFile: "", label: "", weight: 1, repeat: 1 }])}
         className="px-4 py-2 rounded-xl text-xs font-bold bg-cyan-700 hover:bg-cyan-600 text-white transition"
       >
         ＋ 項目を追加

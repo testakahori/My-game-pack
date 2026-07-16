@@ -3,9 +3,12 @@
 # CATEGORY: トラップ悪戯
 # SOUND: entity.enderman.teleport
 # PARTICLE: minecraft:portal
-// 突然18ブロック上空へ飛ばされて自由落下。満タン体力ならギリ生き残れる高さ
+// 地表の上空85ブロックへ強制テレポート！低速落下でゆっくり地上へ帰還する空中散歩
+// （positioned over で地表を基準にするため、山岳の岩中や洞窟に埋まらない）
 execute at @p run playsound entity.enderman.teleport master @a ~ ~ ~ 1.6 0.8
 execute at @p run particle minecraft:portal ~ ~1 ~ 1 2 1 0.5 150 force
-execute at @p run tp @p ~ ~18 ~
+execute at @p positioned over motion_blocking run tp @p ~ ~85 ~
+effect give @p minecraft:slow_falling 45 0 true
 execute at @p run playsound entity.shulker.shoot master @a ~ ~ ~ 1.4 0.6
 execute at @p run particle minecraft:cloud ~ ~ ~ 1 1 1 0.2 60 force
+execute at @p run playsound entity.phantom.flap master @a ~ ~ ~ 1.4 0.7

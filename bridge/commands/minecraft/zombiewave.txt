@@ -1,19 +1,65 @@
-# TITLE: ゾンビ襲撃ウェーブ
+# TITLE: ゾンビ総襲撃
 # SUBTITLE: {ListenerName}
 # CATEGORY: 襲撃モブ
 # SOUND: event.raid.horn
 # PARTICLE: minecraft:soul
-// 襲撃のホーンとともにゾンビとスケルトンの群れが周囲から迫ってくる
+// 全種類のゾンビが10体ずつ（計50体）四方八方から一斉に襲いかかる大襲撃
 execute at @p run playsound event.raid.horn master @a ~ ~ ~ 1.8 0.8
-execute at @p run playsound entity.zombie.ambient master @a ~ ~ ~ 1.5 0.6
+execute at @p run playsound entity.zombie.ambient master @a ~ ~ ~ 1.6 0.5
+execute at @p run playsound entity.husk.ambient master @a ~ ~ ~ 1.4 0.6
+// ゾンビ×10
 execute at @p run summon minecraft:zombie ~7 ~ ~2
 execute at @p run summon minecraft:zombie ~-6 ~ ~4
 execute at @p run summon minecraft:zombie ~3 ~ ~-7
 execute at @p run summon minecraft:zombie ~-4 ~ ~-6
 execute at @p run summon minecraft:zombie ~8 ~ ~-3
 execute at @p run summon minecraft:zombie ~-8 ~ ~-1
-execute at @p run summon minecraft:skeleton ~9 ~ ~5
-execute at @p run summon minecraft:skeleton ~-7 ~ ~7
-execute at @p run summon minecraft:skeleton ~5 ~ ~9
-execute at @p run summon minecraft:skeleton ~-2 ~ ~-9
-execute at @p run particle minecraft:soul ~ ~1 ~ 8 2 8 0.05 120 force
+execute at @p run summon minecraft:zombie ~5 ~ ~6
+execute at @p run summon minecraft:zombie ~-5 ~ ~7
+execute at @p run summon minecraft:zombie ~9 ~ ~4
+execute at @p run summon minecraft:zombie ~-9 ~ ~-4
+// ハスク×10
+execute at @p run summon minecraft:husk ~10 ~ ~1
+execute at @p run summon minecraft:husk ~-10 ~ ~2
+execute at @p run summon minecraft:husk ~2 ~ ~10
+execute at @p run summon minecraft:husk ~-2 ~ ~-10
+execute at @p run summon minecraft:husk ~6 ~ ~-8
+execute at @p run summon minecraft:husk ~-6 ~ ~8
+execute at @p run summon minecraft:husk ~11 ~ ~-2
+execute at @p run summon minecraft:husk ~-11 ~ ~3
+execute at @p run summon minecraft:husk ~4 ~ ~11
+execute at @p run summon minecraft:husk ~-3 ~ ~-11
+// ドラウンド×10
+execute at @p run summon minecraft:drowned ~12 ~ ~3
+execute at @p run summon minecraft:drowned ~-12 ~ ~-3
+execute at @p run summon minecraft:drowned ~3 ~ ~12
+execute at @p run summon minecraft:drowned ~-3 ~ ~12
+execute at @p run summon minecraft:drowned ~8 ~ ~8
+execute at @p run summon minecraft:drowned ~-8 ~ ~-8
+execute at @p run summon minecraft:drowned ~9 ~ ~-7
+execute at @p run summon minecraft:drowned ~-9 ~ ~7
+execute at @p run summon minecraft:drowned ~1 ~ ~-12
+execute at @p run summon minecraft:drowned ~-1 ~ ~-13
+// 村人ゾンビ×10
+execute at @p run summon minecraft:zombie_villager ~13 ~ ~
+execute at @p run summon minecraft:zombie_villager ~-13 ~ ~1
+execute at @p run summon minecraft:zombie_villager ~ ~ ~13
+execute at @p run summon minecraft:zombie_villager ~1 ~ ~-13
+execute at @p run summon minecraft:zombie_villager ~10 ~ ~6
+execute at @p run summon minecraft:zombie_villager ~-10 ~ ~-6
+execute at @p run summon minecraft:zombie_villager ~6 ~ ~10
+execute at @p run summon minecraft:zombie_villager ~-6 ~ ~-10
+execute at @p run summon minecraft:zombie_villager ~12 ~ ~-5
+execute at @p run summon minecraft:zombie_villager ~-12 ~ ~5
+// ゾグリン×10（ゾンビ化ホグリン：見境なく突進してくる暴れ役）
+execute at @p run summon minecraft:zoglin ~14 ~ ~2
+execute at @p run summon minecraft:zoglin ~-14 ~ ~-2
+execute at @p run summon minecraft:zoglin ~2 ~ ~14
+execute at @p run summon minecraft:zoglin ~-2 ~ ~-14
+execute at @p run summon minecraft:zoglin ~11 ~ ~8
+execute at @p run summon minecraft:zoglin ~-11 ~ ~-8
+execute at @p run summon minecraft:zoglin ~8 ~ ~-11
+execute at @p run summon minecraft:zoglin ~-8 ~ ~11
+execute at @p run summon minecraft:zoglin ~15 ~ ~-1
+execute at @p run summon minecraft:zoglin ~-15 ~ ~1
+execute at @p run particle minecraft:soul ~ ~1 ~ 10 2 10 0.05 200 force

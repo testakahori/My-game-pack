@@ -81,6 +81,8 @@ contextBridge.exposeInMainWorld("mygamepack", {
   // Forgeサーバーのログ・稼働状態（ダッシュボード表示用）
   serverLogs: () => ipcRenderer.invoke("server:logs"),
   serverProcessStatus: () => ipcRenderer.invoke("server:processStatus"),
+  // Forgeサーバーコンソールへコマンド送信（op 付与などの脱出ハッチ）
+  serverCommand: (command) => ipcRenderer.invoke("server:command", command),
 
   // Minecraftランチャー/ゲーム本体の稼働検知
   minecraftStatus: () => ipcRenderer.invoke("minecraft:status"),

@@ -1177,8 +1177,22 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // --------------------
   // 演出フレームは Mod v1.2.0 の /douma/exec に setTimeout 刻みで送り、
   // 当選コマンドは通常のイベントとして発火する。
-  const ROULETTE_COLORS = ["yellow", "aqua", "light_purple", "green", "red", "gold"];
   let rouletteBusy = false;
+
+  // ルーレット表示用：コマンドtxt先頭の // コメント行を「簡単な意味の説明」として読む（キャッシュ付き）
+  const rouletteDescCache = new Map();
+  function rouletteItemDesc(commandFile) {
+    const file = path.basename(ensureTxt(commandFile));
+    if (rouletteDescCache.has(file)) return rouletteDescCache.get(file);
+    let desc = "";
+    try {
+      const raw = fs.readFileSync(path.join(commandsDirAbs, "minecraft", file), "utf8");
+      const m = raw.match(/^\/\/\s*(.+)$/m);
+      if (m) desc = m[1].trim();
+    } catch { /* 説明が読めなくても表示は続行 */ }
+    rouletteDescCache.set(file, desc);
+    return desc;
+  }
 
   function normalizeRouletteItems(rl) {
     return (Array.isArray(rl?.items) ? rl.items : [])
@@ -1187,6 +1201,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         commandFile: ensureTxt(String(item.commandFile).trim()),
         label: String(item.label || item.commandFile).replace(/\.txt$/i, "").slice(0, 24),
         weight: Math.max(1, Number(item.weight || 1)),
+        repeat: clampInt(item.repeat ?? 1, 1, 100, 1),
       }));
   }
 
@@ -1195,7 +1210,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       type: "other",
       historyType: historyType || "roulette",
       commandFile: winner.commandFile,
-      count: 1,
+      count: clampInt(winner.repeat ?? 1, 1, 100, 1),
       listenerName: triggerName || "roulette",
       announce: false,
     }), { priority: 8 });
@@ -1224,14 +1239,14 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     let step = 110;
     for (let i = 0; i < frames; i++) {
       const item = items[Math.floor(Math.random() * items.length)];
-      const color = ROULETTE_COLORS[i % ROULETTE_COLORS.length];
       delay += step;
       step = Math.min(500, Math.round(step * 1.18)); // だんだん減速
       setTimeout(() => {
+        // タイトル＝ラベル（黄色・大文字）、サブタイトル＝コマンドの簡単な説明（黄緑）で回す
         sendDoumaExec(doumaMod, [
           "title @a times 0 12 4",
-          `title @a title {"text":"${mcJsonStringEscape(item.label, 30)}","color":"${color}","bold":true}`,
-          `title @a subtitle {"text":"ルーレット回転中…","color":"gray"}`,
+          `title @a title {"text":"${mcJsonStringEscape(item.label.toUpperCase(), 30)}","color":"yellow","bold":true}`,
+          `title @a subtitle {"text":"${mcJsonStringEscape(rouletteItemDesc(item.commandFile) || "ルーレット回転中…", 36)}","color":"green"}`,
           "playsound block.note_block.hat master @a ~ ~ ~ 0.7 1.4",
         ], triggerName).catch(() => {});
       }, delay);
@@ -1239,8 +1254,9 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     setTimeout(() => {
       sendDoumaExec(doumaMod, [
         "title @a times 5 55 15",
-        `title @a title {"text":"▶ ${mcJsonStringEscape(winner.label, 26)} ◀","color":"gold","bold":true}`,
-        `title @a subtitle {"text":"${mcJsonStringEscape(triggerName || "ルーレット", 30)}","color":"green"}`,
+        `title @a title {"text":"▶ ${mcJsonStringEscape(winner.label.toUpperCase(), 26)} ◀","color":"yellow","bold":true}`,
+        `title @a subtitle {"text":"${mcJsonStringEscape(rouletteItemDesc(winner.commandFile) || winner.label, 36)}","color":"green"}`,
+        `title @a actionbar {"text":"${mcJsonStringEscape(triggerName || "ルーレット", 30)}","color":"aqua"}`,
         `playsound ${stopSound} master @a ~ ~ ~ 1 1`,
         `execute at @a run particle ${particle} ~ ~1 ~ 0.8 1 0.8 0.08 30 force`,
       ], triggerName).catch(() => {});
@@ -1248,7 +1264,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       rouletteBusy = false;
     }, delay + 700);
 
-    console.log(`[Roulette] ${items.length}項目から抽選 → ${winner.commandFile} (weight=${winner.weight})`);
+    console.log(`[Roulette] ${items.length}項目から抽選 → ${winner.commandFile} (weight=${winner.weight}, repeat=${winner.repeat})`);
     return true;
   }
 

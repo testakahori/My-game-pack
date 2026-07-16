@@ -256,6 +256,11 @@ if (import.meta.env.DEV && !win.mygamepack) {
         : [],
     }),
     serverProcessStatus: async () => ({ running: devServerRunning, pid: devServerRunning ? 4321 : null }),
+    serverCommand: async (command: string) => {
+      if (!devServerRunning) throw new Error("Minecraftサーバーが起動していません");
+      addBridgeLog(`[FORGE] 開発モード: コマンド送信 > ${command}`);
+      return { ok: true };
+    },
     minecraftStatus: async () => ({ running: devServerRunning, processes: devServerRunning ? ["javaw.exe"] : [] }),
     dialogPickFile: async () => {
       throw new Error("開発ブラウザーではネイティブのファイル選択ダイアログを利用できません");

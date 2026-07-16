@@ -3,11 +3,34 @@
 # CATEGORY: 天変地異
 # SOUND: entity.lightning_bolt.thunder
 # PARTICLE: minecraft:cloud
-// 5分間の激しい雷雨。強烈な向かい風で移動速度が約10分の1になる
+// 超大型の嵐が直撃！雷が20発ばんばん落ちて、突風で体が吹き上げられる
 weather thunder 300
-effect give @a minecraft:slowness 300 5 true
-execute at @a run playsound entity.lightning_bolt.thunder master @a ~ ~ ~ 1.6 0.8
-execute at @a run playsound weather.rain.above master @a ~ ~ ~ 1.4 0.8
-execute at @a run particle minecraft:cloud ~ ~2 ~ 6 3 6 0.4 250 force
-execute at @a run summon minecraft:lightning_bolt ~8 ~ ~
-execute at @a run summon minecraft:lightning_bolt ~-9 ~ ~5
+// 突風：全員が吹き上げられてから低速落下で着地（落下ダメージなし）
+effect give @a minecraft:levitation 2 12 true
+effect give @a minecraft:slow_falling 15 0 true
+effect give @a minecraft:nausea 8 0 true
+execute at @a run playsound entity.lightning_bolt.thunder master @a ~ ~ ~ 1.8 0.6
+execute at @a run playsound weather.rain.above master @a ~ ~ ~ 1.6 0.7
+execute at @a run playsound entity.ender_dragon.flap master @a ~ ~ ~ 1.4 0.5
+execute at @a run particle minecraft:cloud ~ ~2 ~ 8 4 8 0.5 300 force
+// 雷20発：プレイヤーの周囲へ雨あられ（本人の真横〜少し離れた位置）
+execute at @a run summon minecraft:lightning_bolt ~4 ~ ~2
+execute at @a run summon minecraft:lightning_bolt ~-5 ~ ~3
+execute at @a run summon minecraft:lightning_bolt ~3 ~ ~-5
+execute at @a run summon minecraft:lightning_bolt ~-3 ~ ~-4
+execute at @a run summon minecraft:lightning_bolt ~7 ~ ~-1
+execute at @a run summon minecraft:lightning_bolt ~-7 ~ ~1
+execute at @a run summon minecraft:lightning_bolt ~1 ~ ~7
+execute at @a run summon minecraft:lightning_bolt ~-1 ~ ~-7
+execute at @a run summon minecraft:lightning_bolt ~5 ~ ~5
+execute at @a run summon minecraft:lightning_bolt ~-5 ~ ~-5
+execute at @a run summon minecraft:lightning_bolt ~6 ~ ~-4
+execute at @a run summon minecraft:lightning_bolt ~-6 ~ ~4
+execute at @a run summon minecraft:lightning_bolt ~9 ~ ~2
+execute at @a run summon minecraft:lightning_bolt ~-9 ~ ~-2
+execute at @a run summon minecraft:lightning_bolt ~2 ~ ~9
+execute at @a run summon minecraft:lightning_bolt ~-2 ~ ~-9
+execute at @a run summon minecraft:lightning_bolt ~8 ~ ~6
+execute at @a run summon minecraft:lightning_bolt ~-8 ~ ~-6
+execute at @a run summon minecraft:lightning_bolt ~4 ~ ~-8
+execute at @a run summon minecraft:lightning_bolt ~-4 ~ ~8

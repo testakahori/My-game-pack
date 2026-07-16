@@ -4,11 +4,27 @@
 # DESTRUCTIVE: true
 # SOUND: entity.wither.spawn
 # PARTICLE: minecraft:sculk_soul
-// ウィザーとウォーデンが同時襲来する最凶コマンド。デスルーレットの罰ゲーム向き
+// ボス級9体が同時襲来する最凶コマンド！ウィザー・ウォーデン・ラヴェジャー・エヴォーカー・エルダーガーディアン
 execute at @p run playsound entity.wither.spawn master @a ~ ~ ~ 1.8 0.9
 execute at @p run playsound entity.warden.emerge master @a ~ ~ ~ 1.6 0.8
-execute at @p run summon minecraft:wither ~10 ~3 ~8
-execute at @p run summon minecraft:warden ~-9 ~ ~-8
+execute at @p run playsound event.raid.horn master @a ~ ~ ~ 1.8 0.6
+execute at @p run playsound entity.ravager.roar master @a ~ ~ ~ 1.6 0.7
+// ウィザー：頭上に出現（地形埋まり防止で高めの空中スポーン）
+execute at @p run summon minecraft:wither ~6 ~6 ~5
+// ウォーデン：地中から這い出る（近距離・埋まり防止で+1）
+execute at @p run summon minecraft:warden ~-5 ~1 ~-4
+// ラヴェジャー×3：四方から突進
+execute at @p run summon minecraft:ravager ~7 ~1 ~-2
+execute at @p run summon minecraft:ravager ~-6 ~1 ~4
+execute at @p run summon minecraft:ravager ~2 ~1 ~7
+// エヴォーカー×2：ヴェックスと牙を召喚する魔術師ボス
+execute at @p run summon minecraft:evoker ~5 ~1 ~4
+execute at @p run summon minecraft:evoker ~-4 ~1 ~-6
+// エルダーガーディアン×2：採掘疲労ビームの水中ボス
+execute at @p run summon minecraft:elder_guardian ~3 ~2 ~-5
+execute at @p run summon minecraft:elder_guardian ~-3 ~2 ~5
+// 演出：暗闇と魂のパーティクルで絶望感を出す
 execute at @p run particle minecraft:sculk_soul ~ ~1 ~ 6 3 6 0.1 200 force
-execute at @p run particle minecraft:large_smoke ~10 ~3 ~8 2 2 2 0.05 80 force
+execute at @p run particle minecraft:large_smoke ~6 ~6 ~5 2 2 2 0.05 80 force
+execute at @p run particle minecraft:flame ~ ~1 ~ 8 2 8 0.05 150 force
 effect give @a minecraft:darkness 8 0 true

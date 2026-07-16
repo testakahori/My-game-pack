@@ -4,13 +4,57 @@
 # DESTRUCTIVE: true
 # SOUND: block.anvil.land
 # PARTICLE: minecraft:crit
-// 頭上から金床の雨。当たると痛いし避けても地面に金床が残る
-execute at @p run playsound block.anvil.fall master @a ~ ~ ~ 1.6 0.7
-execute at @p run summon minecraft:falling_block ~ ~14 ~ {BlockState:{Name:"minecraft:anvil"},Time:1}
-execute at @p run summon minecraft:falling_block ~1 ~16 ~1 {BlockState:{Name:"minecraft:anvil"},Time:1}
-execute at @p run summon minecraft:falling_block ~-1 ~15 ~1 {BlockState:{Name:"minecraft:anvil"},Time:1}
-execute at @p run summon minecraft:falling_block ~1 ~17 ~-1 {BlockState:{Name:"minecraft:anvil"},Time:1}
-execute at @p run summon minecraft:falling_block ~-1 ~18 ~-1 {BlockState:{Name:"minecraft:anvil"},Time:1}
-execute at @p run summon minecraft:falling_block ~2 ~15 ~0 {BlockState:{Name:"minecraft:anvil"},Time:1}
-execute at @p run summon minecraft:falling_block ~-2 ~16 ~0 {BlockState:{Name:"minecraft:anvil"},Time:1}
-execute at @p run particle minecraft:crit ~ ~10 ~ 3 4 3 0.1 100 force
+// 頭上から金床の超豪雨！高さをずらして5波・約45個が降り続け、逃げた先まで真上から追ってくる
+execute at @p run playsound block.anvil.fall master @a ~ ~ ~ 1.8 0.6
+execute at @p run playsound entity.wither.shoot master @a ~ ~ ~ 1.2 0.5
+// 第1波：真上ピンポイント（すぐ着弾）
+execute at @p run summon minecraft:falling_block ~ ~12 ~ {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~1 ~13 ~ {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-1 ~13 ~1 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~ ~14 ~-1 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~1 ~14 ~1 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-1 ~15 ~-1 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~2 ~14 ~1 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-2 ~15 ~-1 {BlockState:{Name:"minecraft:anvil"},Time:1}
+// 第2波：少し高め（約1秒後に着弾・密度アップ）
+execute at @p run summon minecraft:falling_block ~ ~24 ~ {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~1 ~24 ~2 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-1 ~25 ~-2 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~2 ~25 ~-1 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-2 ~26 ~1 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~3 ~26 ~ {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-3 ~26 ~1 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~ ~27 ~3 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~2 ~28 ~-3 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-2 ~28 ~2 {BlockState:{Name:"minecraft:anvil"},Time:1}
+// 第3波：さらに高く（約2秒後・移動先を狙って広めに）
+execute at @p run summon minecraft:falling_block ~ ~38 ~ {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~2 ~39 ~2 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-2 ~39 ~-2 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~4 ~40 ~-1 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-4 ~40 ~1 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~1 ~41 ~-4 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-1 ~41 ~4 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~3 ~41 ~4 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-3 ~42 ~-4 {BlockState:{Name:"minecraft:anvil"},Time:1}
+// 第4波：逃げ道を塞ぐ広範囲爆撃（約3秒後）
+execute at @p run summon minecraft:falling_block ~ ~52 ~1 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~1 ~53 ~-1 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-1 ~54 ~ {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~3 ~55 ~3 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-3 ~55 ~-3 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~5 ~55 ~-2 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-5 ~56 ~2 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~ ~56 ~-5 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~ ~57 ~5 {BlockState:{Name:"minecraft:anvil"},Time:1}
+// 第5波：最上段のとどめ（約4〜5秒後・全方位）
+execute at @p run summon minecraft:falling_block ~ ~68 ~ {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~2 ~69 ~-2 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-2 ~69 ~2 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~4 ~70 ~2 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-4 ~70 ~-2 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~6 ~71 ~ {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~-6 ~71 ~ {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~ ~72 ~6 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run summon minecraft:falling_block ~ ~72 ~-6 {BlockState:{Name:"minecraft:anvil"},Time:1}
+execute at @p run particle minecraft:crit ~ ~10 ~ 5 8 5 0.1 250 force

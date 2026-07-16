@@ -392,6 +392,80 @@ push 済みでもある。
 - 次アクション: Cloudflare Workers での認証API（ライセンスキー発行・失効・照合）と
   Stripe Webhook（購入→キー発行、解約→失効）の実装、公式HP と Discord 招線の整備。
 
+## 【2026-07-15〜16 完了】ユーザーフィードバック一括対応（コマンド調整・OP付与/ルーレットのバグ根治）
+
+### コマンドtxtの調整（bridge/commands/minecraft/）
+- richtime: 9個→35個の4波構成に増量（ダイヤ/エメラルド/金塊＋ジャックポットで鉱石ブロック・金リンゴ）。
+- anvildrop: 27個→45個の5波。高さずらしの時間差降下で逃げ先まで追尾する体感に。
+- bossrush: ウィザー＋ウォーデン＋ラヴェジャー×3＋エヴォーカー×2＋エルダーガーディアン×2の計9体。
+  旧版でウォーデンが出なかった原因は地形埋まり座標→Y+1〜6の埋まり防止スポーンに修正。
+- storm/tornado/fissure/skytrap/zombiewave は 7/14 深夜セッションの修正（雷20発・吹き上げ・
+  足元から深い亀裂・Y150テレポ・ゾンビ5種×10）をそのまま採用。
+- tiny.txt / giant.txt / invisible.txt は削除（一覧・プルダウンはファイル走査なので自動で消える）。
+- _gamerules.txt に `effect give @a minecraft:night_vision infinite 0 true` を追加（暗視を初期設定化）。
+
+### 重力反転の「飛行が禁止されています」キック対策
+- 原因は server.properties の `allow-flight=false`。テンプレ（server/Douma_Craft）を true に変更。
+- さらに main.cjs の server:start で**起動前に毎回 allow-flight=true を強制**（既存インストールも
+  次回起動から自動で直る。server.properties は起動時にしか読まれないため、ここが唯一の適用点）。
+
+### OP付与が効かなかった真因（F3+F4「権限がありません」）
+- 実サーバー（app-config の serverFolder）の ops.json が `[]` ＝一度も付与成功していなかった。
+- 原因①: 手動ボタンをサーバー停止中に押すと ECONNREFUSED 127.0.0.1:25576。
+- 原因②: **一括起動の自動OP付与とゲームルール適用は Forge 起動コマンド直後に送信していたが、
+  ワールド読み込み（1〜2分）が終わるまで Mod HTTP:25576 は開かない→毎回 ECONNREFUSED で
+  「スキップ」**。keepInventory が効いていなかったのも同因。
+- 恒久修正（main.cjs）:
+  - `waitForDoumaMod()`: サーバー起動中なら Mod HTTP 開通まで最大150秒ポーリングしてから送信。
+    OP付与・ゲームルール適用の両方に適用。
+  - `grantOpOffline()`: サーバー停止中は usercache.json から UUID を引いて ops.json へ直接登録
+    （次回起動から有効）。配布先ユーザーの環境でも動く汎用フォールバック。
+  - マイクラID保存時（UI）はサーバー停止中でも常に付与を試み、結果メッセージを表示。
+- 一括起動の事前警告（DashboardPage）: **マイクラID未設定のまま一括起動すると confirm ダイアログで
+  警告**（OPが無いと F3+F4 等が使えない旨）。続行/キャンセル選択可。起動後の自動付与失敗も
+  警告ログを明示化。
+- ※開発機の実サーバー（D:\新しいフォルダー）には ops.json 直書き＋allow-flight=true を手動適用済み
+  （この開発機だけの即効処置。配布ユーザーは上記コード側フォールバックでカバー）。
+
+### 「ルーレットが無効です」の真因と修正
+- イベント実行経路は2本ある: ①本番（TikTok→bridge/index.js dispatchDoumaEvent→Mod）は
+  ルーレットを横取りできるが、②**ダッシュボードのテスト発火（main.cjs mod:testEvent→Mod直送）は
+  Bridge を経由しない**ため roulette.txt のプレースホルダー（「ルーレットが無効です」）が実行されていた。
+- main.cjs に `fireDoumaEventMaybeRoulette()` を実装: テスト発火でも重み付き抽選＋回転演出＋
+  当選コマンド発火（repeat 反映）。ギフトテスト・いいねテストの両経路に適用。
+- 教訓: Bridge の dispatchDoumaEvent に横取りロジックを足すときは main.cjs のテスト発火にも
+  同じ振る舞いが必要か必ず確認すること。
+
+### ルーレット表示の改修（通常・デス共通、bridge/index.js runRoulette）
+- 回転中・確定時とも「タイトル＝コマンド名（yellow・bold・英字は大文字化）／サブタイトル＝
+  コマンドの簡単な説明（green）」。説明文は各txt先頭の `//` コメントを自動使用（キャッシュ付き）。
+- 確定時は送信者名をアクションバー（aqua）に表示。
+
+### 暗視・keepInventory の初期設定化
+- 暗視データパック配置を「ワールド変更時のみ」→**毎回のサーバー起動前**に変更
+  （単体起動・一括起動の両方）。keepInventory は _gamerules で従来通り＋上記 waitForDoumaMod で
+  確実に適用されるようになった。
+
+### アプリ内サーバーコンソール入力（新規）
+- Forgeサーバーログのパネル下にコマンド入力欄＋送信ボタンを追加（Enter送信可）。
+- main.cjs `server:command` IPC → serverProcRef.stdin へ1行書き込み。先頭 `/` は自動除去。
+  送信コマンドはログに `> op xxx` 形式でエコー。停止中は入力欄が無効化。
+- 変更: electron/main.cjs / electron/preload.cjs / src/types/electron.d.ts / src/lib/devApiMock.ts /
+  src/components/DashboardPage.tsx。
+
+### 検証
+- node --check（bridge/index.js・electron/main.cjs・preload.cjs）OK / bridge 回帰テスト 11/11 PASS
+  （txt健全性チェック含む）/ tsc --noEmit OK。
+
+### 【次セッションのタスク】v1.0.19 ビルド＆リリース（ユーザー実施予定 2026-07-16）
+1. package.json を 1.0.18 → 1.0.19 に bump。
+2. `npm run pack:win` で EXE ビルド（コマンドtxt・main.cjs・UI変更はすべて同梱リソース／
+   再ビルドしないと実機に反映されない）。
+3. コミット→push→GitHub Releases（testakahori/My-game-pack）へ Setup.exe・.blockmap・
+   latest.yml の3点アップロード（従来手順）。
+4. 実機確認: F3+F4 ゲームモード切替 / 重力反転でキックされない / ルーレットのテスト発火 /
+   一括起動で keepInventory・暗視が入る / マイクラID未設定時の一括起動警告。
+
 ## 実機での確認手順（ユーザー向け）
 
 1. 既存 v1.0.15 を起動 → 自動更新ダイアログで v1.0.16 を適用（または Release から

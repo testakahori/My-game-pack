@@ -260,6 +260,7 @@ const DashboardPage: React.FC = () => {
   const [bridgeProcess, setBridgeProcess] = useState<BridgeProcessStatus>({});
   const [bridgeLogs, setBridgeLogs] = useState<string[]>([]);
   const [serverLogs, setServerLogs] = useState<string[]>([]);
+  const [consoleCmd, setConsoleCmd] = useState("");
   const [serverProc, setServerProc] = useState<{ running?: boolean; pid?: number | null }>({});
   const [gameRunning, setGameRunning] = useState(false);
   const [launcherPath, setLauncherPath] = useState<string>("");
@@ -400,11 +401,24 @@ const DashboardPage: React.FC = () => {
   const handleServerStart = async () => {
     setForgeState("starting"); addLog("Forgeサーバーを起動中…");
     try {
+      // 暗視は初期設定：どのワールドでも常時付与されるよう、起動前に毎回データパックを配置する
+      try { await api.serverDatapackDeployNightVision(); } catch { /* optional */ }
       const started = await api.serverStart(); setForgeState("running");
       logBackupResult(started?.backup);
       addLog("Forgeサーバーを起動しました。", "ok");
     } catch (e: any) {
       setForgeState("error"); addLog(`サーバー起動エラー: ${e?.message ?? String(e)}`, "error");
+    }
+  };
+
+  const handleSendServerCommand = async () => {
+    const cmd = consoleCmd.trim();
+    if (!cmd) return;
+    try {
+      await api.serverCommand?.(cmd);
+      setConsoleCmd("");
+    } catch (e: any) {
+      addLog(`コマンド送信エラー: ${e?.message ?? String(e)}`, "error");
     }
   };
 
@@ -423,7 +437,7 @@ const DashboardPage: React.FC = () => {
     try {
       await api.bridgeLaunch(); setBridgeState("running");
       addLog("BRIDGEを起動しました。", "ok");
-      try { await api.serverGamerulesApply(); addLog("ゲームルール（常昼・晴れ・keepInventory）を適用しました。", "ok"); }
+      try { await api.serverGamerulesApply(); addLog("ゲームルール（常昼・晴れ・keepInventory・暗視）を適用しました。", "ok"); }
       catch (ge: any) { addLog(`ゲームルール適用をスキップ: ${ge?.message ?? String(ge)}`, "warn"); }
     } catch (e: any) {
       setBridgeState("error"); addLog(`BRIDGE起動エラー: ${e?.message ?? String(e)}`, "error");
@@ -520,6 +534,29 @@ const DashboardPage: React.FC = () => {
 
   const handleAllStart = async () => {
     if (allStartBusy) return;
+
+    // OP権限の事前チェック：マイクラID未設定だと起動後の自動OP付与ができず、
+    // ゲームモード切替（F3+F4）等が「権限がありません」になるため先に警告する。
+    try {
+      const appCfg = await api.appConfigRead?.();
+      const opName = String(appCfg?.minecraftPlayerName || "").trim();
+      if (!opName) {
+        addLog("警告: マイクラIDが未設定のため、OP権限は付与されません。", "warn");
+        const proceed = window.confirm(
+          "OP権限がまだ付与されていません。\n\n"
+          + "マイクラIDが未設定のため、起動後の自動OP付与ができません。\n"
+          + "OPが無いとゲームモード切替（F3+F4）やコマンドが使えません。\n\n"
+          + "ダッシュボードの「マイクラID」欄にプレイヤー名を保存してから\n"
+          + "一括起動することをおすすめします。\n\n"
+          + "このまま一括起動を続行しますか？"
+        );
+        if (!proceed) {
+          addLog("一括起動をキャンセルしました。マイクラIDを保存してから再度お試しください。", "info");
+          return;
+        }
+      }
+    } catch { /* チェック不能でも起動は妨げない */ }
+
     setAllStartBusy(true);
     setApplyMsg(null);
     setWorldMsg(null);
@@ -567,6 +604,8 @@ const DashboardPage: React.FC = () => {
       setForgeState("starting");
       stage = "forge";
       addLog("Forgeサーバーを起動中…", "info");
+      // 暗視は初期設定：ワールド変更の有無にかかわらず毎回データパックを配置する
+      try { await api.serverDatapackDeployNightVision(); } catch { /* optional */ }
       const started = await api.serverStart();
       setForgeState("running");
       logBackupResult(started?.backup);
@@ -593,7 +632,7 @@ const DashboardPage: React.FC = () => {
 
       try {
         await api.serverGamerulesApply();
-        addLog("ゲームルール（常昼・晴れ・keepInventory）を適用しました。", "ok");
+        addLog("ゲームルール（常昼・晴れ・keepInventory・暗視）を適用しました。", "ok");
       } catch (ge: any) {
         addLog(`ゲームルール適用をスキップ: ${ge?.message ?? String(ge)}`, "warn");
       }
@@ -602,11 +641,13 @@ const DashboardPage: React.FC = () => {
       try {
         const appCfg = await api.appConfigRead?.();
         if (appCfg?.minecraftPlayerName) {
-          await api.minecraftGrantOp?.();
-          addLog(`マイクラID「${appCfg.minecraftPlayerName}」にOP権限を付与しました。`, "ok");
+          const granted = await api.minecraftGrantOp?.();
+          addLog(granted?.message || `マイクラID「${appCfg.minecraftPlayerName}」にOP権限を付与しました。`, "ok");
+        } else {
+          addLog("警告: マイクラID未設定のためOP権限を付与できませんでした。ダッシュボードでマイクラIDを保存してください。", "warn");
         }
       } catch (opErr: any) {
-        addLog(`OP権限の自動付与をスキップ: ${opErr?.message ?? String(opErr)}`, "warn");
+        addLog(`警告: OP権限を付与できませんでした（${opErr?.message ?? String(opErr)}）。ゲームモード切替やコマンドが使えない場合は、マイクラIDを保存し直してください。`, "warn");
       }
 
       stage = "done";
@@ -658,14 +699,11 @@ const DashboardPage: React.FC = () => {
     try {
       await api.appConfigWrite({ minecraftPlayerName: name });
       addLog(`マイクラIDを保存しました: ${name}`, "ok");
-      // サーバー稼働中ならその場でOP付与。停止中でも一括起動時に自動付与される。
-      if (serverProc.running) {
-        await api.minecraftGrantOp?.();
-        setMcIdMsg({ type: "ok", text: `${name} にOP権限を付与しました。` });
-        addLog(`${name} にOP権限を付与しました。`, "ok");
-      } else {
-        setMcIdMsg({ type: "ok", text: "保存しました。次回の一括起動時に自動でOP権限を付与します。" });
-      }
+      // サーバー稼働中はMod経由で即付与。停止中でもログイン履歴があれば ops.json へ直接登録される。
+      const granted = await api.minecraftGrantOp?.();
+      const text = granted?.message || `${name} にOP権限を付与しました。`;
+      setMcIdMsg({ type: "ok", text });
+      addLog(text, "ok");
     } catch (e: any) {
       setMcIdMsg({ type: "error", text: `OP付与エラー: ${e?.message ?? String(e)}` });
       addLog(`OP付与エラー: ${e?.message ?? String(e)}`, "error");
@@ -940,6 +978,26 @@ const DashboardPage: React.FC = () => {
               <p className="is-muted">Forgeサーバーのログはここに表示されます（黒い別ウィンドウは開きません）。</p>
             )}
           </div>
+          <form
+            className="flex gap-2 mt-2"
+            onSubmit={(e) => { e.preventDefault(); void handleSendServerCommand(); }}
+          >
+            <input
+              value={consoleCmd}
+              onChange={(e) => setConsoleCmd(e.target.value)}
+              placeholder={serverProc.running ? "サーバーコマンドを入力して Enter（例: op プレイヤー名）" : "サーバー起動後にコマンドを送信できます"}
+              disabled={!serverProc.running}
+              spellCheck={false}
+              className="flex-1 bg-black/40 border border-gray-600/50 rounded-lg px-3 py-1.5 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-cyan-500/60 disabled:opacity-50"
+            />
+            <button
+              type="submit"
+              disabled={!serverProc.running || !consoleCmd.trim()}
+              className="text-xs px-3 py-1.5 rounded-lg border border-cyan-500/40 text-cyan-300 hover:border-cyan-400 transition disabled:opacity-40"
+            >
+              送信
+            </button>
+          </form>
         </section>
       </div>
 

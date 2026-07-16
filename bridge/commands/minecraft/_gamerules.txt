@@ -6,3 +6,5 @@ gamerule doDaylightCycle false
 time set day
 gamerule doWeatherCycle false
 weather clear
+// 暗視を常時付与（ワールドの datapack でも毎tick再付与されるが、即時反映のためここでも付与）
+effect give @a minecraft:night_vision infinite 0 true
