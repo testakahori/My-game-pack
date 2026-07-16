@@ -514,6 +514,14 @@ const BRIDGE_PRESERVE_FILES = new Set([
   "operations-history.json",
   "runtime-status.json",
 ]);
+// バンドルから廃止したファイルの墓標リスト。差分同期はコピーのみで配信先の余剰ファイルを
+// 消さないため、過去に同梱していて削除したものはここへ列挙して同期時に撤去する
+// （名前が完全一致するものだけ消すので、ユーザー自作のコマンドtxtには触れない）。
+const BRIDGE_REMOVED_BUNDLE_FILES = [
+  "commands/minecraft/giant.txt",
+  "commands/minecraft/invisible.txt",
+  "commands/minecraft/tiny.txt",
+];
 const COPY_HASH_LIMIT_BYTES = 1024 * 1024;
 
 let bridgeSyncState = {
@@ -842,6 +850,7 @@ async function copyBridgeDifferential(src, dst, options = {}) {
     preservedFiles: 0,
     skippedDirs: 0,
     skippedHeavyDirs: [],
+    removedFiles: 0,
   };
 
   async function walk(srcDir, dstDir, relDir = "") {
@@ -886,6 +895,19 @@ async function copyBridgeDifferential(src, dst, options = {}) {
   }
 
   await walk(src, dst);
+
+  // 廃止済みバンドルファイルの掃除。万一同名がバンドルに復活していたら消さない。
+  for (const rel of BRIDGE_REMOVED_BUNDLE_FILES) {
+    if (await pathExists(path.join(src, rel))) continue;
+    const target = path.join(dst, rel);
+    if (!(await pathExists(target))) continue;
+    try {
+      await fs.promises.unlink(target);
+      stats.removedFiles++;
+      console.log(`[main] removed obsolete bundled file: ${rel}`);
+    } catch { /* 消せなくても同期は続行 */ }
+  }
+
   return { stats, signature: srcSig };
 }
 
@@ -1458,6 +1480,8 @@ ipcMain.handle("mod:status", async () => {
 // ここで横取りして抽選しないと roulette.txt のプレースホルダー
 // （「ルーレットが無効です」の表示）がそのまま実行されてしまう。Bridge 側と同じ
 // 重み付き抽選＋回転演出を簡易再現し、当選コマンドを発火する。
+// ※ bridge/index.js の runRoulette / fireRouletteWinner と対の複製実装。
+//    演出・抽選・count の仕様を変えるときは必ず両方を修正すること。
 function mcJsonStringEscapeMain(s, maxLen = 40) {
   let v = String(s ?? "");
   v = v.replace(/[\r\n\t]/g, " ").replace(/[\u0000-\u001F\u007F]/g, "");
@@ -1628,13 +1652,32 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
 // Mod HTTP (25576) が応答するまで待つ。Forge起動直後はワールド読み込み中でまだ
 // 待ち受けが開いておらず、即送信すると ECONNREFUSED になる（一括起動時の
 // OP自動付与とゲームルール適用が毎回「スキップ」されていた真因）。
+// 同一サーバープロセスで一度タイムアウトしたら記録し、以降の呼び出しは1回の確認だけで
+// 即諦める（一括起動で gamerules→OP付与 と連続150秒ずつ待って計5分固まる事故の防止）。
+let doumaWaitTimedOutFor = null;
 async function waitForDoumaMod(timeoutMs = 150000, intervalMs = 3000) {
+  const quickCheck = async () => {
+    try { await requestDouma("GET", "/douma/status"); return true; }
+    catch { return false; }
+  };
+  if (await quickCheck()) { doumaWaitTimedOutFor = null; return true; }
+  if (serverProcRef && doumaWaitTimedOutFor === serverProcRef) return false;
+  appendServerLog("[SERVER] Mod（DoumaCmdMod）のHTTP応答を待っています。ワールド読み込み完了（Done表示）までお待ちください…");
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    try { await requestDouma("GET", "/douma/status"); return true; }
-    catch { /* まだ起動中 */ }
-    if (Date.now() >= deadline || !serverProcRef) return false;
+    if (Date.now() >= deadline || !serverProcRef) {
+      if (serverProcRef) {
+        doumaWaitTimedOutFor = serverProcRef;
+        appendServerLog("[SERVER] Modの応答待ちがタイムアウトしました（HTTP:25576）。mods/ の doumacmd jar 配置とサーバーログを確認してください。");
+      }
+      return false;
+    }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    if (await quickCheck()) {
+      doumaWaitTimedOutFor = null;
+      appendServerLog("[SERVER] Mod（HTTP:25576）と接続できました。");
+      return true;
+    }
   }
 }
 

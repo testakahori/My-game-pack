@@ -1177,6 +1177,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // --------------------
   // 演出フレームは Mod v1.2.0 の /douma/exec に setTimeout 刻みで送り、
   // 当選コマンドは通常のイベントとして発火する。
+  // ※ テスト発火（Bridge非経由）用に electron/main.cjs の fireDoumaEventMaybeRoulette に
+  //    対の複製実装がある。演出・抽選・count の仕様を変えるときは必ず両方を修正すること。
   let rouletteBusy = false;
 
   // ルーレット表示用：コマンドtxt先頭の // コメント行を「簡単な意味の説明」として読む（キャッシュ付き）
