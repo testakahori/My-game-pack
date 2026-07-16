@@ -457,14 +457,27 @@ push 済みでもある。
 - node --check（bridge/index.js・electron/main.cjs・preload.cjs）OK / bridge 回帰テスト 11/11 PASS
   （txt健全性チェック含む）/ tsc --noEmit OK。
 
-### 【次セッションのタスク】v1.0.19 ビルド＆リリース（ユーザー実施予定 2026-07-16）
-1. package.json を 1.0.18 → 1.0.19 に bump。
-2. `npm run pack:win` で EXE ビルド（コマンドtxt・main.cjs・UI変更はすべて同梱リソース／
-   再ビルドしないと実機に反映されない）。
-3. コミット→push→GitHub Releases（testakahori/My-game-pack）へ Setup.exe・.blockmap・
-   latest.yml の3点アップロード（従来手順）。
-4. 実機確認: F3+F4 ゲームモード切替 / 重力反転でキックされない / ルーレットのテスト発火 /
-   一括起動で keepInventory・暗視が入る / マイクラID未設定時の一括起動警告。
+### v1.0.19 ビルド完了（2026-07-16）
+- package.json を 1.0.18 → 1.0.19 に bump 済み。
+- `npm run pack:win` 実行済み（vite build → prepare-bridge-runtime → electron-builder --win --x64）。
+  - bridge バンドル 2.2 MiB / node.exe 87.2 MiB を同梱、Electron 31.7.7。
+- 生成物（`bridge_ui/ui/release/`）:
+  - `MyGamePack-Bridge-UI-Setup-1.0.19.exe`（289,238,545 バイト）
+  - `MyGamePack-Bridge-UI-Setup-1.0.19.exe.blockmap`
+  - `latest.yml`（version 1.0.19、sha512 検証済み・実EXEと一致）
+  - ※ electron-builder はスペース区切りで出力するため、latest.yml が参照する
+    ダッシュ区切り名へ .exe / .blockmap をリネーム済み（自動更新404の防止）。
+- コード修正（レビュー Issue 1〜5 全対応）: OP付与 HTTP開通待ち＋オフライン ops.json 直登録、
+  ルーレットのテスト発火横取り（count=winner.repeat で本番と統一）、skytrap の相対TP化、
+  廃止txt墓標リストによる既存環境の自動掃除、Mod待機のログ表示＋二重150秒待ち防止。
+
+### 【次セッションのタスク】v1.0.19 リリース＆実機確認
+1. GitHub Releases（testakahori/My-game-pack）へ3点アップロード:
+   `MyGamePack-Bridge-UI-Setup-1.0.19.exe` / `.blockmap` / `latest.yml`（従来手順）。
+2. 実機確認: F3+F4 ゲームモード切替 / 重力反転でキックされない / ルーレットのテスト発火 /
+   一括起動で keepInventory・暗視が入る / マイクラID未設定時の一括起動警告 /
+   （新規）廃止コマンド giant・invisible・tiny がコマンド一覧から消えていること /
+   （新規）一括起動時に Mod 待機ログが表示されること。
 
 ## 実機での確認手順（ユーザー向け）
 
