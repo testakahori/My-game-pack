@@ -1,7 +1,7 @@
 {
   "name": "tiktok-bridge-ui",
   "private": true,
-  "version": "1.0.20",
+  "version": "1.0.21",
   "description": "MyGamePack 用の設定編集UI（TikTok Bridge統合UI）",
   "author": "Douma Akahori",
   "type": "module",
@@ -108,7 +108,7 @@
       "shortcutName": "MyGamePack Bridge UI",
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico",
-      "artifactName": "${productName} Setup ${version}.${ext}",
+      "artifactName": "MyGamePack-Bridge-UI-Setup-${version}.${ext}",
       "unicode": true
     }
   }
