@@ -444,6 +444,16 @@ function isValidLoginEmail(email) {
   return v.length >= 5 && v.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
 }
 
+// 運営ログイン済みかどうか（auth:status と同じ判定）。UI 全体は LoginPage でゲートされて
+// いるが、コンソール送信のような強い操作は main 側でも二重に確認する（多層防御）。
+function isOperatorAuthed() {
+  try {
+    const cfg = readAppConfig();
+    const email = String(cfg.authEmail || "").trim();
+    return !!email && cfg.authToken === operatorLoginToken(email);
+  } catch { return false; }
+}
+
 /**
  * The NSIS installer writes this one-shot marker after every successful install.
  * Consuming it here makes an installed build always open behind the setup gate,
@@ -1143,8 +1153,9 @@ ipcMain.handle("server:start", async () => {
     const propsPath = path.join(dir, "server.properties");
     if (fs.existsSync(propsPath)) {
       const props = fs.readFileSync(propsPath, "utf8");
-      if (/^allow-flight=false\s*$/m.test(props)) {
-        fs.writeFileSync(propsPath, props.replace(/^allow-flight=false\s*$/m, "allow-flight=true"), "utf8");
+      // (\r?) を捕捉して戻すことで CRLF ファイルの行末を LF に変えてしまわないようにする
+      if (/^allow-flight=false[ \t]*\r?$/m.test(props)) {
+        fs.writeFileSync(propsPath, props.replace(/^allow-flight=false[ \t]*(\r?)$/m, "allow-flight=true$1"), "utf8");
         appendServerLog("[SERVER] allow-flight=true を適用しました（浮遊コマンドのキック対策）");
       }
     }
@@ -1210,6 +1221,7 @@ ipcMain.handle("server:logs", () => ({ ok: true, lines: [...serverLogBuffer] }))
 // Forgeサーバーのコンソールへコマンドを1行送る（op 付与やデバッグの脱出ハッチ）。
 // 先頭の "/" は付けても付けなくてもよい（コンソールでは不要なので取り除く）。
 ipcMain.handle("server:command", async (_event, command) => {
+  if (!isOperatorAuthed()) throw new Error("運営ログインが必要です。ログインし直してからコンソールコマンドを送信してください。");
   const cmd = String(command || "").trim().replace(/^\//, "");
   if (!cmd) throw new Error("コマンドが空です");
   if (/[\r\n]/.test(cmd)) throw new Error("コマンドは1行で入力してください");
@@ -1488,11 +1500,13 @@ function mcJsonStringEscapeMain(s, maxLen = 40) {
   if (v.length > maxLen) v = v.slice(0, maxLen);
   return JSON.stringify(v).slice(1, -1);
 }
+function commandTxtPathMain(commandFile) {
+  const file = path.basename(String(commandFile || "").trim());
+  return path.join(getBridgeBatDir(), "commands", "minecraft", file.toLowerCase().endsWith(".txt") ? file : `${file}.txt`);
+}
 function readCommandDescriptionMain(commandFile) {
   try {
-    const file = path.basename(String(commandFile || "").trim());
-    const p = path.join(getBridgeBatDir(), "commands", "minecraft", file.toLowerCase().endsWith(".txt") ? file : `${file}.txt`);
-    const m = fs.readFileSync(p, "utf8").match(/^\/\/\s*(.+)$/m);
+    const m = fs.readFileSync(commandTxtPathMain(commandFile), "utf8").match(/^\/\/\s*(.+)$/m);
     return m ? m[1].trim() : "";
   } catch { return ""; }
 }
@@ -1510,7 +1524,14 @@ async function fireDoumaEventMaybeRoulette(payload, bridgeCfg) {
       label: String(i.label || i.commandFile).replace(/\.txt$/i, "").slice(0, 24),
       weight: Math.max(1, Number(i.weight || 1)),
       repeat: Math.max(1, Math.min(100, Number(i.repeat || 1))),
-    }));
+    }))
+    // 廃止・削除済みコマンド（旧バンドルの giant/invisible/tiny 等）が設定に残っていても
+    // 「当選したのに何も起きない」事故にならないよう、txt が実在する項目だけ抽選する
+    .filter((i) => {
+      if (fs.existsSync(commandTxtPathMain(i.commandFile))) return true;
+      console.warn(`[testEvent] 存在しないコマンドをルーレットから除外: ${i.commandFile}`);
+      return false;
+    });
   if (rl?.enabled !== true || items.length === 0) {
     throw new Error("ルーレットが無効か、項目が未設定です。イベント設定②のルーレットを有効にして項目を追加し、保存してください。");
   }
@@ -1604,15 +1625,17 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
       };
       let result;
       let firedKey = payload.key;
+      let firedCount = count;
       try {
         const outcome = await fireDoumaEventMaybeRoulette(payload, bridgeCfg);
         firedKey = outcome.key;
+        firedCount = Number(outcome.count) || count; // ルーレット当選時は winner.repeat を記録
         result = { ok: true }; anyOk = true;
       }
       catch (e) { result = { ok: false, message: e.message }; }
       appendOperationsHistory({ at: new Date().toISOString(), type: "like", sender: listenerName,
-        commandFile: `${firedKey}.txt`, count, ...result });
-      fired.push({ commandFile: `${firedKey}.txt`, threshold, count, ok: result.ok });
+        commandFile: `${firedKey}.txt`, count: firedCount, ...result });
+      fired.push({ commandFile: `${firedKey}.txt`, threshold, count: firedCount, ok: result.ok });
     }
     if (fired.length === 0) {
       const minThreshold = Math.min(...rules.map((r) => Number(r.threshold)));
@@ -1632,16 +1655,18 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
   };
   let result;
   let firedKey = payload.key;
+  let firedCount = payload.count;
   try {
     const outcome = await fireDoumaEventMaybeRoulette(payload, bridgeCfg);
     firedKey = outcome.key;
+    firedCount = Number(outcome.count) || payload.count; // ルーレット当選時は winner.repeat を記録
     result = outcome.roulette
       ? { ok: true, message: `ルーレット抽選 → ${outcome.label}（${outcome.key}.txt）を発火しました` }
       : { ok: true };
   }
   catch (e) { result = { ok: false, message: e.message }; }
   appendOperationsHistory({ at: new Date().toISOString(), type: payload.type, sender: payload.listenerName,
-    commandFile: `${firedKey}.txt`, count: payload.count, ...result });
+    commandFile: `${firedKey}.txt`, count: firedCount, ...result });
   return result;
 });
 
@@ -2116,15 +2141,31 @@ ipcMain.handle("server:datapack:deployNightVision", async () => {
 
   fs.writeFileSync(
     path.join(dpRoot, "pack.mcmeta"),
-    JSON.stringify({ pack: { pack_format: 15, description: "Persistent night vision for all players" } }, null, 2)
+    JSON.stringify({ pack: { pack_format: 15, description: "Persistent night vision + event timers" } }, null, 2)
   );
   fs.writeFileSync(
     path.join(dpRoot, "data", "minecraft", "tags", "functions", "tick.json"),
     JSON.stringify({ values: ["nv_pack:tick"] })
   );
   fs.writeFileSync(
+    path.join(dpRoot, "data", "minecraft", "tags", "functions", "load.json"),
+    JSON.stringify({ values: ["nv_pack:load"] })
+  );
+  fs.writeFileSync(
+    path.join(dpRoot, "data", "nv_pack", "functions", "load.mcfunction"),
+    "scoreboard objectives add douma_storm dummy\n"
+  );
+  // douma_storm タイマー: storm.txt が #storm に tick 数をセットすると、ここで毎tick減算し
+  // 0 になった瞬間に weather clear を実行する。doWeatherCycle=false のワールドでは
+  // /weather の duration が進まず雷雨が永続するため、datapack 側で解除する。
+  fs.writeFileSync(
     path.join(dpRoot, "data", "nv_pack", "functions", "tick.mcfunction"),
-    "execute as @a at @s if entity @s[gamemode=!spectator] run effect give @s minecraft:night_vision 60 0 true\n"
+    [
+      "execute as @a at @s if entity @s[gamemode=!spectator] run effect give @s minecraft:night_vision 60 0 true",
+      "execute if score #storm douma_storm matches 1.. run scoreboard players remove #storm douma_storm 1",
+      "execute if score #storm douma_storm matches 0 run weather clear",
+      "execute if score #storm douma_storm matches 0 run scoreboard players set #storm douma_storm -1",
+    ].join("\n") + "\n"
   );
 
   return { ok: true, world: levelName };

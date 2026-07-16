@@ -1181,18 +1181,26 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   //    対の複製実装がある。演出・抽選・count の仕様を変えるときは必ず両方を修正すること。
   let rouletteBusy = false;
 
-  // ルーレット表示用：コマンドtxt先頭の // コメント行を「簡単な意味の説明」として読む（キャッシュ付き）
+  // ルーレット表示用：コマンドtxt先頭の // コメント行を「簡単な意味の説明」として読む。
+  // mtime 付きキャッシュ：txt の説明を書き換えたとき Bridge 再起動なしで反映される
+  // （テスト発火側 main.cjs は毎回読むため、無期限キャッシュだと両者の表示がズレる）。
   const rouletteDescCache = new Map();
+  function rouletteCommandTxtPath(commandFile) {
+    return path.join(commandsDirAbs, "minecraft", path.basename(ensureTxt(commandFile)));
+  }
   function rouletteItemDesc(commandFile) {
     const file = path.basename(ensureTxt(commandFile));
-    if (rouletteDescCache.has(file)) return rouletteDescCache.get(file);
+    const p = rouletteCommandTxtPath(commandFile);
+    let mtime = 0;
+    try { mtime = fs.statSync(p).mtimeMs; } catch { /* 無ければ mtime=0 のまま */ }
+    const cached = rouletteDescCache.get(file);
+    if (cached && cached.mtime === mtime) return cached.desc;
     let desc = "";
     try {
-      const raw = fs.readFileSync(path.join(commandsDirAbs, "minecraft", file), "utf8");
-      const m = raw.match(/^\/\/\s*(.+)$/m);
+      const m = fs.readFileSync(p, "utf8").match(/^\/\/\s*(.+)$/m);
       if (m) desc = m[1].trim();
     } catch { /* 説明が読めなくても表示は続行 */ }
-    rouletteDescCache.set(file, desc);
+    rouletteDescCache.set(file, { mtime, desc });
     return desc;
   }
 
@@ -1204,7 +1212,14 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         label: String(item.label || item.commandFile).replace(/\.txt$/i, "").slice(0, 24),
         weight: Math.max(1, Number(item.weight || 1)),
         repeat: clampInt(item.repeat ?? 1, 1, 100, 1),
-      }));
+      }))
+      // 廃止・削除済みコマンド（旧バンドルの giant/invisible/tiny 等）が設定に残っていても
+      // 「当選したのに何も起きない」事故にならないよう、txt が実在する項目だけ抽選する
+      .filter((item) => {
+        if (fs.existsSync(rouletteCommandTxtPath(item.commandFile))) return true;
+        console.warn(`[Roulette] 存在しないコマンドを除外: ${item.commandFile}`);
+        return false;
+      });
   }
 
   function fireRouletteWinner(winner, triggerName, historyType) {

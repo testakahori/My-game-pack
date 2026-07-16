@@ -36,6 +36,9 @@ execute at @p run fill ~4 ~-9 ~4 ~9 ~-1 ~6 minecraft:air
 execute at @p run fill ~-9 ~-7 ~-6 ~-4 ~-1 ~-4 minecraft:air
 execute at @p run fill ~4 ~-10 ~-6 ~7 ~-1 ~-4 minecraft:air
 execute at @p run fill ~-7 ~-5 ~4 ~-4 ~-1 ~7 minecraft:air
+// 奈落防止：プレイヤーが深部（y≒-46以下）にいると亀裂が最下層の岩盤を貫くことがあるため、
+// 掘削範囲の底（y=-64）に開いた穴だけ岩盤で塞ぎ直す（replace air なので既存地形は触らない）
+execute at @p if dimension minecraft:overworld run fill ~-22 -64 ~-22 ~22 -64 ~22 minecraft:bedrock replace minecraft:air
 // 土煙と破片が吹き上がる
 execute at @p run particle minecraft:campfire_cosy_smoke ~ ~ ~ 8 2 8 0.06 300 force
 execute at @p run particle minecraft:block minecraft:dirt ~ ~1 ~ 10 3 10 0.4 400 force

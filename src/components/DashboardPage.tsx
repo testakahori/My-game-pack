@@ -267,7 +267,7 @@ const DashboardPage: React.FC = () => {
   const [allStopBusy, setAllStopBusy] = useState(false);
   const [mcId, setMcId] = useState("");
   const [mcIdBusy, setMcIdBusy] = useState(false);
-  const [mcIdMsg, setMcIdMsg] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+  const [mcIdMsg, setMcIdMsg] = useState<{ type: "ok" | "error" | "info"; text: string } | null>(null);
   const [safety, setSafety] = useState<{ protection: boolean; autoBackup: boolean }>({ protection: false, autoBackup: true });
   const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -700,6 +700,8 @@ const DashboardPage: React.FC = () => {
       await api.appConfigWrite({ minecraftPlayerName: name });
       addLog(`マイクラIDを保存しました: ${name}`, "ok");
       // サーバー稼働中はMod経由で即付与。停止中でもログイン履歴があれば ops.json へ直接登録される。
+      // サーバー起動直後はMod HTTP開通待ちで最大2〜3分かかるため、先に進捗を表示しておく。
+      setMcIdMsg({ type: "info", text: "OP権限を付与しています…（サーバー起動直後は最大2〜3分かかることがあります）" });
       const granted = await api.minecraftGrantOp?.();
       const text = granted?.message || `${name} にOP権限を付与しました。`;
       setMcIdMsg({ type: "ok", text });
@@ -894,7 +896,7 @@ const DashboardPage: React.FC = () => {
             </button>
           </div>
           {mcIdMsg && (
-            <small style={{ display: "block", marginTop: 6, color: mcIdMsg.type === "ok" ? "#9acd32" : "#ff6578" }}>
+            <small style={{ display: "block", marginTop: 6, color: mcIdMsg.type === "ok" ? "#9acd32" : mcIdMsg.type === "info" ? "#7dd3fc" : "#ff6578" }}>
               {mcIdMsg.text}
             </small>
           )}

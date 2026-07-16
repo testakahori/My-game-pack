@@ -5,6 +5,11 @@
 # PARTICLE: minecraft:cloud
 // 超大型の嵐が直撃！雷が20発ばんばん落ちて、突風で体が吹き上げられる
 weather thunder 300
+// doWeatherCycle=false のワールドでは /weather の300秒タイマーが進まず雷雨が永続するため、
+// 常設datapack（NightVision_Pack の tick）が #storm を毎tick減算し 0 で weather clear する。
+// datapack 未配備でも失敗するだけで嵐自体は従来どおり動く（その場合は手動 weather clear）。
+scoreboard objectives add douma_storm dummy
+scoreboard players set #storm douma_storm 6000
 // 突風：全員が吹き上げられてから低速落下で着地（落下ダメージなし）
 effect give @a minecraft:levitation 2 12 true
 effect give @a minecraft:slow_falling 15 0 true

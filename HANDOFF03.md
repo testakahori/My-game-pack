@@ -436,6 +436,42 @@ push 済みでもある。
 - 教訓: Bridge の dispatchDoumaEvent に横取りロジックを足すときは main.cjs のテスト発火にも
   同じ振る舞いが必要か必ず確認すること。
 
+## 【2026-07-16 完了】v1.0.20 — コードレビュー全指摘（10件）の解消
+
+v1.0.19 リリース後に実施したフルレビュー（詳細は `review.md`）の指摘 M1〜M4・L1〜L6 を
+全件修正してリリース。Critical なし。検証: node --check / tsc --noEmit / vite build すべて PASS。
+
+### Medium（配信事故の芽）
+- **M1 廃止コマンド参照の除外**: 旧バンドルの giant/invisible/tiny がユーザー設定
+  （ルーレット項目等）に残っていると「当選したのに何も起きない」事故になるため、
+  txt が実在する項目だけ抽選するフィルタ＋警告ログを追加。
+  ※複製実装ルールに従い bridge/index.js `normalizeRouletteItems` と
+  main.cjs `fireDoumaEventMaybeRoulette` の**両方**に適用（commandTxtPathMain 新設）。
+- **M2 zombiewave の埋まり対策**: 距離10以上のハスク/ドラウンド/村人ゾンビを Y+1、
+  最遠のゾグリンを Y+2 で召喚（斜面での地中埋まり＝「MOB不出現」の再来防止）。
+- **M3 skytrap のネザー対策**: ネザーでは heightmap が天井岩盤を返し岩盤屋根の上に
+  置き去りになるため、tp と slow_falling を `if dimension minecraft:overworld` でガード。
+- **M4 storm の雷雨永続対策**: doWeatherCycle=false のため `weather thunder 300` の
+  タイマーが進まず嵐が永続していた。常設 datapack（NightVision_Pack）に douma_storm
+  スコアボードタイマーを実装し、storm.txt が #storm に 6000tick をセット→datapack が
+  毎tick減算→0 で weather clear を1回実行。datapack 未配備でも嵐自体は従来どおり動く。
+  ※NightVision_Pack は「暗視＋イベントタイマー」の常設パックに役割拡大（load.json 追加）。
+
+### Low
+- **L1**: ルーレット当選時の操作履歴に実発火回数（winner.repeat）を記録。
+- **L2**: ルーレット説明文キャッシュを mtime 付きに（txt 編集が Bridge 再起動なしで反映）。
+- **L3**: allow-flight 書換で CRLF 行末を保持。
+- **L4**: server:command（コンソール送信 IPC）に運営ログイン済みチェックを追加（多層防御）。
+- **L5**: マイクラID保存時に「OP付与中…最大2〜3分」の info メッセージを表示。
+- **L6**: fissure が深部で岩盤を貫いた場合に備え、y=-64 の掘削穴だけ bedrock で塞ぎ直す行を追加。
+
+### 実機確認チェックリスト（v1.0.20）
+- [ ] 廃止コマンド入りの古いルーレット設定でも、残った項目だけで正常に回る
+- [ ] storm 発火の約5分後に自動で晴れる（要: サーバー起動時の datapack 配備）
+- [ ] ネザーで skytrap を発火してもテレポートしない（音と演出のみ）
+- [ ] zombiewave が斜面・段丘でも50体全部出現する
+- [ ] コンソール欄からのコマンド送信が通常どおり動く（ログイン済みなら影響なし）
+
 ### ルーレット表示の改修（通常・デス共通、bridge/index.js runRoulette）
 - 回転中・確定時とも「タイトル＝コマンド名（yellow・bold・英字は大文字化）／サブタイトル＝
   コマンドの簡単な説明（green）」。説明文は各txt先頭の `//` コメントを自動使用（キャッシュ付き）。
