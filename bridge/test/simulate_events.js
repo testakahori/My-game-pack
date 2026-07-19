@@ -143,6 +143,24 @@ async function main() {
       ["boss.txt", "like_boss.txt", "follow_boss.txt", "zombie.txt"]);
   });
 
+  await ok("FeatureEngine: 時間窓を越えた独立コンボは同じレベルを再発火", () => {
+    const emitted = [];
+    const engine = new FeatureEngine({
+      combo: { windowMs: 10000, levels: [{ count: 3, commandFile: "boss.txt" }] },
+    }, event => emitted.push(event));
+    const originalNow = Date.now;
+    let now = 1_000_000;
+    try {
+      Date.now = () => now;
+      engine.recordGift({ giftId: "1", sender: "alice", commandFile: "zombie.txt", count: 3 });
+      now += 10_001;
+      engine.recordGift({ giftId: "1", sender: "alice", commandFile: "zombie.txt", count: 3 });
+    } finally {
+      Date.now = originalNow;
+    }
+    assert.deepStrictEqual(emitted.map(x => x.commandFile), ["boss.txt", "boss.txt"]);
+  });
+
   await ok("config schema: 誤設定を具体的に検出", () => {
     const bad = validateBridgeConfig({ tiktokUsername: "", mappings: [{ giftId: "", commandFile: "" }],
       options: { doumaModPort: 99999 } });
