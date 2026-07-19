@@ -52,12 +52,15 @@ class FeatureEngine {
     const now = Date.now();
     const previous = this.giftBursts.get(giftId);
     const burst = previous && now - previous.at <= Number(combo.windowMs || 10000)
-      ? { at: now, count: previous.count + amount } : { at: now, count: amount };
+      ? { at: now, count: previous.count + amount, milestones: previous.milestones || new Set() }
+      : { at: now, count: amount, milestones: new Set() };
     this.giftBursts.set(giftId, burst);
     for (const level of (combo.levels || [])) {
-      const marker = `${giftId}:${level.count}:${Math.floor(burst.count / level.count)}`;
-      if (burst.count >= level.count && !this.likeMilestones.has(marker)) {
-        this.likeMilestones.add(marker);
+      // 到達済み状態はバースト単位で持つ。グローバルな likeMilestones に保存すると、
+      // windowMs を越えた次の独立コンボまで同じマーカーに阻まれてしまう。
+      const marker = `${level.count}:${Math.floor(burst.count / level.count)}`;
+      if (burst.count >= level.count && !burst.milestones.has(marker)) {
+        burst.milestones.add(marker);
         this.emit({ type: "combo", commandFile: level.commandFile || commandFile,
           count: Number(level.repeat || 1), sender, label: `${burst.count}連コンボ` });
       }
