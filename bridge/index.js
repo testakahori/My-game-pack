@@ -36,6 +36,15 @@ let doumaWebSocketStopping = false;
 // Mod からのプッシュ通知（death など）を main() 側で購読するためのフック
 let onDoumaWsMessage = null;
 
+function updateRuntimeStatus(patch) {
+  const statusPath = path.join(__dirname, "runtime-status.json");
+  let current = {};
+  try { current = JSON.parse(fs.readFileSync(statusPath, "utf8")); } catch {}
+  try {
+    fs.writeFileSync(statusPath, JSON.stringify({ ...current, ...patch }, null, 2), "utf8");
+  } catch {}
+}
+
 function connectDoumaWebSocket({ host, port }) {
   if (typeof WebSocket !== "function") return;
   const wsUrl = `ws://${host}:${Number(port) + 1}`;
@@ -51,8 +60,7 @@ function connectDoumaWebSocket({ host, port }) {
           return;
         }
         if (status.type !== "ack") {
-          fs.writeFileSync(path.join(__dirname, "runtime-status.json"),
-            JSON.stringify({ at: new Date().toISOString(), ...status }, null, 2), "utf8");
+          updateRuntimeStatus({ at: new Date().toISOString(), ...status });
         }
       } catch {}
     });
@@ -203,10 +211,33 @@ function warnTtsEngineDown(engine, detail) {
   console.warn(`[TTS] 読み上げエンジン(${engine})に接続できません（${detail}）。読み上げ設定ページからエンジンを起動してください。エンジンが起動するまでコメント・ギフトは読み上げられません。`);
 }
 
+function playWavOnDefaultDevice(wavPath) {
+  return new Promise((resolve, reject) => {
+    const escapedPath = wavPath.replace(/'/g, "''");
+    execFile(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command",
+        `$player = New-Object System.Media.SoundPlayer '${escapedPath}'; $player.Load(); $player.PlaySync()`],
+      { windowsHide: true, timeout: 120000 },
+      (error, _stdout, stderr) => {
+        if (error) {
+          const detail = String(stderr || error.message || error).trim();
+          reject(new Error(detail || "Windows audio playback failed"));
+          return;
+        }
+        resolve();
+      }
+    );
+  });
+}
+
 async function speakText(text, cfg) {
+  let tmpWav = null;
   try {
     const port = TTS_PORTS[cfg.engine] || TTS_PORTS.voicevox;
     const speakerId = cfg.speakerId ?? 2;
+
+    console.log(`[TTS] 音声合成を開始 engine=${cfg.engine} speaker=${speakerId} chars=${text.length}`);
 
     const queryRes = await ttsHttpPost(
       port,
@@ -230,19 +261,24 @@ async function speakText(text, cfg) {
       JSON.stringify(query),
       15000
     );
-    if (synthRes.status !== 200) return;
+    if (synthRes.status !== 200) {
+      warnTtsEngineDown(cfg.engine, `synthesis HTTP ${synthRes.status}`);
+      return;
+    }
 
-    const tmpWav = path.join(os.tmpdir(), `bridge_tts_${Date.now()}.wav`);
+    tmpWav = path.join(os.tmpdir(), `bridge_tts_${process.pid}_${Date.now()}.wav`);
     fs.writeFileSync(tmpWav, synthRes.body);
-
-    execFile(
-      "powershell",
-      ["-NoProfile", "-NonInteractive", "-c",
-        `(New-Object Media.SoundPlayer '${tmpWav.replace(/'/g, "''")}').PlaySync()`],
-      () => { try { fs.unlinkSync(tmpWav); } catch {} }
-    );
+    console.log(`[TTS] 再生を開始 bytes=${synthRes.body.length}`);
+    // 再生完了を待つことで、コメントが連続しても音声同士を重ねない。
+    await playWavOnDefaultDevice(tmpWav);
+    console.log("[TTS] 再生を完了しました");
   } catch (e) {
+    console.error(`[TTS] 読み上げに失敗しました: ${e?.message || e}`);
     warnTtsEngineDown(cfg.engine, e?.message || e);
+  } finally {
+    if (tmpWav) {
+      try { fs.unlinkSync(tmpWav); } catch {}
+    }
   }
 }
 
@@ -1326,13 +1362,22 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   });
 
   async function connectTikTokWithRetry() {
+    updateRuntimeStatus({
+      tiktok: { state: "connecting", username: tiktokUsername, at: new Date().toISOString() },
+    });
     while (true) {
       try {
         const state = await tiktok.connect();
         console.log(`[TikTok] Connected. roomId=${state.roomId}`);
+        updateRuntimeStatus({
+          tiktok: { state: "connected", username: tiktokUsername, roomId: String(state.roomId || ""), at: new Date().toISOString() },
+        });
         return;
       } catch (e) {
         console.error("[TikTok] Connect failed:", e?.message || e);
+        updateRuntimeStatus({
+          tiktok: { state: "retrying", username: tiktokUsername, error: String(e?.message || e), at: new Date().toISOString() },
+        });
         console.log("[TikTok] Retry in 5 seconds...");
         await sleep(5000);
       }
@@ -1623,6 +1668,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const ttsCfg = loadTtsConfig();
     if (!ttsCfg.enabled || !ttsCfg.commentEnabled) return;
     const readText = sender ? `${sender}、${text}` : text;
+    console.log(`[TTS] コメントをキューへ追加 from=${sender || "viewer"} chars=${text.length}`);
     enqueueSpeech(readText, ttsCfg, ttsNgWords);
   });
 

@@ -1365,7 +1365,11 @@ ipcMain.handle("bridge:restart", async () => {
 });
 ipcMain.handle("bridge:processStatus", () => {
   const status = bridgeRestartPolicy.status(bridgePid);
-  return { ...status, ...getProcessMetrics(bridgePid) };
+  let runtime = {};
+  try {
+    runtime = JSON.parse(fs.readFileSync(path.join(getBridgeBatDir(), "runtime-status.json"), "utf8"));
+  } catch {}
+  return { ...status, ...getProcessMetrics(bridgePid), tiktok: runtime.tiktok || null };
 });
 
 ipcMain.handle("bridge:logs", () => ({ ok: true, lines: [...bridgeLogBuffer] }));
@@ -2701,14 +2705,22 @@ function getTtsSettingsPath() {
   return path.join(app.getPath("userData"), "tts-settings.json");
 }
 
-function readTtsSettings() {
-  const p = getTtsSettingsPath();
-  if (!fs.existsSync(p)) return { ...TTS_DEFAULTS };
+function readTtsSettingsFile(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return null;
   try {
-    return { ...TTS_DEFAULTS, ...JSON.parse(fs.readFileSync(p, "utf-8")) };
+    return { ...TTS_DEFAULTS, ...JSON.parse(fs.readFileSync(filePath, "utf-8")) };
   } catch {
-    return { ...TTS_DEFAULTS };
+    return null;
   }
+}
+
+function readTtsSettings() {
+  // ライブコメントを処理する bridge/index.js は bridge/tts-settings.json を読む。
+  // ここで userData 側を先に読むと、UIが起動するエンジンとBridgeが使用する
+  // エンジンが食い違い、正常に保存済みでも無音になるためBridge側を正とする。
+  const bridgeSettings = readTtsSettingsFile(path.join(getBridgeBatDir(), "tts-settings.json"));
+  if (bridgeSettings) return bridgeSettings;
+  return readTtsSettingsFile(getTtsSettingsPath()) || { ...TTS_DEFAULTS };
 }
 
 function writeTtsSettings(settings) {

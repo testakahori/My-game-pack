@@ -20,6 +20,13 @@ type BridgeProcessStatus = {
   cpuPercent?: number | null;
   memMb?: number | null;
   restartCount?: number;
+  tiktok?: {
+    state?: "connecting" | "connected" | "retrying";
+    username?: string;
+    roomId?: string;
+    error?: string;
+    at?: string;
+  } | null;
 };
 
 const LS_TIKTOK_USER = "mc_tiktok_username_unified_v1";
@@ -565,7 +572,7 @@ const DashboardPage: React.FC = () => {
 
     // 読み上げ（TTS）が有効ならエンジンを裏で自動起動する。
     // エンジン未起動だと読み上げが無言のまま失敗し続けるため（今回の読み上げ不発の真因）。
-    void (async () => {
+    const ttsReadyPromise = (async () => {
       try {
         const tts = await api.ttsSettingsRead?.();
         if (!tts?.enabled) return;
@@ -576,7 +583,9 @@ const DashboardPage: React.FC = () => {
         } else {
           addLog(`読み上げエンジンを起動できませんでした: ${launched?.message || "不明"}（読み上げ設定ページから手動起動してください）`, "warn");
         }
-      } catch { /* 読み上げは配信継続に必須ではない */ }
+      } catch (ttsError: any) {
+        addLog(`読み上げエンジンの準備に失敗しました: ${ttsError?.message ?? String(ttsError)}`, "warn");
+      }
     })();
 
     try {
@@ -623,6 +632,8 @@ const DashboardPage: React.FC = () => {
 
       addLog("TikTok LIVE Studio でライブ接続を開始してください（ここは手動手順です）。", "warn");
 
+      // Bridgeより先に、Bridgeと同じ設定のTTSエンジンが応答可能になったことを確定する。
+      await ttsReadyPromise;
       setBridgeState("starting");
       stage = "bridge";
       addLog("BRIDGEを起動中…", "info");
@@ -755,12 +766,13 @@ const DashboardPage: React.FC = () => {
   };
 
   const tiktokConfigured = username.trim().length > 0;
+  const tiktokConnected = bridgeProcess.tiktok?.state === "connected";
   const typedUsername = username.trim().replace(/^@/, "");
   const idApproved = typedUsername.length > 0 && appliedUsername === typedUsername;
   const worldDisplay = levelName ? levelName.replace(`${WORLD_PREFIX}/`, "") : "未設定";
   const step1: StepStatus = forgeState  === "running" ? "done" : forgeState  === "error" ? "error" : forgeState  === "starting" ? "active" : "pending";
   const stepBridge: StepStatus = bridgeState === "running" ? "done" : bridgeState === "error" ? "error" : bridgeState === "starting" ? "active" : "pending";
-  const stepTikTok: StepStatus = tiktokConfigured ? "done" : "pending";
+  const stepTikTok: StepStatus = tiktokConnected ? "done" : tiktokConfigured ? "active" : "pending";
   const isBusy = allStartBusy || forgeState === "starting" || bridgeState === "starting";
 
   const logTypeStyle: Record<LogType, string> = {
@@ -771,7 +783,7 @@ const DashboardPage: React.FC = () => {
   };
 
   const pipeline = [
-    { label: "TikTok", value: tiktokConfigured ? `@${typedUsername}` : "未設定", icon: "tiktok", state: tiktokConfigured ? (bridgeState === "running" ? "running" : "stopped") : "stopped", tone: "green", runningText: "接続中" },
+    { label: "TikTok", value: tiktokConfigured ? `@${typedUsername}` : "未設定", icon: "tiktok", state: tiktokConnected ? "running" : "stopped", tone: "green", runningText: "接続済み" },
     { label: "Forge Server", value: "Forge 1.20.1", icon: "▣", state: forgeState, tone: "red", runningText: "接続中" },
     { label: "Game", value: gameRunning ? "Minecraft 検知中" : worldDisplay, icon: "world", state: gameRunning ? "running" : "stopped", tone: "green", runningText: "起動中" },
     { label: "Bridge", value: "TikTok → Minecraft", icon: "⛓", state: bridgeState, tone: "red", runningText: "接続中" },
@@ -946,6 +958,7 @@ const DashboardPage: React.FC = () => {
               <h2>BRIDGEログ</h2>
               <p>
                 状態: <b className={bridgeProcess.running ? "is-running" : "is-stopped"}>{bridgeProcess.running ? "稼働中" : "停止中"}</b>
+                {bridgeProcess.running ? <span> TikTok: <b className={tiktokConnected ? "is-running" : "is-stopped"}>{tiktokConnected ? "接続済み" : "接続待ち"}</b></span> : null}
                 {bridgeProcess.pid ? <span> PID {bridgeProcess.pid}</span> : null}
                 {typeof bridgeProcess.cpuPercent === "number" ? <span> CPU {bridgeProcess.cpuPercent}%</span> : null}
                 {typeof bridgeProcess.memMb === "number" ? <span> MEM {bridgeProcess.memMb}MB</span> : null}
