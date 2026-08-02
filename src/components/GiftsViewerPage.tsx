@@ -69,7 +69,7 @@ function ServerLinkIcon() {
 const GiftsViewerPage: React.FC = () => {
   const [loading, setLoading] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
-  const [username, setUsername] = React.useState("akahoridouma");
+  const [username, setUsername] = React.useState("");
   const [gifts, setGifts] = React.useState<Gift[]>([]);
   const [meta, setMeta] = React.useState<GiftsMeta>(null);
   const [exists, setExists] = React.useState(false);
@@ -229,7 +229,7 @@ const GiftsViewerPage: React.FC = () => {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && onUpdate()}
-              placeholder="akahoridouma"
+              placeholder="配信アカウント名"
             />
           </div>
         </label>

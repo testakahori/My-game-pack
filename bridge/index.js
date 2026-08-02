@@ -26,7 +26,7 @@ const net = require("net");
 const http = require("http");
 const os = require("os");
 const { execFile } = require("child_process");
-const { WebcastPushConnection } = require("tiktok-live-connector");
+const { TikTokLiveConnection } = require("tiktok-live-connector");
 const { Rcon } = require("rcon-client");
 const { validateBridgeConfig } = require("./config_schema");
 const { FeatureEngine, parseWeightedList, chooseWeighted } = require("./feature_engine");
@@ -173,13 +173,34 @@ const TTS_DEFAULTS = {
 
 const TTS_PORTS = { voicevox: 50021, aivis: 10101 };
 
+function ttsNumber(value, min, max, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback;
+}
+
+function normalizeTtsConfig(settings) {
+  const value = { ...TTS_DEFAULTS, ...(settings && typeof settings === "object" ? settings : {}) };
+  return {
+    engine: value.engine === "aivis" ? "aivis" : "voicevox",
+    speakerId: Math.trunc(ttsNumber(value.speakerId, 0, Number.MAX_SAFE_INTEGER, TTS_DEFAULTS.speakerId)),
+    speedScale: ttsNumber(value.speedScale, 0.5, 2.0, TTS_DEFAULTS.speedScale),
+    pitchScale: ttsNumber(value.pitchScale, -0.15, 0.15, TTS_DEFAULTS.pitchScale),
+    intonationScale: ttsNumber(value.intonationScale, 0.0, 2.0, TTS_DEFAULTS.intonationScale),
+    volume: ttsNumber(value.volume, 0.0, 2.0, TTS_DEFAULTS.volume),
+    enabled: value.enabled !== false,
+    commentEnabled: value.commentEnabled !== false,
+    giftEnabled: value.giftEnabled !== false,
+    giftTemplate: String(value.giftTemplate || TTS_DEFAULTS.giftTemplate).slice(0, 200),
+  };
+}
+
 function loadTtsConfig() {
   const p = path.join(__dirname, "tts-settings.json");
-  if (!fs.existsSync(p)) return { ...TTS_DEFAULTS };
+  if (!fs.existsSync(p)) return normalizeTtsConfig(TTS_DEFAULTS);
   try {
-    return { ...TTS_DEFAULTS, ...JSON.parse(fs.readFileSync(p, "utf-8")) };
+    return normalizeTtsConfig(JSON.parse(fs.readFileSync(p, "utf-8")));
   } catch {
-    return { ...TTS_DEFAULTS };
+    return normalizeTtsConfig(TTS_DEFAULTS);
   }
 }
 
@@ -282,15 +303,43 @@ async function speakText(text, cfg) {
   }
 }
 
-let ttsQueueTail = Promise.resolve();
+const MAX_TTS_QUEUE = 50;
+const ttsQueue = [];
+let ttsWorkerRunning = false;
+let lastTtsQueueWarnAt = 0;
+
+async function drainTtsQueue() {
+  if (ttsWorkerRunning) return;
+  ttsWorkerRunning = true;
+  try {
+    while (ttsQueue.length > 0) {
+      const item = ttsQueue.shift();
+      await speakText(item.text, item.cfg);
+    }
+  } finally {
+    ttsWorkerRunning = false;
+    // finally直前に追加された項目を取りこぼさない。
+    if (ttsQueue.length > 0) void drainTtsQueue();
+  }
+}
+
 function enqueueSpeech(text, cfg, ngWords = []) {
   let safe = String(text || "");
   for (const word of ngWords) {
     if (!word) continue;
     safe = safe.split(String(word)).join("＊".repeat(Math.min(8, String(word).length)));
   }
-  ttsQueueTail = ttsQueueTail.then(() => speakText(safe, cfg)).catch(() => {});
-  return ttsQueueTail;
+  safe = safe.trim().slice(0, 300);
+  if (!safe) return;
+  if (ttsQueue.length >= MAX_TTS_QUEUE) {
+    ttsQueue.shift(); // 数分前の読み上げより、現在のコメントを優先する。
+    if (Date.now() - lastTtsQueueWarnAt > 30000) {
+      lastTtsQueueWarnAt = Date.now();
+      console.warn(`[TTS] キュー上限(${MAX_TTS_QUEUE})のため古い読み上げを破棄しました`);
+    }
+  }
+  ttsQueue.push({ text: safe, cfg: normalizeTtsConfig(cfg) });
+  void drainTtsQueue();
 }
 
 // ------------------------
@@ -1153,7 +1202,11 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     return { mapping: { ...mapping, commandFile }, meta: resolved.meta || {} };
   }
 
-  const tiktok = new WebcastPushConnection(tiktokUsername, {});
+  // 初回接続・再接続時の過去コメント再送を止め、ライブ中に届いたイベントだけ処理する。
+  const tiktok = new TikTokLiveConnection(tiktokUsername, { processInitialData: false });
+  let connectedAt = 0;
+  let tiktokConnectLoop = null;
+  let tiktokReconnectTimer = null;
   const lastExecAt = new Map(); // cooldown (giftId+sender)
   const streakLastCount = new Map(); // key: giftId:sender -> { count, at }
   const STREAK_TTL_MS = clampInt(options.streakTtlMs ?? 60000, 5000, 600000, 60000);
@@ -1362,35 +1415,69 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   });
 
   async function connectTikTokWithRetry() {
+    let failureCount = 0;
     updateRuntimeStatus({
       tiktok: { state: "connecting", username: tiktokUsername, at: new Date().toISOString() },
     });
     while (true) {
       try {
         const state = await tiktok.connect();
+        connectedAt = Date.now();
         console.log(`[TikTok] Connected. roomId=${state.roomId}`);
+        console.log(`[Bridge] connectedAt: ${connectedAt}`);
         updateRuntimeStatus({
           tiktok: { state: "connected", username: tiktokUsername, roomId: String(state.roomId || ""), at: new Date().toISOString() },
         });
         return;
       } catch (e) {
-        console.error("[TikTok] Connect failed:", e?.message || e);
+        const message = String(e?.message || e);
+        console.error("[TikTok] Connect failed:", message);
         updateRuntimeStatus({
-          tiktok: { state: "retrying", username: tiktokUsername, error: String(e?.message || e), at: new Date().toISOString() },
+          tiktok: { state: "retrying", username: tiktokUsername, error: message, at: new Date().toISOString() },
         });
-        console.log("[TikTok] Retry in 5 seconds...");
-        await sleep(5000);
+        // オフライン配信を5秒ごとに叩くとTikTok側のレート制限を招きやすい。
+        // その他の一時障害も指数バックオフし、最大60秒で再試行する。
+        failureCount += 1;
+        const offline = /isn't online|not online|offline/i.test(message);
+        const retryMs = offline ? 30000 : Math.min(60000, 5000 * (2 ** Math.min(failureCount - 1, 4)));
+        console.log(`[TikTok] Retry in ${Math.round(retryMs / 1000)} seconds...`);
+        await sleep(retryMs);
       }
     }
   }
 
-  if (doumaMod) connectDoumaWebSocket(doumaMod);
-  await connectTikTokWithRetry();
-  featureEngine.startPoll();
+  function ensureTikTokConnected() {
+    if (tiktokConnectLoop) return tiktokConnectLoop;
+    tiktokConnectLoop = connectTikTokWithRetry().finally(() => { tiktokConnectLoop = null; });
+    return tiktokConnectLoop;
+  }
 
-  // 接続後のイベントだけを処理するための基準時刻
-  const connectedAt = Date.now();
-  console.log(`[Bridge] connectedAt: ${connectedAt}`);
+  tiktok.on("error", (data) => {
+    const detail = data?.info || data?.exception?.message || data?.message || String(data || "unknown error");
+    console.error(`[TikTok] Connection error: ${detail}`);
+    updateRuntimeStatus({
+      tiktok: { state: "retrying", username: tiktokUsername, error: detail, at: new Date().toISOString() },
+    });
+  });
+
+  tiktok.on("disconnected", (data = {}) => {
+    const reason = String(data?.reason || `code=${data?.code ?? "unknown"}`);
+    console.warn(`[TikTok] Disconnected: ${reason}`);
+    updateRuntimeStatus({
+      tiktok: { state: "retrying", username: tiktokUsername, error: reason, at: new Date().toISOString() },
+    });
+    if (doumaWebSocketStopping || tiktokReconnectTimer) return;
+    tiktokReconnectTimer = setTimeout(() => {
+      tiktokReconnectTimer = null;
+      if (!doumaWebSocketStopping) void ensureTikTokConnected();
+    }, 5000);
+  });
+
+  if (doumaMod) connectDoumaWebSocket(doumaMod);
+  // 接続待ちの間にも全イベントリスナーと終了処理を先に登録する。
+  // 接続成功直後のコメントを取りこぼさず、配信前でもSIGINTで正常終了できる。
+  void ensureTikTokConnected();
+  featureEngine.startPoll();
 
   // イベントの createTime（秒）が接続前なら無視する
   function isPreConnectionEvent(data) {
@@ -1965,6 +2052,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   process.on("SIGINT", () => {
     console.log("\n[Bridge] Stopping...");
     doumaWebSocketStopping = true;
+    if (tiktokReconnectTimer) clearTimeout(tiktokReconnectTimer);
     try { doumaWebSocket?.close(); } catch {}
     try {
       tiktok.disconnect();
@@ -1991,4 +2079,5 @@ module.exports = {
   enqueueDoumaModEvent,
   commandFileToDoumaKey,
   computeStreakDelta,
+  normalizeTtsConfig,
 };
