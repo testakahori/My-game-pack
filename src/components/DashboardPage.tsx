@@ -572,7 +572,7 @@ const DashboardPage: React.FC = () => {
 
     // 読み上げ（TTS）が有効ならエンジンを裏で自動起動する。
     // エンジン未起動だと読み上げが無言のまま失敗し続けるため（今回の読み上げ不発の真因）。
-    const ttsReadyPromise = (async () => {
+    const prepareTts = async () => {
       try {
         const tts = await api.ttsSettingsRead?.();
         if (!tts?.enabled) return;
@@ -581,12 +581,14 @@ const DashboardPage: React.FC = () => {
         if (launched?.ok) {
           addLog(`読み上げエンジン: ${launched.alreadyRunning ? "起動済みです" : "起動しました"}。コメント・ギフトを読み上げます。`, "ok");
         } else {
-          addLog(`読み上げエンジンを起動できませんでした: ${launched?.message || "不明"}（読み上げ設定ページから手動起動してください）`, "warn");
+          throw new Error(`読み上げエンジンを起動できませんでした: ${launched?.message || "不明"}`);
         }
       } catch (ttsError: any) {
-        addLog(`読み上げエンジンの準備に失敗しました: ${ttsError?.message ?? String(ttsError)}`, "warn");
+        const message = `読み上げエンジンの準備に失敗しました: ${ttsError?.message ?? String(ttsError)}`;
+        addLog(`${message}（読み上げ設定ページで確認してください）`, "error");
+        throw new Error(message);
       }
-    })();
+    };
 
     try {
       if (isWorldDirty) {
@@ -610,6 +612,10 @@ const DashboardPage: React.FC = () => {
         throw e;
       }
 
+      // TTSを有効にしているのにエンジンが使えない状態で配信一式を起動しない。
+      // 「起動は成功したがコメントだけ無音」という最も気づきにくい失敗を事前に止める。
+      await prepareTts();
+
       setForgeState("starting");
       stage = "forge";
       addLog("Forgeサーバーを起動中…", "info");
@@ -632,8 +638,6 @@ const DashboardPage: React.FC = () => {
 
       addLog("TikTok LIVE Studio でライブ接続を開始してください（ここは手動手順です）。", "warn");
 
-      // Bridgeより先に、Bridgeと同じ設定のTTSエンジンが応答可能になったことを確定する。
-      await ttsReadyPromise;
       setBridgeState("starting");
       stage = "bridge";
       addLog("BRIDGEを起動中…", "info");
@@ -766,7 +770,7 @@ const DashboardPage: React.FC = () => {
   };
 
   const tiktokConfigured = username.trim().length > 0;
-  const tiktokConnected = bridgeProcess.tiktok?.state === "connected";
+  const tiktokConnected = bridgeProcess.running === true && bridgeProcess.tiktok?.state === "connected";
   const typedUsername = username.trim().replace(/^@/, "");
   const idApproved = typedUsername.length > 0 && appliedUsername === typedUsername;
   const worldDisplay = levelName ? levelName.replace(`${WORLD_PREFIX}/`, "") : "未設定";

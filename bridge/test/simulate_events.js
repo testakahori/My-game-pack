@@ -36,6 +36,11 @@ function ok(name, fn) {
 async function main() {
   console.log("=== Bridge simulation tests ===");
 
+  await ok("TikTok connector: 現行APIの接続クラスを利用可能", () => {
+    const connector = require("tiktok-live-connector");
+    assert.strictEqual(typeof connector.TikTokLiveConnection, "function");
+  });
+
   await ok("parseCommandFile: meta/コメント/コマンド分離", () => {
     const { meta, commands } = bridge.parseCommandFile(
       "# TITLE: テスト\n# SUBTITLE: サブ\n\n// comment\nsummon minecraft:cod ~ ~ ~\neffect give @a speed 5 1\n"
@@ -167,6 +172,17 @@ async function main() {
     assert.strictEqual(bad.ok, false);
     assert.ok(bad.errors.some(x => x.includes("tiktokUsername")));
     assert.ok(bad.errors.some(x => x.includes("doumaModPort")));
+  });
+
+  await ok("TTS設定: 不正値を安全な範囲へ正規化", () => {
+    assert.deepStrictEqual(bridge.normalizeTtsConfig({
+      engine: "unknown", speakerId: -9, speedScale: 99, pitchScale: -9,
+      intonationScale: "NaN", volume: 4, giftTemplate: "x".repeat(300),
+    }), {
+      engine: "voicevox", speakerId: 0, speedScale: 2, pitchScale: -0.15,
+      intonationScale: 1, volume: 2, enabled: true, commentEnabled: true,
+      giftEnabled: true, giftTemplate: "x".repeat(200),
+    });
   });
 
   await ok("streak: 正常な連打進行はdeltaが増分のみ", () => {

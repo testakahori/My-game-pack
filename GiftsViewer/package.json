@@ -13,20 +13,22 @@
     "pack:win": "npm run build && npm run bundle:tools && electron-builder --win --x64"
   },
   "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "tiktok-live-connector": "^2.1.1-beta1"
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "tiktok-live-connector": "^2.4.3"
   },
   "devDependencies": {
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.1",
+    "@types/node": "^24.10.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.5",
     "concurrently": "^9.0.1",
     "cross-env": "^7.0.3",
-    "electron": "^31.4.0",
-    "electron-builder": "^24.13.3",
-    "typescript": "^5.6.3",
-    "vite": "^6.4.1",
+    "electron": "43.2.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.0",
     "wait-on": "^7.2.0"
   },
   "build": {

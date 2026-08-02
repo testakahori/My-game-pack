@@ -1,4 +1,3 @@
-import realGiftCatalog from "../../GiftsViewer/data/gifts/gifts.min.json";
 import pkg from "../../package.json";
 
 type DevAppConfig = {
@@ -11,7 +10,7 @@ const win = window as typeof window & { mygamepack?: Record<string, (...args: an
 
 if (import.meta.env.DEV && !win.mygamepack) {
   const DEV_APP_CONFIG_KEY = "mygamepack_dev_app_config_v2";
-  const defaultServerFolder = "D:\\新しいフォルダー (2)";
+  const defaultServerFolder = "D:\\MyGamePack-Test-Server";
   let appConfig: DevAppConfig = {
     serverFolder: defaultServerFolder,
     setupComplete: new URLSearchParams(window.location.search).get("setup") !== "first",
@@ -22,8 +21,8 @@ if (import.meta.env.DEV && !win.mygamepack) {
   } catch { /* ignore */ }
 
   let bridgeConfig: any = {
-    tiktokUsername: "akahoridouma",
-    rcon: { host: "127.0.0.1", port: 25575, password: "development" },
+    tiktokUsername: "test_streamer",
+    rcon: { host: "127.0.0.1", port: 25575, password: "test-password" },
     mappings: [],
     likeEvents: [
       { threshold: 10, label: "10いいね", commandFile: "cod.txt", repeat: 1, enabled: true },
@@ -43,7 +42,9 @@ if (import.meta.env.DEV && !win.mygamepack) {
     },
   };
 
-  const catalog = realGiftCatalog as Array<{ id: number; name: string; diamond_count: number; image?: string | null }>;
+  // 実カタログは開発サーバーの /__dev/gifts/read から取得する。
+  // GiftsViewer/data は実行時生成物でgit管理外のため、clean cloneでは空配列にフォールバックする。
+  const catalog: Array<{ id: number; name: string; diamond_count: number; image?: string | null }> = [];
   const readDevGifts = async () => {
     try {
       const response = await fetch("/__dev/gifts/read", { cache: "no-store" });
@@ -51,7 +52,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
     } catch { /* fallback below */ }
     return {
       gifts: catalog,
-      meta: { generatedAt: now, username: "akahoridouma", count: catalog.length },
+      meta: { generatedAt: now, username: "test_streamer", count: catalog.length },
       exists: true,
     };
   };
@@ -238,7 +239,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
       return result;
     },
     serverWorldsList: readDevWorlds,
-    serverRconPasswordRead: async () => ({ found: true, password: "development" }),
+    serverRconPasswordRead: async () => ({ found: true, password: "test-password" }),
     serverStart: async () => {
       devServerRunning = true;
       addBridgeLog("[FORGE] 開発モード: serverStart");
@@ -267,7 +268,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
     },
     bridgeLaunch: async () => {
       devBridgeRunning = true;
-      addBridgeLog(`[BRIDGE] 開発モード: @${bridgeConfig.tiktokUsername || "akahoridouma"} で起動`);
+      addBridgeLog(`[BRIDGE] 開発モード: @${bridgeConfig.tiktokUsername || "test_streamer"} で起動`);
       return { ok: true };
     },
     bridgeStop: async () => {
@@ -280,7 +281,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
       devBridgeRunning = false;
       addBridgeLog("[BRIDGE] 開発モード: 停止");
       devBridgeRunning = true;
-      addBridgeLog(`[BRIDGE] 開発モード: @${bridgeConfig.tiktokUsername || "akahoridouma"} で起動`);
+      addBridgeLog(`[BRIDGE] 開発モード: @${bridgeConfig.tiktokUsername || "test_streamer"} で起動`);
       return { ok: true };
     },
     minecraftLaunch: async () => {
@@ -305,7 +306,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
     giftsOpenHtml: ok,
     gvGiftsRead: readDevGifts,
     gvGiftsUpdate: ok,
-    gvSettingsRead: async () => ({ username: "akahoridouma" }),
+    gvSettingsRead: async () => ({ username: "test_streamer" }),
     gvSettingsWrite: ok,
     gvGiftsOpenFolder: ok,
     gvGiftsOpenHtml: ok,

@@ -66,7 +66,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
           username = cfg?.tiktokUsername ?? cfg?.tiktok?.username ?? cfg?.tiktok?.user ?? "";
         } catch { /* ignore */ }
       }
-      if (!username.trim()) username = "akahoridouma";
+      if (!username.trim()) throw new Error("TikTokユーザー名を先に設定してください");
       await api.giftsUpdate(username.trim().replace(/^@/, ""));
       await reload();
       showToast("ギフト一覧を更新しました ✓");

@@ -8,9 +8,18 @@ const bridgeDir = path.join(projectRoot, "bridge");
 const outDir = path.join(projectRoot, "build", "bridge-bundle");
 const bundlePath = path.join(outDir, "index.bundle.cjs");
 const nodeOutDir = path.join(outDir, "node");
-const nodeExeSrc = path.join(bridgeDir, "node", "node.exe");
+const bundledNodeExe = path.join(bridgeDir, "node", "node.exe");
+// クリーンcloneでもWindows版Node 20+でビルドできるよう、専用runtimeが無い場合は
+// ビルドに使っているnode.exeを配布runtimeとして採用する。
+const currentNodeMajor = Number(process.versions.node.split(".", 1)[0]);
+const nodeExeSrc = fs.existsSync(bundledNodeExe)
+  ? bundledNodeExe
+  : (process.platform === "win32" && currentNodeMajor >= 20 ? process.execPath : bundledNodeExe);
 const nodeExeDst = path.join(nodeOutDir, "node.exe");
 const manifestPath = path.join(outDir, "bridge-runtime-manifest.json");
+const giftsViewerDir = path.join(projectRoot, "GiftsViewer");
+const giftsToolsDir = path.join(giftsViewerDir, "tools");
+const giftsToolsOutDir = path.join(giftsViewerDir, "tools-bundled");
 
 function sha256File(filePath) {
   const hash = crypto.createHash("sha256");
@@ -35,7 +44,7 @@ assertExists(path.join(bridgeDir, "index.js"), "Bridge index.js");
 assertExists(path.join(bridgeDir, "feature_engine.js"), "Bridge feature_engine.js");
 assertExists(path.join(bridgeDir, "config_schema.js"), "Bridge config_schema.js");
 assertExists(path.join(bridgeDir, "node_modules"), "Bridge node_modules");
-assertExists(nodeExeSrc, "Bridge node.exe");
+assertExists(nodeExeSrc, "Bridge node.exe (or Windows Node 20+ used for this build)");
 
 fs.rmSync(outDir, { recursive: true, force: true });
 fs.mkdirSync(nodeOutDir, { recursive: true });
@@ -44,11 +53,29 @@ esbuild.buildSync({
   entryPoints: [path.join(bridgeDir, "index.js")],
   bundle: true,
   platform: "node",
-  target: "node18",
+  target: "node20",
   format: "cjs",
   outfile: bundlePath,
   logLevel: "silent",
 });
+
+// 配布設定が参照するGiftsViewer/tools-bundledもclean cloneから生成する。
+// Bridgeと同じ監査済みconnectorを解決し、古いGiftsViewer/node_modulesへ依存しない。
+fs.mkdirSync(giftsToolsOutDir, { recursive: true });
+esbuild.buildSync({
+  entryPoints: [path.join(giftsToolsDir, "fetch_gifts.cjs")],
+  bundle: true,
+  platform: "node",
+  target: "node20",
+  format: "cjs",
+  outfile: path.join(giftsToolsOutDir, "fetch_gifts.cjs"),
+  nodePaths: [path.join(bridgeDir, "node_modules")],
+  logLevel: "silent",
+});
+fs.copyFileSync(
+  path.join(giftsToolsDir, "gifts_to_html.cjs"),
+  path.join(giftsToolsOutDir, "gifts_to_html.cjs")
+);
 
 fs.copyFileSync(nodeExeSrc, nodeExeDst);
 
@@ -99,3 +126,4 @@ fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
 console.log(`[prepare-bridge-runtime] bundle ${bundlePath}`);
 console.log(`[prepare-bridge-runtime] bundle ${(manifest.bundleBytes / 1024 / 1024).toFixed(1)} MiB sha256=${manifest.bundleSha256}`);
 console.log(`[prepare-bridge-runtime] node.exe ${(manifest.nodeExeBytes / 1024 / 1024).toFixed(1)} MiB sha256=${manifest.nodeExeSha256}`);
+console.log(`[prepare-bridge-runtime] gifts tools ${giftsToolsOutDir}`);

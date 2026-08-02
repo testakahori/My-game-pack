@@ -5,6 +5,7 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
 const http = require("http");
+const { pathToFileURL } = require("url");
 const { ENGINE_PORTS, checkEngine, getSpeakers, flattenSpeakers, synthesize } = require("./tts.cjs");
 const { validateBridgeConfig } = require("./config_schema.cjs");
 const { autoUpdater } = require("electron-updater");
@@ -143,6 +144,8 @@ function installProdOnlyCsp() {
 // --------------------
 function createWindow() {
   const iconPath = path.join(__dirname, "..", "assets", "icon.ico");
+  const indexHtml = path.join(__dirname, "..", "dist", "index.html");
+  const indexPageUrl = pathToFileURL(indexHtml).href;
 
   const win = new BrowserWindow({
     width: 1488,
@@ -160,21 +163,32 @@ function createWindow() {
     },
   });
 
-  // 外部リンクはOSブラウザで開く（安全）
+  const openExternalHttpUrl = (rawUrl) => {
+    try {
+      const parsed = new URL(rawUrl);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return;
+      void shell.openExternal(parsed.href);
+    } catch {}
+  };
+
+  // 外部リンクは http(s) だけOSブラウザで開く。
+  // 任意のカスタムプロトコルをshellへ渡すと、別アプリの危険なURLハンドラを起動し得る。
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    openExternalHttpUrl(url);
     return { action: "deny" };
   });
 
-  // file:// 以外の遷移は止めて外部へ
+  // preload API はこのアプリのindex.htmlだけに公開する。別のローカルHTMLへの
+  // file:// 遷移を許すと、そのHTMLから特権IPCを呼べるため必ず遮断する。
   win.webContents.on("will-navigate", (e, url) => {
-    if (!url.startsWith("file://")) {
-      e.preventDefault();
-      shell.openExternal(url);
-    }
+    const targetWithoutHash = String(url).split("#", 1)[0];
+    if (targetWithoutHash === indexPageUrl) return;
+    e.preventDefault();
+    openExternalHttpUrl(url);
   });
 
-  const indexHtml = path.join(__dirname, "..", "dist", "index.html");
+  session.defaultSession.setPermissionCheckHandler(() => false);
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   win.loadFile(indexHtml);
 
   if (isDev) {
@@ -407,6 +421,36 @@ function writeAppConfig(data) {
   fs.writeFileSync(p, JSON.stringify(next, null, 2), "utf-8");
 }
 
+function readPublicAppConfig() {
+  const config = readAppConfig();
+  const { authEmail: _authEmail, authToken: _authToken, authLoginAt: _authLoginAt, ...publicConfig } = config;
+  return publicConfig;
+}
+
+const RENDERER_APP_CONFIG_FIELDS = new Set([
+  "serverFolder",
+  "setupComplete",
+  "setupRequiredByInstall",
+  "minecraftPlayerName",
+  "minecraftLauncherPath",
+  "autoBackupOnServerStart",
+]);
+
+function sanitizeRendererAppConfigUpdate(data) {
+  const next = {};
+  for (const [key, value] of Object.entries(data || {})) {
+    if (!RENDERER_APP_CONFIG_FIELDS.has(key)) throw new Error(`変更できないアプリ設定です: ${key}`);
+    if (["setupComplete", "setupRequiredByInstall", "autoBackupOnServerStart"].includes(key)) {
+      if (typeof value !== "boolean") throw new Error(`${key} must be a boolean`);
+      next[key] = value;
+      continue;
+    }
+    if (typeof value !== "string" || value.length > 4096) throw new Error(`${key} must be a string`);
+    next[key] = value;
+  }
+  return next;
+}
+
 // --------------------
 // 運営ログイン認証
 // --------------------
@@ -443,6 +487,9 @@ function isValidLoginEmail(email) {
   const v = String(email || "").trim();
   return v.length >= 5 && v.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
 }
+
+let failedAuthAttempts = 0;
+let authLockedUntil = 0;
 
 // 運営ログイン済みかどうか（auth:status と同じ判定）。UI 全体は LoginPage でゲートされて
 // いるが、コンソール送信のような強い操作は main 側でも二重に確認する（多層防御）。
@@ -1369,7 +1416,7 @@ ipcMain.handle("bridge:processStatus", () => {
   try {
     runtime = JSON.parse(fs.readFileSync(path.join(getBridgeBatDir(), "runtime-status.json"), "utf8"));
   } catch {}
-  return { ...status, ...getProcessMetrics(bridgePid), tiktok: runtime.tiktok || null };
+  return { ...status, ...getProcessMetrics(bridgePid), tiktok: status.running ? (runtime.tiktok || null) : null };
 });
 
 ipcMain.handle("bridge:logs", () => ({ ok: true, lines: [...bridgeLogBuffer] }));
@@ -2367,14 +2414,36 @@ ipcMain.handle("gv:gifts:openHtml", async () => {
 // gv:gifts:fetchImageBase64
 // --------------------
 ipcMain.handle("gv:gifts:fetchImageBase64", async (_event, url) => {
-  if (!url) throw new Error("URL is empty");
+  let parsed;
+  try { parsed = new URL(String(url || "")); }
+  catch { throw new Error("URL is invalid"); }
+  if (parsed.protocol !== "https:") throw new Error("HTTPS image URL only");
 
-  const response = await fetch(url);
+  const response = await fetch(parsed.href, { signal: AbortSignal.timeout(10000) });
   if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+  if (new URL(response.url).protocol !== "https:") throw new Error("Insecure image redirect blocked");
 
-  const arrayBuffer = await response.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-  const mimeType = response.headers.get("content-type") || "image/webp";
+  const mimeType = String(response.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
+  if (!mimeType.startsWith("image/")) throw new Error("Response is not an image");
+  const maxBytes = 10 * 1024 * 1024;
+  const declaredBytes = Number(response.headers.get("content-length") || 0);
+  if (declaredBytes > maxBytes) throw new Error("Image is too large (max 10MB)");
+
+  const chunks = [];
+  let totalBytes = 0;
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("Image response body is empty");
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBytes) {
+      await reader.cancel();
+      throw new Error("Image is too large (max 10MB)");
+    }
+    chunks.push(Buffer.from(value));
+  }
+  const buffer = Buffer.concat(chunks, totalBytes);
 
   return `data:${mimeType};base64,${buffer.toString("base64")}`;
 });
@@ -2383,7 +2452,8 @@ ipcMain.handle("gv:gifts:fetchImageBase64", async (_event, url) => {
 // gv:gifts:copyPngDataUrl
 // --------------------
 ipcMain.handle("gv:gifts:copyPngDataUrl", async (_event, dataUrl) => {
-  if (!dataUrl) throw new Error("Data URL is empty");
+  if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/png;base64,")) throw new Error("PNG Data URL is invalid");
+  if (dataUrl.length > 14 * 1024 * 1024) throw new Error("PNG is too large (max 10MB)");
 
   const image = nativeImage.createFromDataURL(dataUrl);
   if (image.isEmpty()) throw new Error("Failed to decode PNG image");
@@ -2411,11 +2481,11 @@ ipcMain.handle("gv:settings:write", async (_event, v) => {
 // --------------------
 // IPC: App config
 // --------------------
-ipcMain.handle("app:config:read", async () => readAppConfig());
+ipcMain.handle("app:config:read", async () => readPublicAppConfig());
 
 ipcMain.handle("app:config:write", async (_event, data) => {
   if (typeof data !== "object" || data === null) throw new Error("data must be an object");
-  writeAppConfig(data);
+  writeAppConfig(sanitizeRendererAppConfigUpdate(data));
   return { ok: true };
 });
 
@@ -2431,14 +2501,26 @@ ipcMain.handle("auth:status", async () => {
 });
 
 ipcMain.handle("auth:login", async (_event, payload) => {
+  const now = Date.now();
+  if (now < authLockedUntil) {
+    const seconds = Math.max(1, Math.ceil((authLockedUntil - now) / 1000));
+    return { ok: false, message: `ログイン試行が多すぎます。${seconds}秒後に再試行してください` };
+  }
   const email = String(payload?.email || "").trim();
   const password = String(payload?.password || "");
   if (!isValidLoginEmail(email)) {
     return { ok: false, message: "メールアドレスの形式が正しくありません" };
   }
   if (!verifyOperatorPassword(password)) {
+    failedAuthAttempts += 1;
+    if (failedAuthAttempts >= 5) {
+      failedAuthAttempts = 0;
+      authLockedUntil = Date.now() + 60000;
+    }
     return { ok: false, message: "パスワードが違います" };
   }
+  failedAuthAttempts = 0;
+  authLockedUntil = 0;
   writeAppConfig({
     authEmail: email,
     authToken: operatorLoginToken(email),
@@ -2583,6 +2665,10 @@ ipcMain.handle("bridge:commands:write", async (_event, { filename, content }) =>
     throw new Error("Invalid filename: must be a .txt file");
   }
   if (typeof content !== "string") throw new Error("content must be a string");
+  if (filename !== path.basename(filename) || filename.includes("/") || filename.includes("\\")) {
+    throw new Error("Invalid filename: path separators are not allowed");
+  }
+  if (Buffer.byteLength(content, "utf8") > 1024 * 1024) throw new Error("command file is too large (max 1MB)");
   const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
   fs.mkdirSync(dir, { recursive: true });
   const fullPath = path.join(dir, filename);
@@ -2701,6 +2787,27 @@ const TTS_DEFAULTS = {
   giftTemplate: "{sender}さんから{gift}が来たよ！",
 };
 
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback;
+}
+
+function normalizeTtsSettings(settings) {
+  const value = { ...TTS_DEFAULTS, ...(settings && typeof settings === "object" ? settings : {}) };
+  return {
+    engine: value.engine === "aivis" ? "aivis" : "voicevox",
+    speakerId: Math.trunc(clampNumber(value.speakerId, 0, Number.MAX_SAFE_INTEGER, TTS_DEFAULTS.speakerId)),
+    speedScale: clampNumber(value.speedScale, 0.5, 2.0, TTS_DEFAULTS.speedScale),
+    pitchScale: clampNumber(value.pitchScale, -0.15, 0.15, TTS_DEFAULTS.pitchScale),
+    intonationScale: clampNumber(value.intonationScale, 0.0, 2.0, TTS_DEFAULTS.intonationScale),
+    volume: clampNumber(value.volume, 0.0, 2.0, TTS_DEFAULTS.volume),
+    enabled: value.enabled !== false,
+    commentEnabled: value.commentEnabled !== false,
+    giftEnabled: value.giftEnabled !== false,
+    giftTemplate: String(value.giftTemplate || TTS_DEFAULTS.giftTemplate).slice(0, 200),
+  };
+}
+
 function getTtsSettingsPath() {
   return path.join(app.getPath("userData"), "tts-settings.json");
 }
@@ -2708,7 +2815,7 @@ function getTtsSettingsPath() {
 function readTtsSettingsFile(filePath) {
   if (!filePath || !fs.existsSync(filePath)) return null;
   try {
-    return { ...TTS_DEFAULTS, ...JSON.parse(fs.readFileSync(filePath, "utf-8")) };
+    return normalizeTtsSettings(JSON.parse(fs.readFileSync(filePath, "utf-8")));
   } catch {
     return null;
   }
@@ -2724,22 +2831,23 @@ function readTtsSettings() {
 }
 
 function writeTtsSettings(settings) {
+  const normalized = normalizeTtsSettings(settings);
   const p = getTtsSettingsPath();
-  fs.writeFileSync(p, JSON.stringify(settings, null, 2), "utf-8");
+  fs.writeFileSync(p, JSON.stringify(normalized, null, 2), "utf-8");
 
   // bridge フォルダにも同期（bridge/index.js が読む）
   try {
     const bridgeTtsPath = path.join(getBridgeBatDir(), "tts-settings.json");
     fs.mkdirSync(path.dirname(bridgeTtsPath), { recursive: true });
-    fs.writeFileSync(bridgeTtsPath, JSON.stringify(settings, null, 2), "utf-8");
+    fs.writeFileSync(bridgeTtsPath, JSON.stringify(normalized, null, 2), "utf-8");
   } catch { /* bridge フォルダが未作成でも無視 */ }
+  return normalized;
 }
 
 ipcMain.handle("tts:settings:read", () => readTtsSettings());
 
 ipcMain.handle("tts:settings:write", (_event, settings) => {
-  writeTtsSettings(settings);
-  return { ok: true };
+  return { ok: true, settings: writeTtsSettings(settings) };
 });
 
 ipcMain.handle("tts:checkEngine", async (_event, engine) => {
@@ -2818,16 +2926,17 @@ ipcMain.handle("tts:launchEngine", async (_event, engine) => {
 
 ipcMain.handle("tts:test", async (_event, settings) => {
   try {
-    const ok = await checkEngine(settings.engine);
+    const normalized = normalizeTtsSettings(settings);
+    const ok = await checkEngine(normalized.engine);
     if (!ok) return { ok: false, message: "エンジンが起動していません" };
-    const text = (settings.testText && String(settings.testText).trim()) || "テスト再生。こんにちは！";
+    const text = ((settings?.testText && String(settings.testText).trim()) || "テスト再生。こんにちは！").slice(0, 200);
     const wav = await synthesize(
-      settings.engine,
+      normalized.engine,
       text,
-      settings.speakerId,
-      settings.speedScale,
-      settings.pitchScale,
-      settings.intonationScale
+      normalized.speakerId,
+      normalized.speedScale,
+      normalized.pitchScale,
+      normalized.intonationScale
     );
     return { ok: true, base64: wav.toString("base64") };
   } catch (e) {
