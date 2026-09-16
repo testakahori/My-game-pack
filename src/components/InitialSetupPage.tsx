@@ -272,7 +272,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
   const resolveTargetFolder = async (): Promise<string> => {
     if (customFolder.trim()) return customFolder.trim();
     const cfg = await api.appConfigRead();
-    return (cfg.serverFolder as string) || DEFAULT_SERVER_FOLDER;
+    return (cfg.serverFolder as string) || (await api.serverCheckSetupComplete()).dir;
   };
 
   const completeSetupIfReady = async (targetFolder: string): Promise<boolean> => {
@@ -416,15 +416,11 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
         setCustomFolder(targetFolder);
       }
 
-      await api.appConfigWrite({
-        serverFolder: targetFolder,
-        setupComplete: true,
-        setupRequiredByInstall: false,
-      });
-
-      void api.bridgeExtractTo(targetFolder).catch((error: unknown) => {
-        console.warn("既存セットアップへのBridge同期に失敗しました", error);
-      });
+      await api.appConfigWrite({ serverFolder: targetFolder });
+      const status = await api.serverCheckSetupComplete();
+      if (!status.complete) throw new Error("このフォルダのセットアップ完了を確認できません。server.properties と run.bat または libraries のあるフォルダを選んでください。");
+      await api.bridgeExtractTo(targetFolder);
+      await api.appConfigWrite({ setupComplete: true, setupRequiredByInstall: false });
       onSetupComplete();
     } catch (e: any) {
       setErrorMsg(`既存セットアップの引き継ぎに失敗しました: ${e?.message ?? String(e)}`);

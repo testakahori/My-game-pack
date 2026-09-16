@@ -2,14 +2,16 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { CommandSet, GiftMapping } from "../types";
 import MinecraftCommandIcon from "./MinecraftCommandIcon";
+import { useUnsavedChanges } from "../UnsavedChanges";
 
 type Props = {
   mappings?: GiftMapping[];
   commandSets?: CommandSet[];
 
-  onAdd?: (m: Omit<GiftMapping, "id">) => void;
+  onAdd?: (m: Omit<GiftMapping, "id">) => void | Promise<void>;
   onRemove?: (id: string) => void;
-  onUpdate?: (id: string, updated: Partial<GiftMapping>) => void;
+  onUpdate?: (id: string, updated: Partial<GiftMapping>) => void | Promise<void>;
+  onPickGift?: (id: string, name: string, image?: string | null, diamonds?: number) => void;
 
   commandsDirKey?: string;
   defaultGiftId?: string;
@@ -41,8 +43,12 @@ const MappingEditor: React.FC<Props> = (props) => {
   const [giftImageMap, setGiftImageMap]   = useState<Record<string, string>>({});
   const [giftDiamondMap, setGiftDiamondMap] = useState<Record<string, number>>({});
   const [saveMsg, setSaveMsg]             = useState<SaveMsg | null>(null);
+  const [saving, setSaving] = useState(false);
   const [cmdMsg, setCmdMsg]               = useState<SaveMsg | null>(null);
   const [showAllRoutes, setShowAllRoutes] = useState(false);
+  const currentSnapshot = JSON.stringify({ commandFile, repeat });
+  const [savedSnapshot, setSavedSnapshot] = useState(currentSnapshot);
+  useUnsavedChanges(currentSnapshot !== savedSnapshot, saving);
 
   const titleMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -97,7 +103,7 @@ const MappingEditor: React.FC<Props> = (props) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const api: any = (window as any).mygamepack;
     if (!api?.giftsRead) return;
-    api.giftsRead()
+    const reloadGiftDetails = () => api.giftsRead()
       .then((res: any) => {
         const map: Record<string, string> = {};
         const diamonds: Record<string, number> = {};
@@ -109,29 +115,31 @@ const MappingEditor: React.FC<Props> = (props) => {
         setGiftDiamondMap(diamonds);
       })
       .catch(() => {});
+    void reloadGiftDetails();
+    return api.onGiftsUpdated?.(() => { void reloadGiftDetails(); });
   }, []);
 
   useEffect(() => {
     if (typeof props.defaultGiftId === "string")   setGiftId(props.defaultGiftId);
     if (typeof props.defaultGiftName === "string") setGiftName(props.defaultGiftName);
+    const selected = mappings.find(mapping => String(mapping.giftId) === props.defaultGiftId);
+    const file = selected?.commandFile || "";
+    const times = clampRepeat(Number(selected?.repeat ?? 1));
+    setCommandFile(file); setSelectedTxtName(file); setRepeat(times);
+    setSavedSnapshot(JSON.stringify({ commandFile: file, repeat: times }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.defaultGiftId, props.defaultGiftName]);
-
-  useEffect(() => {
-    if (!already) return;
-    setCommandFile(already.commandFile || "");
-    setRepeat(clampRepeat(Number(already.repeat ?? 1)));
-    setSelectedTxtName(already.commandFile || "");
-  }, [already?.id]);
+  }, [props.defaultGiftId, props.defaultGiftName, already?.id]);
 
   const handleSelectTxt = (name: string) => {
     setSelectedTxtName(name);
     setCommandFile(name);
   };
 
-  const handleSaveUpsert = () => {
-    if (!canSave) return;
+  const handleSaveUpsert = async () => {
+    if (!canSave || saving) return;
+    setSaving(true);
     setSaveMsg(null);
+    try {
     const payload: Partial<GiftMapping> = {
       giftId: giftId.trim(),
       name: giftName.trim() || giftId.trim(),
@@ -141,20 +149,25 @@ const MappingEditor: React.FC<Props> = (props) => {
     };
     if (already) {
       if (!props.onUpdate) return;
-      props.onUpdate(already.id, payload);
+      await props.onUpdate(already.id, payload);
       setSaveMsg({ type: "ok", text: "ギフト設定を上書きしました" });
     } else {
       if (!props.onAdd) return;
-      props.onAdd(payload as Omit<GiftMapping, "id">);
+      await props.onAdd(payload as Omit<GiftMapping, "id">);
       setSaveMsg({ type: "ok", text: "ギフト設定を追加しました" });
     }
+    setSavedSnapshot(currentSnapshot);
     setTimeout(() => setSaveMsg(null), 3000);
+    } catch (error: any) {
+      setSaveMsg({ type: "error", text: `保存できませんでした: ${error?.message || String(error)}` });
+    } finally { setSaving(false); }
   };
 
   // 現在選択中ギフトの情報
   const hasGift      = giftId.trim().length > 0;
-  const giftImage    = props.defaultGiftImage ?? giftImageMap[giftId];
-  const giftDiamonds = props.defaultGiftDiamonds ?? giftDiamondMap[giftId];
+  const isCatalogSelection = giftId === props.defaultGiftId;
+  const giftImage = (isCatalogSelection ? props.defaultGiftImage : null) ?? giftImageMap[giftId];
+  const giftDiamonds = (isCatalogSelection ? props.defaultGiftDiamonds : null) ?? giftDiamondMap[giftId];
   const isConfigured = !!(already?.commandFile);
   const visibleMappings = showAllRoutes ? filteredMappings : filteredMappings.slice(0, 6);
 
@@ -186,6 +199,7 @@ const MappingEditor: React.FC<Props> = (props) => {
             <div className="gift-command-controls">
               <span className="gift-command-icon"><MinecraftCommandIcon command={commandFile || selectedTxtName} /></span>
               <select
+                disabled={saving}
                 value={selectedTxtName}
                 onChange={(e) => handleSelectTxt(e.target.value)}
                 aria-label="実行するコマンド"
@@ -199,16 +213,17 @@ const MappingEditor: React.FC<Props> = (props) => {
               </select>
               <div className="gift-repeat-control">
                 <label htmlFor="gift-repeat">回数（1〜100）</label>
-                <button type="button" onClick={() => setRepeat((value) => clampRepeat(value - 1))}>−</button>
+                <button type="button" disabled={saving} onClick={() => setRepeat((value) => clampRepeat(value - 1))}>−</button>
                 <input
                   id="gift-repeat"
+                  disabled={saving}
                   type="number"
                   min={1}
                   max={100}
                   value={repeat}
                   onChange={(e) => setRepeat(clampRepeat(Number(e.target.value)))}
                 />
-                <button type="button" onClick={() => setRepeat((value) => clampRepeat(value + 1))}>＋</button>
+                <button type="button" disabled={saving} onClick={() => setRepeat((value) => clampRepeat(value + 1))}>＋</button>
               </div>
             </div>
             <small>
@@ -221,11 +236,11 @@ const MappingEditor: React.FC<Props> = (props) => {
           <button
             type="button"
             className="gift-save-rule"
-            disabled={!canSave}
+            disabled={!canSave || saving}
             onClick={handleSaveUpsert}
           >
             <span>▣</span>
-            {already ? "このルートを更新" : "このルートを保存"}
+            {saving ? "保存中…" : already ? "このルートを更新" : "このルートを保存"}
           </button>
         </div>
 
@@ -263,8 +278,7 @@ const MappingEditor: React.FC<Props> = (props) => {
                   key={mapping.id}
                   className={`gift-route-card ${isCurrentlyEditing ? "is-editing" : ""} ${missing ? "is-missing" : ""}`}
                   onClick={() => {
-                    setGiftId(String(mapping.giftId));
-                    setGiftName(mapping.name);
+                    props.onPickGift?.(String(mapping.giftId), mapping.name, mappingImage, giftDiamondMap[String(mapping.giftId)]);
                   }}
                 >
                   <span className="gift-route-index">{index + 1}</span>

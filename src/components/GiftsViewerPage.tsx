@@ -3,6 +3,8 @@ import React from "react";
 type Gift = { id: number; name: string; diamond_count: number; image?: string | null };
 type GiftsMeta = { generatedAt: string; username: string; count: number } | null;
 type ViewMode = "grid" | "list" | "compact";
+const GIFTS_PER_PAGE = 60;
+type Props = { bridgeRunning: boolean; modOnline: boolean };
 
 function fmtDate(iso?: string) {
   if (!iso) return "";
@@ -66,7 +68,7 @@ function ServerLinkIcon() {
   );
 }
 
-const GiftsViewerPage: React.FC = () => {
+const GiftsViewerPage: React.FC<Props> = ({ bridgeRunning, modOnline }) => {
   const [loading, setLoading] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const [username, setUsername] = React.useState("");
@@ -77,13 +79,14 @@ const GiftsViewerPage: React.FC = () => {
   const [q, setQ] = React.useState("");
   const [sort, setSort] = React.useState<"costAsc" | "costDesc" | "nameAsc">("costAsc");
   const [viewMode, setViewMode] = React.useState<ViewMode>("grid");
+  const [page, setPage] = React.useState(1);
 
   const showToast = (msg: string) => {
     setToast({ id: Date.now(), msg });
     setTimeout(() => setToast(null), 2500);
   };
 
-  const reload = React.useCallback(async () => {
+  const reload = React.useCallback(async (throwOnError = false) => {
     setErr(null);
     const api = getApi();
     if (!api?.gvGiftsRead) {
@@ -100,6 +103,7 @@ const GiftsViewerPage: React.FC = () => {
       setExists(!!res.exists);
     } catch (e: any) {
       setErr(e?.message || String(e));
+      if (throwOnError) throw e;
     }
   }, []);
 
@@ -117,6 +121,8 @@ const GiftsViewerPage: React.FC = () => {
     })();
   }, [reload]);
 
+  React.useEffect(() => getApi()?.onGiftsUpdated?.(() => { void reload(); }), [reload]);
+
   const onUpdate = async () => {
     setLoading(true);
     setErr(null);
@@ -131,7 +137,7 @@ const GiftsViewerPage: React.FC = () => {
       if (!u) throw new Error("username is empty");
       await api.gvSettingsWrite({ username: u });
       await api.gvGiftsUpdate(u);
-      await reload();
+      await reload(true);
       showToast("ギフト一覧を更新しました！");
     } catch (e: any) {
       setErr(e?.message || String(e));
@@ -206,6 +212,10 @@ const GiftsViewerPage: React.FC = () => {
   }, [uniqueGifts, q, sort]);
 
   const minDiamond = uniqueGifts.length ? Math.min(...uniqueGifts.map((gift) => gift.diamond_count || 0)) : 0;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / GIFTS_PER_PAGE));
+  const currentPage = Math.min(page, pageCount);
+  const pageStart = (currentPage - 1) * GIFTS_PER_PAGE;
+  const visibleGifts = filtered.slice(pageStart, pageStart + GIFTS_PER_PAGE);
   const maxDiamond = uniqueGifts.length ? Math.max(...uniqueGifts.map((gift) => gift.diamond_count || 0)) : 0;
   const minGift = uniqueGifts.find((gift) => gift.diamond_count === minDiamond);
   const maxGift = uniqueGifts.find((gift) => gift.diamond_count === maxDiamond);
@@ -238,9 +248,9 @@ const GiftsViewerPage: React.FC = () => {
         </button>
         <div className="gift-catalog-search">
           <span>⌕</span>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ギフト名・IDを検索..." />
+          <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="ギフト名・IDを検索..." />
         </div>
-        <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
+        <select value={sort} onChange={(e) => { setSort(e.target.value as typeof sort); setPage(1); }}>
           <option value="costAsc">コスト 低→高</option>
           <option value="costDesc">コスト 高→低</option>
           <option value="nameAsc">名前 A→Z</option>
@@ -257,11 +267,11 @@ const GiftsViewerPage: React.FC = () => {
       <section className="gift-catalog-stats-v2" aria-label="ギフト一覧サマリー">
         <div className="gift-stat-card gift-stat-card--cyan">
           <span className="gift-stat-card__icon">🎁</span>
-          <div><small>総ギフト数</small><b>{uniqueGifts.length}<em>件</em></b><p>TikTok ギフト取得完了</p></div>
+          <div><small>総ギフト数</small><b>{uniqueGifts.length}<em>件</em></b><p>{exists ? "保存済みのギフト一覧" : "未取得"}</p></div>
         </div>
         <div className="gift-stat-card gift-stat-card--blue">
           <span className="gift-stat-card__icon">◷</span>
-          <div><small>最終更新</small><b>{fmtShortDate(meta?.generatedAt)}</b><p>自動更新: 有効</p></div>
+          <div><small>最終更新</small><b>{fmtShortDate(meta?.generatedAt)}</b><p>起動時に更新確認（24時間ごと）</p></div>
         </div>
         <div className="gift-stat-card gift-stat-card--green">
           <span className="gift-stat-card__icon"><DiamondIcon tone="green" /></span>
@@ -271,17 +281,17 @@ const GiftsViewerPage: React.FC = () => {
           <span className="gift-stat-card__icon"><DiamondIcon tone="purple" /></span>
           <div><small>最高額ギフト</small><b>{maxDiamond.toLocaleString()}<em>💎</em></b><p>{maxGift ? `${maxGift.name}（ID: ${maxGift.id}）` : "—"}</p></div>
         </div>
-        <div className="gift-stat-card gift-stat-card--server">
+        <div className="gift-stat-card gift-stat-card--server" data-online={modOnline}>
           <span className="gift-stat-card__icon"><ServerLinkIcon /></span>
-          <div><small>サーバー連携</small><b><i />正常</b><p>Bridge: 接続中</p></div>
+          <div><small>サーバー連携</small><b><i />{modOnline ? "応答あり" : "未接続"}</b><p>Bridge: {bridgeRunning ? "起動中" : "停止中"}</p></div>
         </div>
       </section>
 
       <section className="gift-catalog-panel-v2">
         <div className="gift-catalog-filters">
           <div className="gift-catalog-result-count">
-            表示中 <b>{filtered.length}</b> 件
-            {q.trim() ? <button type="button" onClick={() => setQ("")}>検索をクリア</button> : null}
+            表示中 <b>{filtered.length ? pageStart + 1 : 0}–{pageStart + visibleGifts.length}</b> / {filtered.length} 件
+            {q.trim() ? <button type="button" onClick={() => { setQ(""); setPage(1); }}>検索をクリア</button> : null}
           </div>
           <div className="gift-view-mode">
             {(["grid", "list", "compact"] as const).map((mode) => (
@@ -298,7 +308,7 @@ const GiftsViewerPage: React.FC = () => {
           </div>
         ) : (
           <div className={`gift-catalog-grid gift-catalog-grid--${viewMode}`}>
-            {filtered.map((gift, index) => (
+            {visibleGifts.map((gift, index) => (
               <article className="gift-catalog-card" key={gift.id}>
                 <button
                   type="button"
@@ -306,7 +316,7 @@ const GiftsViewerPage: React.FC = () => {
                   onClick={() => { if (gift.image) onCopyImage(gift.image); }}
                   title={gift.image ? "クリックで透過画像をコピー" : undefined}
                 >
-                  {gift.image ? <img src={gift.image} alt={gift.name} /> : <span>?</span>}
+                  {gift.image ? <img src={gift.image} alt={gift.name} loading="lazy" decoding="async" /> : <span>?</span>}
                 </button>
                 <div className="gift-catalog-card__body" onClick={() => onCopyText(String(gift.id))}>
                   <b title={gift.name}>{gift.name}</b>
@@ -318,6 +328,13 @@ const GiftsViewerPage: React.FC = () => {
               </article>
             ))}
           </div>
+        )}
+        {pageCount > 1 && (
+          <nav className="gift-catalog-pagination" aria-label="ギフト一覧のページ">
+            <button type="button" className="gift-catalog-action" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>前の60件</button>
+            <span>{currentPage} / {pageCount} ページ</span>
+            <button type="button" className="gift-catalog-action" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>次の60件</button>
+          </nav>
         )}
       </section>
 

@@ -185,6 +185,10 @@ if (import.meta.env.DEV && !win.mygamepack) {
     windowMinimize: ok,
     windowMaximizeToggle: ok,
     windowClose: ok,
+    preflightRun: async () => ({ checkedAt: new Date().toISOString(), checks: [{ id: "preview", title: "ブラウザープレビュー", status: "warn", detail: "実際の配信前チェックはインストール版で実行してください。", page: "dashboard" }] }),
+    settingsBackupsList: async () => [],
+    settingsBackupCreate: async () => { throw new Error("バックアップはインストール版で利用できます。"); },
+    settingsBackupRestore: async () => { throw new Error("復元はインストール版で利用できます。"); },
     appConfigRead: async () => ({ ...appConfig }),
     appConfigWrite: async (patch: Partial<DevAppConfig>) => {
       appConfig = { ...appConfig, ...patch };

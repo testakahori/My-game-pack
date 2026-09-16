@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import SettingsBackupsPanel from "./SettingsBackupsPanel";
+import { useUnsavedChanges } from "../UnsavedChanges";
 
 type ModStatus = {
   online: boolean;
@@ -144,7 +146,7 @@ function ProtectionMap() {
   );
 }
 
-export default function OperationsPage() {
+export default function OperationsPage({ onRestored }: { onRestored: () => void }) {
   const api = (window as any).mygamepack;
   const [status, setStatus] = useState<ModStatus>(defaultStatus);
   const [commands, setCommands] = useState<CommandFile[]>([]);
@@ -166,6 +168,10 @@ export default function OperationsPage() {
   const [now, setNow] = useState(new Date());
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [savedSnapshot, setSavedSnapshot] = useState("");
+  const currentSnapshot = JSON.stringify({ options: cfg.options || {}, autoBackup: appCfg.autoBackupOnServerStart !== false, gameplayText });
+  useUnsavedChanges(Boolean(savedSnapshot) && currentSnapshot !== savedSnapshot, saving);
 
   useEffect(() => {
     api.appVersion?.().then((v: string) => setAppVersion(v)).catch(() => {});
@@ -215,6 +221,7 @@ export default function OperationsPage() {
       setAppCfg(appConfigValue);
       setServerProps(propsValue);
       setGameplayText(JSON.stringify(bridgeConfig?.options?.gameplay || {}, null, 2));
+      if (config.status === "fulfilled" && appConfig.status === "fulfilled") setSavedSnapshot(JSON.stringify({ options: bridgeConfig.options || {}, autoBackup: appConfigValue.autoBackupOnServerStart !== false, gameplayText: JSON.stringify(bridgeConfig?.options?.gameplay || {}, null, 2) }));
     });
 
     refresh();
@@ -274,22 +281,25 @@ export default function OperationsPage() {
   };
 
   const save = async () => {
+    if (saving) return;
+    setSaving(true);
     try {
       const gameplay = JSON.parse(gameplayText);
-      const next = { ...cfg, options: { ...(cfg.options || {}), gameplay } };
+      const latest = await api.configRead();
+      const next = { ...latest, options: { ...(latest.options || {}), ...(cfg.options || {}), gameplay } };
       const validation = await api.configValidate(next);
       if (!validation.ok) throw new Error(validation.errors.join("\n"));
       await Promise.all([
         api.configWrite(next),
         api.appConfigWrite({ autoBackupOnServerStart: appCfg.autoBackupOnServerStart !== false }),
       ]);
-      setCfg(next);
+      setSavedSnapshot(currentSnapshot);
       setLastSavedAt(new Date().toISOString());
       setNotice(validation.warnings?.length ? `保存しました: ${validation.warnings.join(" / ")}` : "運用設定を保存しました");
       await refresh();
     } catch (error: any) {
       setNotice(`保存失敗: ${error?.message || String(error)}`);
-    }
+    } finally { setSaving(false); }
   };
 
   const backupWorld = async () => {
@@ -371,6 +381,7 @@ export default function OperationsPage() {
 
   return (
     <div className="operations-page ops-page">
+      <SettingsBackupsPanel onRestored={onRestored} />
       <header className="ops-header">
         <div>
           <h1>運用センター / <span>Mission Control</span></h1>

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 
 type TtsEngine = "voicevox" | "aivis";
 
@@ -229,10 +230,12 @@ const TTSSettingsPage: React.FC = () => {
   const voiceDropdownRef = useRef<HTMLDivElement | null>(null);
   const savedRef = useRef("");
   const loadedRef = useRef(false);
+  const { confirmDiscard } = useUnsavedGuard();
+  useUnsavedChanges(isDirty, saving);
 
   useEffect(() => {
     if (loadedRef.current) setIsDirty(JSON.stringify(settings) !== savedRef.current);
-  }, [settings]);
+  }, [settings, saving, loading]);
 
   useEffect(() => {
     if (!voiceDropdownOpen) return;
@@ -438,7 +441,7 @@ const TTSSettingsPage: React.FC = () => {
               {saving ? "保存中…" : "▣ 保存する"}
             </button>
           ) : null}
-          <button type="button" className="tts-reload-button" onClick={load}>↻ 再読み込み</button>
+          <button type="button" className="tts-reload-button" disabled={saving} onClick={() => { if (confirmDiscard()) void load(); }}>↻ 再読み込み</button>
         </div>
       </header>
 

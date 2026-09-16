@@ -1,5 +1,6 @@
 // src/components/CommandSetManager.tsx
 import React, { useMemo, useState } from "react";
+import { useUnsavedChanges } from "../UnsavedChanges";
 
 const CATEGORIES = ["お助け系", "妨害系", "その他"] as const;
 
@@ -40,6 +41,9 @@ const CommandSetManager: React.FC = () => {
   const [destructive, setDestructive] = useState(false);
   const [saveMsg, setSaveMsg]       = useState<{ type: "ok" | "error"; text: string } | null>(null);
   const [saving, setSaving]         = useState(false);
+  const currentSnapshot = JSON.stringify({ title, subtitle, category, commandsText, filename, cooldown, weight, random, sound, particle, destructive });
+  const [savedSnapshot, setSavedSnapshot] = useState(currentSnapshot);
+  useUnsavedChanges(currentSnapshot !== savedSnapshot, saving);
 
   const normalizedFilename = useMemo(() => normalizeFileName(filename), [filename]);
 
@@ -95,6 +99,7 @@ const CommandSetManager: React.FC = () => {
     try {
       if (api?.bridgeCommandsWrite) {
         await api.bridgeCommandsWrite({ filename: fn, content });
+        setSavedSnapshot(currentSnapshot);
         setSaveMsg({ type: "ok", text: `保存しました: bridge/commands/minecraft/${fn}` });
       } else {
         downloadText(fn, content);

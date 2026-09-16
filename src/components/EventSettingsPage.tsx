@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ToggleSlider } from "./ToggleSlider";
 import EventTypeIcon, { type EventIconKind } from "./EventTypeIcon";
+import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 
 type LikeEvent = {
   id: string;
@@ -174,6 +175,8 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
   const [isDirty, setIsDirty]                     = useState(false);
 
   const snapshot = useRef<string>("");
+  const { confirmDiscard } = useUnsavedGuard();
+  useUnsavedChanges(isDirty, saving);
 
   // 親（App.tsx）が onDirtyChange を安定した参照で渡すとは限らない（実際、ヘッダーのポーリングで
   // 数秒おきに新しい関数が渡された結果、load()が再実行されて未保存の編集がディスクの内容で
@@ -242,10 +245,8 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    const handler = (e: BeforeUnloadEvent) => { if (isDirty) e.preventDefault(); };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [isDirty]);
+    if (!loading && snapshot.current) checkDirty(likeEvents, unmappedGiftEvent, shareEvent, followEvent, memberEvent);
+  }, [loading, saving, likeEvents, unmappedGiftEvent, shareEvent, followEvent, memberEvent, checkDirty]);
 
   // ── 保存 ──
   const handleSave = async () => {
@@ -329,7 +330,8 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
         <div className="events-header__actions flex items-center gap-2 shrink-0">
           <button
             type="button"
-            onClick={load}
+            onClick={() => { if (confirmDiscard()) void load(); }}
+            disabled={saving}
             className="text-xs text-gray-400 hover:text-gray-200 px-3 py-2 rounded-lg border border-gray-700 hover:border-gray-500 transition"
           >
             🔄 再読込

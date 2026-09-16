@@ -55,7 +55,6 @@ const Header: React.FC<Props> = ({ activeTab, setActiveTab, subtitle }) => {
           {tabBtn(AppTab.IMAGE_EDITOR, "画像編集", "fa-solid fa-image")}
         </nav>
 
-        <div className="gift-server-pill"><span />サーバー接続中</div>
       </div>
     </header>
   );

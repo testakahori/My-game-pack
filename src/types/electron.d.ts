@@ -1,6 +1,10 @@
 // src/types/electron.d.ts
 export {};
 
+export type PreflightCheck = { id: string; title: string; status: "ok" | "warn" | "error" | "skip"; detail: string; page: string };
+export type PreflightResult = { checkedAt: string; checks: PreflightCheck[] };
+export type SettingsBackup = { id: string; createdAt: string; reason: string; version: string; username: string; mappings: number; commands: number; ttsEnabled: boolean; issues: number };
+
 export type Gift = {
   id: number;
   name: string;
@@ -40,10 +44,15 @@ declare global {
       windowMinimize: () => void;
       windowMaximizeToggle: () => void;
       windowClose: () => void;
+      preflightRun: () => Promise<PreflightResult>;
+      settingsBackupsList: () => Promise<SettingsBackup[]>;
+      settingsBackupCreate: () => Promise<SettingsBackup>;
+      settingsBackupRestore: (id: string) => Promise<{ ok: true; safetyBackup: string; restored: SettingsBackup }>;
       // --------------------
       // config
       // --------------------
       configRead: () => Promise<BridgeConfig>;
+      configMappingsWrite?: (mappings: BridgeConfig["mappings"]) => Promise<{ ok: true }>;
       configWrite: (cfg: BridgeConfig) => Promise<{ ok: true }>;
       configPath: () => Promise<string>;
 
@@ -66,6 +75,7 @@ declare global {
       // gifts
       // --------------------
       giftsRead: () => Promise<GiftsReadResult>;
+      onGiftsUpdated?: (callback: (meta: GiftsMeta) => void) => () => void;
       giftsUpdate: (username: string) => Promise<{ ok: true } | any>;
       giftsOpenFolder: () => Promise<{ ok: true } | any>;
       giftsOpenHtml: () => Promise<{ ok: true } | any>;

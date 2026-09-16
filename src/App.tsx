@@ -1,5 +1,5 @@
 // src/App.tsx
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { AppPage } from "./types";
 import Sidebar from "./components/Sidebar";
 import DashboardPage from "./components/DashboardPage";
@@ -14,6 +14,7 @@ import OperationsPage from "./components/OperationsPage";
 import StatsDashboardPage from "./components/StatsDashboardPage";
 import MinecraftBlockIcon from "./components/MinecraftBlockIcon";
 import LoginPage from "./components/LoginPage";
+import { UnsavedChangesProvider, useUnsavedGuard } from "./UnsavedChanges";
 
 const PAGE_TITLE: Partial<Record<AppPage, string>> = {
   [AppPage.DASHBOARD]: "ダッシュボード",
@@ -37,21 +38,12 @@ const App: React.FC = () => {
   const [appVersion, setAppVersion] = useState("");
   const [clock, setClock] = useState(new Date());
   const [headerStatus, setHeaderStatus] = useState({ bridgeRunning: false, modOnline: false });
-  const eventsDirtyRef = useRef(false);
+  const { confirmDiscard, hasChanges } = useUnsavedGuard();
+  const [settingsRevision, setSettingsRevision] = useState(0);
   const contentRef = useRef<HTMLElement>(null);
 
-  // App.tsx はヘッダーのポーリング（bridgeProcessStatus/modStatus/時計）で数秒おきに再レンダリングされる。
-  // インラインの onDirtyChange を渡すと毎回新しい関数になり、EventSettingsPage側のuseEffect(load)が
-  // それを検知して未保存の編集内容をディスクの内容で上書きしてしまう事故があったため、参照を固定する。
-  const handleEventsDirtyChange = useCallback((dirty: boolean) => {
-    eventsDirtyRef.current = dirty;
-  }, []);
-
   const navigateTo = (page: AppPage) => {
-    if (activePage === AppPage.EVENTS && eventsDirtyRef.current) {
-      if (!window.confirm("イベント設定に保存されていない変更があります。\nこのまま移動しますか？")) return;
-      eventsDirtyRef.current = false;
-    }
+    if (page === activePage || !confirmDiscard()) return;
     setActivePage(page);
   };
 
@@ -189,10 +181,11 @@ const App: React.FC = () => {
             <div className="app-topbar-title">{PAGE_TITLE[activePage]}</div>
           </header>
 
-          <main ref={contentRef} className="app-content flex-1 overflow-y-auto">
+          {hasChanges && <div className="unsaved-banner" role="status">未保存の変更があります。保存してから画面を移動してください。</div>}
+          <main key={settingsRevision} ref={contentRef} className="app-content flex-1 overflow-y-auto">
           {activePage === AppPage.DASHBOARD && (
             <div className="page-pad p-6">
-              <DashboardPage />
+              <DashboardPage onNavigate={navigateTo} />
             </div>
           )}
 
@@ -201,7 +194,7 @@ const App: React.FC = () => {
 
           {activePage === AppPage.EVENTS && (
             <div className="page-pad p-6">
-              <EventSettingsPage onDirtyChange={handleEventsDirtyChange} />
+              <EventSettingsPage />
             </div>
           )}
 
@@ -217,7 +210,7 @@ const App: React.FC = () => {
             </div>
           )}
           {activePage === AppPage.OPERATIONS && (
-            <div className="page-pad p-6"><OperationsPage /></div>
+            <div className="page-pad p-6"><OperationsPage onRestored={() => { setSettingsRevision(value => value + 1); window.alert("設定を復元しました。復元前の設定もバックアップから戻せます。"); }} /></div>
           )}
           {activePage === AppPage.STATS && (
             <div className="page-pad p-6"><StatsDashboardPage /></div>
@@ -242,7 +235,7 @@ const App: React.FC = () => {
           {/* GiftsViewerPage は自身でスクロール管理するため h-full */}
           {activePage === AppPage.GIFTS_VIEWER && (
             <div className="h-full">
-              <GiftsViewerPage />
+              <GiftsViewerPage bridgeRunning={headerStatus.bridgeRunning} modOnline={headerStatus.modOnline} />
             </div>
           )}
           </main>
@@ -252,4 +245,4 @@ const App: React.FC = () => {
   );
 };
 
-export default App;
+export default function GuardedApp() { return <UnsavedChangesProvider><App /></UnsavedChangesProvider>; }
