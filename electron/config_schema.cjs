@@ -23,7 +23,7 @@ function validateBridgeConfig(config) {
   }
   if (config.mappings != null && !Array.isArray(config.mappings)) errors.push("mappings は配列で指定してください");
   const ids = new Set();
-  for (const [index, mapping] of (config.mappings || []).entries()) {
+  for (const [index, mapping] of (Array.isArray(config.mappings) ? config.mappings : []).entries()) {
     const id = String(mapping?.giftId ?? "").trim();
     if (!id) errors.push(`mappings[${index}].giftId が空です`);
     if (!String(mapping?.commandFile || "").trim()) errors.push(`mappings[${index}].commandFile が空です`);

@@ -2,6 +2,7 @@
 // イベント設定②：ルーレット / デスルーレット / コメントギフト
 // デザインはイベント設定①（EventSettingsPage）を踏襲。
 import React, { useCallback, useEffect, useState } from "react";
+import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 import { ToggleSlider } from "./ToggleSlider";
 
 type RouletteItem = {
@@ -284,6 +285,10 @@ const EventSettings2Page: React.FC = () => {
   });
   const [commentRules, setCommentRules] = useState<CommentGiftRule[]>([]);
   const [commentEnabled, setCommentEnabled] = useState(false);
+  const [savedSnapshot, setSavedSnapshot] = useState("");
+  const currentSnapshot = JSON.stringify({ roulette, deathRoulette, commentRules, commentEnabled });
+  const { confirmDiscard } = useUnsavedGuard();
+  useUnsavedChanges(Boolean(savedSnapshot) && currentSnapshot !== savedSnapshot, saving);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -295,23 +300,25 @@ const EventSettings2Page: React.FC = () => {
       ]);
       setCommandFiles((files as CommandFile[]).filter((f) => f.name !== "roulette.txt"));
       const r = cfg?.roulette || {};
-      setRoulette({
+      const loadedRoulette = {
         enabled: r.enabled === true,
         items: normItems(r.items),
         stopSound: String(r.stopSound || "entity.player.levelup"),
         particle: String(r.particle || "minecraft:totem_of_undying"),
-      });
+      };
+      setRoulette(loadedRoulette);
       const d = cfg?.deathRoulette || {};
-      setDeathRoulette({
+      const loadedDeathRoulette = {
         enabled: d.enabled === true,
         everyDeaths: Math.max(1, Math.min(1000, Number(d.everyDeaths ?? 3))),
         items: normItems(d.items),
         stopSound: String(d.stopSound || "entity.wither.spawn"),
         particle: String(d.particle || "minecraft:soul_fire_flame"),
-      });
+      };
+      setDeathRoulette(loadedDeathRoulette);
       const c = cfg?.commentGifts || {};
       setCommentEnabled(c.enabled === true);
-      setCommentRules((Array.isArray(c.rules) ? c.rules : []).map((rule: any) => ({
+      const loadedRules = (Array.isArray(c.rules) ? c.rules : []).map((rule: any) => ({
         id: rule?.id ?? newId(),
         match: String(rule?.match ?? ""),
         commandFile: String(rule?.commandFile ?? ""),
@@ -319,7 +326,9 @@ const EventSettings2Page: React.FC = () => {
         sound: String(rule?.sound ?? ""),
         particle: String(rule?.particle ?? ""),
         enabled: rule?.enabled !== false,
-      })));
+      }));
+      setCommentRules(loadedRules);
+      setSavedSnapshot(JSON.stringify({ roulette: loadedRoulette, deathRoulette: loadedDeathRoulette, commentRules: loadedRules, commentEnabled: c.enabled === true }));
     } catch (e: any) {
       setMsg({ type: "error", text: `読み込みエラー: ${e?.message ?? String(e)}` });
     } finally {
@@ -331,9 +340,11 @@ const EventSettings2Page: React.FC = () => {
 
   // どの保存ボタンでも3セクションまとめて保存する（1つの config ファイルのため）
   const save = async (label: string) => {
+    if (saving) return;
     setSaving(true);
     setMsg(null);
     try {
+      if ([...roulette.items, ...deathRoulette.items].some(row => !row.commandFile) || commentRules.some(row => !row.match.trim() || !row.commandFile)) throw new Error("未入力の行があります。コマンド・コメントを入力するか、不要な行を削除してください。");
       const cfg: any = await api.configRead();
       const next = {
         ...cfg,
@@ -356,6 +367,7 @@ const EventSettings2Page: React.FC = () => {
         },
       };
       await api.configWrite(next);
+      setSavedSnapshot(currentSnapshot);
       // ギフト設定・イベント設定から割り当てられる「ルーレット」仮想コマンドを配置
       try {
         await api.bridgeCommandsWrite({
@@ -404,7 +416,8 @@ const EventSettings2Page: React.FC = () => {
         </div>
         <button
           type="button"
-          onClick={load}
+          onClick={() => { if (confirmDiscard()) void load(); }}
+          disabled={saving}
           className="text-xs text-gray-400 hover:text-gray-200 px-3 py-2 rounded-lg border border-gray-700 hover:border-gray-500 transition"
         >
           🔄 再読込

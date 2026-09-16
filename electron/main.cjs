@@ -10,6 +10,19 @@ const { ENGINE_PORTS, checkEngine, getSpeakers, flattenSpeakers, synthesize } = 
 const { validateBridgeConfig } = require("./config_schema.cjs");
 const { autoUpdater } = require("electron-updater");
 const { RestartPolicy } = require("./restart_policy.cjs");
+const { runProc } = require("./process_runner.cjs");
+const { createSettingsBackups, atomicWrite, validCommand } = require("./settings_backups.cjs");
+const { runPreflight } = require("./preflight.cjs");
+const settingsBackups = createSettingsBackups({
+  paths: () => ({
+    config: getConfigPath(), app: getAppConfigPath(), tts: getTtsSettingsPath(),
+    bridgeTts: path.join(getBridgeBatDir(), "tts-settings.json"),
+    commands: path.join(getBridgeBatDir(), "commands", "minecraft"),
+    backups: path.join(app.getPath("userData"), "settings-backups", crypto.createHash("sha256").update(path.resolve(getConfigPath())).digest("hex").slice(0, 16)),
+  }),
+  version: () => app.getVersion(), readTts: () => readTtsSettings(),
+  isRunning: () => Boolean(bridgeProcRef || bridgeRestartTimer),
+});
 
 const isDev = process.env.ELECTRON_DEV === "1";
 
@@ -189,6 +202,15 @@ function createWindow() {
 
   session.defaultSession.setPermissionCheckHandler(() => false);
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  win.webContents.on("will-prevent-unload", (event) => {
+    const choice = dialog.showMessageBoxSync(win, {
+      type: "question", title: "未保存の変更があります",
+      message: "編集中の設定が保存されていません。",
+      detail: "変更を残す場合は編集に戻り、保存してから終了してください。",
+      buttons: ["編集に戻る", "変更を破棄して終了"], defaultId: 0, cancelId: 0, noLink: true,
+    });
+    if (choice === 1) event.preventDefault();
+  });
   win.loadFile(indexHtml);
 
   if (isDev) {
@@ -199,23 +221,6 @@ function createWindow() {
 // --------------------
 // Helpers: run process and capture logs
 // --------------------
-function runProc(cmd, args, cwd) {
-  return new Promise((resolve, reject) => {
-    const p = spawn(cmd, args, { cwd, windowsHide: true });
-
-    let out = "";
-    let err = "";
-
-    p.stdout.on("data", (d) => (out += d.toString()));
-    p.stderr.on("data", (d) => (err += d.toString()));
-
-    p.on("close", (code) => {
-      if (code === 0) resolve({ out });
-      else reject(new Error(err || out || `process failed: ${cmd} ${args.join(" ")} (code=${code})`));
-    });
-  });
-}
-
 function detectBundledNodeExe() {
   // 置き方が複数あり得るので順に探す。
   // v1.0.12以降: resources/bridge/bridge-runtime.zip を serverFolder/bridge へ必要時展開する。
@@ -306,7 +311,7 @@ ipcMain.handle("config:read", async () => {
   return JSON.parse(raw);
 });
 
-ipcMain.handle("config:write", async (_event, nextConfig) => {
+function writeBridgeConfig(nextConfig) {
   const validation = validateBridgeConfig(nextConfig);
   if (!validation.ok) throw new Error(`設定エラー:\n${validation.errors.join("\n")}`);
   const configPath = getConfigPath();
@@ -323,12 +328,40 @@ ipcMain.handle("config:write", async (_event, nextConfig) => {
   const json = JSON.stringify(merged, null, 2);
   if (json.length > 2_000_000) throw new Error("Config too large.");
 
-  fs.writeFileSync(configPath, json, "utf-8");
+  if (fs.readFileSync(configPath, "utf8") !== json) settingsBackups.create("automatic");
+  atomicWrite(configPath, json);
   return { ok: true };
+}
+
+ipcMain.handle("config:write", async (_event, nextConfig) => writeBridgeConfig(nextConfig));
+ipcMain.handle("config:mappings:write", async (_event, mappings) => {
+  const configPath = getConfigPath();
+  ensureConfigExists(configPath);
+  return writeBridgeConfig({ ...JSON.parse(fs.readFileSync(configPath, "utf8")), mappings });
 });
 
 ipcMain.handle("config:path", async () => {
   return getConfigPath();
+});
+
+ipcMain.handle("settings:backups:list", () => settingsBackups.list());
+ipcMain.handle("settings:backups:create", () => settingsBackups.create("manual"));
+ipcMain.handle("settings:backups:restore", (_event, id) => settingsBackups.restore(id));
+let preflightTask = null;
+ipcMain.handle("preflight:run", () => {
+  if (!preflightTask) preflightTask = runPreflight({
+    configPath: getConfigPath(), serverRoot: getServerRoot(),
+    commandsDir: path.join(getBridgeBatDir(), "commands", "minecraft"),
+    giftsPath: getGiftsMinPath(), giftsMetaPath: getGiftsMetaPath(),
+    modStatus: async () => { try { return { ...(await requestDouma("GET", "/douma/status")), online: true }; } catch { return { online: false }; } },
+    bridgeStatus: () => {
+      let runtime = {};
+      try { runtime = JSON.parse(fs.readFileSync(path.join(getBridgeBatDir(), "runtime-status.json"), "utf8")); } catch {}
+      return { running: Boolean(bridgeProcRef), tiktok: runtime.tiktok };
+    },
+    ttsStatus: async () => { const settings = readTtsSettings(); return { enabled: settings.enabled, engine: settings.engine, online: settings.enabled ? await checkEngine(settings.engine) : false }; },
+  }).finally(() => { preflightTask = null; });
+  return preflightTask;
 });
 
 let updateState = { state: "idle", version: null, percent: 0, error: "", checkedAt: null };
@@ -418,6 +451,7 @@ function writeAppConfig(data) {
   const p = getAppConfigPath();
   const current = readAppConfig();
   const next = { ...current, ...data };
+  if (next.serverFolder) next.serverFolder = path.resolve(next.serverFolder);
   fs.writeFileSync(p, JSON.stringify(next, null, 2), "utf-8");
 }
 
@@ -537,7 +571,8 @@ function getServerTemplatePath() {
 function getServerRoot() {
   // app-config.json に保存されたフォルダを優先
   const cfg = readAppConfig();
-  if (cfg.serverFolder && fs.existsSync(cfg.serverFolder)) return cfg.serverFolder;
+  // 指定先が消えていても別のサーバーに切り替えない。診断画面で同じパスを示す。
+  if (cfg.serverFolder) return path.resolve(cfg.serverFolder);
   // フォールバック: 未パッケージ時は開発フォルダ、パッケージ後はextraResources
   if (!app.isPackaged) return path.resolve(__dirname, "..", "server", "Douma_Craft");
   return path.join(process.resourcesPath, "server", "Douma_Craft");
@@ -1881,7 +1916,7 @@ ipcMain.handle("presets:load", (_event, name) => {
   const value = JSON.parse(fs.readFileSync(source, "utf8"));
   const validation = validateBridgeConfig(value);
   if (!validation.ok) throw new Error(validation.errors.join("\n"));
-  fs.writeFileSync(getConfigPath(), JSON.stringify(value, null, 2), "utf8");
+  writeBridgeConfig(value);
   return { ok: true, config: value };
 });
 ipcMain.handle("operations:stats", () => {
@@ -2275,25 +2310,10 @@ ipcMain.handle("server:setup", async () => {
 // IPC: Gifts update (bat不要化)
 // --------------------
 ipcMain.handle("gifts:update", async (_event, username) => {
-  const user = String(username || "").trim().replace(/^@/, "");
-  if (!user) throw new Error("username is empty");
-
-  const dir = getGiftsDir();
-  const fetchTool = getGvToolPath("fetch_gifts.cjs");
-  const htmlTool  = getGvToolPath("gifts_to_html.cjs");
-
-  if (!fs.existsSync(fetchTool)) throw new Error(`fetch_gifts.cjs not found: ${fetchTool}`);
-  if (!fs.existsSync(htmlTool))  throw new Error(`gifts_to_html.cjs not found: ${htmlTool}`);
-
-  await ensureNodeRuntimeAvailable();
-  const nodeCmd = getNodeCommand();
-
-  await runProc(nodeCmd, [fetchTool, user, "--out", dir], dir);
-  await runProc(nodeCmd, [htmlTool, "--in", path.join(dir, "gifts.min.json"), "--out", dir], dir);
-
+  const result = await updateGifts(username);
   return {
-    ok: true,
-    giftsDir: dir,
+    ...result,
+    giftsDir: result.dir,
     minPath: getGiftsMinPath(),
     htmlPath: getGiftsHtmlPath(),
   };
@@ -2338,15 +2358,13 @@ async function autoUpdateGiftsIfStale() {
   const username = String(bridgeCfg.tiktokUsername || "").trim().replace(/^@/, "");
   if (!username) return { skipped: "username" };
   const metaPath = path.join(getGvDataDir(), "gifts.meta.json");
-  if (fs.existsSync(metaPath) && Date.now() - fs.statSync(metaPath).mtimeMs < 24 * 60 * 60 * 1000) {
-    return { skipped: "fresh" };
-  }
-  const dir = getGvDataDir();
-  await ensureNodeRuntimeAvailable();
-  const nodeCmd = getNodeCommand();
-  await runProc(nodeCmd, [getGvToolPath("fetch_gifts.cjs"), username, "--out", dir], dir);
-  await runProc(nodeCmd, [getGvToolPath("gifts_to_html.cjs"),
-    "--in", path.join(dir, "gifts.min.json"), "--out", dir], dir);
+  try {
+    const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+    const age = Date.now() - Date.parse(meta.generatedAt);
+    if (meta.username === username && meta.count > 0 && age >= 0 && age < 86400000 &&
+        fs.existsSync(path.join(getGvDataDir(), "gifts.min.json"))) return { skipped: "fresh" };
+  } catch { /* 壊れたメタデータも再取得する */ }
+  await updateGifts(username);
   console.log(`[gifts:auto-update] updated for @${username}`);
   return { ok: true };
 }
@@ -2370,11 +2388,23 @@ ipcMain.handle("gv:gifts:read", async () => {
 // --------------------
 // gv:gifts:update
 // --------------------
-ipcMain.handle("gv:gifts:update", async (_event, username) => {
-  const user = String(username || "").trim().replace(/^@/, "");
-  if (!user) throw new Error("username is empty");
+let giftUpdateTask = null;
+let giftUpdateUsername = "";
 
-  const toolsDir = getGvToolsDir();
+async function updateGifts(username) {
+  const user = String(username || "").trim().replace(/^@/, "");
+  if (!/^[\w.]{1,64}$/.test(user)) throw new Error("TikTok IDを入力してください（英数字・ピリオド・アンダースコア）。");
+  if (giftUpdateTask) {
+    if (giftUpdateUsername !== user) throw new Error("別のアカウントのギフトを更新中です。完了してからお試しください。");
+    return giftUpdateTask;
+  }
+  giftUpdateUsername = user;
+  giftUpdateTask = performGiftUpdate(user);
+  try { return await giftUpdateTask; }
+  finally { giftUpdateTask = null; giftUpdateUsername = ""; }
+}
+
+async function performGiftUpdate(user) {
   const fetchTool = getGvToolPath("fetch_gifts.cjs");
   const htmlTool = getGvToolPath("gifts_to_html.cjs");
 
@@ -2385,11 +2415,31 @@ ipcMain.handle("gv:gifts:update", async (_event, username) => {
   await ensureNodeRuntimeAvailable();
   const nodeCmd = getNodeCommand();
 
-  await runProc(nodeCmd, [fetchTool, user, "--out", dir], dir);
-  await runProc(nodeCmd, [htmlTool, "--in", path.join(dir, "gifts.min.json"), "--out", dir], dir);
+  // 失敗時に既存データを壊さないよう、取得・HTML生成が完了してから置き換える。
+  const staging = fs.mkdtempSync(path.join(dir, ".update-"));
+  try {
+    await runProc(nodeCmd, [fetchTool, user, "--out", staging], dir, { timeoutMs: 60000 });
+    await runProc(nodeCmd, [htmlTool, "--in", path.join(staging, "gifts.min.json"), "--out", staging], dir, { timeoutMs: 15000 });
+    const gifts = JSON.parse(fs.readFileSync(path.join(staging, "gifts.min.json"), "utf8"));
+    const meta = JSON.parse(fs.readFileSync(path.join(staging, "gifts.meta.json"), "utf8"));
+    if (!Array.isArray(gifts) || !gifts.length || meta.username !== user || meta.count !== gifts.length) {
+      throw new Error("ギフトデータの検証に失敗しました。保存済みの一覧は変更していません。");
+    }
+    const files = ["gifts.full.json", "gifts.min.json", "gifts.html", "gifts.meta.json"];
+    for (const name of files) {
+      if (!fs.statSync(path.join(staging, name)).isFile()) throw new Error(`取得ファイルが不正です: ${name}`);
+    }
+    for (const name of files) {
+      fs.renameSync(path.join(staging, name), path.join(dir, name));
+    }
+    for (const win of BrowserWindow.getAllWindows()) win.webContents.send("gifts:updated", meta);
+    return { ok: true, dir, meta };
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
+  }
+}
 
-  return { ok: true, dir };
-});
+ipcMain.handle("gv:gifts:update", async (_event, username) => updateGifts(username));
 
 // --------------------
 // gv:gifts:openFolder
@@ -2485,6 +2535,7 @@ ipcMain.handle("app:config:read", async () => readPublicAppConfig());
 
 ipcMain.handle("app:config:write", async (_event, data) => {
   if (typeof data !== "object" || data === null) throw new Error("data must be an object");
+  if (Object.hasOwn(data, "autoBackupOnServerStart") && data.autoBackupOnServerStart !== readAppConfig().autoBackupOnServerStart && fs.existsSync(getConfigPath())) settingsBackups.create("automatic");
   writeAppConfig(sanitizeRendererAppConfigUpdate(data));
   return { ok: true };
 });
@@ -2672,7 +2723,8 @@ ipcMain.handle("bridge:commands:write", async (_event, { filename, content }) =>
   const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
   fs.mkdirSync(dir, { recursive: true });
   const fullPath = path.join(dir, filename);
-  fs.writeFileSync(fullPath, content, "utf8");
+  if (fs.existsSync(getConfigPath())) settingsBackups.create("automatic");
+  atomicWrite(fullPath, content);
   return { ok: true, path: fullPath };
 });
 
@@ -2833,20 +2885,18 @@ function readTtsSettings() {
 function writeTtsSettings(settings) {
   const normalized = normalizeTtsSettings(settings);
   const p = getTtsSettingsPath();
-  fs.writeFileSync(p, JSON.stringify(normalized, null, 2), "utf-8");
-
   // bridge フォルダにも同期（bridge/index.js が読む）
-  try {
-    const bridgeTtsPath = path.join(getBridgeBatDir(), "tts-settings.json");
-    fs.mkdirSync(path.dirname(bridgeTtsPath), { recursive: true });
-    fs.writeFileSync(bridgeTtsPath, JSON.stringify(normalized, null, 2), "utf-8");
-  } catch { /* bridge フォルダが未作成でも無視 */ }
+  const bridgeTtsPath = path.join(getBridgeBatDir(), "tts-settings.json");
+  fs.mkdirSync(path.dirname(bridgeTtsPath), { recursive: true });
+  fs.writeFileSync(bridgeTtsPath, JSON.stringify(normalized, null, 2), "utf-8");
+  fs.writeFileSync(p, JSON.stringify(normalized, null, 2), "utf-8");
   return normalized;
 }
 
 ipcMain.handle("tts:settings:read", () => readTtsSettings());
 
 ipcMain.handle("tts:settings:write", (_event, settings) => {
+  if (fs.existsSync(getConfigPath()) && JSON.stringify(readTtsSettings()) !== JSON.stringify(settings)) settingsBackups.create("automatic");
   return { ok: true, settings: writeTtsSettings(settings) };
 });
 
@@ -2904,7 +2954,11 @@ ipcMain.handle("tts:launchEngine", async (_event, engine) => {
     return { ok: false, message: `実行ファイルが見つかりません。公式サイトからインストールしてください。\n${expected}` };
   }
   try {
-    spawn(exePath, [], { cwd: path.dirname(exePath), detached: true, stdio: "ignore" }).unref();
+    await new Promise((resolve, reject) => {
+      const child = spawn(exePath, [], { cwd: path.dirname(exePath), detached: true, stdio: "ignore" });
+      child.once("error", reject);
+      child.once("spawn", () => { child.unref(); resolve(); });
+    });
   } catch (spawnError) {
     const shellError = await shell.openPath(exePath);
     if (shellError) {

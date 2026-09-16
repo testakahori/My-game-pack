@@ -5,6 +5,7 @@ import type { GiftMapping } from "../types";
 type Gift = { id: number; name: string; diamond_count: number; image?: string | null };
 type GiftsMeta = { generatedAt: string; username: string; count: number } | null;
 type StatusFilter = "all" | "set" | "unset";
+const GIFTS_PER_PAGE = 60;
 
 function getApi() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -26,6 +27,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
   const [sort, setSort]                 = useState<"costAsc" | "costDesc" | "nameAsc">("costAsc");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [toastMsg, setToastMsg]         = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -38,7 +40,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
     return map;
   }, [mappings]);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (throwOnError = false) => {
     setErr(null);
     const api = getApi();
     if (!api?.giftsRead) { setErr("Electron API (giftsRead) が見つかりません。"); return; }
@@ -48,10 +50,12 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
       setMeta(res.meta ?? null);
     } catch (e: any) {
       setErr(e?.message || String(e));
+      if (throwOnError) throw e;
     }
   }, []);
 
   useEffect(() => { reload(); }, [reload]);
+  useEffect(() => getApi()?.onGiftsUpdated?.(() => { void reload(); }), [reload]);
 
   const onUpdate = async () => {
     setLoading(true);
@@ -68,7 +72,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
       }
       if (!username.trim()) throw new Error("TikTokユーザー名を先に設定してください");
       await api.giftsUpdate(username.trim().replace(/^@/, ""));
-      await reload();
+      await reload(true);
       showToast("ギフト一覧を更新しました ✓");
     } catch (e: any) {
       setErr(e?.message || String(e));
@@ -119,6 +123,11 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
     showToast(`「${g.name}」を選択中`);
   };
 
+  const pageCount = Math.max(1, Math.ceil(filtered.length / GIFTS_PER_PAGE));
+  const currentPage = Math.min(page, pageCount);
+  const pageStart = (currentPage - 1) * GIFTS_PER_PAGE;
+  const visibleGifts = filtered.slice(pageStart, pageStart + GIFTS_PER_PAGE);
+
   return (
     <div className="gift-catalog-panel relative bg-gray-800 border border-gray-700 rounded-3xl shadow-xl overflow-hidden">
 
@@ -167,7 +176,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
                 <button
                   key={key}
                   type="button"
-                  onClick={() => setStatusFilter(key)}
+                  onClick={() => { setStatusFilter(key); setPage(1); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                     isActive ? activeColor : "text-gray-400 hover:text-gray-200"
                   }`}
@@ -188,7 +197,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
             <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-[10px]" />
             <input
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              onChange={(e) => { setQ(e.target.value); setPage(1); }}
               placeholder="検索"
               className="w-full bg-gray-900 border border-gray-700 rounded-xl pl-7 pr-3 py-2 text-xs text-gray-100 outline-none focus:ring-2 focus:ring-cyan-500/50"
             />
@@ -197,7 +206,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
           {/* ソート */}
           <select
             value={sort}
-            onChange={(e) => setSort(e.target.value as typeof sort)}
+            onChange={(e) => { setSort(e.target.value as typeof sort); setPage(1); }}
             className="bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-xs text-gray-100 outline-none focus:ring-2 focus:ring-cyan-500/30"
           >
             <option value="costAsc">💎 低→高</option>
@@ -206,7 +215,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
           </select>
 
           <div className="text-[10px] text-gray-600">
-            {filtered.length} 件表示
+            {filtered.length ? pageStart + 1 : 0}–{pageStart + visibleGifts.length} / {filtered.length} 件表示
           </div>
         </div>
       </div>
@@ -230,7 +239,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
           </div>
         ) : (
           <div className="grid grid-cols-10 gap-2">
-            {filtered.map((g) => {
+            {visibleGifts.map((g) => {
               const id = String(g.id);
               const isSelected = id === selectedGiftId;
               const isSet      = !!(mappingsByGiftId[id]?.commandFile);
@@ -264,7 +273,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
                   <div className={`gift-tile-art w-11 h-11 rounded-lg flex items-center justify-center overflow-hidden ${
                     isSelected ? "bg-cyan-800/40" : "bg-gray-700/60"
                   }`}>
-                    {g.image ? <img src={g.image} alt="" className="w-full h-full object-contain" /> : null}
+                    {g.image ? <img src={g.image} alt="" loading="lazy" decoding="async" className="w-full h-full object-contain" /> : null}
                   </div>
 
                   {/* 名前 + コスト */}
@@ -284,6 +293,13 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
               );
             })}
           </div>
+        )}
+        {pageCount > 1 && (
+        <nav className="gift-catalog-pagination pb-4" aria-label="ギフト選択のページ">
+          <button type="button" className="gift-catalog-action" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>前の60件</button>
+          <span>{currentPage} / {pageCount} ページ</span>
+          <button type="button" className="gift-catalog-action" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>次の60件</button>
+        </nav>
         )}
       </div>
 

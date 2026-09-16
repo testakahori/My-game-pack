@@ -33,7 +33,53 @@ function ensureDir(p) {
   fs.mkdirSync(p, { recursive: true });
 }
 
-(async () => {
+function configureSystemCertificates(tls = require("node:tls")) {
+  // OSで信頼済みの証明書も使う。証明書・ホスト名の検証は無効化しない。
+  if (typeof tls.getCACertificates === "function" && typeof tls.setDefaultCACertificates === "function") {
+    tls.setDefaultCACertificates([...tls.getCACertificates("default"), ...tls.getCACertificates("system")]);
+  }
+}
+
+function formatFetchError(error) {
+  const seen = new Set();
+  const details = [];
+  function visit(item) {
+    if (!item || seen.has(item) || seen.size >= 20) return;
+    seen.add(item);
+    details.push(item);
+    visit(item.cause);
+    if (Array.isArray(item.errors)) item.errors.forEach(visit);
+  }
+  visit(error);
+  if (details.some(item => /CERT|UNABLE_TO_VERIFY|SELF_SIGNED/.test(String(item.code || "")))) {
+    return "通信先の証明書を確認できませんでした。Windowsの日時や、ネットワーク・保護ソフトの通知を確認してください。保存済みのギフト一覧はそのまま使えます。";
+  }
+  const message = details.find(item => typeof item.message === "string" && item.message.trim())?.message;
+  return message ? message.split(/[\r\n]/)[0].replace(/https?:\/\/\S+/g, "通信先").slice(0, 240)
+    : "ギフト一覧を取得できませんでした。TikTok IDと通信状態を確認して、もう一度お試しください。";
+}
+
+async function fetchGiftCatalog(connection) {
+  const roomId = await connection.fetchRoomId();
+  if (!roomId) throw new Error("配信ルームが見つかりません。TikTok IDと配信状態を確認してください。");
+  // 2.4系のfetchAvailableGiftsは外部の有料署名サービスを要求する。
+  // 公開のgift/list APIで取得し、配信接続や外部署名を必要としない。
+  const response = await connection.webClient.getJsonObjectFromWebcastApi("gift/list/", {
+    ...connection.clientParams,
+    room_id: roomId,
+    app_language: "ja-JP",
+    browser_language: "ja-JP",
+    webcast_language: "ja-JP",
+  });
+  const gifts = response?.data?.gifts;
+  if (!Array.isArray(gifts) || gifts.length === 0 || gifts.some(g =>
+    !g || !g.id || typeof g.name !== "string" || !Number.isFinite(g.diamond_count) || g.diamond_count < 0)) {
+    throw new Error("有効なギフト一覧を取得できませんでした。保存済みの一覧は変更していません。");
+  }
+  return { gifts, roomId };
+}
+
+async function main() {
   const uniqueId = normalizeUniqueId(process.argv[2]);
   if (!uniqueId) {
     console.error("Usage: node tools/fetch_gifts.cjs <tiktokUniqueId> [--out <dir>]");
@@ -47,6 +93,7 @@ function ensureDir(p) {
   const outMin = path.join(outBase, "gifts.min.json");
   const outMeta = path.join(outBase, "gifts.meta.json");
 
+  configureSystemCertificates();
   const connection = new TikTokLiveConnection(uniqueId, {
     enableExtendedGiftInfo: true,
     // ギフト名などを日本語で取得する（デフォルトは en）
@@ -62,7 +109,7 @@ function ensureDir(p) {
 
   try {
     console.log(`[fetchAvailableGifts] start: @${uniqueId}`);
-    const giftList = await connection.fetchAvailableGifts();
+    const { gifts: giftList, roomId } = await fetchGiftCatalog(connection);
 
     fs.writeFileSync(outFull, JSON.stringify(giftList, null, 2), "utf-8");
 
@@ -78,6 +125,7 @@ function ensureDir(p) {
     const meta = {
       generatedAt: new Date().toISOString(),
       username: uniqueId,
+      roomId,
       count: simplified.length,
     };
     fs.writeFileSync(outMeta, JSON.stringify(meta, null, 2), "utf-8");
@@ -87,8 +135,10 @@ function ensureDir(p) {
     console.log(`- min : ${outMin}`);
     console.log(`- meta: ${outMeta}`);
   } catch (err) {
-    console.error("FAILED:", err?.message || err);
-    console.error(err);
-    process.exit(2);
+    console.error("FAILED:", formatFetchError(err));
+    process.exitCode = 2;
   }
-})();
+}
+
+module.exports = { fetchGiftCatalog, normalizeUniqueId, configureSystemCertificates, formatFetchError };
+if (require.main === module) main();

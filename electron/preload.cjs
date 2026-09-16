@@ -19,10 +19,15 @@ contextBridge.exposeInMainWorld("mygamepack", {
   windowMinimize: () => ipcRenderer.send("window:minimize"),
   windowMaximizeToggle: () => ipcRenderer.send("window:maximizeToggle"),
   windowClose: () => ipcRenderer.send("window:close"),
+  preflightRun: () => ipcRenderer.invoke("preflight:run"),
+  settingsBackupsList: () => ipcRenderer.invoke("settings:backups:list"),
+  settingsBackupCreate: () => ipcRenderer.invoke("settings:backups:create"),
+  settingsBackupRestore: (id) => ipcRenderer.invoke("settings:backups:restore", id),
   // --------------------
   // config read/write
   // --------------------
   configRead: () => ipcRenderer.invoke("config:read"),
+  configMappingsWrite: (mappings) => ipcRenderer.invoke("config:mappings:write", mappings),
 
   configWrite: (cfg) => {
     if (!isPlainObject(cfg)) {
@@ -53,6 +58,11 @@ contextBridge.exposeInMainWorld("mygamepack", {
 
   // gifts.min.json / gifts.meta.json を読む（UIのギフト一覧タブ用）
   giftsRead: () => ipcRenderer.invoke("gifts:read"),
+  onGiftsUpdated: (callback) => {
+    const listener = (_event, meta) => callback(meta);
+    ipcRenderer.on("gifts:updated", listener);
+    return () => ipcRenderer.removeListener("gifts:updated", listener);
+  },
 
   // UIからギフト一覧を更新（bat不要化）
   // username は "akahoridouma" / "@akahoridouma" どちらでもOK

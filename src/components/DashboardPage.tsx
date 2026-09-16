@@ -1,5 +1,8 @@
 // src/components/DashboardPage.tsx
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { AppPage } from "../types";
+import PreflightPanel from "./PreflightPanel";
+import { useUnsavedChanges } from "../UnsavedChanges";
 import type { GiftMapping } from "../types";
 
 type RunState = "stopped" | "starting" | "running" | "error";
@@ -243,7 +246,7 @@ const WorldDiorama: React.FC = () => (
 );
 
 // ── メインコンポーネント ──────────────────────────────────
-const DashboardPage: React.FC = () => {
+const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNavigate }) => {
   const api = (window as any).mygamepack;
 
   const [forgeState,  setForgeState]  = useState<RunState>("stopped");
@@ -397,6 +400,7 @@ const DashboardPage: React.FC = () => {
   const subfolder = draft.startsWith(`${WORLD_PREFIX}/`) ? draft.slice(WORLD_PREFIX.length + 1) : draft;
   const setSubfolder = (v: string) => { setDraft(`${WORLD_PREFIX}/${v}`); setWorldMsg(null); };
   const isWorldDirty = draft !== levelName;
+  useUnsavedChanges(!worldLoading && (isWorldDirty || (appliedUsername !== null && username.trim().replace(/^@/, "") !== appliedUsername)), applyBusy || worldSaving);
 
   // ── ハンドラー ──
   const logBackupResult = (backup?: { ok: boolean; message: string } | null) => {
@@ -490,8 +494,7 @@ const DashboardPage: React.FC = () => {
     const existingCfg = await api.configRead();
 
     // mappings は config.minecraft.json を唯一の正とする。
-    // UI(localStorage)に有効な割当があるときだけ更新し、空のときは既存 config の mappings を維持する。
-    // （リデザイン・キャッシュ消失・新規プロファイルで全ギフト割当が消える事故を防ぐ）
+    // 空配列も正式な保存結果。古いlocalStorageで削除済みの割当を復活させない。
     const uiMappings = safeParse<GiftMapping[]>(localStorage.getItem(LS_MAPPINGS), [])
       .filter((m) => String(m.giftId ?? "").trim() && String(m.commandFile ?? "").trim())
       .map((m) => ({
@@ -501,7 +504,7 @@ const DashboardPage: React.FC = () => {
         repeat: Math.min(100, Math.max(1, Number(m.repeat ?? 1))),
       }));
     const existingMappings = Array.isArray(existingCfg?.mappings) ? existingCfg.mappings : [];
-    const mappings = uiMappings.length > 0 ? uiMappings : existingMappings;
+    const mappings = Array.isArray(existingCfg?.mappings) ? existingMappings : uiMappings;
 
     // username は「UIで明示入力があればそれ、無ければ config の既存値」。ハードコード既定値は使わない。
     const existingUsername = String(
@@ -805,6 +808,7 @@ const DashboardPage: React.FC = () => {
 
   return (
     <div className="dashboard-page cockpit-page page-surface">
+      <PreflightPanel onNavigate={onNavigate} />
       <div className="cockpit-layout">
         <section className="cockpit-main">
           <div className="cockpit-panel-title">

@@ -7,6 +7,7 @@ import CommandSetManager from "./CommandSetManager";
 import GiftsGridSection from "./GiftsGridSection";
 import ImageEditorPage from "./ImageEditorPage";
 import MinecraftCommandIcon from "./MinecraftCommandIcon";
+import { useUnsavedGuard } from "../UnsavedChanges";
 
 const LS_ACTIVE_TAB   = "mc_bridge_active_tab_v1";
 const LS_MAPPINGS     = "mc_tiktok_mappings_unified_v1";
@@ -60,6 +61,7 @@ function configToGiftMappings(cfg: any): GiftMapping[] {
 }
 
 const GiftSettingsPage: React.FC = () => {
+  const { confirmDiscard } = useUnsavedGuard();
   const [activeTab, setActiveTab]       = useState<AppTab>(AppTab.MAPPINGS);
   const [mappings, setMappings]         = useState<GiftMapping[]>([]);
   const [commandSets, setCommandSets]   = useState<CommandSet[]>([]);
@@ -69,27 +71,27 @@ const GiftSettingsPage: React.FC = () => {
   const [pickedGiftDiamonds, setPickedGiftDiamonds] = useState<number | undefined>(undefined);
   // 初期ロード完了までは保存副作用を止める（空配列で config/localStorage を上書きしないため）
   const hydratedRef = useRef(false);
+  const mappingsRef = useRef<GiftMapping[]>([]);
+  const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const [saveError, setSaveError] = useState("");
 
-  // config.minecraft.json を唯一の正として mappings を永続化する（best-effort）。
+  // config.minecraft.json に保存できた時だけ画面へ反映する。
   // Bridge は fs.watch でホットリロードするため、保存は即反映される。
   const persistMappingsToConfig = useCallback(async (list: GiftMapping[]) => {
     const api = (window as any).mygamepack;
-    if (!api?.configRead || !api?.configWrite) return;
-    try {
+    if (!api?.configRead || !api?.configWrite) throw new Error("設定の保存機能を利用できません。");
       const cfg = await api.configRead();
-      const normalized = list
-        .filter((m) => String(m.giftId ?? "").trim() && String(m.commandFile ?? "").trim())
-        .map((m) => ({
+      const unfinished = list.find(m => !String(m.giftId ?? "").trim() || !String(m.commandFile ?? "").trim());
+      if (unfinished) throw new Error(`ギフト「${unfinished.name || unfinished.giftId || "未設定"}」のコマンドが未設定です。その設定を完成させるか、不要なら削除してください。`);
+      const normalized = list.map((m) => ({
           giftId: String(m.giftId),
           name: m.name || String(m.giftId),
           commandFile: (m.commandFile || "").trim(),
           repeat: Math.min(100, Math.max(1, Number(m.repeat ?? 1))),
         }));
-      // username 未設定の config は validation で弾かれる。その場合は localStorage に留め、
-      // ダッシュボードの「BRIDGE に適用」で username と一緒に確定させる。
-      if (!String(cfg?.tiktokUsername || "").trim()) return;
-      await api.configWrite({ ...cfg, mappings: normalized });
-    } catch { /* localStorage がキャッシュとして残るので致命ではない */ }
+      if (!String(cfg?.tiktokUsername || "").trim()) throw new Error("ダッシュボードでTikTok IDを承認してから保存してください。");
+      if (api.configMappingsWrite) await api.configMappingsWrite(normalized);
+      else await api.configWrite({ ...cfg, mappings: normalized });
   }, []);
 
   useEffect(() => {
@@ -107,7 +109,7 @@ const GiftSettingsPage: React.FC = () => {
         const cfg = await api?.configRead?.();
         const fromConfig = configToGiftMappings(cfg);
         // config に割当があればそれを最優先（localStorage が空でもギフト設定が消えない）
-        if (fromConfig.length > 0) resolved = fromConfig;
+        if (Array.isArray(cfg?.mappings) && (fromConfig.length > 0 || cfg?.tiktokUsername)) resolved = fromConfig;
       } catch { /* fall back to localStorage */ }
 
       if (!resolved) {
@@ -118,6 +120,7 @@ const GiftSettingsPage: React.FC = () => {
         resolved = devSeed ? DEV_SAMPLE_MAPPINGS : savedMappings;
       }
       setMappings(resolved);
+      mappingsRef.current = resolved;
       hydratedRef.current = true;
     })();
   }, []);
@@ -126,7 +129,6 @@ const GiftSettingsPage: React.FC = () => {
   useEffect(() => {
     if (!hydratedRef.current) return; // 初期ロード前の空配列で上書きしない
     localStorage.setItem(LS_MAPPINGS, JSON.stringify(mappings));
-    void persistMappingsToConfig(mappings);
   }, [mappings, persistMappingsToConfig]);
   useEffect(() => {
     setCommandSets(safeParse<CommandSet[]>(localStorage.getItem(LS_COMMAND_SETS), []));
@@ -134,23 +136,47 @@ const GiftSettingsPage: React.FC = () => {
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key === LS_COMMAND_SETS) setCommandSets(safeParse<CommandSet[]>(e.newValue, []));
-      if (e.key === LS_MAPPINGS)     setMappings(safeParse<GiftMapping[]>(e.newValue, []));
+      if (e.key === LS_MAPPINGS) {
+        const next = safeParse<GiftMapping[]>(e.newValue, []);
+        mappingsRef.current = next;
+        setMappings(next);
+      }
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  const addMapping    = (m: Omit<GiftMapping, "id">) => setMappings((p) => [...p, { ...m, id: uuid() }]);
-  const updateMapping = (id: string, updated: Partial<GiftMapping>) =>
-    setMappings((p) => p.map((x) => (x.id === id ? { ...x, ...updated } : x)));
-  const removeMapping = (id: string) => setMappings((p) => p.filter((x) => x.id !== id));
+  const commitMappings = useCallback((change: (previous: GiftMapping[]) => GiftMapping[]) => {
+    const task = saveQueue.current.catch(() => {}).then(async () => {
+      const next = change(mappingsRef.current);
+      try {
+        await persistMappingsToConfig(next);
+        mappingsRef.current = next;
+        setMappings(next);
+        setSaveError("");
+      } catch (error: any) {
+        setSaveError(`保存できませんでした: ${error?.message || String(error)}`);
+        throw error;
+      }
+    });
+    saveQueue.current = task;
+    return task;
+  }, [persistMappingsToConfig]);
+  const addMapping = useCallback((m: Omit<GiftMapping, "id">) => commitMappings(p => [...p, { ...m, id: uuid() }]), [commitMappings]);
+  const updateMapping = useCallback((id: string, updated: Partial<GiftMapping>) =>
+    commitMappings(p => p.map(x => x.id === id ? { ...x, ...updated } : x)), [commitMappings]);
+  const removeMapping = useCallback((id: string) => {
+    if (!confirmDiscard()) return;
+    void commitMappings(p => p.filter(x => x.id !== id)).catch(() => {});
+  }, [commitMappings, confirmDiscard]);
 
   const handlePickGift = useCallback((gid: string, gname: string, image?: string | null, diamonds?: number) => {
+    if (gid === pickedGiftId || !confirmDiscard()) return;
     setPickedGiftId(gid);
     setPickedGiftName(gname);
     setPickedGiftImage(image);
     setPickedGiftDiamonds(diamonds);
-  }, []);
+  }, [pickedGiftId, confirmDiscard]);
 
   const pickedMapping = useMemo(
     () => mappings.find((mapping) => String(mapping.giftId) === String(pickedGiftId)),
@@ -177,7 +203,7 @@ const GiftSettingsPage: React.FC = () => {
                 <i>✦</i><b>✦</b>
               </div>
               <div className="gift-preview-heading">
-                <h2>{pickedGiftName || "ハートミー"}</h2>
+                <h2>{pickedGiftName || "ギフトを選択"}</h2>
                 <em>{pickedMapping ? "設定済み" : "未設定"}</em>
               </div>
               <p>コスト: <strong>💎 {pickedGiftDiamonds ?? 1}</strong></p>
@@ -185,7 +211,7 @@ const GiftSettingsPage: React.FC = () => {
                 <small>ルートプレビュー</small>
                 <div>
                   <span><MinecraftCommandIcon command={pickedMapping?.commandFile || "skeleton.txt"} /></span>
-                  <b>{pickedMapping?.commandSetLabel || pickedMapping?.commandFile || "スケルトン降下！"}</b>
+                  <b>{pickedMapping?.commandSetLabel || pickedMapping?.commandFile || "コマンド未設定"}</b>
                   <em>× {pickedMapping?.repeat ?? 1}回</em>
                 </div>
               </div>
@@ -204,6 +230,7 @@ const GiftSettingsPage: React.FC = () => {
             onAdd={addMapping}
             onUpdate={updateMapping}
             onRemove={removeMapping}
+            onPickGift={handlePickGift}
           />
         </div>
       );
@@ -224,11 +251,13 @@ const GiftSettingsPage: React.FC = () => {
     pickedGiftDiamonds,
     handlePickGift,
     pickedMapping,
+    addMapping, updateMapping, removeMapping,
   ]);
 
   return (
     <div className="gift-settings-shell page-surface flex flex-col min-h-full">
-      <Header activeTab={activeTab} setActiveTab={setActiveTab} />
+      {saveError && <p role="alert" className="gift-catalog-error">{saveError}</p>}
+      <Header activeTab={activeTab} setActiveTab={tab => { if (tab !== activeTab && confirmDiscard()) setActiveTab(tab); }} />
       <div className="flex-1 p-6">{tabContent}</div>
     </div>
   );

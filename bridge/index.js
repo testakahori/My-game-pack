@@ -1121,7 +1121,9 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   }
   let _reloadTimer = null;
   try {
-    fs.watch(configPath, () => {
+    // Atomic saves replace the file. Watching the directory keeps later saves observable.
+    fs.watch(path.dirname(configPath), (_event, filename) => {
+      if (filename && String(filename).toLowerCase() !== path.basename(configPath).toLowerCase()) return;
       clearTimeout(_reloadTimer);
       _reloadTimer = setTimeout(reloadDynamicConfig, 500);
     });
