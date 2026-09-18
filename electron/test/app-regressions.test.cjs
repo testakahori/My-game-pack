@@ -14,7 +14,7 @@ test("子プロセス: 成功・起動失敗・非ゼロ終了・タイムアウ
   await assert.rejects(runProc(process.execPath, ["-e", "setInterval(()=>{},1000)"], os.tmpdir(), { timeoutMs: 200 }), /完了しませんでした/);
 });
 
-function loadApp(t, run = async () => { throw new Error("unexpected process"); }) {
+function loadApp(t, run = async () => { throw new Error("unexpected process"); }, updater = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mygamepack-regression-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const handlers = new Map();
@@ -30,7 +30,7 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
       app, ipcMain: { handle: (name, fn) => handlers.set(name, fn), on() {} },
       BrowserWindow: { getAllWindows: () => [{ webContents: { send: (...args) => notifications.push(args) } }] },
     };
-    if (name === "electron-updater") return { autoUpdater: {} };
+    if (name === "electron-updater") return { autoUpdater: updater };
     if (name === "./process_runner.cjs") return { runProc: run };
     return realRequire(name);
   };
@@ -44,12 +44,43 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
   const tools = path.join(root, "GiftsViewer", "tools");
   fs.mkdirSync(tools, { recursive: true });
   for (const file of ["fetch_gifts.cjs", "gifts_to_html.cjs"]) fs.writeFileSync(path.join(tools, file), "");
-  vm.runInNewContext(fs.readFileSync(mainPath, "utf8"), {
+  const context = vm.createContext({
     require: requireMock, __dirname: path.join(root, "electron"), console,
     process, Buffer, URL, AbortSignal, fetch, setTimeout, clearTimeout, setInterval, clearInterval,
-  }, { filename: mainPath });
-  return { root, configPath, notifications, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
+  });
+  vm.runInContext(fs.readFileSync(mainPath, "utf8"), context, { filename: mainPath });
+  return { root, configPath, notifications, invoke: (name, ...args) => handlers.get(name)({}, ...args),
+    startUpdater: () => {
+      app.isPackaged = true;
+      context.setTimeout = () => {};
+      context.setupAutoUpdater();
+    },
+  };
 }
+
+test("自動更新: 検出・進捗・適用準備を保持し、エラー後は再試行できる", async t => {
+  const listeners = new Map();
+  let checks = 0, installs = [];
+  const updater = { on: (event, fn) => listeners.set(event, fn), checkForUpdates: async () => { checks++; }, quitAndInstall: (...args) => installs.push(args) };
+  const app = loadApp(t, undefined, updater);
+  app.startUpdater();
+  assert.equal((await app.invoke("updater:install")).ok, false);
+  listeners.get("checking-for-update")();
+  await app.invoke("updater:check");
+  assert.equal(checks, 0);
+  listeners.get("update-available")({ version: "1.0.25" });
+  listeners.get("download-progress")({ percent: 57.4 });
+  assert.equal((await app.invoke("updater:status")).percent, 57);
+  listeners.get("update-downloaded")({ version: "1.0.25" });
+  assert.equal((await app.invoke("updater:check")).state, "ready");
+  assert.equal(checks, 0);
+  assert.equal((await app.invoke("updater:install")).ok, true);
+  assert.deepEqual(installs, [[true, true]]);
+  listeners.get("error")(new Error("通信切断"));
+  assert.equal((await app.invoke("updater:status")).error, "通信切断");
+  await app.invoke("updater:check");
+  assert.equal(checks, 1);
+});
 
 test("ギフト更新: 手動と自動の同時実行をまとめ、検証後に両画面へ通知する", async (t) => {
   let calls = 0;

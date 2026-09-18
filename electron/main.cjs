@@ -12,6 +12,7 @@ const { autoUpdater } = require("electron-updater");
 const { RestartPolicy } = require("./restart_policy.cjs");
 const { runProc } = require("./process_runner.cjs");
 const { createSettingsBackups, atomicWrite, validCommand } = require("./settings_backups.cjs");
+const { prepareRoulette, createRouletteRunner } = require("../bridge/roulette.cjs");
 const { runPreflight } = require("./preflight.cjs");
 const settingsBackups = createSettingsBackups({
   paths: () => ({
@@ -383,11 +384,12 @@ function setupAutoUpdater() {
 ipcMain.handle("updater:status", () => updateState);
 ipcMain.handle("updater:check", async () => {
   if (!app.isPackaged) return { state: "development" };
+  if (["checking", "downloading", "ready"].includes(updateState.state)) return updateState;
   await autoUpdater.checkForUpdates();
   return updateState;
 });
 ipcMain.handle("updater:install", () => {
-  if (updateState.state === "ready") autoUpdater.quitAndInstall(false, true);
+  if (updateState.state === "ready") autoUpdater.quitAndInstall(true, true);
   return { ok: updateState.state === "ready" };
 });
 ipcMain.handle("config:validate", async (_event, value) => validateBridgeConfig(value));
@@ -1574,102 +1576,22 @@ ipcMain.handle("mod:status", async () => {
   try { return { online: true, ...(await requestDouma("GET", "/douma/status")) }; }
   catch (e) { return { online: false, error: e.message }; }
 });
-// テスト発火は Bridge を経由せず Mod へ直送するため、「ルーレット」仮想コマンドは
-// ここで横取りして抽選しないと roulette.txt のプレースホルダー
-// （「ルーレットが無効です」の表示）がそのまま実行されてしまう。Bridge 側と同じ
-// 重み付き抽選＋回転演出を簡易再現し、当選コマンドを発火する。
-// ※ bridge/index.js の runRoulette / fireRouletteWinner と対の複製実装。
-//    演出・抽選・count の仕様を変えるときは必ず両方を修正すること。
-function mcJsonStringEscapeMain(s, maxLen = 40) {
-  let v = String(s ?? "");
-  v = v.replace(/[\r\n\t]/g, " ").replace(/[\u0000-\u001F\u007F]/g, "");
-  if (v.length > maxLen) v = v.slice(0, maxLen);
-  return JSON.stringify(v).slice(1, -1);
-}
-function commandTxtPathMain(commandFile) {
-  const file = path.basename(String(commandFile || "").trim());
-  return path.join(getBridgeBatDir(), "commands", "minecraft", file.toLowerCase().endsWith(".txt") ? file : `${file}.txt`);
-}
-function readCommandDescriptionMain(commandFile) {
-  try {
-    const m = fs.readFileSync(commandTxtPathMain(commandFile), "utf8").match(/^\/\/\s*(.+)$/m);
-    return m ? m[1].trim() : "";
-  } catch { return ""; }
-}
-let testRouletteBusy = false;
+const animateTestRoulette = createRouletteRunner({
+  sendFrame: (commands, listenerName) => requestDouma("POST", "/douma/exec", { listenerName, commands }),
+});
 async function fireDoumaEventMaybeRoulette(payload, bridgeCfg) {
   if (payload.key !== "roulette") {
     await requestDouma("POST", "/douma/event", payload);
     return { key: payload.key, count: payload.count, roulette: false };
   }
-  const rl = bridgeCfg?.roulette;
-  const items = (Array.isArray(rl?.items) ? rl.items : [])
-    .filter((i) => i && String(i.commandFile || "").trim())
-    .map((i) => ({
-      commandFile: String(i.commandFile).trim(),
-      label: String(i.label || i.commandFile).replace(/\.txt$/i, "").slice(0, 24),
-      weight: Math.max(1, Number(i.weight || 1)),
-      repeat: Math.max(1, Math.min(100, Number(i.repeat || 1))),
-    }))
-    // 廃止・削除済みコマンド（旧バンドルの giant/invisible/tiny 等）が設定に残っていても
-    // 「当選したのに何も起きない」事故にならないよう、txt が実在する項目だけ抽選する
-    .filter((i) => {
-      if (fs.existsSync(commandTxtPathMain(i.commandFile))) return true;
-      console.warn(`[testEvent] 存在しないコマンドをルーレットから除外: ${i.commandFile}`);
-      return false;
-    });
-  if (rl?.enabled !== true || items.length === 0) {
-    throw new Error("ルーレットが無効か、項目が未設定です。イベント設定②のルーレットを有効にして項目を追加し、保存してください。");
+  if (bridgeCfg?.roulette?.enabled !== true) {
+    throw new Error("ルーレットが無効です。イベント設定②で有効にして保存してください。");
   }
-  const total = items.reduce((sum, i) => sum + i.weight, 0);
-  let r = Math.random() * total;
-  let winner = items[items.length - 1];
-  for (const item of items) { r -= item.weight; if (r <= 0) { winner = item; break; } }
-
-  // 回転演出（Bridge の runRoulette と同じ見た目：黄色タイトル＋黄緑の説明サブタイトル）
-  if (!testRouletteBusy) {
-    testRouletteBusy = true;
-    try {
-      let step = 110;
-      for (let i = 0; i < 8; i++) {
-        const item = items[Math.floor(Math.random() * items.length)];
-        const desc = readCommandDescriptionMain(item.commandFile);
-        await requestDouma("POST", "/douma/exec", {
-          listenerName: payload.listenerName || "roulette",
-          commands: [
-            "title @a times 0 12 4",
-            `title @a title {"text":"${mcJsonStringEscapeMain(item.label.toUpperCase(), 30)}","color":"yellow","bold":true}`,
-            `title @a subtitle {"text":"${mcJsonStringEscapeMain(desc || "ルーレット回転中…", 36)}","color":"green"}`,
-            "playsound block.note_block.hat master @a ~ ~ ~ 0.7 1.4",
-          ],
-        }).catch(() => {});
-        await new Promise((resolve) => setTimeout(resolve, step));
-        step = Math.min(420, Math.round(step * 1.22));
-      }
-      const winnerDesc = readCommandDescriptionMain(winner.commandFile);
-      await requestDouma("POST", "/douma/exec", {
-        listenerName: payload.listenerName || "roulette",
-        commands: [
-          "title @a times 5 55 15",
-          `title @a title {"text":"▶ ${mcJsonStringEscapeMain(winner.label.toUpperCase(), 26)} ◀","color":"yellow","bold":true}`,
-          `title @a subtitle {"text":"${mcJsonStringEscapeMain(winnerDesc || winner.label, 36)}","color":"green"}`,
-          "playsound entity.player.levelup master @a ~ ~ ~ 1 1",
-        ],
-      }).catch(() => {});
-      await new Promise((resolve) => setTimeout(resolve, 600));
-    } finally {
-      testRouletteBusy = false;
-    }
-  }
-
-  await requestDouma("POST", "/douma/event", {
-    ...payload,
-    key: path.basename(winner.commandFile, ".txt"),
-    // 本番（bridge の fireRouletteWinner）と同じく当選項目の repeat をそのまま使う
-    count: winner.repeat,
-    announce: false,
-  });
-  return { key: path.basename(winner.commandFile, ".txt"), count: winner.repeat, roulette: true, label: winner.label };
+  const round = prepareRoulette(bridgeCfg.roulette, path.join(getBridgeBatDir(), "commands", "minecraft"));
+  const winner = await animateTestRoulette(round, payload.listenerName, item => requestDouma("POST", "/douma/event", {
+    ...payload, key: item.commandFile.replace(/\.txt$/i, ""), count: item.repeat, announce: false,
+  }));
+  return { key: winner.commandFile.replace(/\.txt$/i, ""), count: winner.repeat, roulette: true, label: winner.label };
 }
 
 ipcMain.handle("mod:testEvent", async (_event, value) => {

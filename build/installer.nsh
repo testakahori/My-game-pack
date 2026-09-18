@@ -7,8 +7,10 @@
 ; per-user (HKCU) and per-machine (HKLM) registrations for this app's GUID.
 
 !macro customInit
-  !insertmacro removePreviousInstall HKCU
-  !insertmacro removePreviousInstall HKLM
+  ${ifNot} ${isUpdated}
+    !insertmacro removePreviousInstall HKCU
+    !insertmacro removePreviousInstall HKLM
+  ${endif}
 !macroend
 
 !macro removePreviousInstall ROOT
@@ -28,13 +30,11 @@
 !macroend
 
 !macro customInstall
-  ; Every completed installer run must return the app to the first-run setup gate.
-  ; The app consumes this marker on its first launch and preserves serverFolder,
-  ; allowing existing users to use the prominent "already set up" recovery action.
-  ; Electron app.getPath("userData") resolves from package name:
-  ; %APPDATA%\tiktok-bridge-ui
-  CreateDirectory "$APPDATA\tiktok-bridge-ui"
-  FileOpen $R0 "$APPDATA\tiktok-bridge-ui\require-initial-setup.flag" w
-  FileWrite $R0 "installed"
-  FileClose $R0
+  ; Auto-updates preserve the completed setup. Manual installs keep the setup gate.
+  ${ifNot} ${isUpdated}
+    CreateDirectory "$APPDATA\tiktok-bridge-ui"
+    FileOpen $R0 "$APPDATA\tiktok-bridge-ui\require-initial-setup.flag" w
+    FileWrite $R0 "installed"
+    FileClose $R0
+  ${endif}
 !macroend

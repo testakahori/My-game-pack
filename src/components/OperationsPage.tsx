@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import SettingsBackupsPanel from "./SettingsBackupsPanel";
-import { useUnsavedChanges } from "../UnsavedChanges";
+import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 
 type ModStatus = {
   online: boolean;
@@ -147,6 +147,7 @@ function ProtectionMap() {
 }
 
 export default function OperationsPage({ onRestored }: { onRestored: () => void }) {
+  const { hasChanges } = useUnsavedGuard();
   const api = (window as any).mygamepack;
   const [status, setStatus] = useState<ModStatus>(defaultStatus);
   const [commands, setCommands] = useState<CommandFile[]>([]);
@@ -683,8 +684,8 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
         <OpsPanel className="ops-update-card">
           <div className="ops-card-topline">
             <div>
-              <h2>アプリ自動更新 <span className="ops-wip-badge">開発中</span></h2>
-              <p>状態: <b className={updater.state === "error" ? "bad" : "ok"}>{updater.state || "idle"}</b></p>
+              <h2>アプリ自動更新</h2>
+              <p>状態: <b className={updater.state === "error" ? "bad" : "ok"}>{({ idle: "未確認", checking: "更新を確認中…", downloading: `ダウンロード中 ${updater.percent || 0}%`, ready: "再起動で更新できます", current: "最新の状態です", error: "更新に失敗しました", development: "開発版では更新できません" } as Record<string, string>)[updater.state] || "未確認"}</b></p>
             </div>
             <button
               type="button"
@@ -718,9 +719,15 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
 
           <div className="ops-update-cta">
             <CreeperSignal />
-            <button type="button" className="ops-primary-button ops-primary-button--violet" onClick={checkUpdate}>↻ 更新を確認</button>
+            <button type="button" className="ops-primary-button ops-primary-button--violet" disabled={["checking", "downloading", "ready"].includes(updater.state)} onClick={checkUpdate}>↻ 更新を確認</button>
             {updater.state === "ready" && (
-              <button type="button" className="ops-primary-button ops-primary-button--cyan" onClick={() => api.updaterInstall()}>
+              <button type="button" className="ops-primary-button ops-primary-button--cyan" onClick={async () => {
+                if (hasChanges) { setNotice("変更を保存してから更新を適用してください。"); return; }
+                try {
+                  const result = await api.updaterInstall();
+                  if (!result?.ok) setNotice("更新の準備が完了していません。状態を確認してください。");
+                } catch (error: any) { setNotice(`更新を適用できませんでした: ${error?.message || error}`); }
+              }}>
                 再起動して適用
               </button>
             )}
