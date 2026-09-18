@@ -29,6 +29,7 @@ const { execFile } = require("child_process");
 const { TikTokLiveConnection } = require("tiktok-live-connector");
 const { Rcon } = require("rcon-client");
 const { validateBridgeConfig } = require("./config_schema");
+const { prepareRoulette, createRouletteRunner } = require("./roulette.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted } = require("./feature_engine");
 let runtimeProtection = { enabled: false };
 let doumaWebSocket = null;
@@ -1266,113 +1267,24 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // --------------------
   // ルーレット（イベント設定②）
   // --------------------
-  // 演出フレームは Mod v1.2.0 の /douma/exec に setTimeout 刻みで送り、
-  // 当選コマンドは通常のイベントとして発火する。
-  // ※ テスト発火（Bridge非経由）用に electron/main.cjs の fireDoumaEventMaybeRoulette に
-  //    対の複製実装がある。演出・抽選・count の仕様を変えるときは必ず両方を修正すること。
-  let rouletteBusy = false;
-
-  // ルーレット表示用：コマンドtxt先頭の // コメント行を「簡単な意味の説明」として読む。
-  // mtime 付きキャッシュ：txt の説明を書き換えたとき Bridge 再起動なしで反映される
-  // （テスト発火側 main.cjs は毎回読むため、無期限キャッシュだと両者の表示がズレる）。
-  const rouletteDescCache = new Map();
-  function rouletteCommandTxtPath(commandFile) {
-    return path.join(commandsDirAbs, "minecraft", path.basename(ensureTxt(commandFile)));
-  }
-  function rouletteItemDesc(commandFile) {
-    const file = path.basename(ensureTxt(commandFile));
-    const p = rouletteCommandTxtPath(commandFile);
-    let mtime = 0;
-    try { mtime = fs.statSync(p).mtimeMs; } catch { /* 無ければ mtime=0 のまま */ }
-    const cached = rouletteDescCache.get(file);
-    if (cached && cached.mtime === mtime) return cached.desc;
-    let desc = "";
-    try {
-      const m = fs.readFileSync(p, "utf8").match(/^\/\/\s*(.+)$/m);
-      if (m) desc = m[1].trim();
-    } catch { /* 説明が読めなくても表示は続行 */ }
-    rouletteDescCache.set(file, { mtime, desc });
-    return desc;
-  }
-
-  function normalizeRouletteItems(rl) {
-    return (Array.isArray(rl?.items) ? rl.items : [])
-      .filter((item) => item && String(item.commandFile || "").trim())
-      .map((item) => ({
-        commandFile: ensureTxt(String(item.commandFile).trim()),
-        label: String(item.label || item.commandFile).replace(/\.txt$/i, "").slice(0, 24),
-        weight: Math.max(1, Number(item.weight || 1)),
-        repeat: clampInt(item.repeat ?? 1, 1, 100, 1),
-      }))
-      // 廃止・削除済みコマンド（旧バンドルの giant/invisible/tiny 等）が設定に残っていても
-      // 「当選したのに何も起きない」事故にならないよう、txt が実在する項目だけ抽選する
-      .filter((item) => {
-        if (fs.existsSync(rouletteCommandTxtPath(item.commandFile))) return true;
-        console.warn(`[Roulette] 存在しないコマンドを除外: ${item.commandFile}`);
-        return false;
-      });
-  }
-
-  function fireRouletteWinner(winner, triggerName, historyType) {
-    enqueueRcon(`roulette:${winner.commandFile}`, () => enqueueDoumaModEvent(doumaMod, {
-      type: "other",
-      historyType: historyType || "roulette",
-      commandFile: winner.commandFile,
-      count: clampInt(winner.repeat ?? 1, 1, 100, 1),
-      listenerName: triggerName || "roulette",
-      announce: false,
-    }), { priority: 8 });
-  }
-
+  const animateRoulette = createRouletteRunner({
+    sendFrame: (commands, listenerName) => sendDoumaExec(doumaMod, commands, listenerName),
+  });
   function runRoulette(rl, triggerName, historyType) {
     if (!doumaMod) return false;
-    const items = normalizeRouletteItems(rl);
-    if (items.length === 0) return false;
-
-    const winner = chooseWeighted(items);
-    if (!winner) return false;
-
-    // 連続発動中は演出をスキップして即発火（title が競合してチカチカするのを防ぐ）
-    if (rouletteBusy) {
-      console.log(`[Roulette] busy → 演出なしで即発火: ${winner.commandFile}`);
-      fireRouletteWinner(winner, triggerName, historyType);
-      return true;
+    try {
+      const round = prepareRoulette(rl, commandsDirAbs);
+      animateRoulette(round, triggerName, winner => {
+        enqueueRcon("roulette:" + winner.commandFile, () => enqueueDoumaModEvent(doumaMod, {
+          type: "other", historyType: historyType || "roulette",
+          commandFile: winner.commandFile, count: winner.repeat,
+          listenerName: triggerName || "roulette", announce: false,
+        }), { priority: 8 });
+      }).catch(error => console.error("[Roulette] 演出・発火に失敗:", error.message));
+    } catch (error) {
+      console.error("[Roulette]", error.message);
     }
-
-    rouletteBusy = true;
-    const stopSound = sanitizeMcId(rl.stopSound, "entity.player.levelup");
-    const particle = sanitizeMcId(rl.particle, "minecraft:totem_of_undying");
-    const frames = 12;
-    let delay = 0;
-    let step = 110;
-    for (let i = 0; i < frames; i++) {
-      const item = items[Math.floor(Math.random() * items.length)];
-      delay += step;
-      step = Math.min(500, Math.round(step * 1.18)); // だんだん減速
-      setTimeout(() => {
-        // タイトル＝ラベル（黄色・大文字）、サブタイトル＝コマンドの簡単な説明（黄緑）で回す
-        sendDoumaExec(doumaMod, [
-          "title @a times 0 12 4",
-          `title @a title {"text":"${mcJsonStringEscape(item.label.toUpperCase(), 30)}","color":"yellow","bold":true}`,
-          `title @a subtitle {"text":"${mcJsonStringEscape(rouletteItemDesc(item.commandFile) || "ルーレット回転中…", 36)}","color":"green"}`,
-          "playsound block.note_block.hat master @a ~ ~ ~ 0.7 1.4",
-        ], triggerName).catch(() => {});
-      }, delay);
-    }
-    setTimeout(() => {
-      sendDoumaExec(doumaMod, [
-        "title @a times 5 55 15",
-        `title @a title {"text":"▶ ${mcJsonStringEscape(winner.label.toUpperCase(), 26)} ◀","color":"yellow","bold":true}`,
-        `title @a subtitle {"text":"${mcJsonStringEscape(rouletteItemDesc(winner.commandFile) || winner.label, 36)}","color":"green"}`,
-        `title @a actionbar {"text":"${mcJsonStringEscape(triggerName || "ルーレット", 30)}","color":"aqua"}`,
-        `playsound ${stopSound} master @a ~ ~ ~ 1 1`,
-        `execute at @a run particle ${particle} ~ ~1 ~ 0.8 1 0.8 0.08 30 force`,
-      ], triggerName).catch(() => {});
-      fireRouletteWinner(winner, triggerName, historyType);
-      rouletteBusy = false;
-    }, delay + 700);
-
-    console.log(`[Roulette] ${items.length}項目から抽選 → ${winner.commandFile} (weight=${winner.weight}, repeat=${winner.repeat})`);
+    // 無効な項目を旧 roulette.txt へ流して成功扱いにしない。
     return true;
   }
 

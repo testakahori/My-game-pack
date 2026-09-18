@@ -13,6 +13,7 @@ build/bridge-runtime.zip
 build/bridge-runtime-manifest.json
 build/bridge-runtime-tmp/
 build/bridge-bundle/
+build/server-template/
 build/bridge-bundle-test/
 build/bundle-run-test/
 build/runtime-extract-test/
