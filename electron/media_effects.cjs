@@ -78,7 +78,7 @@ function createMediaEffects({ directory, port = 19639, now = Date.now }) {
   function state() { return { settings: clone(settings), revision, canUndo: undo.length > 0, paused, muted,
     liveClients: [...clients].filter(c => c.channel === 'live').length,
     previewClients: [...clients].filter(c => c.channel === 'preview').length,
-    playing: channels.live.current?.name || '', previewPlaying: channels.preview.current?.name || '', queued: channels.live.queue.length,
+    playing: channels.live.current?.name || '', previewPlaying: channels.preview.current?.name || '', queued: channels.live.queue.reduce((count, job) => count + job.remaining, 0),
     lastEvent, error: loadError || serverError || outputError, checks: clone(checks), calibrated: calibrationAt !== null && now() - calibrationAt < 900000, ready: Boolean(server?.listening),
   }; }
   function control(action) {
@@ -86,21 +86,25 @@ function createMediaEffects({ directory, port = 19639, now = Date.now }) {
     else if (action === 'mute') { muted = true; publish(); }
     else if (action === 'unmute') { muted = false; publish(); }
     else if (action === 'pause') { if (!paused) { paused = true; pausedAt = now(); publish(); } }
-    else if (action === 'resume') { if (paused) { const elapsed = now() - pausedAt; paused = false; for (const s of Object.values(channels)) { if (s.current) { s.current.startedAt += elapsed; s.current.endsAt += elapsed; } for (const j of s.queue) j.expiresAt += elapsed; } publish(); } }
+    else if (action === 'resume') { if (paused) { const elapsed = now() - pausedAt; paused = false; for (const s of Object.values(channels)) { if (s.current) { s.current.startedAt += elapsed; s.current.endsAt += elapsed; } for (const j of s.queue) if (j.expiresAt !== null) j.expiresAt += elapsed; } publish(); } }
     else if (action === 'undo') {
       if (loadError) throw new Error(loadError);
       if (undo.length) { const previous = undo.at(-1); atomicWrite(settingsFile, JSON.stringify(previous, null, 2)); settings = undo.pop(); revision++; likes = null; cooldowns.clear(); checks = { visual: null, audio: null }; calibrationAt = null; stop(); }
     } else throw new Error('不明な演出操作です。');
     return state();
   }
-  function enqueue(rule, channel) {
+  function enqueue(rule, channel, repetitions = 1, countedLikes = false) {
     if (paused) throw new Error('演出は一時停止中です。上の「演出を再開」を押してください。');
     const s = channels[channel];
-    if (s.queue.length >= 20) return false;
+    if (!countedLikes && s.queue.filter(job => !job.countedLikes).length >= 20) return false;
     const assets = [rule.visualId, rule.audioId].filter(Boolean).map(id => settings.assets.find(a => a.id === id));
     for (const a of assets) if (!a || !fs.existsSync(assetPath(a))) throw new Error('素材ファイルがありません。再登録してください。');
-    s.queue.push({ id: crypto.randomUUID(), name: rule.name, assets, x: rule.x, y: rule.y, width: rule.width,
-      volume: rule.volume * profile().volume / 10000, duration: rule.duration, calibration: Boolean(rule.calibration), expiresAt: now() + 30000 });
+    // Keep a bounded counter per like rule, but create a separate playback with
+    // its own ID for every threshold crossed. Never expire or discard these plays.
+    const pending = countedLikes && s.queue.find(job => job.countedLikes && job.ruleId === rule.id);
+    if (pending) pending.remaining += repetitions;
+    else s.queue.push({ ruleId: rule.id, countedLikes, remaining: repetitions, name: rule.name, assets, x: rule.x, y: rule.y, width: rule.width,
+      volume: rule.volume * profile().volume / 10000, duration: rule.duration, calibration: Boolean(rule.calibration), expiresAt: countedLikes ? null : now() + 30000 });
     tick(); return true;
   }
   function tick() {
@@ -109,8 +113,14 @@ function createMediaEffects({ directory, port = 19639, now = Date.now }) {
     for (const s of Object.values(channels)) {
       if (s.current && now() >= s.current.endsAt) { s.current = null; changed = true; }
       if (!s.current) {
-        while (s.queue.length && s.queue[0].expiresAt < now()) s.queue.shift();
-        if (s.queue.length) { s.current = { ...s.queue.shift(), startedAt: now() }; s.current.endsAt = now() + s.current.duration * 1000; changed = true; }
+        while (s.queue.length && s.queue[0].expiresAt !== null && s.queue[0].expiresAt < now()) s.queue.shift();
+        if (s.queue.length) {
+          const pending = s.queue.shift();
+          const { remaining, ...job } = pending;
+          s.current = { ...job, id: crypto.randomUUID(), startedAt: now(), endsAt: now() + job.duration * 1000 };
+          if (remaining > 1) s.queue.push({ ...pending, remaining: remaining - 1 });
+          changed = true;
+        }
       }
     }
     if (changed) publish();
@@ -121,9 +131,12 @@ function createMediaEffects({ directory, port = 19639, now = Date.now }) {
       event.type === 'gift' && (r.trigger === 'gift' ? r.giftId === event.giftId && event.delta > 0 : r.trigger === 'coins' && (r.coinMode === 'unit' ? event.unitCoins >= r.threshold && event.delta > 0 : event.previousCoins < r.threshold && event.totalCoins >= r.threshold))
     ));
   }
+  function playCount(rule, event, previousLikes) {
+    return event.type === 'like' ? Math.floor(event.total / rule.threshold) - Math.floor(previousLikes / rule.threshold) : 1;
+  }
   function validateEvent(e) {
     if (!e || !['like', 'gift', 'reset'].includes(e.type)) throw new Error('イベント種別が不正です。');
-    if (e.type === 'like' && !number(e.total, 0, 1e12)) throw new Error('いいね数が不正です。');
+    if (e.type === 'like' && (!number(e.total, 0, 1e12) || !Number.isInteger(e.total))) throw new Error('いいね数が不正です。');
     if (e.type === 'gift' && (!/^\d{1,20}$/.test(e.giftId) || !number(e.delta, 0, 1e6) || !number(e.unitCoins, 0, 1e9) || !number(e.totalCoins, 0, 1e12) || !number(e.previousCoins, 0, e.totalCoins))) throw new Error('ギフト値が不正です。');
   }
   function receive(event) {
@@ -133,25 +146,27 @@ function createMediaEffects({ directory, port = 19639, now = Date.now }) {
     seen.set(event.id, now()); if (seen.size > 2000) seen.delete(seen.keys().next().value);
     if (event.type === 'reset') { likes = null; cooldowns.clear(); return { matched: [] }; }
     const previous = likes;
-    if (event.type === 'like') likes = event.total;
+    if (event.type === 'like') likes = Math.max(likes ?? 0, event.total);
     lastEvent = { type: event.type, at: new Date(now()).toISOString() };
     if (paused) return { matched: [], paused: true };
-    const matched = [];
+    const matched = [], plays = [];
     for (const rule of match(event, previous)) {
-      if (cooldowns.has(rule.id) && now() - cooldowns.get(rule.id) < rule.cooldown * 1000) continue;
-      try { if (enqueue(rule, 'live')) { cooldowns.set(rule.id, now()); matched.push(rule.name); } }
+      if (event.type !== 'like' && cooldowns.has(rule.id) && now() - cooldowns.get(rule.id) < rule.cooldown * 1000) continue;
+      const count = playCount(rule, event, previous);
+      try { if (enqueue(rule, 'live', count, event.type === 'like')) { cooldowns.set(rule.id, now()); matched.push(rule.name); plays.push({ name: rule.name, count }); } }
       catch (error) { outputError = error.message; }
     }
-    return { matched };
+    return { matched, plays };
   }
   function testEvent(event) {
     validateEvent(event);
     const previous = event.type === 'like' ? event.previousLikes : null;
-    if (event.type === 'like' && !number(previous, 0, event.total)) throw new Error('開始時のいいね数が不正です。');
+    if (event.type === 'like' && (!number(previous, 0, event.total) || !Number.isInteger(previous))) throw new Error('開始時のいいね数が不正です。');
     const matched = match(event, previous);
     stop('preview');
-    for (const rule of matched) enqueue(rule, 'preview');
-    return { matched: matched.map(r => r.name) };
+    const plays = [];
+    for (const rule of matched) { const count = playCount(rule, event, previous); if (enqueue(rule, 'preview', count, event.type === 'like')) plays.push({ name: rule.name, count }); }
+    return { matched: plays.map(play => play.name), plays };
   }
   async function importFiles(files) {
     if (loadError) throw new Error(loadError);
