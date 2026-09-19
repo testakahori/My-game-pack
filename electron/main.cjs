@@ -14,6 +14,10 @@ const { runProc } = require("./process_runner.cjs");
 const { createSettingsBackups, atomicWrite, validCommand } = require("./settings_backups.cjs");
 const { prepareRoulette, createRouletteRunner } = require("../bridge/roulette.cjs");
 const { runPreflight } = require("./preflight.cjs");
+const { planTestEvent } = require("./event_tests.cjs");
+const { createStreamSessions, streamBuckets } = require("./stream_sessions.cjs");
+const { saveGiftPanelPng } = require("./image_export.cjs");
+const streamSessions = createStreamSessions(() => path.join(getBridgeBatDir(), "stream-sessions.json"));
 const settingsBackups = createSettingsBackups({
   paths: () => ({
     config: getConfigPath(), app: getAppConfigPath(), tts: getTtsSettingsPath(),
@@ -606,6 +610,8 @@ const BRIDGE_PRESERVE_FILES = new Set([
   "config.7dtd.json",
   "tts-settings.json",
   "operations-history.json",
+  "stream-sessions.json",
+  "stream-metrics.jsonl",
   "runtime-status.json",
 ]);
 // バンドルから廃止したファイルの墓標リスト。差分同期はコピーのみで配信先の余剰ファイルを
@@ -1458,10 +1464,10 @@ ipcMain.handle("bridge:processStatus", () => {
 
 ipcMain.handle("bridge:logs", () => ({ ok: true, lines: [...bridgeLogBuffer] }));
 
-function requestDouma(method, requestPath, body) {
+function requestDouma(method, requestPath, body, configOverride) {
   return new Promise((resolve, reject) => {
-    let cfg = {};
-    try { cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch {}
+    let cfg = configOverride || {};
+    if (!configOverride) try { cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch {}
     const host = cfg.options?.doumaModHost || "127.0.0.1";
     const port = Number(cfg.options?.doumaModPort || 25576);
     const data = body ? Buffer.from(JSON.stringify(body)) : null;
@@ -1473,7 +1479,7 @@ function requestDouma(method, requestPath, body) {
       res.on("end", () => {
         const text = Buffer.concat(chunks).toString("utf8");
         let parsed = {}; try { parsed = JSON.parse(text); } catch { parsed = { message: text }; }
-        if (res.statusCode >= 400) reject(new Error(parsed.message || `HTTP ${res.statusCode}`));
+        if (res.statusCode >= 400 || parsed.ok === false) reject(new Error(parsed.message || `HTTP ${res.statusCode}`));
         else resolve(parsed);
       });
     });
@@ -1534,8 +1540,7 @@ function migrateOperationsHistoryToJsonlIfNeeded(historyPath) {
   fs.writeFileSync(historyPath, lines ? lines + "\n" : "", "utf8");
 }
 
-function appendOperationsHistory(row) {
-  const historyPath = getOperationsHistoryPath();
+function appendOperationsHistory(row, historyPath = getOperationsHistoryPath()) {
   try {
     migrateOperationsHistoryToJsonlIfNeeded(historyPath);
     fs.appendFileSync(historyPath, JSON.stringify(row) + "\n", "utf8");
@@ -1576,107 +1581,70 @@ ipcMain.handle("mod:status", async () => {
   try { return { online: true, ...(await requestDouma("GET", "/douma/status")) }; }
   catch (e) { return { online: false, error: e.message }; }
 });
-const animateTestRoulette = createRouletteRunner({
-  sendFrame: (commands, listenerName) => requestDouma("POST", "/douma/exec", { listenerName, commands }),
-});
-async function fireDoumaEventMaybeRoulette(payload, bridgeCfg) {
+async function fireDoumaEventMaybeRoulette(payload, bridgeCfg, commandsDir) {
+  const send = (method, route, body) => requestDouma(method, route, body, bridgeCfg);
+  const animateTestRoulette = createRouletteRunner({ sendFrame: (commands, listenerName) => send("POST", "/douma/exec", { listenerName, commands }) });
   if (payload.key !== "roulette") {
-    await requestDouma("POST", "/douma/event", payload);
+    await send("POST", "/douma/event", payload);
     return { key: payload.key, count: payload.count, roulette: false };
   }
   if (bridgeCfg?.roulette?.enabled !== true) {
     throw new Error("ルーレットが無効です。イベント設定②で有効にして保存してください。");
   }
-  const round = prepareRoulette(bridgeCfg.roulette, path.join(getBridgeBatDir(), "commands", "minecraft"));
-  const winner = await animateTestRoulette(round, payload.listenerName, item => requestDouma("POST", "/douma/event", {
+  const round = prepareRoulette(bridgeCfg.roulette, commandsDir);
+  const winner = await animateTestRoulette(round, payload.listenerName, item => send("POST", "/douma/event", {
     ...payload, key: item.commandFile.replace(/\.txt$/i, ""), count: item.repeat, announce: false,
   }));
   return { key: winner.commandFile.replace(/\.txt$/i, ""), count: winner.repeat, roulette: true, label: winner.label };
 }
 
+let testEventRunning = false;
 ipcMain.handle("mod:testEvent", async (_event, value) => {
-  let bridgeCfg = {};
-  try { bridgeCfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch {}
+  if (testEventRunning) return { ok: false, message: "別のテストを実行中です。完了後にお試しください。" };
+  const bridgeCfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8"));
+  const commandsDir = path.join(getBridgeBatDir(), "commands", "minecraft");
+  const historyPath = getOperationsHistoryPath();
+  const plan = planTestEvent(bridgeCfg, value, commandsDir);
+  const details = plan.steps.map(step => ({ commandFile: step.commandFile, count: step.count, label: step.label, type: step.type }));
+  if (value.preview === true || !plan.steps.length) return {
+    ok: true, matched: plan.steps.length > 0, preview: true, steps: details, notes: plan.notes,
+    message: plan.steps.length ? plan.steps.length + "件の設定が条件に一致しました（未送信）。" : "発火する設定はありません。条件・有効設定を確認してください。",
+  };
   const protection = bridgeCfg.options?.protection || {};
-  const protectionPayload = {
-    protectionEnabled: protection.enabled === true,
-    protectX1: Number(protection.x1 || 0), protectX2: Number(protection.x2 || 0),
-    protectZ1: Number(protection.z1 || 0), protectZ2: Number(protection.z2 || 0),
-  };
-  const listenerName = String(value?.listenerName || "テスト視聴者").slice(0, 40);
-
-  // いいね発火テスト：本番と同じ「しきい値ラダー」をシミュレートする。
-  // 旧実装は選択中の commandFile を type=like で直送しており、実質ギフト発火と
-  // 同じ動きだった（Mod は type をキュー振り分けにしか使わない）。
-  if (value?.type === "like") {
-    const likeCount = Math.max(1, Math.min(10000, Number(value?.likeCount ?? value?.count ?? 1)));
-    const rules = (Array.isArray(bridgeCfg.likeEvents) ? bridgeCfg.likeEvents : [])
-      .filter((r) => r && r.enabled !== false && r.commandFile && Number(r.threshold) > 0);
-    if (rules.length === 0) {
-      return { ok: false, message: "いいねイベントが未設定です。イベント設定①でしきい値ルールを追加してください。" };
-    }
-    const fired = [];
-    let anyOk = false;
-    for (const rule of rules) {
-      const threshold = Math.max(1, Number(rule.threshold));
-      const triggers = Math.floor(likeCount / threshold);
-      if (triggers <= 0) continue;
-      const repeat = Math.max(1, Math.min(100, Number(rule.repeat || 1)));
-      const count = Math.max(1, Math.min(100, triggers * repeat));
-      const payload = {
-        type: "like",
-        key: path.basename(String(rule.commandFile), ".txt"),
-        count,
-        listenerName,
-        announce: threshold >= 100,
-        ...protectionPayload,
-      };
-      let result;
-      let firedKey = payload.key;
-      let firedCount = count;
-      try {
-        const outcome = await fireDoumaEventMaybeRoulette(payload, bridgeCfg);
-        firedKey = outcome.key;
-        firedCount = Number(outcome.count) || count; // ルーレット当選時は winner.repeat を記録
-        result = { ok: true }; anyOk = true;
-      }
-      catch (e) { result = { ok: false, message: e.message }; }
-      appendOperationsHistory({ at: new Date().toISOString(), type: "like", sender: listenerName,
-        commandFile: `${firedKey}.txt`, count: firedCount, ...result });
-      fired.push({ commandFile: `${firedKey}.txt`, threshold, count: firedCount, ok: result.ok });
-    }
-    if (fired.length === 0) {
-      const minThreshold = Math.min(...rules.map((r) => Number(r.threshold)));
-      return { ok: false, message: `いいね${likeCount}回では最小しきい値（${minThreshold}）に届きません。` };
-    }
-    const detail = fired.map((f) => `${f.commandFile}×${f.count}`).join(" / ");
-    return { ok: anyOk, fired, message: `いいね${likeCount}回 → ${fired.length}ルール発火（${detail}）` };
-  }
-
-  const payload = {
-    type: "gift",
-    key: path.basename(String(value?.commandFile || ""), ".txt"),
-    count: Math.max(1, Math.min(100, Number(value?.count || 1))),
-    listenerName,
-    announce: true,
-    ...protectionPayload,
-  };
-  let result;
-  let firedKey = payload.key;
-  let firedCount = payload.count;
+  const fired = [];
+  testEventRunning = true;
   try {
-    const outcome = await fireDoumaEventMaybeRoulette(payload, bridgeCfg);
-    firedKey = outcome.key;
-    firedCount = Number(outcome.count) || payload.count; // ルーレット当選時は winner.repeat を記録
-    result = outcome.roulette
-      ? { ok: true, message: `ルーレット抽選 → ${outcome.label}（${outcome.key}.txt）を発火しました` }
-      : { ok: true };
-  }
-  catch (e) { result = { ok: false, message: e.message }; }
-  appendOperationsHistory({ at: new Date().toISOString(), type: payload.type, sender: payload.listenerName,
-    commandFile: `${firedKey}.txt`, count: firedCount, ...result });
-  return result;
+    for (const step of plan.steps) {
+      const payload = {
+        type: step.type === "like" ? "like" : ["gift", "mapped_gift", "unmapped_gift"].includes(step.type) ? "gift" : "other",
+        key: step.commandFile.replace(/\.txt$/i, ""), count: step.count, listenerName: plan.sender,
+        announce: bridgeCfg.options?.announceEnabled !== false,
+        protectionEnabled: protection.enabled === true,
+        protectX1: Number(protection.x1 || 0), protectX2: Number(protection.x2 || 0),
+        protectZ1: Number(protection.z1 || 0), protectZ2: Number(protection.z2 || 0),
+      };
+      let outcome = { key: payload.key, count: step.count };
+      let result;
+      try {
+        outcome = await fireDoumaEventMaybeRoulette(payload, step.roulette ? { ...bridgeCfg, roulette: step.roulette } : bridgeCfg, commandsDir);
+        if (step.extras?.length) await requestDouma("POST", "/douma/exec", { listenerName: plan.sender, commands: step.extras }, bridgeCfg);
+        result = { ok: true, message: step.label + " → " + outcome.key + ".txt × " + outcome.count + " をModへ送信済み" };
+      } catch (error) { result = { ok: false, message: error.message }; }
+      const row = { at: new Date().toISOString(), source: "test", type: step.type, sender: plan.sender,
+        commandFile: outcome.key + ".txt", count: outcome.count, ...result };
+      appendOperationsHistory(row, historyPath);
+      fired.push(row);
+    }
+    const succeeded = fired.filter(row => row.ok).length;
+    return { ok: succeeded === fired.length, matched: true, fired, steps: details, notes: plan.notes,
+      message: fired.length + "件中" + succeeded + "件をModへ送信しました。ゲーム内の結果も確認してください。" };
+  } finally { testEventRunning = false; }
 });
+
+ipcMain.handle("stream:session:status", () => ({ active: streamSessions.active() }));
+ipcMain.handle("stream:session:start", (_event, title) => streamSessions.start(title));
+ipcMain.handle("stream:session:end", (_event, value) => streamSessions.end(value?.id, value?.endedAt));
+ipcMain.handle("image:saveGiftPanel", (_event, value) => saveGiftPanelPng(dialog, value));
 
 // --------------------
 // IPC: マイクラIDへ OP 権限を付与（_op.txt を書いて Mod 経由で実行）
@@ -1865,20 +1833,12 @@ ipcMain.handle("operations:stats", () => {
 function computeStreamStats(gapMinutes) {
   const gapMs = Math.max(5, Number(gapMinutes) || 90) * 60 * 1000;
   const sorted = readOperationsHistory()
+    .filter((r) => r.source !== "test")
     .map((r) => ({ ...r, t: Date.parse(r.at) || 0 }))
     .filter((r) => r.t > 0)
     .sort((a, b) => a.t - b.t);
 
-  const buckets = [];
-  let cur = null;
-  for (const r of sorted) {
-    if (!cur || r.t - cur.lastT >= gapMs) {
-      cur = { startT: r.t, lastT: r.t, rows: [] };
-      buckets.push(cur);
-    }
-    cur.rows.push(r);
-    cur.lastT = r.t;
-  }
+  const buckets = streamBuckets(sorted, streamSessions.read(), gapMs);
 
   const top = (obj) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, 3)
     .map(([name, count]) => ({ name, count }));
@@ -1905,12 +1865,13 @@ function computeStreamStats(gapMinutes) {
       bySender[r.sender || "unknown"] = (bySender[r.sender || "unknown"] || 0) + amount;
     }
     // 配信区間内の視聴者数（bridge が60秒毎に記録）から 最高同接/平均 を求める
-    const windowMetrics = viewerMetrics.filter((m) => m.t >= b.startT - 60000 && m.t <= b.lastT + 60000);
+    const windowMetrics = viewerMetrics.filter((m) => b.recorded ? m.t >= b.startT && (b.active ? m.t <= b.lastT : m.t < b.lastT) : m.t >= b.startT - 60000 && m.t <= b.lastT + 60000);
     const maxViewers = windowMetrics.length ? Math.max(...windowMetrics.map((m) => m.viewers)) : 0;
     const avgViewers = windowMetrics.length
       ? Math.round(windowMetrics.reduce((a, m) => a + m.viewers, 0) / windowMetrics.length)
       : 0;
     return {
+      id: b.id || `estimated-${b.startT}`, title: b.title || "", recorded: b.recorded, active: b.active,
       start: new Date(b.startT).toISOString(),
       end: new Date(b.lastT).toISOString(),
       durationMs: b.lastT - b.startT,
@@ -1925,7 +1886,8 @@ function computeStreamStats(gapMinutes) {
     };
   };
 
-  const streams = buckets.map(summarize).reverse(); // 新しい配信を先頭に
+  const cutoff = Date.now() - 30 * 86400000;
+  const streams = buckets.filter(b => b.lastT >= cutoff).map(summarize).reverse(); // 新しい配信を先頭に
   const sum = (key) => streams.reduce((a, s) => a + (s[key] || 0), 0);
 
   // 今月（ローカル時刻基準）の配信合計時間
@@ -1937,10 +1899,11 @@ function computeStreamStats(gapMinutes) {
   });
 
   return {
+    activeSession: streamSessions.active(),
     gapMinutes: gapMs / 60000,
     overall: {
       streams: streams.length,
-      events: sorted.length,
+      events: sum("events"),
       gift: sum("gift"), like: sum("like"), share: sum("share"), follow: sum("follow"),
       member: sum("member"), other: sum("other"),
       succeeded: sum("succeeded"), failed: sum("failed"),
@@ -1949,7 +1912,7 @@ function computeStreamStats(gapMinutes) {
     monthly: {
       month: monthKey,
       streams: monthStreams.length,
-      totalDurationMs: monthStreams.reduce((a, s) => a + s.durationMs, 0),
+      totalDurationMs: buckets.reduce((a, b) => a + Math.max(0, Math.min(b.lastT, now.getTime()) - Math.max(b.startT, new Date(now.getFullYear(), now.getMonth(), 1).getTime())), 0),
       diamonds: monthStreams.reduce((a, s) => a + (s.diamonds || 0), 0),
     },
     streams,

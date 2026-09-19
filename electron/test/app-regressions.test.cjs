@@ -110,6 +110,58 @@ test("配信統計: 90分以上空いたイベントは別配信に分け、休�
   assert.equal(stats.streams.reduce((sum, stream) => sum + stream.durationMs, 0), 10 * 60000);
 });
 
+test("統計IPC: テスト履歴を除外し、イベントなしの明示記録を保持する", async t => {
+  const app = loadApp(t);
+  const session = await app.invoke("stream:session:start", "記録テスト");
+  assert.equal((await app.invoke("stream:session:start", "連打")).id, session.id);
+  fs.writeFileSync(path.join(app.root, "bridge", "operations-history.json"), JSON.stringify([
+    { at: new Date().toISOString(), source: "test", type: "gift", count: 100, ok: true },
+  ]));
+  await new Promise(resolve => setTimeout(resolve, 5));
+  const ended = await app.invoke("stream:session:end", { id: session.id });
+  const stats = await app.invoke("operations:streamStats", 90);
+  assert.equal(stats.overall.events, 0);
+  assert.equal(stats.streams.length, 1);
+  assert.equal(stats.streams[0].recorded, true);
+  assert.equal(stats.streams[0].durationMs, Date.parse(ended.endedAt) - Date.parse(session.startedAt));
+  assert.equal((await app.invoke("stream:session:status")).active, null);
+});
+
+test("イベントIPC: 条件確認は未送信、全種別の実送信はテスト履歴、部分失敗も報告", async t => {
+  const http = require("node:http");
+  const received = [];
+  const server = http.createServer((req, res) => {
+    const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => {
+      const payload = JSON.parse(Buffer.concat(chunks).toString()); received.push({ url: req.url, payload });
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify(payload.key === "fail" ? { ok: false, message: "模擬エラー" } : { ok: true }));
+    });
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const app = loadApp(t);
+  const cfg = JSON.parse(fs.readFileSync(app.configPath));
+  const rule = { commandFile: "qa.txt", enabled: true, repeat: 1 };
+  Object.assign(cfg, { shareEvent: rule, followEvent: rule, memberEvent: rule, unmappedGiftEvent: rule,
+    likeEvents: [{ ...rule, threshold: 10 }], commentGifts: { enabled: true, rules: [{ ...rule, match: "確認" }] } });
+  cfg.options.doumaModPort = server.address().port;
+  fs.writeFileSync(app.configPath, JSON.stringify(cfg));
+  const dir = path.join(app.root, "bridge", "commands", "minecraft"); fs.mkdirSync(dir, { recursive: true });
+  for (const file of ["qa.txt", "fail.txt"]) fs.writeFileSync(path.join(dir, file), "say test");
+  const preview = await app.invoke("mod:testEvent", { type: "share", preview: true });
+  assert.equal(preview.matched, true); assert.equal(received.length, 0);
+  for (const type of ["share", "follow", "member", "unmapped_gift", "comment", "like", "gift"]) {
+    const result = await app.invoke("mod:testEvent", { type, comment: "確認", likeCount: 10, commandFile: "qa.txt" });
+    assert.equal(result.ok, true, type);
+  }
+  assert.equal(received.length, 7);
+  assert.ok((await app.invoke("operations:history")).every(row => row.source === "test"));
+  assert.equal((await app.invoke("operations:streamStats")).overall.events, 0);
+  cfg.commentGifts.rules.push({ ...rule, match: "確認", commandFile: "fail.txt" }); fs.writeFileSync(app.configPath, JSON.stringify(cfg));
+  const partial = await app.invoke("mod:testEvent", { type: "comment", comment: "確認" });
+  assert.equal(partial.ok, false); assert.equal(partial.fired.filter(row => row.ok).length, 1);
+});
+
 test("ギフト更新: 手動と自動の同時実行をまとめ、検証後に両画面へ通知する", async (t) => {
   let calls = 0;
   const app = loadApp(t, async (_cmd, args) => {

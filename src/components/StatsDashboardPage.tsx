@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import StreamRecordingPanel from "./StreamRecordingPanel";
 import MinecraftBlockIcon from "./MinecraftBlockIcon";
 
 type NameCount = { name: string; count: number };
 type StreamStat = {
+  id: string; title?: string; recorded?: boolean; active?: boolean;
   start: string; end: string; durationMs: number; events: number;
   gift: number; like: number; share: number; follow: number; member: number; other: number;
   succeeded: number; failed: number;
@@ -15,7 +17,7 @@ type StreamStats = {
   monthly?: { month: string; streams: number; totalDurationMs: number; diamonds: number };
   streams: StreamStat[];
 };
-type HistoryRow = { at: string; type: string; sender: string; commandFile: string; count: number; ok: boolean };
+type HistoryRow = { source?: string; at: string; type: string; sender: string; commandFile: string; count: number; ok: boolean };
 
 const card = "rounded-2xl border border-gray-700 bg-gray-900/70 p-5";
 const SESSION_GAP_MINUTES = 90;
@@ -72,6 +74,7 @@ export default function StatsDashboardPage() {
   const [view, setView] = useState<"dashboard" | "list" | "detail">("dashboard");
   const [detailIndex, setDetailIndex] = useState<number>(0);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -81,8 +84,9 @@ export default function StatsDashboardPage() {
         api.operationsHistory ? api.operationsHistory() : Promise.resolve([]),
       ]);
       setData(stats);
-      setHistory(Array.isArray(rows) ? rows : []);
-    } catch { /* ignore */ }
+      setHistory(Array.isArray(rows) ? rows.filter((row: HistoryRow) => row.source !== "test") : []);
+      setError("");
+    } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
     finally { setLoading(false); }
   }, [api]);
 
@@ -104,7 +108,7 @@ export default function StatsDashboardPage() {
     const endT = Date.parse(latest.end) || Date.now();
     return history
       .map((r) => ({ ...r, t: Date.parse(r.at) || 0 }))
-      .filter((r) => r.t >= startT && r.t <= endT)
+      .filter((r) => r.t >= startT && (latest.recorded && !latest.active ? r.t < endT : r.t <= endT))
       .sort((a, b) => a.t - b.t);
   }, [history, latest]);
 
@@ -163,6 +167,8 @@ export default function StatsDashboardPage() {
 
   return (
     <div className="stats-page stats-design-page page-surface max-w-none">
+      <StreamRecordingPanel onChanged={refresh} />
+      {error ? <p role="alert">集計できませんでした: {error}</p> : null}
       <section className="stats-summary-panel">
         <div className="stats-heading-row">
           <div style={{ position: "relative" }}>
@@ -173,7 +179,7 @@ export default function StatsDashboardPage() {
             >
               配信統計{view === "list" ? "（配信集計）" : view === "detail" ? "（配信詳細）" : "ダッシュボード"} <span style={{ fontSize: 14, opacity: 0.7 }}>▾</span>
             </h1>
-            <p>イベントが90分以上途切れると別の配信として集計します。時間は最初から最後のイベントまでの推定値です。</p>
+            <p>開始・終了を記録した配信はその時刻で集計します。記録のない過去の区間は90分の間隔で分けた推定値です。このバージョン以降のテスト発火は除外します。</p>
             {menuOpen && (
               <div
                 style={{
@@ -205,7 +211,7 @@ export default function StatsDashboardPage() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div className="stats-summary-tile stats-summary-tile--green" style={{ minWidth: 150 }}>
-              <span>🕒</span><small>今月の推定配信時間</small>
+              <span>🕒</span><small>今月の配信時間</small>
               <b>{data.monthly ? fmtDuration(data.monthly.totalDurationMs) : "0分"}</b>
             </div>
             <button onClick={() => refresh()}>↻ 更新</button>
@@ -240,15 +246,15 @@ export default function StatsDashboardPage() {
             <div className="stats-table" style={{ fontSize: 13 }}>
               <p style={{ fontWeight: 800, color: "#8ba0b8" }}>
                 <span style={{ minWidth: 170 }}>日付（クリックで詳細）</span>
-                <b>推定配信時間</b>
-                <em>推定時間（累計）</em>
+                <b>配信時間</b>
+                <em>時間（累計）</em>
                 <strong>💎 総ダイヤ</strong>
               </p>
               {data.streams.map((s, index) => {
                 // 累計は古い配信からの積み上げ（streams は新しい順なので後ろから足す）
                 const cumulative = data.streams.slice(index).reduce((a, x) => a + x.durationMs, 0);
                 return (
-                  <p key={s.start}>
+                  <p key={s.id || s.start}>
                     <button
                       type="button"
                       onClick={() => { setDetailIndex(index); setView("detail"); }}
@@ -276,7 +282,7 @@ export default function StatsDashboardPage() {
         if (!s) return <section className="stats-empty">配信データが見つかりません。<button type="button" onClick={() => setView("list")}>一覧へ戻る</button></section>;
         const detailRows = history
           .map((r) => ({ ...r, t: Date.parse(r.at) || 0 }))
-          .filter((r) => r.t >= (Date.parse(s.start) || 0) && r.t <= (Date.parse(s.end) || 0));
+          .filter((r) => r.t >= (Date.parse(s.start) || 0) && (s.recorded && !s.active ? r.t < (Date.parse(s.end) || 0) : r.t <= (Date.parse(s.end) || 0)));
         const kinds = Math.max(1, s.gift + s.like + s.share + s.follow + s.member + s.other);
         return (
           <>
@@ -291,7 +297,7 @@ export default function StatsDashboardPage() {
               </div>
               <div className="stats-session-metrics">
                 {[
-                  ["🕒","推定配信時間",fmtDuration(s.durationMs),""],
+                  ["🕒",s.recorded ? "記録した配信時間" : "推定配信時間",fmtDuration(s.durationMs),""],
                   ["♟","視聴者数（イベント参加）",s.uniqueSenders,"人"],
                   ["📈","最高同接",s.maxViewers || 0,"人"],
                   ["📊","平均同接",s.avgViewers || 0,"人"],
@@ -347,11 +353,11 @@ export default function StatsDashboardPage() {
       })()}
 
       {view === "dashboard" && (loading && !latest ? <section className="stats-empty">集計中…</section> : !latest ? (
-        <section className="stats-empty">まだイベント履歴がありません。運用センターでテストイベントを発火すると集計されます。</section>
+        <section className="stats-empty">まだ配信記録がありません。配信に合わせて「配信開始を記録」を押してください。</section>
       ) : (
         <>
           <section className="stats-session-panel">
-            <div className="stats-session-title"><span>配信 #1</span><h2>{fmtRange(latest.start, latest.end)}</h2><em>最新の記録</em><small>推定配信時間 {fmtDuration(latest.durationMs)} / イベント参加者 {latest.uniqueSenders}人</small></div>
+            <div className="stats-session-title"><span>配信 #1</span><h2>{fmtRange(latest.start, latest.end)}</h2><em>{latest.recorded ? latest.active ? "記録中" : "開始・終了を記録済み" : "過去の記録（推定）"}</em><small>{latest.recorded ? "配信時間" : "推定配信時間"} {fmtDuration(latest.durationMs)} / イベント参加者 {latest.uniqueSenders}人</small></div>
             <div className="stats-session-metrics">
               {[
                 ["♟","視聴者",latest.uniqueSenders,"人"],
