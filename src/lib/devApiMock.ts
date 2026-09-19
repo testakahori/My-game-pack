@@ -186,6 +186,22 @@ if (import.meta.env.DEV && !win.mygamepack) {
       await navigator.clipboard.writeText(text);
       return { ok: true };
     },
+    giftPanelSavePng: async (dataUrl: string, filename: string) => {
+      const a = document.createElement('a'); a.href = dataUrl; a.download = filename; a.click();
+      return { canceled: false };
+    },
+    streamSessionStatus: async () => ({ active: JSON.parse(localStorage.getItem('dev-stream-session') || 'null') }),
+    streamSessionStart: async (title: string) => {
+      const existing = JSON.parse(localStorage.getItem('dev-stream-session') || 'null');
+      if (existing) return existing;
+      const session = { id: crypto.randomUUID(), title, startedAt: new Date().toISOString(), endedAt: null };
+      localStorage.setItem('dev-stream-session', JSON.stringify(session)); return session;
+    },
+    streamSessionEnd: async (_id: string, endedAt?: string) => {
+      const session = JSON.parse(localStorage.getItem('dev-stream-session') || 'null');
+      if (!session) throw new Error('配信記録がありません。');
+      localStorage.removeItem('dev-stream-session'); return { ...session, endedAt: endedAt || new Date().toISOString() };
+    },
     windowMinimize: ok,
     windowMaximizeToggle: ok,
     windowClose: ok,
@@ -390,7 +406,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
     operationsStats: async () => ({ total: 0, succeeded: 0, failed: 0, topCommands: [], topSenders: [] }),
     operationsHistoryClear: ok,
     operationsStreamStats: async (gapMinutes: number) => ({ ...streamStats, gapMinutes }),
-    testEvent: ok,
+    testEvent: async () => ({ ok: false, message: '実際のイベントテストはインストール版で利用してください。' }),
     minecraftGrantOp: async () => ({ ok: true, name: "dev_player" }),
     // 認証: devプレビューではログイン済み扱い。authLogout→authLoginでログイン画面の動作確認可
     authStatus: async () => ({ authenticated: devAuthState, email: devAuthState ? "dev@example.com" : "" }),

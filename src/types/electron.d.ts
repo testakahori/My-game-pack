@@ -1,5 +1,6 @@
 // src/types/electron.d.ts
 export {};
+export type StreamSession = { id: string; title: string; startedAt: string; endedAt: string | null };
 
 export type PreflightCheck = { id: string; title: string; status: "ok" | "warn" | "error" | "skip"; detail: string; page: string };
 export type PreflightResult = { checkedAt: string; checks: PreflightCheck[] };
@@ -41,6 +42,12 @@ export type BridgeConfig = {
 declare global {
   interface Window {
     mygamepack: {
+      bridgeCommandsList: () => Promise<Array<{ name: string; title: string }>>;
+      testEvent: (event: { type: string; preview?: boolean; listenerName?: string; commandFile?: string; giftId?: string; count?: number; previousLikes?: number; likeCount?: number; deaths?: number; followCount?: number; comment?: string; pollOption?: string }) => Promise<{ ok: boolean; message: string; preview?: boolean; notes?: string[]; steps?: Array<{ label: string; commandFile: string; count: number }>; fired?: Array<{ ok: boolean; message: string }> }>;
+      streamSessionStatus: () => Promise<{ active: StreamSession | null }>;
+      streamSessionStart: (title?: string) => Promise<StreamSession>;
+      streamSessionEnd: (id: string, endedAt?: string) => Promise<StreamSession>;
+      giftPanelSavePng: (dataUrl: string, filename: string) => Promise<{ canceled: boolean; path?: string }>;
       windowMinimize: () => void;
       windowMaximizeToggle: () => void;
       windowClose: () => void;

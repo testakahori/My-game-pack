@@ -1,7 +1,7 @@
 {
   "name": "tiktok-bridge-ui",
   "private": true,
-  "version": "1.0.26",
+  "version": "1.0.27",
   "description": "MyGamePack 用の設定編集UI（TikTok Bridge統合UI）",
   "author": "Douma Akahori",
   "type": "module",
@@ -57,7 +57,10 @@
       "electron/**",
       "package.json",
       "!electron/test/**",
-      "bridge/roulette.cjs"
+      "bridge/roulette.cjs",
+      "bridge/feature_engine.js",
+      "bridge/event_rules.cjs",
+      "bridge/package.json"
     ],
     "extraResources": [
       {
@@ -71,7 +74,9 @@
           "!test/**",
           "!presets/**",
           "!operations-history.json",
-          "!runtime-status.json"
+          "!runtime-status.json",
+          "!stream-sessions.json",
+          "!stream-metrics.jsonl"
         ]
       },
       {

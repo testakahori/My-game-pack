@@ -191,6 +191,8 @@ const ImageEditorPage: React.FC<Props> = ({ mappings }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageCache = useRef<Map<string, HTMLImageElement | null>>(new Map());
   const [imgLoadTick, setImgLoadTick] = useState(0);
+  const [exporting, setExporting] = useState(false);
+  const [exportNotice, setExportNotice] = useState("");
 
   // ─ データ読み込み ─
   useEffect(() => {
@@ -359,13 +361,17 @@ const ImageEditorPage: React.FC<Props> = ({ mappings }) => {
   const handleDragEnd = () => { setDragFromIdx(null); setDragOverIdx(null); };
 
   // ─ PNG 書き出し ─
-  const exportPng = () => {
+  const exportPng = async () => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const a = document.createElement("a");
-    a.href = canvas.toDataURL("image/png");
-    a.download = `gift_panel_${cols}x${rows}_${canvasWidth}x${canvasHeight}.png`;
-    a.click();
+    if (!canvas || exporting) return;
+    setExporting(true);
+    try {
+      const dataUrl = canvas.toDataURL("image/png");
+      const filename = `gift_panel_${cols}x${rows}_${canvasWidth}x${canvasHeight}.png`;
+      const result = await window.mygamepack.giftPanelSavePng(dataUrl, filename);
+      setExportNotice(result.canceled ? "保存をキャンセルしました。" : `ギフト案内画像を保存しました。${result.path || ""}`);
+    } catch (error) { setExportNotice(`保存できませんでした: ${error instanceof Error ? error.message : String(error)}`); }
+    finally { setExporting(false); }
   };
 
   // 現在編集中のカード
@@ -377,6 +383,7 @@ const ImageEditorPage: React.FC<Props> = ({ mappings }) => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-5 pb-10">
+      <p role="status" className="text-sm text-cyan-200">{exportNotice || "PNG保存で、配信に表示するギフト案内画像の保存先を選べます。"}</p>
 
       {/* ─ 設定バー ─ */}
       <div className="bg-gray-800 border border-gray-700 rounded-2xl p-4">

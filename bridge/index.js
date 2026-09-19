@@ -31,6 +31,7 @@ const { Rcon } = require("rcon-client");
 const { validateBridgeConfig } = require("./config_schema");
 const { prepareRoulette, createRouletteRunner } = require("./roulette.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted } = require("./feature_engine");
+const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras } = require("./event_rules.cjs");
 let runtimeProtection = { enabled: false };
 let doumaWebSocket = null;
 let doumaWebSocketStopping = false;
@@ -1307,7 +1308,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     if (!rl || rl.enabled !== true) return;
     const deaths = Number(status.deaths || 0);
     const every = clampInt(rl.everyDeaths ?? 1, 1, 1000, 1);
-    if (deaths > 0 && deaths % every === 0) {
+    if (deathRouletteMatches(rl, deaths)) {
       console.log(`[DeathRoulette] deaths=${deaths}（${every}回ごと）→ ルーレット始動`);
       runRoulette(rl, String(status.player || "player"), "death_roulette");
     }
@@ -1438,7 +1439,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         );
       }
       // unmappedGiftEvent が有効なら実行
-      if (unmappedGiftEvent?.enabled !== false && unmappedGiftEvent?.commandFile) {
+      if (enabledCommand(unmappedGiftEvent)) {
         const unmappedMap = { commandFile: ensureTxt(unmappedGiftEvent.commandFile), name: `unmapped:${giftId}` };
         if (doumaMod) {
           const unmappedRepeat = clampInt(unmappedGiftEvent.repeat ?? 1, 1, 100, 1);
@@ -1636,8 +1637,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     // コメントギフト（イベント設定②）：設定した文字列を含むコメントでコマンド発動。
     // TTS の有効/無効とは独立して動く。
     if (commentGiftsCfg?.enabled && doumaMod) {
-      for (const rule of (Array.isArray(commentGiftsCfg.rules) ? commentGiftsCfg.rules : [])) {
-        if (!rule || rule.enabled === false) continue;
+      for (const rule of matchingCommentRules(commentGiftsCfg, text)) {
         const match = String(rule.match || "").trim();
         if (!match || !rule.commandFile || !text.includes(match)) continue;
 
@@ -1658,9 +1658,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         }, { priority: 6 });
 
         if (rule.sound || rule.particle) {
-          const extras = [];
-          if (rule.sound) extras.push(`playsound ${sanitizeMcId(rule.sound, "entity.experience_orb.pickup")} master @a ~ ~ ~ 1 1`);
-          if (rule.particle) extras.push(`execute at @a run particle ${sanitizeMcId(rule.particle, "minecraft:happy_villager")} ~ ~1 ~ 0.6 0.8 0.6 0.05 20 force`);
+          const extras = commentExtras(rule);
           sendDoumaExec(doumaMod, extras, sender).catch(() => {});
         }
       }
@@ -1749,15 +1747,13 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         continue;
       }
       const lastMultiple = likeTriggeredAt.get(likeKey);
-      const newTriggers = currentMultiple - lastMultiple;
+      const { newTriggers, triggersToRun, skippedTriggers } = likeRuleProgress(ev, total, lastMultiple, maxLikeCatchUpPerEvent);
       if (newTriggers <= 0) continue;
       likeTriggeredAt.set(likeKey, currentMultiple);
 
       const mapping = { commandFile: ensureTxt(ev.commandFile), name: ev.label || `${thresh}いいね` };
       const sender = getStableSender(data);
       const evRepeat = clampInt(ev.repeat ?? 1, 1, 100, 1);
-      const triggersToRun = Math.min(newTriggers, maxLikeCatchUpPerEvent);
-      const skippedTriggers = newTriggers - triggersToRun;
 
       if (doumaMod) {
         const count = triggersToRun * evRepeat;
@@ -1815,7 +1811,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   tiktok.on("share", async (data) => {
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
     if (isMuted(data)) return;
-    if (!shareEvent || shareEvent.enabled === false || !shareEvent.commandFile) return;
+    if (!enabledCommand(shareEvent)) return;
 
     const mapping = { commandFile: ensureTxt(shareEvent.commandFile), name: "シェア" };
     const sender = getStableSender(data);
@@ -1869,11 +1865,10 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   tiktok.on("follow", async (data) => {
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
     if (isMuted(data)) return;
-    if (!followEvent || followEvent.enabled === false || !followEvent.commandFile) return;
-
-    const mapping = { commandFile: ensureTxt(followEvent.commandFile), name: "フォロー" };
     const sender = getStableSender(data);
     featureEngine.recordFollow(sender);
+    if (!enabledCommand(followEvent)) return;
+    const mapping = { commandFile: ensureTxt(followEvent.commandFile), name: "フォロー" };
     const followRepeat = clampInt(followEvent.repeat ?? 1, 1, 100, 1);
     if (doumaMod) {
       console.log(`[Follow] from=${sender} -> DoumaMod repeat=${followRepeat} file=${followEvent.commandFile}`);
@@ -1924,7 +1919,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   tiktok.on("member", async (data) => {
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
     if (isMuted(data)) return;
-    if (!memberEvent || memberEvent.enabled === false || !memberEvent.commandFile) return;
+    if (!enabledCommand(memberEvent)) return;
 
     const mapping = { commandFile: ensureTxt(memberEvent.commandFile), name: "訪問" };
     const sender = getStableSender(data);

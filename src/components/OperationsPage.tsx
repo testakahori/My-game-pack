@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import EventTestPanel from "./EventTestPanel";
+import StreamRecordingPanel from "./StreamRecordingPanel";
 import SettingsBackupsPanel from "./SettingsBackupsPanel";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 
@@ -150,12 +152,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
   const { hasChanges } = useUnsavedGuard();
   const api = (window as any).mygamepack;
   const [status, setStatus] = useState<ModStatus>(defaultStatus);
-  const [commands, setCommands] = useState<CommandFile[]>([]);
   const [history, setHistory] = useState<HistoryRow[]>([]);
-  const [commandFile, setCommandFile] = useState("");
-  const [sender, setSender] = useState("テスト視聴者");
-  const [count, setCount] = useState(1);
-  const [likeCount, setLikeCount] = useState(100);
   const [notice, setNotice] = useState("");
   const [cfg, setCfg] = useState<any>({});
   const [appCfg, setAppCfg] = useState<any>({});
@@ -205,19 +202,15 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
     let cancelled = false;
 
     Promise.allSettled([
-      api.bridgeCommandsList(),
       api.configRead(),
       api.appConfigRead(),
       api.serverPropsRead ? api.serverPropsRead() : Promise.resolve({}),
-    ]).then(([list, config, appConfig, props]) => {
+    ]).then(([config, appConfig, props]) => {
       if (cancelled) return;
-      const commandList = list.status === "fulfilled" && Array.isArray(list.value) ? list.value : [];
       const bridgeConfig = config.status === "fulfilled" ? config.value || {} : {};
       const appConfigValue = appConfig.status === "fulfilled" ? appConfig.value || {} : {};
       const propsValue = props.status === "fulfilled" ? props.value || {} : {};
 
-      setCommands(commandList);
-      setCommandFile(commandList[0]?.name || "");
       setCfg(bridgeConfig);
       setAppCfg(appConfigValue);
       setServerProps(propsValue);
@@ -233,10 +226,6 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
     };
   }, [api, refresh]);
 
-  const selectedCommand = useMemo(
-    () => commands.find((command) => command.name === commandFile),
-    [commands, commandFile],
-  );
 
   const o = cfg.options || {};
   const protection = o.protection || {};
@@ -263,22 +252,6 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
       ...(cfg.options?.protection || {}),
       ...patch,
     });
-  };
-
-  const fire = async (type: "gift" | "like") => {
-    try {
-      setNotice("テストイベントを送信中…");
-      // いいね発火は本番と同じ「しきい値ラダー」シミュレート（イベント設定①のルールに従う）
-      const result = type === "like"
-        ? await api.testEvent({ type, likeCount, listenerName: sender })
-        : await api.testEvent({ type, commandFile, count, listenerName: sender });
-      setNotice(result?.ok === false
-        ? `失敗: ${result.message || "送信できませんでした"}`
-        : result?.message || "テストイベントを送信しました");
-      await refresh();
-    } catch (error: any) {
-      setNotice(`送信失敗: ${error?.message || String(error)}`);
-    }
   };
 
   const save = async () => {
@@ -383,6 +356,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
   return (
     <div className="operations-page ops-page">
       <SettingsBackupsPanel onRestored={onRestored} />
+      <StreamRecordingPanel />
       <header className="ops-header">
         <div>
           <h1>運用センター / <span>Mission Control</span></h1>
@@ -468,94 +442,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
       </OpsPanel>
 
       <div className="ops-main-grid">
-        <OpsPanel className="ops-test-card">
-          <div className="ops-panel-heading">
-            <span className="ops-panel-icon ops-panel-icon--blue">▣</span>
-            <div>
-              <h2>オフライン・テストモード</h2>
-              <p>TikTok接続なしでModへ直接イベントを送ります。</p>
-            </div>
-          </div>
-
-          <div className="ops-test-controls">
-            <FieldLabel label="コマンドファイル">
-              <div className="ops-inline-control">
-                <select value={commandFile} onChange={(event) => setCommandFile(event.target.value)}>
-                  {commands.length ? (
-                    commands.map((command) => (
-                      <option key={command.name} value={command.name}>{displayCommandTitle(command)}</option>
-                    ))
-                  ) : (
-                    <option value="">コマンドが見つかりません</option>
-                  )}
-                </select>
-                <button type="button" className="ops-small-button" onClick={openCommandsFolder}>▧ ファイルを開く</button>
-              </div>
-            </FieldLabel>
-            <div className="ops-two-cols">
-              <FieldLabel label="テスト視聴者名">
-                <input value={sender} onChange={(event) => setSender(event.target.value)} placeholder="テスト視聴者" />
-              </FieldLabel>
-              <FieldLabel label="ギフト発火数">
-                <div className="ops-count-row">
-                  <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={count}
-                    onChange={(event) => setCount(Math.max(1, Math.min(100, Number(event.target.value) || 1)))}
-                  />
-                  <small>回<br />(1〜100)</small>
-                </div>
-              </FieldLabel>
-              <FieldLabel label="いいね発火数">
-                <div className="ops-count-row">
-                  <input
-                    type="number"
-                    min={1}
-                    max={10000}
-                    value={likeCount}
-                    onChange={(event) => setLikeCount(Math.max(1, Math.min(10000, Number(event.target.value) || 1)))}
-                  />
-                  <small>いいね<br />(1〜10000)</small>
-                </div>
-              </FieldLabel>
-            </div>
-            <div className="ops-action-row">
-              <button type="button" className="ops-primary-button ops-primary-button--pink" onClick={() => fire("gift")}>
-                🎁 ギフト発火
-              </button>
-              <button type="button" className="ops-primary-button ops-primary-button--cyan" onClick={() => fire("like")}>
-                ♥ いいね発火
-              </button>
-            </div>
-            <p className="ops-test-note" style={{ margin: "6px 0 0", fontSize: 11, color: "#8ba0b8" }}>
-              ♥ いいね発火は「イベント設定①」のしきい値ルールに従って発火します（コマンドファイル選択は使いません）。
-            </p>
-          </div>
-
-          <div className="ops-preview-log">
-            <div>
-              <b>プレビューログ（直近10件）</b>
-              <button type="button" onClick={clearHistory}>クリア</button>
-            </div>
-            {(history.length ? history : [{
-              at: new Date().toISOString(),
-              type: "INFO",
-              sender: "SYSTEM",
-              commandFile: selectedCommand?.name || commandFile || "未選択",
-              count,
-              ok: true,
-              message: `コマンドファイルを読み込みました: ${selectedCommand?.name || commandFile || "—"}`,
-            }]).slice(0, 4).map((row, index) => (
-              <p key={`${row.at}-${index}`}>
-                <span>[{fmtShortTime(row.at)}]</span>
-                <b className={row.ok ? "ok" : "bad"}>{row.ok ? "OK" : "ERR"}</b>
-                <em>{row.message || `${row.type} / ${row.sender} / ${row.commandFile} × ${row.count}`}</em>
-              </p>
-            ))}
-          </div>
-        </OpsPanel>
+        <EventTestPanel onTested={refresh} />
 
         <OpsPanel className="ops-stability-card">
           <div className="ops-panel-heading">

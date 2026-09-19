@@ -7527,3 +7527,16 @@ button.tts-status-card:hover {
 .backup-controls select { width: 100%; background: #0a1626; border: 1px solid #3c536d; padding: 11px; color: #e4edf7; border-radius: 9px; font-size: 13px; }
 .unsaved-banner { padding: 8px 24px; background: #493a1c; border-bottom: 1px solid #8c682e; color: #ffe0a1; font-size: 12px; }
 .safety-panel :focus-visible { outline: 2px solid #69e4f5; outline-offset: 3px; }
+
+/* Event rehearsal and explicit stream recording */
+.event-test-fields { border: 0; padding: 0; margin: 0; display: grid; gap: 12px; min-width: 0; }
+.event-test-result { margin-top: 14px; padding: 12px; border: 1px solid #284967; border-radius: 10px; font-size: 12px; overflow-wrap: anywhere; }
+.ops-test-note { font-size: 12px; color: #a0b3ca; line-height: 1.7; margin-top: 12px; }
+.stream-recording-panel { margin-bottom: 18px; padding: 18px; border: 1px solid #28516a; border-radius: 14px; background: #101e30; color: #dceafa; }
+.stream-recording-panel h2 { font-size: 18px; margin: 0 0 8px; }
+.stream-recording-panel p { font-size: 12px; line-height: 1.7; }
+.stream-recording-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+.stream-recording-actions label { display: grid; gap: 5px; font-size: 12px; }
+.stream-recording-actions input { background: #081322; color: #e0f2ff; border: 1px solid #37516b; border-radius: 8px; padding: 8px; color-scheme: dark; }
+.stream-recording-actions button { background: #167b97; padding: 10px 16px; border: 1px solid #41cde9; border-radius: 8px; }
+.event-test-fields button:disabled, .stream-recording-actions button:disabled { opacity: .5; cursor: wait; }
