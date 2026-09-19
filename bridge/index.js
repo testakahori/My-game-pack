@@ -32,6 +32,8 @@ const { validateBridgeConfig } = require("./config_schema");
 const { prepareRoulette, createRouletteRunner } = require("./roulette.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted } = require("./feature_engine");
 const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras } = require("./event_rules.cjs");
+const { createMediaReporter } = require("./media_events.cjs");
+const mediaReporter = createMediaReporter();
 let runtimeProtection = { enabled: false };
 let doumaWebSocket = null;
 let doumaWebSocketStopping = false;
@@ -1338,6 +1340,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       try {
         const state = await tiktok.connect();
         connectedAt = Date.now();
+        mediaReporter.reset();
         console.log(`[TikTok] Connected. roomId=${state.roomId}`);
         console.log(`[Bridge] connectedAt: ${connectedAt}`);
         updateRuntimeStatus({
@@ -1431,6 +1434,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       return;
     }
 
+    mediaReporter.gift(data, sender);
     let mapping = mappingById.get(giftId);
     if (!mapping) {
       if (logUnknownGifts) {
@@ -1734,6 +1738,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   tiktok.on("like", async (data) => {
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
     if (isMuted(data)) return;
+    mediaReporter.like(data);
     const total = Number(data.totalLikeCount ?? 0);
     featureEngine.recordLikes(total, getStableSender(data));
     for (const ev of likeEvents) {
