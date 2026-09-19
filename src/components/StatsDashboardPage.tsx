@@ -18,7 +18,7 @@ type StreamStats = {
 type HistoryRow = { at: string; type: string; sender: string; commandFile: string; count: number; ok: boolean };
 
 const card = "rounded-2xl border border-gray-700 bg-gray-900/70 p-5";
-const SESSION_GAP_MINUTES = 24 * 60;
+const SESSION_GAP_MINUTES = 90;
 const TIMELINE_BUCKETS = 5;
 const CHART_X = [25, 80, 135, 190, 250];
 const CHART_TOP = 15;
@@ -173,7 +173,7 @@ export default function StatsDashboardPage() {
             >
               配信統計{view === "list" ? "（配信集計）" : view === "detail" ? "（配信詳細）" : "ダッシュボード"} <span style={{ fontSize: 14, opacity: 0.7 }}>▾</span>
             </h1>
-            <p>配信イベントの集計と分析をリアルタイム更新します。データは30日間保持されます。</p>
+            <p>イベントが90分以上途切れると別の配信として集計します。時間は最初から最後のイベントまでの推定値です。</p>
             {menuOpen && (
               <div
                 style={{
@@ -205,7 +205,7 @@ export default function StatsDashboardPage() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div className="stats-summary-tile stats-summary-tile--green" style={{ minWidth: 150 }}>
-              <span>🕒</span><small>今月の配信合計時間</small>
+              <span>🕒</span><small>今月の推定配信時間</small>
               <b>{data.monthly ? fmtDuration(data.monthly.totalDurationMs) : "0分"}</b>
             </div>
             <button onClick={() => refresh()}>↻ 更新</button>
@@ -240,8 +240,8 @@ export default function StatsDashboardPage() {
             <div className="stats-table" style={{ fontSize: 13 }}>
               <p style={{ fontWeight: 800, color: "#8ba0b8" }}>
                 <span style={{ minWidth: 170 }}>日付（クリックで詳細）</span>
-                <b>配信時間</b>
-                <em>総配信時間（累計）</em>
+                <b>推定配信時間</b>
+                <em>推定時間（累計）</em>
                 <strong>💎 総ダイヤ</strong>
               </p>
               {data.streams.map((s, index) => {
@@ -291,7 +291,7 @@ export default function StatsDashboardPage() {
               </div>
               <div className="stats-session-metrics">
                 {[
-                  ["🕒","配信時間",fmtDuration(s.durationMs),""],
+                  ["🕒","推定配信時間",fmtDuration(s.durationMs),""],
                   ["♟","視聴者数（イベント参加）",s.uniqueSenders,"人"],
                   ["📈","最高同接",s.maxViewers || 0,"人"],
                   ["📊","平均同接",s.avgViewers || 0,"人"],
@@ -351,7 +351,7 @@ export default function StatsDashboardPage() {
       ) : (
         <>
           <section className="stats-session-panel">
-            <div className="stats-session-title"><span>配信 #1</span><h2>{fmtRange(latest.start, latest.end)}</h2><em>リアルタイム</em><small>配信時間 {fmtDuration(latest.durationMs)} / 視聴者 {latest.uniqueSenders}人</small></div>
+            <div className="stats-session-title"><span>配信 #1</span><h2>{fmtRange(latest.start, latest.end)}</h2><em>最新の記録</em><small>推定配信時間 {fmtDuration(latest.durationMs)} / イベント参加者 {latest.uniqueSenders}人</small></div>
             <div className="stats-session-metrics">
               {[
                 ["♟","視聴者",latest.uniqueSenders,"人"],

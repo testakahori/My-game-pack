@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld("mygamepack", {
   windowMinimize: () => ipcRenderer.send("window:minimize"),
   windowMaximizeToggle: () => ipcRenderer.send("window:maximizeToggle"),
   windowClose: () => ipcRenderer.send("window:close"),
+  clipboardWriteText: (text) => ipcRenderer.invoke("clipboard:writeText", text),
   preflightRun: () => ipcRenderer.invoke("preflight:run"),
   settingsBackupsList: () => ipcRenderer.invoke("settings:backups:list"),
   settingsBackupCreate: () => ipcRenderer.invoke("settings:backups:create"),

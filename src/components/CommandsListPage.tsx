@@ -3,6 +3,7 @@
 // bridge/commands/minecraft/*.txt のメタ情報（TITLE/CATEGORY/説明）を一覧表示し、
 // カードクリックでチャット欄に貼り付けられる「/douma <コマンド名> 1」をコピーする。
 import React from "react";
+import { copyText } from "../lib/clipboard";
 
 type CommandMeta = { name: string; title: string; category: string; description?: string };
 
@@ -71,7 +72,7 @@ const CommandsListPage: React.FC = () => {
   const onCopy = async (meta: CommandMeta) => {
     const cmd = chatCommandOf(meta);
     try {
-      await navigator.clipboard.writeText(cmd);
+      await copyText(cmd);
       showToast(`コピーしました: ${cmd}`);
     } catch {
       showToast("コピーに失敗しました");

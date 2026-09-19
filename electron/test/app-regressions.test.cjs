@@ -19,6 +19,7 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const handlers = new Map();
   const notifications = [];
+  const copiedTexts = [];
   const mainPath = path.resolve(__dirname, "../main.cjs");
   const realRequire = createRequire(mainPath);
   const app = {
@@ -28,6 +29,7 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
   const requireMock = (name) => {
     if (name === "electron") return {
       app, ipcMain: { handle: (name, fn) => handlers.set(name, fn), on() {} },
+      clipboard: { writeText: text => copiedTexts.push(text) },
       BrowserWindow: { getAllWindows: () => [{ webContents: { send: (...args) => notifications.push(args) } }] },
     };
     if (name === "electron-updater") return { autoUpdater: updater };
@@ -49,7 +51,7 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
     process, Buffer, URL, AbortSignal, fetch, setTimeout, clearTimeout, setInterval, clearInterval,
   });
   vm.runInContext(fs.readFileSync(mainPath, "utf8"), context, { filename: mainPath });
-  return { root, configPath, notifications, invoke: (name, ...args) => handlers.get(name)({}, ...args),
+  return { root, configPath, notifications, copiedTexts, invoke: (name, ...args) => handlers.get(name)({}, ...args),
     startUpdater: () => {
       app.isPackaged = true;
       context.setTimeout = () => {};
@@ -57,6 +59,18 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
     },
   };
 }
+
+test("テキストコピー: コマンド・ギフトID・日本語をネイティブへ渡し、不正入力は拒否する", async t => {
+  const app = loadApp(t);
+  for (const text of ["/douma zombie 1", "5655", "日本語「バラ」🌹"]) {
+    assert.equal((await app.invoke("clipboard:writeText", text)).ok, true);
+    assert.equal(app.copiedTexts.at(-1), text);
+  }
+  for (const input of [null, {}, 5655, "x".repeat(65537)]) {
+    assert.throws(() => app.invoke("clipboard:writeText", input), /文字列が不正/);
+  }
+  assert.equal(app.copiedTexts.length, 3);
+});
 
 test("自動更新: 検出・進捗・適用準備を保持し、エラー後は再試行できる", async t => {
   const listeners = new Map();
@@ -80,6 +94,20 @@ test("自動更新: 検出・進捗・適用準備を保持し、エラー後は
   assert.equal((await app.invoke("updater:status")).error, "通信切断");
   await app.invoke("updater:check");
   assert.equal(checks, 1);
+});
+
+test("配信統計: 90分以上空いたイベントは別配信に分け、休止時間を加算しない", async t => {
+  const app = loadApp(t);
+  const start = Date.now() - 12 * 60 * 60 * 1000;
+  const rows = [0, 10, 100, 700].map(minutes => ({
+    at: new Date(start + minutes * 60000).toISOString(), type: "like",
+    sender: "tester", commandFile: "qa.txt", count: 1, ok: true,
+  }));
+  fs.writeFileSync(path.join(app.root, "bridge", "operations-history.json"), JSON.stringify(rows));
+  const stats = await app.invoke("operations:streamStats", 90);
+  assert.equal(stats.overall.streams, 3);
+  assert.equal(stats.overall.events, 4);
+  assert.equal(stats.streams.reduce((sum, stream) => sum + stream.durationMs, 0), 10 * 60000);
 });
 
 test("ギフト更新: 手動と自動の同時実行をまとめ、検証後に両画面へ通知する", async (t) => {

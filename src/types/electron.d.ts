@@ -44,6 +44,7 @@ declare global {
       windowMinimize: () => void;
       windowMaximizeToggle: () => void;
       windowClose: () => void;
+      clipboardWriteText: (text: string) => Promise<{ ok: true }>;
       preflightRun: () => Promise<PreflightResult>;
       settingsBackupsList: () => Promise<SettingsBackup[]>;
       settingsBackupCreate: () => Promise<SettingsBackup>;
