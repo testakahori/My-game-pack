@@ -1,4 +1,5 @@
 import React from "react";
+import { copyText } from "../lib/clipboard";
 
 type Gift = { id: number; name: string; diamond_count: number; image?: string | null };
 type GiftsMeta = { generatedAt: string; username: string; count: number } | null;
@@ -148,7 +149,7 @@ const GiftsViewerPage: React.FC<Props> = ({ bridgeRunning, modOnline }) => {
 
   const onCopyText = async (text: string) => {
     try {
-      await navigator.clipboard.writeText(text);
+      await copyText(text);
       showToast(`ID コピー: ${text}`);
     } catch {
       showToast("IDコピーに失敗しました");

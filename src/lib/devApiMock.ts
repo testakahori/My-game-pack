@@ -182,6 +182,10 @@ if (import.meta.env.DEV && !win.mygamepack) {
   };
 
   win.mygamepack = {
+    clipboardWriteText: async (text: string) => {
+      await navigator.clipboard.writeText(text);
+      return { ok: true };
+    },
     windowMinimize: ok,
     windowMaximizeToggle: ok,
     windowClose: ok,

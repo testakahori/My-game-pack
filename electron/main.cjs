@@ -1872,7 +1872,7 @@ function computeStreamStats(gapMinutes) {
   const buckets = [];
   let cur = null;
   for (const r of sorted) {
-    if (!cur || r.t - cur.lastT > gapMs) {
+    if (!cur || r.t - cur.lastT >= gapMs) {
       cur = { startT: r.t, lastT: r.t, rows: [] };
       buckets.push(cur);
     }
@@ -2423,6 +2423,14 @@ ipcMain.handle("gv:gifts:fetchImageBase64", async (_event, url) => {
 // --------------------
 // gv:gifts:copyPngDataUrl
 // --------------------
+ipcMain.handle("clipboard:writeText", (_event, text) => {
+  if (typeof text !== "string" || text.length > 65536) {
+    throw new Error("コピーする文字列が不正です");
+  }
+  clipboard.writeText(text);
+  return { ok: true };
+});
+
 ipcMain.handle("gv:gifts:copyPngDataUrl", async (_event, dataUrl) => {
   if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/png;base64,")) throw new Error("PNG Data URL is invalid");
   if (dataUrl.length > 14 * 1024 * 1024) throw new Error("PNG is too large (max 10MB)");
