@@ -32,16 +32,59 @@ test('素材をコピーして保存・再起動。原本と他のプロフィ�
   assert.equal(reopened.state().settings.profiles[1].rules.length, 0);
   assert.equal(reopened.state().canUndo, false);
 });
-test('いいね: 接続初回・重複・巻き戻りは発火せず、到達時に1回だけ再生', async t => {
+test('いいね: 接続初回・重複・巻き戻りは発火せず、到達回数をすべて再生', async t => {
   const f = await fixture(t);
   assert.deepEqual(f.event({ type: 'like', total: 10900 }).matched, []);
   assert.equal(f.event({ type: 'like', total: 11000 }, 'same').matched.length, 1);
   assert.equal(f.event({ type: 'like', total: 11000 }, 'same').duplicate, true);
-  assert.equal(f.event({ type: 'like', total: 20000 }).matched.length, 1); // 急増分を大量再生しない
-  assert.equal(f.effects.state().queued, 1);
+  assert.equal(f.event({ type: 'like', total: 20000 }).plays[0].count, 90);
+  assert.equal(f.effects.state().queued, 90);
   assert.equal(f.event({ type: 'like', total: 1 }).matched.length, 0);
+  assert.equal(f.event({ type: 'like', total: 20000 }).matched.length, 0);
+  assert.equal(f.effects.state().queued, 90);
   f.event({ type: 'reset' });
   assert.equal(f.event({ type: 'like', total: 30000 }).matched.length, 0);
+});
+test('100いいね設定: 350いいねは別々のスタンプ3回、端数50は次の到達へ持ち越す', async t => {
+  const f = await fixture(t); f.event({ type: 'like', total: 0 });
+  assert.equal(f.event({ type: 'like', total: 350 }).plays[0].count, 3);
+  assert.equal(f.effects.state().queued, 2);
+  const ids = new Set();
+  for (let i = 0; i < 3; i++) { ids.add(f.effects.snapshot('live').current.id); f.advance(5000); }
+  assert.equal(ids.size, 3); assert.equal(f.effects.state().playing, '');
+  assert.equal(f.event({ type: 'like', total: 399 }).matched.length, 0);
+  assert.equal(f.event({ type: 'like', total: 400 }).plays[0].count, 1);
+});
+test('いいねは短時間の連打・20件超・30秒超の待機でも再生回数を減らさない', async t => {
+  const f = await fixture(t); f.saveRules([{ ...f.rule, cooldown: 600 }]);
+  f.event({ type: 'like', total: 0 });
+  for (let n = 1; n <= 100; n++) assert.equal(f.event({ type: 'like', total: n * 100 }).plays[0].count, 1);
+  assert.equal(f.effects.state().queued, 99);
+  const ids = new Set();
+  for (let n = 0; n < 100; n++) {
+    assert.ok(f.effects.state().playing); ids.add(f.effects.snapshot('live').current.id);
+    f.advance(5000);
+  }
+  assert.equal(ids.size, 100); assert.equal(f.effects.state().queued, 0); assert.equal(f.effects.state().playing, '');
+});
+test('大量いいねも回数を保持し、複数条件を別々に再生でき、全停止で待機を消去', async t => {
+  const f = await fixture(t);
+  f.saveRules([f.rule, { ...f.rule, id: '250', name: '250いいね', threshold: 250 }]);
+  f.event({ type: 'like', total: 0 });
+  assert.deepEqual(f.event({ type: 'like', total: 750 }).plays.map(p => p.count), [7, 3]);
+  const counts = {};
+  for (let n = 0; n < 10; n++) { const name = f.effects.state().playing; counts[name] = (counts[name] || 0) + 1; f.advance(5000); }
+  assert.deepEqual(counts, { 'ありがとう': 7, '250いいね': 3 });
+  f.event({ type: 'like', total: 1000000000000 });
+  assert.ok(f.effects.state().queued > 1000000);
+  f.effects.control('stop'); assert.equal(f.effects.state().queued, 0); assert.equal(f.effects.state().playing, '');
+});
+test('条件テストでも0→350いいねはプレビューで1回ずつ3回再生', async t => {
+  const f = await fixture(t);
+  assert.equal(f.effects.testEvent({ type: 'like', previousLikes: 0, total: 350 }).plays[0].count, 3);
+  const ids = new Set();
+  for (let n = 0; n < 3; n++) { ids.add(f.effects.snapshot('preview').current.id); assert.equal(f.effects.state().playing, ''); f.advance(5000); }
+  assert.equal(ids.size, 3); assert.equal(f.effects.state().previewPlaying, '');
 });
 test('指定ギフト・1個のコイン数・連続合計の到達を独立判定', async t => {
   const f = await fixture(t);
@@ -50,6 +93,19 @@ test('指定ギフト・1個のコイン数・連続合計の到達を独立判�
   assert.equal(f.event({ type: 'gift', giftId: '5655', delta: 1, unitCoins: 500, previousCoins: 500, totalCoins: 1000 }).matched.length, 2);
   assert.equal(f.event({ type: 'gift', giftId: '5655', delta: 1, unitCoins: 500, previousCoins: 1000, totalCoins: 1500 }).matched.length, 1);
   assert.equal(f.event({ type: 'gift', giftId: '999', delta: 1, unitCoins: 1000, previousCoins: 0, totalCoins: 1000 }).matched.length, 2);
+});
+test('TikTokギフトの単価で○コイン以上を判定: 薔薇1、しきい値の未満・同額・超過', async t => {
+  const f = await fixture(t), normalizer = createGiftNormalizer();
+  const rose = normalizer.gift({ giftId: 5655, giftType: 0, diamondCount: 1 }, 'viewer');
+  f.saveRules([{ ...f.rule, trigger: 'coins', threshold: 1 }]);
+  assert.equal(rose.unitCoins, 1); assert.equal(f.event(rose).matched.length, 1);
+  f.saveRules([{ ...f.rule, trigger: 'coins', threshold: 1000 }]);
+  assert.equal(f.event(rose).matched.length, 0);
+  assert.equal(f.event({ ...rose, delta: 1000, totalCoins: 1000 }).matched.length, 0); // 薔薇1000個でも単価は1
+  for (const value of [999, 1000, 1001]) {
+    const gift = normalizer.gift({ giftId: 999, giftType: 0, diamondCount: value }, 'viewer');
+    assert.equal(f.event(gift).matched.length, value >= 1000 ? 1 : 0);
+  }
 });
 test('連続ギフト: 終了通知・同じ累積数の重複を除去し、次の連打と別視聴者を認識', () => {
   const n = createGiftNormalizer(), gift = { giftId: 5655, giftType: 1, diamondCount: 500, repeatCount: 1, repeatEnd: false };
@@ -112,12 +168,13 @@ test('破損した設定は上書きせず明示エラー。未知の形式・�
   assert.match(broken.state().error, /保護/); assert.throws(() => broken.save(defaults(), 0), /保護/); assert.equal(fs.readFileSync(file, 'utf8'), 'broken');
   const bad = f.effects.state().settings; bad.profiles[0].rules[0].volume = NaN; assert.throws(() => validateSettings(bad), /不正/);
 });
-test('クールダウン・待ち行列上限・期限切れで大量イベントの後追いを防ぐ', async t => {
-  const f = await fixture(t); f.saveRules([{ ...f.rule, cooldown: 3 }]); f.event({ type: 'like', total: 0 });
-  assert.equal(f.event({ type: 'like', total: 100 }).matched.length, 1); assert.equal(f.event({ type: 'like', total: 200 }).matched.length, 0);
-  f.advance(3000); assert.equal(f.event({ type: 'like', total: 300 }).matched.length, 1);
-  f.saveRules([{ ...f.rule, duration: 60 }]); f.event({ type: 'like', total: 0 });
-  for (let n = 1; n <= 100; n++) f.event({ type: 'like', total: n * 100 });
+test('ギフトのクールダウン・待ち行列上限・期限切れは維持する', async t => {
+  const f = await fixture(t), gift = { type: 'gift', giftId: '5655', delta: 1, unitCoins: 1, previousCoins: 0, totalCoins: 1 };
+  f.saveRules([{ ...f.rule, trigger: 'gift', cooldown: 3 }]);
+  assert.equal(f.event(gift).matched.length, 1); assert.equal(f.event(gift).matched.length, 0);
+  f.advance(3000); assert.equal(f.event(gift).matched.length, 1);
+  f.saveRules([{ ...f.rule, trigger: 'gift', duration: 60 }]);
+  for (let n = 1; n <= 100; n++) f.event(gift);
   assert.equal(f.effects.state().queued, 20); f.advance(60001); assert.equal(f.effects.state().queued, 0); assert.equal(f.effects.state().playing, '');
 });
 test('HTTP: ローカル認証・Origin・メディア範囲取得・SSE・終了通知', async t => {

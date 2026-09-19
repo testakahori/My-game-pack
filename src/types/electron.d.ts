@@ -50,7 +50,7 @@ declare global {
       effectsControl: (action: string) => Promise<MediaState>;
       effectsImport: () => Promise<MediaState>;
       effectsPreview: () => Promise<MediaState>;
-      effectsTest: (input: { assetId?: string; ruleId?: string; calibration?: boolean; event?: { type: string; previousLikes?: number; total?: number; giftId?: string; unitCoins?: number; delta?: number; previousCoins?: number; totalCoins?: number } }) => Promise<MediaState | { matched: string[] }>;
+      effectsTest: (input: { assetId?: string; ruleId?: string; calibration?: boolean; event?: { type: string; previousLikes?: number; total?: number; giftId?: string; unitCoins?: number; delta?: number; previousCoins?: number; totalCoins?: number } }) => Promise<MediaState | { matched: string[]; plays: { name: string; count: number }[] }>;
       effectsConfirm: (kind: 'visual' | 'audio') => Promise<MediaState>;
       effectsCopyUrl: () => Promise<{ ok: true }>;
       bridgeCommandsList: () => Promise<Array<{ name: string; title: string }>>;

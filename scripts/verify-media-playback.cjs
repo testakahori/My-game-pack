@@ -36,6 +36,17 @@ app.whenReady().then(async () => {
   assert.equal(await js(preview, "document.querySelectorAll('img').length"), 0);
   assert.equal(await js(live, "getComputedStyle(document.body).backgroundColor"), 'rgba(0, 0, 0, 0)');
   effects.control('stop');
+  const counted = effects.state(); counted.settings.profiles[0].rules[0].duration = 1; effects.save(counted.settings, counted.revision);
+  for (const win of windows) await js(win, `globalThis.stampStarts = 0; new MutationObserver(records => {
+    for (const record of records) for (const node of record.addedNodes) if (node.nodeName === 'IMG') globalThis.stampStarts++;
+  }).observe(document.querySelector('#stage'), { childList: true });`);
+  effects.receive({ id: 'baseline-multiple', type: 'like', total: 0 });
+  assert.equal(effects.receive({ id: 'multiple', type: 'like', total: 350 }).plays[0].count, 3);
+  await until(async () => await js(live, 'globalThis.stampStarts') === 3 && effects.state().playing === '', 'three individual live stamps');
+  assert.equal(await js(preview, 'globalThis.stampStarts'), 0);
+  assert.equal(effects.testEvent({ type: 'like', previousLikes: 0, total: 350 }).plays[0].count, 3);
+  await until(async () => await js(preview, 'globalThis.stampStarts') === 3 && effects.state().previewPlaying === '', 'three individual preview stamps');
+  assert.equal(await js(live, 'globalThis.stampStarts'), 3);
   effects.testAsset(audio.id);
   await until(() => js(preview, "document.querySelector('audio')?.currentTime > .1"), 'WAV playback');
   assert.equal(await js(preview, "document.querySelector('audio').volume"), .35);
@@ -56,7 +67,7 @@ app.whenReady().then(async () => {
   effects.confirm('visual'); effects.confirm('audio'); assert.equal(effects.preflight().status, 'ok');
   effects.control('stop'); await until(() => js(preview, "document.querySelector('#stage').childElementCount === 0"), 'all stop');
   assert.equal(effects.state().error, '');
-  console.log('PASS: PNG / transparent live output / preview isolation / WAV / pause / mute / stop / MP4 / audio / completion / preflight');
+  console.log('PASS: PNG / 350 likes -> 3 individual stamps (live and preview) / transparent live output / preview isolation / WAV / pause / mute / stop / MP4 / audio / completion / preflight');
 }).then(() => finish(0), error => { console.error(error); finish(1); });
 function finish(code) {
   effects?.close(); for (const win of windows) if (!win.isDestroyed()) win.destroy();
