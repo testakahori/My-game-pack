@@ -1,3 +1,4 @@
+import type { MediaSettings, MediaState } from "../mediaEffects";
 // src/types/electron.d.ts
 export {};
 export type StreamSession = { id: string; title: string; startedAt: string; endedAt: string | null };
@@ -42,6 +43,16 @@ export type BridgeConfig = {
 declare global {
   interface Window {
     mygamepack: {
+      effectsConnect: (username: string) => Promise<MediaState>;
+      effectsDisconnect: () => Promise<MediaState>;
+      effectsState: () => Promise<MediaState>;
+      effectsSave: (settings: MediaSettings, revision: number) => Promise<MediaState>;
+      effectsControl: (action: string) => Promise<MediaState>;
+      effectsImport: () => Promise<MediaState>;
+      effectsPreview: () => Promise<MediaState>;
+      effectsTest: (input: { assetId?: string; ruleId?: string; calibration?: boolean; event?: { type: string; previousLikes?: number; total?: number; giftId?: string; unitCoins?: number; delta?: number; previousCoins?: number; totalCoins?: number } }) => Promise<MediaState | { matched: string[] }>;
+      effectsConfirm: (kind: 'visual' | 'audio') => Promise<MediaState>;
+      effectsCopyUrl: () => Promise<{ ok: true }>;
       bridgeCommandsList: () => Promise<Array<{ name: string; title: string }>>;
       testEvent: (event: { type: string; preview?: boolean; listenerName?: string; commandFile?: string; giftId?: string; count?: number; previousLikes?: number; likeCount?: number; deaths?: number; followCount?: number; comment?: string; pollOption?: string }) => Promise<{ ok: boolean; message: string; preview?: boolean; notes?: string[]; steps?: Array<{ label: string; commandFile: string; count: number }>; fired?: Array<{ ok: boolean; message: string }> }>;
       streamSessionStatus: () => Promise<{ active: StreamSession | null }>;

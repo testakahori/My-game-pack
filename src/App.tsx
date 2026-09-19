@@ -13,6 +13,9 @@ import TTSSettingsPage from "./components/TTSSettingsPage";
 import OperationsPage from "./components/OperationsPage";
 import StatsDashboardPage from "./components/StatsDashboardPage";
 import MinecraftBlockIcon from "./components/MinecraftBlockIcon";
+import MediaEffectsPage from "./components/MediaEffectsPage";
+import { MediaEffectsProvider, MediaSafetyBar } from "./mediaEffects";
+import "./media-effects.css";
 import LoginPage from "./components/LoginPage";
 import { UnsavedChangesProvider, useUnsavedGuard } from "./UnsavedChanges";
 
@@ -21,6 +24,7 @@ const PAGE_TITLE: Partial<Record<AppPage, string>> = {
   [AppPage.GIFTS]: "ギフト設定",
   [AppPage.EVENTS]: "イベント設定①",
   [AppPage.EVENTS2]: "イベント設定②",
+  [AppPage.EFFECTS]: "配信演出",
   [AppPage.TTS]: "🔊 読み上げ設定",
   [AppPage.GIFTS_VIEWER]: "ギフト一覧",
   [AppPage.COMMANDS]: "コマンド一覧",
@@ -169,6 +173,7 @@ const App: React.FC = () => {
         </div>
       </header>
 
+      <MediaSafetyBar onOpen={() => navigateTo(AppPage.EFFECTS)} />
       <div className="app-workspace flex flex-1 min-h-0 overflow-hidden">
         <Sidebar
           activePage={activePage}
@@ -204,6 +209,7 @@ const App: React.FC = () => {
             </div>
           )}
 
+          {activePage === AppPage.EFFECTS && <MediaEffectsPage />}
           {activePage === AppPage.TTS && (
             <div className="page-pad p-6">
               <TTSSettingsPage />
@@ -245,4 +251,4 @@ const App: React.FC = () => {
   );
 };
 
-export default function GuardedApp() { return <UnsavedChangesProvider><App /></UnsavedChangesProvider>; }
+export default function GuardedApp() { return <UnsavedChangesProvider><MediaEffectsProvider><App /></MediaEffectsProvider></UnsavedChangesProvider>; }
