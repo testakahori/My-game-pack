@@ -29,7 +29,6 @@ type NavItem = {
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { page: AppPage.EFFECTS, label: "配信演出", sub: "画像・動画・声・BGM", icon: "✨" },
   {
     page: AppPage.DASHBOARD,
     label: "ダッシュボード",
@@ -99,7 +98,6 @@ const NavGlyph: React.FC<{ page: AppPage }> = ({ page }) => {
     [AppPage.GIFTS]: <><path {...common} d="M4 9h16v11H4zM3 6h18v4H3zM12 6v14" /><path {...common} d="M12 6c-4 0-5-5-1-4 2 .5 1 4 1 4Zm0 0c4 0 5-5 1-4-2 .5-1 4-1 4Z" /></>,
     [AppPage.EVENTS]: <><circle {...common} cx="12" cy="12" r="8" /><circle {...common} cx="12" cy="12" r="4" /><path {...common} d="m12 12 7-7M16 5h3v3" /></>,
     [AppPage.EVENTS2]: <><circle {...common} cx="12" cy="12" r="8" /><path {...common} d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3 6.3 17.7" /><circle {...common} cx="12" cy="12" r="2.2" /></>,
-    [AppPage.EFFECTS]: <><path {...common} d="m12 2 3 7 7 3-7 3-3 7-3-7-7-3 7-3Z" /></>,
     [AppPage.TTS]: <><path {...common} d="M4 10v4h4l5 4V6L8 10H4Z" /><path {...common} d="M16 9c1 2 1 4 0 6M19 6c3 4 3 8 0 12" /></>,
     [AppPage.GIFTS_VIEWER]: <><path {...common} d="M7 4c3 0 5 3 5 7-4 0-7-2-7-5 0-1 1-2 2-2ZM17 4c-3 0-5 3-5 7 4 0 7-2 7-5 0-1-1-2-2-2Z" /><path {...common} d="M12 11v10M12 14l-4 5M12 14l4 5" /></>,
     [AppPage.COMMANDS]: <><rect {...common} x="3" y="5" width="18" height="14" rx="2" /><path {...common} d="m7 9 3 3-3 3M12 15h5" /></>,

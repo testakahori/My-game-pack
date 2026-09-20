@@ -16,16 +16,6 @@ function normalizeUsername(u) {
 }
 
 contextBridge.exposeInMainWorld("mygamepack", {
-  effectsConnect: username => ipcRenderer.invoke('effects:connect', username),
-  effectsDisconnect: () => ipcRenderer.invoke('effects:disconnect'),
-  effectsState: () => ipcRenderer.invoke('effects:state'),
-  effectsSave: (settings, revision) => ipcRenderer.invoke('effects:save', settings, revision),
-  effectsControl: action => ipcRenderer.invoke('effects:control', action),
-  effectsImport: () => ipcRenderer.invoke('effects:import'),
-  effectsPreview: () => ipcRenderer.invoke('effects:preview'),
-  effectsTest: input => ipcRenderer.invoke('effects:test', input),
-  effectsConfirm: kind => ipcRenderer.invoke('effects:confirm', kind),
-  effectsCopyUrl: () => ipcRenderer.invoke('effects:copyUrl'),
   windowMinimize: () => ipcRenderer.send("window:minimize"),
   windowMaximizeToggle: () => ipcRenderer.send("window:maximizeToggle"),
   windowClose: () => ipcRenderer.send("window:close"),

@@ -1,4 +1,3 @@
-import type { MediaState } from "../mediaEffects";
 import pkg from "../../package.json";
 
 type DevAppConfig = {
@@ -182,14 +181,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
     }],
   };
 
-  let mediaState: MediaState = { settings: { version: 1, activeProfile: 'chat', assets: [], profiles: [{ id: 'chat', name: '雑談', volume: 35, rules: [] }, { id: 'minecraft', name: 'マイクラ', volume: 45, rules: [] }, { id: 'sing', name: '歌', volume: 20, rules: [] }] }, revision: 0, canUndo: false, paused: false, muted: false, liveClients: 0, previewClients: 0, playing: '', previewPlaying: '', queued: 0, error: 'ブラウザの開発プレビューです。素材登録・再生はデスクトップアプリで利用できます。', ready: false, calibrated: false, lastEvent: null, checks: { visual: null, audio: null } };
-  const desktopOnly = async (): Promise<never> => { throw new Error('この操作はデスクトップアプリで利用してください。'); };
   win.mygamepack = {
-    effectsState: async () => structuredClone(mediaState),
-    effectsSave: async (settings, revision) => { if (revision !== mediaState.revision) throw new Error('設定を再読み込みしてください。'); mediaState = { ...mediaState, settings, revision: revision + 1 }; return structuredClone(mediaState); },
-    effectsControl: async action => { if (action === 'mute') mediaState.muted = true; if (action === 'unmute') mediaState.muted = false; if (action === 'pause') mediaState.paused = true; if (action === 'resume') mediaState.paused = false; return structuredClone(mediaState); },
-    effectsConnect: desktopOnly, effectsDisconnect: desktopOnly,
-    effectsImport: desktopOnly, effectsPreview: desktopOnly, effectsTest: desktopOnly, effectsConfirm: desktopOnly, effectsCopyUrl: desktopOnly,
     clipboardWriteText: async (text: string) => {
       await navigator.clipboard.writeText(text);
       return { ok: true };
