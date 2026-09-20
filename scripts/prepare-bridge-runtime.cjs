@@ -59,11 +59,6 @@ esbuild.buildSync({
   logLevel: "silent",
 });
 
-esbuild.buildSync({
-  entryPoints: [path.join(bridgeDir, "media_live.cjs")], bundle: true, platform: "node", target: "node20", format: "cjs",
-  outfile: path.join(outDir, "media-live.bundle.cjs"), logLevel: "silent",
-});
-
 // 配布設定が参照するGiftsViewer/tools-bundledもclean cloneから生成する。
 // Bridgeと同じ監査済みconnectorを解決し、古いGiftsViewer/node_modulesへ依存しない。
 fs.mkdirSync(giftsToolsOutDir, { recursive: true });

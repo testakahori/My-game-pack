@@ -19,10 +19,9 @@ export default function PreflightPanel({ onNavigate }: { onNavigate: (page: AppP
   const issues = result?.checks.filter(row => row.status === "warn" || row.status === "error").length || 0;
   return <section className="safety-panel" aria-labelledby="preflight-title">
     <div className="safety-panel-heading">
-      <div><h2 id="preflight-title">配信前の一括チェック</h2><p>アカウント・設定・コマンド・サーバー・音声・配信演出の準備を確認します。</p></div>
+      <div><h2 id="preflight-title">配信前の一括チェック</h2><p>アカウント・設定・コマンド・サーバー・音声の準備を確認します。</p></div>
       <button type="button" className="safety-primary" disabled={busy} onClick={run}>{busy ? "確認中…" : result ? "もう一度チェック" : "チェックを開始"}</button>
     </div>
-    <button type="button" className="safety-primary" onClick={() => onNavigate(AppPage.EFFECTS)}>録画・配信前に映像と音声を試す →</button>
     {hasChanges && <p className="safety-warning">未保存の変更があります。チェックは保存済みの設定を対象にします。</p>}
     <div aria-live="polite">
       {error && <p role="alert" className="safety-error">{error}</p>}

@@ -29,93 +29,6 @@ const settingsBackups = createSettingsBackups({
   isRunning: () => Boolean(bridgeProcRef || bridgeRestartTimer),
 });
 
-
-// Local media output is independent of Minecraft configuration.
-const { createMediaEffects, FORMATS: MEDIA_FORMATS } = require('./media_effects.cjs');
-let mediaEffects = null, mediaPreview = null, mediaLiveProc = null;
-let mediaConnection = { state: "stopped", username: "", mode: "media" };
-let mediaConnectTask = null;
-function getMediaEffects() {
-  if (!mediaEffects) mediaEffects = createMediaEffects({ directory: path.join(app.getPath('userData'), 'media-effects') });
-  return mediaEffects;
-}
-async function openMediaPreview(event) {
-  const effects = getMediaEffects(); await effects.start();
-  if (mediaPreview && !mediaPreview.isDestroyed()) { mediaPreview.show(); mediaPreview.focus(); return; }
-  const parent = BrowserWindow.fromWebContents(event.sender);
-  const bounds = parent?.getBounds();
-  mediaPreview = new BrowserWindow({ width: 640, height: 400, minWidth: 480, minHeight: 320, ...(bounds ? { x: bounds.x + bounds.width - 660, y: bounds.y + 180 } : {}), parent,
-    title: '演出プレビュー（確認用）', autoHideMenuBar: true, backgroundColor: '#15212d',
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, partition: 'media-preview', autoplayPolicy: 'no-user-gesture-required' } });
-  mediaPreview.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  mediaPreview.webContents.on('will-navigate', e => e.preventDefault());
-  mediaPreview.on('closed', () => { mediaPreview = null; mediaEffects?.closePreview(); });
-  await mediaPreview.loadURL(effects.url('preview'));
-}
-function mediaState() {
-  let connection = mediaConnection;
-  if (bridgeProcRef) {
-    let runtime = {}; try { runtime = JSON.parse(fs.readFileSync(path.join(getBridgeBatDir(), 'runtime-status.json'), 'utf8')).tiktok || {}; } catch {}
-    connection = { state: runtime.state || 'connecting', username: runtime.username || '', mode: 'game' };
-  }
-  return { ...getMediaEffects().state(), connection };
-}
-ipcMain.handle('effects:state', async () => { const effects = getMediaEffects(); try { await effects.start(); } catch {} return mediaState(); });
-async function stopMediaLive() {
-  const child = mediaLiveProc; mediaConnection = { ...mediaConnection, state: 'stopped' };
-  if (child) await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('演出用の接続を停止できませんでした。アプリを再起動してください。')), 3000);
-    const finish = () => { clearTimeout(timeout); resolve(); };
-    child.once('exit', finish); child.once('error', finish); if (!child.kill() || child.exitCode !== null) finish();
-  });
-}
-ipcMain.handle('effects:disconnect', async () => { if (mediaConnectTask) await mediaConnectTask.catch(() => {}); await stopMediaLive(); getMediaEffects().control('stop'); return mediaState(); });
-ipcMain.handle('effects:connect', (_event, rawUsername) => {
-  if (mediaConnectTask) return mediaConnectTask;
-  mediaConnectTask = (async () => {
-    const username = String(rawUsername || '').trim().replace(/^@/, '');
-    if (!/^[a-zA-Z0-9_.]{1,64}$/.test(username)) throw new Error('TikTokのユーザー名を確認してください。');
-    if (bridgeProcRef) return mediaState();
-    await stopMediaLive(); const effects = getMediaEffects(); await effects.start();
-    const entry = app.isPackaged ? path.join(process.resourcesPath, 'bridge', 'media-live.bundle.cjs') : path.join(__dirname, '..', 'bridge', 'media_live.cjs');
-    const node = app.isPackaged ? path.join(process.resourcesPath, 'bridge', 'node', 'node.exe') : getNodeCommand();
-    if (!fs.existsSync(entry)) throw new Error('演出用の接続プログラムがありません。アプリを更新してください。');
-    let mutedUsers = []; try { const parsed = JSON.parse(fs.readFileSync(getConfigPath(), 'utf8')).options?.mutedUsers; if (Array.isArray(parsed)) mutedUsers = parsed.slice(0, 1000); } catch {}
-    const child = spawn(node, [entry, username], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...effects.bridgeEnv(), MYGAMEPACK_MEDIA_MUTED_USERS: JSON.stringify(mutedUsers) } });
-    mediaLiveProc = child; mediaConnection = { state: 'connecting', username, mode: 'media' };
-    let buffer = '';
-    child.stdout.on('data', data => { buffer = (buffer + data.toString()).slice(-20000); let newline;
-      while ((newline = buffer.indexOf('\n')) >= 0) { const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);
-        if (line.startsWith('[MEDIA-CONNECTION]')) { try { const next = JSON.parse(line.slice(18)); if (['connecting', 'connected', 'retrying', 'stopped'].includes(next.state) && mediaLiveProc === child) mediaConnection = { state: next.state, username, mode: 'media' }; } catch {} }
-      }
-    });
-    child.stderr.on('data', () => {});
-    child.on('error', () => { if (mediaLiveProc === child) { mediaConnection = { state: 'error', username, mode: 'media' }; mediaLiveProc = null; } });
-    child.on('exit', () => { if (mediaLiveProc === child) { mediaConnection = { ...mediaConnection, state: mediaConnection.state === 'stopped' ? 'stopped' : 'error' }; mediaLiveProc = null; } });
-    await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
-    return mediaState();
-  })().finally(() => { mediaConnectTask = null; });
-  return mediaConnectTask;
-});
-ipcMain.handle('effects:save', (_event, settings, revision) => getMediaEffects().save(settings, revision));
-ipcMain.handle('effects:control', (_event, action) => getMediaEffects().control(action));
-ipcMain.handle('effects:import', async event => {
-  const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender), { title: '演出素材を登録', properties: ['openFile', 'multiSelections'], filters: [{ name: '画像・音声・動画', extensions: Object.keys(MEDIA_FORMATS).map(ext => ext.slice(1)) }] });
-  return result.canceled ? getMediaEffects().state() : getMediaEffects().importFiles(result.filePaths);
-});
-ipcMain.handle('effects:preview', async event => { await openMediaPreview(event); return getMediaEffects().state(); });
-ipcMain.handle('effects:test', async (event, input) => {
-  await openMediaPreview(event);
-  if (input?.assetId) return getMediaEffects().testAsset(input.assetId);
-  if (input?.ruleId) return getMediaEffects().testRule(input.ruleId);
-  if (input?.event) return getMediaEffects().testEvent(input.event);
-  if (input?.calibration) return getMediaEffects().calibration();
-  throw new Error('テスト対象を選んでください。');
-});
-ipcMain.handle('effects:confirm', (_event, kind) => getMediaEffects().confirm(kind));
-ipcMain.handle('effects:copyUrl', async () => { const effects = getMediaEffects(); await effects.start(); clipboard.writeText(effects.url()); return { ok: true }; });
-app.on('before-quit', () => { mediaLiveProc?.kill(); mediaEffects?.close(); });
-
 const isDev = process.env.ELECTRON_DEV === "1";
 
 // --------------------
@@ -303,7 +216,6 @@ function createWindow() {
     });
     if (choice === 1) event.preventDefault();
   });
-  win.on("closed", () => { if (mediaPreview && !mediaPreview.isDestroyed()) mediaPreview.destroy(); });
   win.loadFile(indexHtml);
 
   if (isDev) {
@@ -379,7 +291,6 @@ app.whenReady().then(() => {
   pruneOperationsHistoryOldRows(30);
   installProdOnlyCsp();
   createWindow();
-  void getMediaEffects().start().catch(error => console.warn("[effects]", error.message));
   scheduleBridgeSync();
   setupAutoUpdater();
   setTimeout(() => autoUpdateGiftsIfStale().catch(e =>
@@ -454,7 +365,7 @@ ipcMain.handle("preflight:run", () => {
       return { running: Boolean(bridgeProcRef), tiktok: runtime.tiktok };
     },
     ttsStatus: async () => { const settings = readTtsSettings(); return { enabled: settings.enabled, engine: settings.engine, online: settings.enabled ? await checkEngine(settings.engine) : false }; },
-  }).then(result => ({ ...result, checks: [...result.checks, getMediaEffects().preflight()] })).finally(() => { preflightTask = null; });
+  }).finally(() => { preflightTask = null; });
   return preflightTask;
 });
 
@@ -1460,23 +1371,19 @@ function killBridgeByCommandLine() {
 }
 
 async function launchBridge() {
-  if (mediaConnectTask) await mediaConnectTask.catch(() => {});
-  await stopMediaLive();
   const dir = getBridgeBatDir();
   const indexJs = getBridgeEntryPoint(dir);
   if (!fs.existsSync(indexJs)) throw new Error(`Bridge entry not found: ${indexJs}`);
 
   await ensureNodeRuntimeAvailable();
   const nodeCmd = getNodeCommand();
-  let mediaEnv = {};
-  try { await getMediaEffects().start(); mediaEnv = getMediaEffects().bridgeEnv(); } catch (error) { appendBridgeLog(`[演出] ${error.message}`); }
 
   bridgeStopRequested = false;
   bridgeRestartPolicy.start();
   const spawnOnce = () => {
     appendBridgeLog(`[BRIDGE] 起動します: ${indexJs}`);
     const child = spawn(nodeCmd, [indexJs, "--config", path.join(dir, "config.minecraft.json")], {
-      cwd: dir, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...mediaEnv },
+      cwd: dir, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
     });
     bridgeProcRef = child;
     bridgePid = child.pid;
