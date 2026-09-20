@@ -475,7 +475,7 @@ function applyPlaceholders(command, ctx) {
   const game = String(ctx.gameType || "minecraft");
   const listenerRaw = String(ctx.listenerName ?? "unknown");
 
-  let out = String(command);
+  let out = String(command).split("{Count}").join("1"); // RCON already expands repetitions; Mod receives the aggregate count.
 
   if (game === "7dtd") {
     const safeListener = telnetSafeText(listenerRaw, 60);

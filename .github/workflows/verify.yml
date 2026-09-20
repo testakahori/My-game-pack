@@ -26,3 +26,16 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
         working-directory: bridge
       - run: npm run verify
+
+  mod-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - run: bash ./gradlew build --no-daemon --max-workers=2
+        working-directory: DoumaCmdMod

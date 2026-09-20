@@ -627,23 +627,16 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
             <h2>Forge をインストールする（プレイ用）</h2>
             <span>必須</span>
           </div>
-          <p>{forgeClient?.installed
-            ? "Forge 1.20.1 / 47.3.0 のインストールを確認しました。手順2へ進めます。"
-            : "Minecraft Java版のランチャーを一度起動してください。その後、下のボタンから開く画面で「Install client」を選び、OKを押します。成功の案内が出たら閉じてください。"}</p>
-          {!forgeClient?.installed && <p>通常は保存先を変更せず進めてください。インストール完了は自動で確認します。</p>}
+          <p>ForgeはMinecraftでプレイするために必要です。下のボタンでForgeのセットアップ画面を開き、「Install client」を選んでOKを押してください。</p>
+          <p>Minecraft Java版のランチャーを一度起動してから進めてください。通常はForge側の保存先を変更せず、成功の案内が出たら閉じます。インストール完了は自動で確認します。</p>
+          {forgeState === "launched" && <p role="status">Forgeインストーラーを起動しました。別ウィンドウの「Install client」からセットアップしてください。</p>}
           <button
             type="button"
             onClick={handleForgeInstall}
             disabled={busy}
             className="setup-step-button-v2 setup-step-button-v2--forge"
           >
-            {forgeState === "launching"
-              ? "⏳ 起動中..."
-              : forgeClient?.installed
-              ? "Forgeを再インストール（任意）"
-              : forgeState === "launched"
-              ? "Forgeの画面をもう一度開く"
-              : "↓ Forge をインストールする"}
+            {forgeState === "launching" ? "⏳ Forgeのセットアップ画面を起動中..." : "Forgeをインストールする"}
           </button>
         </div>
         <div className="setup-step-meta-v2">

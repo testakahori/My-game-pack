@@ -37,12 +37,14 @@ test("ルーレット: 日本語・引用符・絵文字を表示して減速し
   const round = prepareRoulette(config, dir, () => 0);
   const frames = [], waits = [], events = [];
   const run = createRouletteRunner({ sendFrame: async commands => { frames.push(commands); }, sleep: async ms => { waits.push(ms); } });
-  await run(round, '視聴者 "テスト"', winner => { events.push(winner); assert.equal(frames.length, 13); assert.equal(waits.at(-1), 600); });
+  await run(round, '視聴者 "テスト"', winner => { events.push(winner); assert.equal(frames.length, 29); assert.equal(waits.at(-1), 400); });
   const titles = frames.map(commands => JSON.parse(commands.find(cmd => cmd.startsWith("title @a title ")).slice(15)).text);
   assert.equal(titles[0], 'ゾンビ "登場" 🧟');
   assert.equal(titles[1], "回復");
   assert.equal(titles.at(-1), '▶ ゾンビ "登場" 🧟 ◀');
-  assert.ok(waits.slice(1, 12).every((ms, i) => ms >= waits[i]));
+  assert.ok(waits.slice(0, 24).every(ms => ms === 50));
+  assert.ok(waits.slice(24, 28).every((ms, i) => ms > waits[i + 23]));
+  assert.ok(waits.reduce((sum, ms) => sum + ms, 0) < 2200);
   assert.ok(frames.at(-1).some(cmd => cmd.includes(config.stopSound)));
   assert.ok(frames.at(-1).some(cmd => cmd.includes(config.particle)));
   assert.equal(events.length, 1);
@@ -58,6 +60,6 @@ test("ルーレット: 同時発動は順に表示し、通信失敗を報告し
   let wins = 0;
   await assert.rejects(run(round, "failure", () => { wins++; }), /Modに接続できません/);
   await Promise.all([run(round, "first", () => { wins++; }), run(round, "second", () => { wins++; })]);
-  assert.deepEqual(order, [...Array(13).fill("first"), ...Array(13).fill("second")]);
+  assert.deepEqual(order, [...Array(29).fill("first"), ...Array(29).fill("second")]);
   assert.equal(wins, 2);
 });

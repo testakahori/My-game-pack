@@ -1,0 +1,7 @@
+# TITLE: 天変地異
+# SUBTITLE: {ListenerName}
+# CATEGORY: 天変地異
+# COUNT_MODE: aggregate
+# DESTRUCTIVE: true
+// 雷20発・雨・大地の亀裂・頭上マグマ・猛吹雪・TNT100発・ウィザー・ゾンビピグリン50体
+execute as @p at @s run doumaeffect cataclysm {Count}

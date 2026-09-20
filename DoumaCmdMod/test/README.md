@@ -1,0 +1,12 @@
+# 実 Forge のギフト検証
+
+専用の使い捨てワールドで、実際のクライアント位置・エンティティ出現・ブロック・天候を検証します。通常のワールドでは実行しないでください。約6分かかります。
+
+1. Java 17 で DoumaCmdMod を build し、Minecraft 1.20.1 / Forge 47.3.0 の検証専用サーバーへ最新版の JAR と bridge/commands をコピーします。
+2. フラットワールドのレイヤーは底から bedrock 1、stone 24、dirt 3、grass_block 1（地面上 Y=-35）。server-ip=127.0.0.1、server-port=25587、rcon.port=25588、enable-rcon=true、online-mode=false、allow-flight=true、view-distance=6 を検証環境だけに設定します。EULA は内容確認の上で同意してください。
+3. サーバールートに gift-qa-marker.json を作り、内容を {"purpose":"disposable-gift-effects-test"} にします。Java に -Ddoumacmd.bridgePort=25578 を指定して起動します。
+4. このディレクトリで npm ci を実行します。環境変数 GIFT_QA_SERVER に検証サーバールートを設定して npm test を実行します。
+
+--weather-only は氷河期・暴風雨・晴れ・天変地異だけ、--jumps-only はジャンプ3条件だけを実行します。結果JSONはサーバールート、または GIFT_QA_OUTPUT に出力します。検証後はサーバーを stop してください。
+
+確認項目: 1個32ブロック／10個320ブロック／空中10回の加算、天空トラップの下降速度、アンビル100・鶏200・メテオ100・火山50、ゾンビ5種類各50、四方の矢240、48ブロック上の洪水、2分後も残る氷、天候サイクル停止時も3分で止まる雨、強制晴れ、天変地異のTNT100・ゾンビピグリン50・ウィザー1。
