@@ -83,10 +83,10 @@ async function apex(count, separate = false) {
       return { count: n };
     });
   }
-  await test('zombiewave five types x50', async () => {
+  await test('zombiewave four types x50', async () => {
     await reset(); await gift('zombiewave'); await idle(); await sleep(500);
     const counts = {};
-    for (const type of ['zombie', 'husk', 'drowned', 'zombie_villager', 'zoglin']) { counts[type] = spawns.filter(e => e.type === type).length; assert.equal(counts[type], 50); }
+    for (const type of ['zombie', 'husk', 'drowned', 'zombie_villager']) { counts[type] = spawns.filter(e => e.type === type).length; assert.equal(counts[type], 50); }
     return counts;
   });
   await test('bullets random directions', async () => {

@@ -5,5 +5,5 @@
 # SOUND: block.anvil.land
 # PARTICLE: minecraft:crit
 # DESTRUCTIVE: true
-// 100個の金床が10×10の塊で急降下し、プレイヤーを押しつぶす
+// 100個の金床が5×5に何層も降り積もり、外周3段・中央最大8段の山で閉じ込めて押しつぶす
 execute as @p at @s run doumaeffect anvildrop {Count}

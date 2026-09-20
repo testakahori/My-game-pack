@@ -5,5 +5,5 @@
 # SOUND: block.lava.pop
 # PARTICLE: minecraft:lava
 # DESTRUCTIVE: true
-// 50発のマグマの塊が地面から噴き上がり、炎と溶岩の粒子が噴出する
+// 足元21×21を溶岩に変え、50発のマグマブロックを噴き上げる
 execute as @p at @s run doumaeffect volcano {Count}

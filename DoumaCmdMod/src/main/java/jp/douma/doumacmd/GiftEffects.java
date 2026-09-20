@@ -3,6 +3,10 @@ package jp.douma.doumacmd;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -11,8 +15,12 @@ import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.item.FallingBlockEntity;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.entity.projectile.Arrow;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -27,12 +35,14 @@ import java.util.function.IntConsumer;
 /** Server-thread effects. Large gifts are spread across ticks instead of spawning everything in one tick. */
 final class GiftEffects {
     static final Set<String> KEYS = Set.of("flood", "bullettime", "anvildrop", "chickenrain", "meteor",
-        "skytrap", "superjump", "volcano", "zombiewave", "iceage", "storm", "clearweather", "cataclysm");
+        "skytrap", "superjump", "volcano", "zombiewave", "iceage", "storm", "clearweather", "cataclysm", "meteorshower");
     static final int JUMP_HEIGHT = 32;
     private final List<Job> jobs = new ArrayList<>();
+    private final List<MeteorFlight> meteorFlights = new ArrayList<>();
     private final Map<UUID, Jump> jumps = new HashMap<>();
     private final Map<String, Long> weatherEnds = new HashMap<>();
     private final Map<String, Blizzard> blizzards = new HashMap<>();
+    private final Map<UUID, IcePrison> icePrisons = new HashMap<>();
     private long ticks;
     private Path weatherFile;
     private int failures;
@@ -54,6 +64,7 @@ final class GiftEffects {
     private static final class Job {
         int index; final int total, interval, perTick; long next;
         final IntConsumer action;
+        List<Job> prerequisites = List.of();
         Job(int total, int interval, int perTick, long next, IntConsumer action) {
             this.total = total; this.interval = interval; this.perTick = perTick; this.next = next; this.action = action;
         }
@@ -63,6 +74,7 @@ final class GiftEffects {
         Jump(ServerPlayer p) { level = p.serverLevel(); target = liftY = p.getY(); }
     }
     private record Blizzard(Origin origin, long ends) {}
+    private record IcePrison(Origin origin, BlockPos centre, long ends) {}
 
     void load(MinecraftServer server) {
         weatherFile = server.getServerDirectory().toPath().resolve("douma-weather-timers.properties");
@@ -79,13 +91,15 @@ final class GiftEffects {
             data.store(out, "Gift weather expiry (epoch milliseconds; independent of doWeatherCycle)");
         } catch (Exception e) { fail(e); }
     }
-    void stop() { saveWeather(); jobs.clear(); jumps.clear(); blizzards.clear(); weatherEnds.clear(); }
-    int pendingJobs() { return jobs.size(); }
+    void stop() { saveWeather(); jobs.clear(); meteorFlights.forEach(m -> m.blocks.forEach(FallingBlockEntity::discard)); meteorFlights.clear(); jumps.clear(); blizzards.clear(); icePrisons.clear(); weatherEnds.clear(); }
+    int pendingJobs() { return jobs.size() + meteorFlights.size(); }
     int failures() { return failures; }
     String lastError() { return lastError; }
     private void fail(Exception e) { failures++; lastError = e.toString(); System.err.println("[Douma effects] " + lastError); }
-    private void job(int total, int interval, int perTick, IntConsumer action) {
-        jobs.add(new Job(total, interval, perTick, ticks, action));
+    private Job job(int total, int interval, int perTick, IntConsumer action) {
+        Job next = new Job(total, interval, perTick, ticks, action);
+        jobs.add(next);
+        return next;
     }
 
     int start(CommandSourceStack source, String key, int count, Protection protection) throws Exception {
@@ -95,17 +109,18 @@ final class GiftEffects {
         switch (key) {
             case "clearweather" -> clearWeather(level);
             case "storm" -> { rain(level, 180); lightning(o, 20); }
-            case "iceage" -> iceage(o);
+            case "iceage" -> { iceage(o); freezePrison(o, source.getPlayerOrException()); }
             case "superjump" -> jump(source.getPlayerOrException(), count);
             case "skytrap" -> skytrap(source.getPlayerOrException());
-            case "flood" -> flood(o);
+            case "flood" -> flood(o, 30 * count);
             case "bullettime" -> bullets(o, 240 * count);
             case "anvildrop" -> anvils(o, 100 * count);
             case "chickenrain" -> chickens(o, 200 * count);
             case "meteor" -> meteors(o, 100 * count);
+            case "meteorshower" -> meteorShower(o, 20 * count);
             case "volcano" -> volcano(o, 50 * count);
             case "zombiewave" -> zombies(o, 50 * count);
-            case "cataclysm" -> cataclysm(o, count);
+            case "cataclysm" -> cataclysm(o, count, source.getPlayerOrException());
         }
         return 1;
     }
@@ -116,7 +131,7 @@ final class GiftEffects {
         int entityBudget = 16, blockBudget = 512;
         for (Iterator<Job> it = jobs.iterator(); it.hasNext();) {
             Job j = it.next();
-            if (j.next > ticks) continue;
+            if (j.next > ticks || j.prerequisites.stream().anyMatch(p -> p.index < p.total)) continue;
             boolean blocks = j.perTick > 16;
             int n = Math.min(j.perTick, Math.min(j.total - j.index, blocks ? blockBudget : entityBudget));
             for (int i = 0; i < n; i++) {
@@ -127,6 +142,8 @@ final class GiftEffects {
             if (j.index >= j.total) it.remove();
         }
         tickJumps(server);
+        tickIcePrisons(server);
+        tickMeteors();
         long now = System.currentTimeMillis();
         for (ServerLevel level : server.getAllLevels()) {
             String id = level.dimension().location().toString();
@@ -175,17 +192,52 @@ final class GiftEffects {
     private double high(Origin o, int height) { return Math.min(o.level.getMaxBuildHeight() - 2, o.pos.y + height); }
     private double random(Origin o, double radius) { return (o.level.random.nextDouble() * 2 - 1) * radius; }
 
-    private void flood(Origin o) {
+    private void flood(Origin o, int drowned) {
         int y = (int) high(o, 48);
         job(25 * 25, 1, 128, i -> {
             BlockPos p = BlockPos.containing(o.pos.x + i % 25 - 12, y, o.pos.z + i / 25 - 12);
             if (o.level.getBlockState(p).canBeReplaced()) set(o, p, Blocks.WATER.defaultBlockState());
         });
+        job(drowned, 2, 3, i -> summon(o, "drowned", o.pos.x + random(o, 10), y + 0.5, o.pos.z + random(o, 10),
+            "{Tags:[\"douma_flood\"],Motion:[0.0,-1.0,0.0]}"));
+        String[] seaTypes = {"cod", "salmon", "tropical_fish", "pufferfish", "squid", "glow_squid", "dolphin", "turtle", "axolotl", "guardian", "elder_guardian"};
+        int[] quantities = {8, 8, 10, 4, 4, 3, 3, 3, 3, 4, 1};
+        int perGift = Arrays.stream(quantities).sum();
+        job(perGift * (drowned / 30), 2, 4, i -> {
+            int slot = i % perGift, species = 0;
+            while (slot >= quantities[species]) slot -= quantities[species++];
+            String extra = seaTypes[species].equals("tropical_fish")
+                ? ",Variant:" + new int[]{0, 65536, 16777216, 67108865, 117506305, 117899265}[i % 6] : "";
+            summon(o, seaTypes[species], o.pos.x + random(o, 10), y + 0.5, o.pos.z + random(o, 10),
+                "{Tags:[\"douma_flood\"],Motion:[0.0,-1.0,0.0]" + extra + "}");
+        });
     }
     private void anvils(Origin o, int total) {
-        job(total, 1, 10, i -> summon(o, "falling_block", o.pos.x + i % 10 - 4.5, high(o, 35 + i / 100),
-            o.pos.z + (i / 10) % 10 - 4.5,
-            "{Tags:[\"douma_anvildrop\"],BlockState:{Name:\"minecraft:anvil\"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:4.0f,FallHurtMax:80,Motion:[0.0,-2.8,0.0]}"));
+        // 100 blocks: three 5x5 layers, two 3x3 layers, a cross and a two-block peak.
+        // The outside arrives before the centre, building walls before the crushing blows.
+        List<BlockPos> pile = new ArrayList<>();
+        for (int layer = 0; layer < 8; layer++) {
+            int radius = layer < 3 ? 2 : layer < 6 ? 1 : 0;
+            for (int ring = radius; ring >= 0; ring--) {
+                for (int x = -radius; x <= radius; x++) for (int z = -radius; z <= radius; z++) {
+                    if (Math.max(Math.abs(x), Math.abs(z)) != ring) continue;
+                    if (layer == 5 && Math.abs(x) + Math.abs(z) > 1) continue;
+                    pile.add(new BlockPos(x, layer, z));
+                }
+            }
+        }
+        BlockPos centre = BlockPos.containing(o.pos);
+        job(total, 1, 10, i -> {
+            BlockPos offset = pile.get(i % pile.size());
+            int x = centre.getX() + offset.getX(), z = centre.getZ() + offset.getZ();
+            if (!loaded(o, x, z)) return;
+            // Separate successive layers vertically so each can settle instead of overwriting
+            // another falling entity at the same landing cell. Repeated gifts build on the pile.
+            double y = Math.min(o.level.getMaxBuildHeight() - 2,
+                Math.max(o.pos.y + 28, surface(o, x, z) + 10) + offset.getY() * 3);
+            summon(o, "falling_block", x + 0.5, y, z + 0.5,
+                "{Tags:[\"douma_anvildrop\"],BlockState:{Name:\"minecraft:anvil\"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:4.0f,FallHurtMax:80,Motion:[0.0,-2.8,0.0]}");
+        });
     }
     private void chickens(Origin o, int total) {
         job(total, 1, 10, i -> summon(o, "chicken", o.pos.x + random(o, 12), high(o, 24 + i % 10), o.pos.z + random(o, 12),
@@ -195,13 +247,126 @@ final class GiftEffects {
         job(total, 2, 4, i -> summon(o, "fireball", o.pos.x + random(o, 24), high(o, 40 + i % 12), o.pos.z + random(o, 24),
             "{Tags:[\"douma_meteor\"],ExplosionPower:2b,power:[0.0,-0.25,0.0],Motion:[0.0,-1.8,0.0]}"));
     }
+
+    private static final class MeteorFlight {
+        final Origin origin;
+        final Vec3 start, target, velocity;
+        final long launched;
+        final int duration;
+        final boolean large;
+        final Block material;
+        final List<FallingBlockEntity> blocks = new ArrayList<>();
+        boolean ended;
+        MeteorFlight(Origin origin, Vec3 start, Vec3 target, long launched, boolean large, Block material) {
+            this.origin = origin; this.start = start; this.target = target; this.launched = launched;
+            this.large = large; this.material = material;
+            Vec3 delta = target.subtract(start);
+            duration = Math.max(12, (int)Math.ceil(delta.length() / (large ? 3.6 : 4.2)));
+            velocity = delta.scale(1.0 / duration);
+        }
+    }
+    private Job meteorShower(Origin o, int clusters) {
+        Block[] materials = {Blocks.MAGMA_BLOCK, Blocks.BEDROCK, Blocks.DEEPSLATE, Blocks.GOLD_BLOCK, Blocks.OBSIDIAN};
+        Map<Integer, MeteorFlight> groups = new HashMap<>();
+        // Each wave contains one solid 30-block meteor and 14 single fragments.
+        // Spawn eight blocks per step so simultaneous gifts share the global entity budget.
+        return job(clusters * 44, 2, 8, i -> {
+            int wave = i / 44, part = i % 44;
+            MeteorFlight flight;
+            if (part < 30) {
+                flight = groups.computeIfAbsent(wave, n -> launchMeteor(o, n, true, materials[n % materials.length]));
+            } else {
+                flight = launchMeteor(o, wave * 14 + part - 30, false, materials[(wave + part) % materials.length]);
+            }
+            if (flight.ended) return;
+            int index = part < 30 ? part : 0;
+            // Three complete 3x3 layers and a three-block ridge: 30 touching blocks.
+            int dx = index < 27 ? index % 3 - 1 : index - 28;
+            int dy = index / 9;
+            int dz = index < 27 ? index / 3 % 3 - 1 : 0;
+            if (!flight.large) dx = dy = dz = 0;
+            Vec3 position = flight.start.add(flight.velocity.scale(ticks - flight.launched)).add(dx, dy, dz);
+            if (!o.allowed(BlockPos.containing(position))) return;
+            FallingBlockEntity block = EntityType.FALLING_BLOCK.create(o.level);
+            if (block == null) throw new IllegalStateException("Cannot create meteor block");
+            CompoundTag data = new CompoundTag(), state = new CompoundTag();
+            state.putString("Name", BuiltInRegistries.BLOCK.getKey(flight.material).toString());
+            data.put("BlockState", state); data.putInt("Time", 1);
+            data.putBoolean("DropItem", false); data.putBoolean("CancelDrop", true);
+            block.load(data); block.setNoGravity(true); block.setPos(position);
+            block.setDeltaMovement(flight.velocity);
+            block.addTag("douma_meteorshower");
+            block.addTag(flight.large ? "douma_meteor_cluster" : "douma_meteor_fragment");
+            o.level.addFreshEntity(block); flight.blocks.add(block);
+        });
+    }
+    private MeteorFlight launchMeteor(Origin o, int index, boolean large, Block material) {
+        double angle = index * 2.3999632297 + (large ? 0 : 0.7);
+        double radius = large ? 4 + index % 5 * 5 : 3 + o.level.random.nextDouble() * 29;
+        int x = (int)Math.floor(o.pos.x + Math.cos(angle) * radius);
+        int z = (int)Math.floor(o.pos.z + Math.sin(angle) * radius);
+        int ground = loaded(o, x, z) ? o.level.getHeight(Heightmap.Types.OCEAN_FLOOR, x, z) : (int)o.pos.y;
+        Vec3 target = new Vec3(x + 0.5, ground, z + 0.5);
+        double approach = angle + 0.8;
+        double side = large ? 48 : 36;
+        Vec3 start = target.add(Math.cos(approach) * side,
+            Math.min(o.level.getMaxBuildHeight() - 5, Math.max(o.pos.y, ground) + (large ? 76 : 64)) - ground,
+            Math.sin(approach) * side);
+        MeteorFlight flight = new MeteorFlight(o, start, target, ticks, large, material);
+        if (o.allowed(BlockPos.containing(start)) && o.allowed(BlockPos.containing(target))) meteorFlights.add(flight);
+        else flight.ended = true;
+        return flight;
+    }
+    private void tickMeteors() {
+        for (Iterator<MeteorFlight> it = meteorFlights.iterator(); it.hasNext();) {
+            MeteorFlight meteor = it.next();
+            FallingBlockEntity lead = meteor.blocks.isEmpty() ? null : meteor.blocks.get(0);
+            if (ticks - meteor.launched >= meteor.duration || (lead != null && lead.isRemoved())) {
+                Vec3 impact = lead != null && lead.isRemoved() ? lead.position() : meteor.target;
+                meteor.ended = true; meteor.blocks.forEach(FallingBlockEntity::discard); it.remove();
+                if (meteor.origin.allowed(BlockPos.containing(impact))) meteorImpact(meteor, impact);
+                continue;
+            }
+            for (FallingBlockEntity block : meteor.blocks) if (!block.isRemoved()) block.setDeltaMovement(meteor.velocity);
+            if (lead == null || ticks % (meteor.large ? 2 : 4) != 0) continue;
+            Vec3 p = lead.position(); ServerLevel level = meteor.origin.level;
+            double spread = meteor.large ? 1.1 : 0.12;
+            // Warm fire, blue-white sparks, and a long luminous wake distinguish the shower.
+            for (int trail = 0; trail < (meteor.large ? 4 : 2); trail++) {
+                Vec3 tail = p.subtract(meteor.velocity.scale(trail * 0.8));
+                level.sendParticles(meteor.material == Blocks.OBSIDIAN ? ParticleTypes.SOUL_FIRE_FLAME : ParticleTypes.FLAME,
+                    tail.x, tail.y + 1, tail.z, meteor.large ? 6 : 1, spread, spread, spread, 0.015);
+                level.sendParticles(ParticleTypes.END_ROD, tail.x, tail.y + 1, tail.z, meteor.large ? 3 : 1, spread, spread, spread, 0.02);
+            }
+        }
+    }
+    private void meteorImpact(MeteorFlight meteor, Vec3 impact) {
+        Origin o = meteor.origin;
+        // The blast damages entities, while our own crater respects protected areas and bedrock.
+        o.level.explode(null, impact.x, impact.y, impact.z, meteor.large ? 3.5f : 1.0f, Level.ExplosionInteraction.NONE);
+        o.level.sendParticles(ParticleTypes.CLOUD, impact.x, impact.y + 0.4, impact.z,
+            meteor.large ? 70 : 8, meteor.large ? 5 : 1, 0.3, meteor.large ? 5 : 1, 0.16);
+        int radius = meteor.large ? 5 + o.level.random.nextInt(2) : 1;
+        int depth = meteor.large ? 5 : 2, side = radius * 2 + 1;
+        BlockPos centre = BlockPos.containing(impact);
+        job(side * side * (depth + 3), 1, 64, i -> {
+            int x = i % side - radius, z = i / side % side - radius, down = i / (side * side) - 1;
+            double distance = Math.sqrt(x * x + z * z);
+            int cut = (int)Math.ceil(depth * (1.0 - distance / (radius + 0.5)));
+            if (distance <= radius && down <= cut) set(o, centre.offset(x, -down, z), Blocks.AIR.defaultBlockState());
+        });
+    }
+
     private void volcano(Origin o, int total) {
+        int floor = (int)Math.floor(o.pos.y) - 1;
+        job(21 * 21, 1, 64, i -> set(o, new BlockPos((int)Math.floor(o.pos.x) + i % 21 - 10, floor,
+            (int)Math.floor(o.pos.z) + i / 21 - 10), Blocks.LAVA.defaultBlockState()));
         job(total, 2, 2, i -> {
             double angle = o.level.random.nextDouble() * Math.PI * 2;
             int x = (int)Math.floor(o.pos.x + Math.cos(angle) * 5), z = (int)Math.floor(o.pos.z + Math.sin(angle) * 5);
             if (!loaded(o, x, z)) return;
             int y = surface(o, x, z);
-            set(o, new BlockPos(x, y - 1, z), Blocks.MAGMA_BLOCK.defaultBlockState());
+            set(o, new BlockPos(x, y - 1, z), Blocks.LAVA.defaultBlockState());
             String nbt = String.format(Locale.ROOT, "{Tags:[\"douma_volcano\"],BlockState:{Name:\"minecraft:magma_block\"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:3.0f,FallHurtMax:60,Motion:[%.3f,1.8,%.3f]}", Math.cos(angle)*0.65, Math.sin(angle)*0.65);
             summon(o, "falling_block", x + 0.5, y + 1, z + 0.5, nbt);
             o.level.sendParticles(ParticleTypes.LAVA, x + 0.5, y + 1, z + 0.5, 24, 0.5, 2, 0.5, 0.1);
@@ -209,7 +374,7 @@ final class GiftEffects {
         });
     }
     private void zombies(Origin o, int each) {
-        String[] types = {"zombie", "husk", "drowned", "zombie_villager", "zoglin"};
+        String[] types = {"zombie", "husk", "drowned", "zombie_villager"};
         job(each * types.length, 1, 10, i -> {
             double angle = o.level.random.nextDouble() * Math.PI * 2, radius = 8 + o.level.random.nextDouble() * 12;
             int x = (int)Math.floor(o.pos.x + Math.cos(angle)*radius), z = (int)Math.floor(o.pos.z + Math.sin(angle)*radius);
@@ -238,14 +403,14 @@ final class GiftEffects {
             if (loaded(o, x, z)) summon(o, "lightning_bolt", x, surface(o, x, z), z, "{Tags:[\"douma_lightning\"]}");
         });
     }
-    private void iceage(Origin o) {
+    private Job iceage(Origin o) {
         rain(o.level, 120);
         blizzards.put(o.level.dimension().location().toString(), new Blizzard(o, System.currentTimeMillis() + 120000));
         for (ServerPlayer p : o.level.players()) if (p.position().distanceTo(o.pos) <= 72) {
             p.addEffect(new MobEffectInstance(MobEffects.DARKNESS, 2400, 0, false, false));
         }
         // 97 x 97 terrain surface; ice/snow intentionally remain after the two-minute blizzard.
-        job(97 * 97, 1, 256, i -> {
+        return job(97 * 97, 1, 256, i -> {
             int x = (int)Math.floor(o.pos.x) + i % 97 - 48, z = (int)Math.floor(o.pos.z) + i / 97 - 48;
             if (!loaded(o, x, z)) return;
             int y = surface(o, x, z);
@@ -255,12 +420,76 @@ final class GiftEffects {
             if (o.level.getBlockState(snow).isAir()) set(o, snow, Blocks.SNOW.defaultBlockState());
         });
     }
-    private void cataclysm(Origin o, int count) {
-        iceage(o); rain(o.level, 180); lightning(o, 20);
+    private void freezePrison(Origin o, ServerPlayer player) {
+        BlockPos centre = player.blockPosition();
+        if (!o.allowed(centre) || !o.allowed(centre.above())) return;
+        // Fill the body cells as well as the walls/roof: this is an attack, not just scenery.
+        for (int x = -1; x <= 1; x++) for (int z = -1; z <= 1; z++) for (int y = -1; y <= 2; y++)
+            set(o, centre.offset(x, y, z), Blocks.PACKED_ICE.defaultBlockState());
+        icePrisons.put(player.getUUID(), new IcePrison(o, centre, System.currentTimeMillis() + 120000));
+        if (insidePrison(player, centre) && intersectsIce(player)) {
+            player.setTicksFrozen(300);
+            player.hurt(o.level.damageSources().freeze(), 6.0f);
+        }
+    }
+    private boolean insidePrison(ServerPlayer player, BlockPos centre) {
+        return Math.abs(player.getX() - (centre.getX() + 0.5)) < 1.8
+            && Math.abs(player.getZ() - (centre.getZ() + 0.5)) < 1.8
+            && player.getY() >= centre.getY() - 1 && player.getY() < centre.getY() + 3;
+    }
+    private boolean intersectsIce(ServerPlayer player) {
+        return BlockPos.betweenClosedStream(player.getBoundingBox().deflate(0.05))
+            .anyMatch(pos -> player.serverLevel().getBlockState(pos).is(Blocks.PACKED_ICE));
+    }
+    private void tickIcePrisons(MinecraftServer server) {
+        if (ticks % 10 != 0) return;
+        long now = System.currentTimeMillis();
+        for (Iterator<Map.Entry<UUID, IcePrison>> it = icePrisons.entrySet().iterator(); it.hasNext();) {
+            var entry = it.next(); IcePrison prison = entry.getValue();
+            ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
+            if (now >= prison.ends || player == null || !player.isAlive()
+                    || player.serverLevel() != prison.origin.level || !insidePrison(player, prison.centre)) {
+                if (player != null) player.setTicksFrozen(0);
+                it.remove(); continue;
+            }
+            if (intersectsIce(player)) {
+                player.setTicksFrozen(300);
+                player.hurt(prison.origin.level.damageSources().freeze(), 2.0f);
+            } else {
+                player.setTicksFrozen(0);
+            }
+        }
+    }
+
+    private Job earthquakeCrater(Origin o) {
+        int centreX = (int)Math.floor(o.pos.x), centreZ = (int)Math.floor(o.pos.z);
+        int top = (int)Math.floor(o.pos.y) + 1;
+        int bottom = Math.max(o.level.getMinBuildHeight() + 1, (int)Math.floor(o.pos.y) - 48);
+        int[] floors = new int[13 * 13];
+        for (int i = 0; i < floors.length; i++) {
+            int x = i % 13 - 6, z = i / 13 - 6;
+            int ring = Math.max(Math.abs(x), Math.abs(z));
+            // A deep central shaft surrounded by uneven, broken crater walls.
+            int depth = ring <= 3 ? 48 : 48 - (ring - 3) * 6 - o.level.random.nextInt(5);
+            floors[i] = Math.max(bottom, (int)Math.floor(o.pos.y) - depth);
+        }
+        return job((top - bottom + 1) * floors.length, 1, 256, i -> {
+            int column = i % floors.length;
+            int dx = column % 13 - 6, dz = column / 13 - 6;
+            int y = top - i / floors.length;
+            if (dx * dx + dz * dz <= 43 && y >= floors[column])
+                set(o, new BlockPos(centreX + dx, y, centreZ + dz), Blocks.AIR.defaultBlockState());
+        });
+    }
+
+    private void cataclysm(Origin o, int count, ServerPlayer target) {
+        Job crater = earthquakeCrater(o);
+        Job frost = iceage(o); rain(o.level, 180); lightning(o, 20);
         // Jagged fissures cross a broad area. Each cut is small enough to keep a tick bounded.
-        job(120, 1, 2, i -> {
+        Job fissures = job(120, 1, 2, i -> {
             double direction = (i / 20) * Math.PI / 3;
             double distance = (i % 20) * 3;
+            if (distance < 12) return; // Keep repeated surface cuts out of the central shaft.
             int x = (int)Math.floor(o.pos.x + Math.cos(direction) * distance + random(o, 2));
             int z = (int)Math.floor(o.pos.z + Math.sin(direction) * distance + random(o, 2));
             if (!loaded(o, x, z)) return;
@@ -268,10 +497,39 @@ final class GiftEffects {
             for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) for (int y = top; y >= top - depth; y--)
                 set(o, new BlockPos(x + dx, y, z + dz), Blocks.AIR.defaultBlockState());
         });
-        job(41 * 41, 1, 64, i -> {
-            BlockPos p = BlockPos.containing(o.pos.x + i % 41 - 20, high(o, 30), o.pos.z + i / 41 - 20);
-            if (o.level.getBlockState(p).canBeReplaced()) set(o, p, Blocks.LAVA.defaultBlockState());
+        UUID targetId = target.getUUID();
+        // Start pouring only after excavation/freezing; neither may erase the lava sources.
+        // Refresh for 30 seconds, aiming at the player while they remain in the crater.
+        Job lava = job(30, 20, 1, i -> {
+            ServerPlayer player = o.level.getServer().getPlayerList().getPlayer(targetId);
+            int x = (int)Math.floor(o.pos.x), z = (int)Math.floor(o.pos.z);
+            if (player != null && player.isAlive() && player.serverLevel() == o.level
+                    && Math.abs(player.getX() - o.pos.x) <= 6 && Math.abs(player.getZ() - o.pos.z) <= 6) {
+                x = player.getBlockX(); z = player.getBlockZ();
+            }
+            int y = (int)high(o, 12);
+            for (int dx = -2; dx <= 2; dx++) for (int dz = -2; dz <= 2; dz++) {
+                BlockPos p = new BlockPos(x + dx, y, z + dz);
+                if (o.level.getBlockState(p).canBeReplaced() || o.level.getBlockState(p).is(Blocks.LAVA))
+                    set(o, p, Blocks.LAVA.defaultBlockState());
+            }
         });
+        lava.prerequisites = List.of(crater, frost, fissures);
+        Job apocalypseSky = meteorShower(o, 20 * count);
+        apocalypseSky.prerequisites = List.of(crater, frost, fissures);
+        o.level.playSound(null, o.pos.x, o.pos.y, o.pos.z, SoundEvents.WITHER_SPAWN, SoundSource.HOSTILE, 2.0f, 0.6f);
+        int streamTop = (int)high(o, 12) - 1;
+        int streamBottom = Math.max(o.level.getMinBuildHeight() + 1, (int)Math.floor(o.pos.y) - 48);
+        // Advance a falling liquid column from the sky into the pit. Vanilla lava alone
+        // takes over a minute to descend this far, losing the impact of the earthquake.
+        Job stream = job(Math.max(0, streamTop - streamBottom + 1) * 25, 4, 25, i -> {
+            int x = (int)Math.floor(o.pos.x) + i % 5 - 2;
+            int z = (int)Math.floor(o.pos.z) + (i % 25) / 5 - 2;
+            BlockPos p = new BlockPos(x, streamTop - i / 25, z);
+            if (o.level.getBlockState(p).canBeReplaced())
+                set(o, p, Blocks.LAVA.defaultBlockState().setValue(LiquidBlock.LEVEL, 8));
+        });
+        stream.prerequisites = List.of(crater, frost, fissures);
         job(100 * count, 2, 4, i -> summon(o, "tnt", o.pos.x + random(o, 28), high(o, 40 + i % 10), o.pos.z + random(o, 28), "{Tags:[\"douma_cataclysm\"],Fuse:70s,Motion:[0.0,-1.0,0.0]}"));
         job(50 * count, 1, 5, i -> {
             int x = (int)Math.floor(o.pos.x + random(o, 18)), z = (int)Math.floor(o.pos.z + random(o, 18));

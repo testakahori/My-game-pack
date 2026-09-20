@@ -1,0 +1,9 @@
+# TITLE: 流星群
+# SUBTITLE: {ListenerName}
+# CATEGORY: 天変地異
+# COUNT_MODE: aggregate
+# SOUND: entity.ender_dragon.growl
+# PARTICLE: minecraft:end_rod
+# DESTRUCTIVE: true
+// 岩盤・深層岩・金・黒曜石・マグマの30ブロックの塊を20個、破片280個。光と炎を引いて斜めに急降下し、着弾地をクレーターにする
+execute as @p at @s run doumaeffect meteorshower {Count}
