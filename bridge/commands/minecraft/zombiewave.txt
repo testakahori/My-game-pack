@@ -4,5 +4,5 @@
 # COUNT_MODE: aggregate
 # SOUND: event.raid.horn
 # PARTICLE: minecraft:soul
-// ゾンビ・ハスク・ドラウンド・村人ゾンビ・ゾグリンを各50体、合計250体召喚
+// ゾンビ・ハスク・ドラウンド・村人ゾンビを各50体、合計200体召喚
 execute as @p at @s run doumaeffect zombiewave {Count}

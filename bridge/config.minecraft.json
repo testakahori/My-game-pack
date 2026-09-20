@@ -193,12 +193,6 @@
       "repeat": 3
     },
     {
-      "giftId": "14109",
-      "name": "Mark of Love",
-      "commandFile": "hukitobasu.txt",
-      "repeat": 1
-    },
-    {
       "giftId": "13087",
       "name": "Bubble Gum",
       "commandFile": "fall_sand.txt",

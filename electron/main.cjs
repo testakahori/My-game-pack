@@ -631,6 +631,9 @@ const BRIDGE_REMOVED_BUNDLE_FILES = [
   "commands/minecraft/tiny.txt",
   "commands/minecraft/seichi_donut.txt",
   "commands/minecraft/tornado.txt",
+  "commands/minecraft/hukitobasu.txt",
+  "commands/minecraft/hurricane.txt",
+  "commands/minecraft/husk01.txt",
 ];
 const COPY_HASH_LIMIT_BYTES = 1024 * 1024;
 
