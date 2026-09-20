@@ -10,7 +10,8 @@ type Props = {
   onResetSetup: () => void;
 };
 
-const DEFAULT_SERVER_FOLDER = "server/Douma_Craft";
+const DEFAULT_SERVER_FOLDER = "ドキュメント内の MyGamePack / Server";
+const setupError = (error: unknown) => String((error as { message?: string })?.message || error).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "");
 
 const AkahoriAvatar: React.FC<{ className?: string }> = ({ className }) => (
   <svg className={className ?? "setup-avatar"} viewBox="0 0 160 210" role="img" aria-label="赤堀堂馬のMinecraftアバター">
@@ -175,7 +176,9 @@ const FlowBlocks: React.FC = () => (
 const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onResetSetup }) => {
   const [customFolder, setCustomFolder] = useState<string>("");
   const [forgeState, setForgeState] = useState<"idle" | "launching" | "launched">("idle");
+  const [forgeClient, setForgeClient] = useState<{ installed: boolean; launcherReady: boolean } | null>(null);
   const [setupState, setSetupState] = useState<"idle" | "running" | "launched" | "error">("idle");
+  const [setupProgress, setSetupProgress] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [verifying, setVerifying] = useState(false);
   const [verifyMsg, setVerifyMsg] = useState("");
@@ -195,20 +198,25 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
   const api = (window as any).mygamepack;
 
   useEffect(() => {
-    api.appConfigRead()
-      .then((config: { serverFolder?: string }) => {
-        if (config?.serverFolder) setCustomFolder(config.serverFolder);
-      })
-      .catch(() => {});
-  }, [api]);
+    if (setupComplete) return;
+    let disposed = false;
+    const check = () => api.serverForgeClientStatus().then((info: { installed: boolean; launcherReady: boolean }) => {
+      if (!disposed) setForgeClient(info);
+    }).catch(() => {});
+    void check();
+    const timer = setInterval(check, 3000);
+    return () => { disposed = true; clearInterval(timer); };
+  }, [api, setupComplete]);
 
   useEffect(() => {
-    if (setupComplete) return;
+    let disposed = false;
     api.appConfigRead()
-      .then((config: { serverFolder?: string }) => {
-        setCustomFolder(config?.serverFolder || "");
+      .then(async (config: { serverFolder?: string }) => {
+        const folder = config?.serverFolder || (await api.serverCheckSetupComplete()).dir;
+        if (!disposed) setCustomFolder(folder);
       })
-      .catch(() => setCustomFolder(""));
+      .catch(() => {});
+    return () => { disposed = true; };
   }, [api, setupComplete]);
 
   useEffect(() => {
@@ -243,10 +251,10 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
         setManualFolderMode(true);
         setManualFolderInput(customFolder || "");
         setErrorMsg(
-          `フォルダ選択エラー: ${e?.message ?? String(e)}。開発ブラウザではフォルダ選択ダイアログが使えないため、下の入力欄にセットアップ先パスを直接入力してください。`,
+          `フォルダ選択エラー: ${setupError(e)}。開発ブラウザではフォルダ選択ダイアログが使えないため、下の入力欄にセットアップ先パスを直接入力してください。`,
         );
       } else {
-        setErrorMsg(`フォルダ選択エラー: ${e?.message ?? String(e)}`);
+        setErrorMsg(`フォルダ選択エラー: ${setupError(e)}`);
       }
     }
   };
@@ -265,7 +273,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
       setSetupState("idle");
       setVerifyMsg("");
     } catch (e: any) {
-      setErrorMsg(`フォルダ設定エラー: ${e?.message ?? String(e)}`);
+      setErrorMsg(`フォルダ設定エラー: ${setupError(e)}`);
     }
   };
 
@@ -277,7 +285,16 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
 
   const completeSetupIfReady = async (targetFolder: string): Promise<boolean> => {
     const result = await api.serverCheckSetupComplete();
-    if (!result.complete) return false;
+    if (!result.complete) {
+      setVerifyMsg(`準備が必要です: ${(result.missing || ["サーバー環境"]).join("、")}。「環境構築をする」から再試行してください。`);
+      return false;
+    }
+    const client = await api.serverForgeClientStatus();
+    setForgeClient(client);
+    if (!client.installed) {
+      setVerifyMsg("サーバーの準備は完了しました。手順1でForgeのインストールを完了してから「セットアップ完了を確認」を押してください。");
+      return false;
+    }
 
     if (targetFolder) await api.bridgeExtractTo(targetFolder);
     await api.serverPropsWrite({ "enable-command-block": "true" });
@@ -292,15 +309,11 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
 
   const waitForSetupComplete = async (targetFolder: string) => {
     setVerifying(true);
-    setVerifyMsg("setup.bat の完了を自動確認しています…");
+    setVerifyMsg("必要ファイルと設定を確認しています…");
     try {
-      for (let index = 0; index < 120; index += 1) {
-        if (await completeSetupIfReady(targetFolder)) return;
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-      }
-      setVerifyMsg("まだ完了を確認できません。コマンドプロンプトの処理が終わったら「セットアップ完了を確認」を押してください。");
+      await completeSetupIfReady(targetFolder);
     } catch (e: any) {
-      setVerifyMsg(`自動確認エラー: ${e?.message ?? String(e)}`);
+      setVerifyMsg(`自動確認エラー: ${setupError(e)}`);
     } finally {
       setVerifying(false);
     }
@@ -316,6 +329,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
     setVerifyMsg("");
     try {
       await api.appConfigWrite({ serverFolder: "" });
+      setCustomFolder((await api.serverCheckSetupComplete()).dir);
     } catch {
       /* 表示リセットは先に行う */
     }
@@ -328,23 +342,25 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
       if (!targetFolder) throw new Error("サーバーフォルダが設定されていません。");
       await api.folderOpen(targetFolder);
     } catch (e: any) {
-      setErrorMsg(`フォルダを開けませんでした: ${e?.message ?? String(e)}`);
+      setErrorMsg(`フォルダを開けませんでした: ${setupError(e)}`);
     }
   };
 
   // テンプレコピー（JDK一式で数千ファイル）は数十秒かかることがある。進捗をポーリングして表示する。
   const runCopyTemplateWithProgress = async (targetFolder: string) => {
+    let copying = true;
     setCopyProgress({ copied: 0, total: 0 });
     const poll = api.serverCopyTemplateStatus
       ? setInterval(() => {
           api.serverCopyTemplateStatus()
-            .then((s: { copied?: number; total?: number }) => setCopyProgress({ copied: s.copied || 0, total: s.total || 0 }))
+            .then((s: { copied?: number; total?: number }) => { if (copying) setCopyProgress({ copied: s.copied || 0, total: s.total || 0 }); })
             .catch(() => {});
         }, 400)
       : null;
     try {
       await api.serverCopyTemplate(targetFolder);
     } finally {
+      copying = false;
       if (poll) clearInterval(poll);
       setCopyProgress(null);
     }
@@ -362,25 +378,40 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
       setForgeState("launched");
     } catch (e: any) {
       setForgeState("idle");
-      setErrorMsg(`エラー: ${e?.message ?? String(e)}`);
+      setErrorMsg(`エラー: ${setupError(e)}`);
     }
   };
 
   const handleSetup = async () => {
     setSetupState("running");
+    setSetupProgress("必要ファイルを準備しています…");
     setErrorMsg("");
+    let polling = false;
+    let poll: ReturnType<typeof setInterval> | undefined;
     try {
       const targetFolder = await resolveTargetFolder();
       if (!targetFolder) throw new Error("セットアップ先フォルダが設定されていません。フォルダを選択してください。");
       await api.appConfigWrite({ serverFolder: targetFolder });
       await runCopyTemplateWithProgress(targetFolder);
-      await api.serverSetupAtPath(targetFolder);
+      polling = true;
+      poll = setInterval(() => {
+        api.serverSetupStatus().then((status: { message: string }) => {
+          if (polling) setSetupProgress(status.message);
+        }).catch(() => {});
+      }, 500);
+      const result = await api.serverSetupAtPath(targetFolder);
+      if (result.canceled) {
+        setSetupState("idle");
+        setVerifyMsg("環境構築をキャンセルしました。規約を確認したら、もう一度「環境構築をする」を押してください。");
+        return;
+      }
+      if (!result.ok) throw new Error("環境構築に失敗しました。もう一度お試しください。");
       setSetupState("launched");
-      void waitForSetupComplete(targetFolder);
+      await waitForSetupComplete(targetFolder);
     } catch (e: any) {
       setSetupState("error");
-      setErrorMsg(`エラー: ${e?.message ?? String(e)}`);
-    }
+      setErrorMsg(`エラー: ${setupError(e)}`);
+    } finally { polling = false; if (poll) clearInterval(poll); }
   };
 
   const handleVerify = async () => {
@@ -388,11 +419,9 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
     setVerifyMsg("");
     try {
       const targetFolder = await resolveTargetFolder();
-      if (!await completeSetupIfReady(targetFolder)) {
-        setVerifyMsg("セットアップがまだ完了していません。コマンドプロンプトの処理が終わるまでお待ちください。");
-      }
+      await completeSetupIfReady(targetFolder);
     } catch (e: any) {
-      setVerifyMsg(`確認エラー: ${e?.message ?? String(e)}`);
+      setVerifyMsg(`確認エラー: ${setupError(e)}`);
     } finally {
       setVerifying(false);
     }
@@ -418,12 +447,12 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
 
       await api.appConfigWrite({ serverFolder: targetFolder });
       const status = await api.serverCheckSetupComplete();
-      if (!status.complete) throw new Error("このフォルダのセットアップ完了を確認できません。server.properties と run.bat または libraries のあるフォルダを選んでください。");
+      if (!status.complete) throw new Error(`このフォルダには準備が必要です: ${(status.missing || ["サーバー環境"]).join("、")}。「環境構築をする」から準備できます。`);
       await api.bridgeExtractTo(targetFolder);
       await api.appConfigWrite({ setupComplete: true, setupRequiredByInstall: false });
       onSetupComplete();
     } catch (e: any) {
-      setErrorMsg(`既存セットアップの引き継ぎに失敗しました: ${e?.message ?? String(e)}`);
+      setErrorMsg(`既存セットアップの引き継ぎに失敗しました: ${setupError(e)}`);
     } finally {
       setUsingExisting(false);
     }
@@ -435,10 +464,10 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
       const picked = await api.dialogPickFolder("使用するMinecraftサーバーフォルダを選択");
       if (picked.canceled || !picked.path) return;
       await saveServerFolder(picked.path);
-      await api.bridgeExtractTo(picked.path).catch(() => ({ ok: false }));
+      await api.bridgeExtractTo(picked.path);
       setVerifyMsg("サーバーフォルダを設定しました。");
     } catch (e: any) {
-      setErrorMsg(`サーバーフォルダの設定に失敗しました: ${e?.message ?? String(e)}`);
+      setErrorMsg(`サーバーフォルダの設定に失敗しました: ${setupError(e)}`);
     }
   };
 
@@ -523,7 +552,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
     );
   }
 
-  const busy = forgeState === "launching" || setupState === "running";
+  const busy = forgeState === "launching" || setupState === "running" || verifying;
   const folderDisplay = customFolder;
 
   return (
@@ -532,13 +561,13 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
         <div className="setup-first-copy-v2">
           <h1>初期セットアップ</h1>
           <p>
-            MC TikTok Bridge を初めて使う場合に実行します。
-            <span> 初回のみ </span>必要です。
+            保存先を選び、① Forgeの準備 → ② 環境構築の順に進めてください。
+            <span> 初回のみ </span>必要です。途中で止まっても、同じ保存先から再試行できます。
           </p>
           <button
             type="button"
             onClick={handleUseExistingSetup}
-            disabled={usingExisting}
+            disabled={usingExisting || busy}
             className="setup-existing-button-v2"
           >
             {usingExisting ? "確認しています…" : "✓ もうすでにセットアップ済みです"}
@@ -551,7 +580,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
         <strong>⚠ 注意事項</strong>
         <ul>
           <li>セットアップには数分かかります。</li>
-          <li>Minecraft EULA に自動で同意します。セットアップ実行をもって同意とみなします。</li>
+          <li>Minecraftの利用規約（EULA）を確認し、同意してから構築します。</li>
           <li>既存のサーバーが起動中の場合は先に停止してください。</li>
         </ul>
       </section>
@@ -587,7 +616,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
             </button>
           </div>
         )}
-        <p>変更しない場合はデフォルトフォルダ（{DEFAULT_SERVER_FOLDER}）で実行されます。</p>
+        <p>表示されている保存先にワールドと設定を作成します。初回の標準保存先は{DEFAULT_SERVER_FOLDER}です。</p>
       </section>
 
       <section className="setup-step-card-v2 setup-step-card-v2--forge">
@@ -598,25 +627,30 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
             <h2>Forge をインストールする（プレイ用）</h2>
             <span>必須</span>
           </div>
-          <p>自分の Minecraft に Forge クライアントをインストールします。画面が表示されたら「Install client」を選択して OK を押してください。</p>
+          <p>{forgeClient?.installed
+            ? "Forge 1.20.1 / 47.3.0 のインストールを確認しました。手順2へ進めます。"
+            : "Minecraft Java版のランチャーを一度起動してください。その後、下のボタンから開く画面で「Install client」を選び、OKを押します。成功の案内が出たら閉じてください。"}</p>
+          {!forgeClient?.installed && <p>通常は保存先を変更せず進めてください。インストール完了は自動で確認します。</p>}
           <button
             type="button"
             onClick={handleForgeInstall}
-            disabled={forgeState === "launching"}
+            disabled={busy}
             className="setup-step-button-v2 setup-step-button-v2--forge"
           >
             {forgeState === "launching"
               ? "⏳ 起動中..."
+              : forgeClient?.installed
+              ? "Forgeを再インストール（任意）"
               : forgeState === "launched"
-              ? "✅ 起動済み（再度起動できます）"
+              ? "Forgeの画面をもう一度開く"
               : "↓ Forge をインストールする"}
           </button>
         </div>
         <div className="setup-step-meta-v2">
           <dl><dt>内容</dt><dd>Forge クライアントのインストール</dd></dl>
-          <dl><dt>使用するもの</dt><dd>forge_install.bat</dd></dl>
+          <dl><dt>使用するもの</dt><dd>同梱のForgeインストーラー</dd></dl>
           <dl><dt>所要時間（目安）</dt><dd>約 1〜3 分</dd></dl>
-          <dl><dt>状態</dt><dd className={forgeState === "launched" ? "is-done" : ""}>{forgeState === "launched" ? "起動済み" : "未実行"}</dd></dl>
+          <dl><dt>状態</dt><dd className={forgeClient?.installed ? "is-done" : ""}>{forgeClient?.installed ? "インストール確認済み" : forgeState === "launched" ? "Forgeの画面で操作してください" : "未確認"}</dd></dl>
         </div>
       </section>
 
@@ -628,25 +662,25 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
             <h2>環境構築をする</h2>
             <span>必須</span>
           </div>
-          <p>サーバー環境・BRIDGE・各種設定ファイルを自動構築します。EULA 同意・RCON 設定・server.properties 設定も含みます。</p>
+          <p>Minecraftの利用規約に同意すると、サーバー設定と配信ワールドを自動で準備します。ワールドは haihu_world/world に作成し、保存後にサーバーを自動停止します。</p>
           <button
             type="button"
             onClick={handleSetup}
-            disabled={setupState === "running" || setupState === "launched"}
+            disabled={busy}
             className="setup-step-button-v2 setup-step-button-v2--env"
           >
             {setupState === "running"
-              ? "⏳ 起動中..."
+              ? "⏳ 環境を準備しています…"
               : setupState === "launched"
-              ? "✅ setup.bat 起動済み"
+              ? "環境構築をもう一度確認"
               : "⚙ 環境構築をする"}
           </button>
         </div>
         <div className="setup-step-meta-v2">
           <dl><dt>内容</dt><dd>環境構築・設定ファイル生成</dd></dl>
-          <dl><dt>使用するもの</dt><dd>setup.bat</dd></dl>
+          <dl><dt>操作する場所</dt><dd>このアプリ内</dd></dl>
           <dl><dt>所要時間（目安）</dt><dd>約 2〜5 分</dd></dl>
-          <dl><dt>状態</dt><dd className={setupState === "launched" ? "is-done" : ""}>{setupState === "launched" ? "起動済み" : "未実行"}</dd></dl>
+          <dl><dt>状態</dt><dd className={setupState === "launched" ? "is-done" : ""}>{setupState === "launched" ? "サーバー準備済み" : setupState === "running" ? "準備中" : "未完了"}</dd></dl>
         </div>
       </section>
 
@@ -668,22 +702,25 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
       )}
 
       {errorMsg && <div className="setup-error-v2">❌ {errorMsg}</div>}
+      {setupState === "running" && <div className="setup-verify-note-v2" role="status">{setupProgress}</div>}
+      {verifyMsg && setupState !== "launched" && <div className="setup-verify-note-v2">{verifyMsg}</div>}
 
       {(setupState === "running" || setupState === "launched") && (
         <section className="setup-guide-overlay-v2">
-          <strong>setup.bat コンソールでの操作手順</strong>
+          <strong>アプリが順番に準備します</strong>
           <ol>
-            <li>新しく開いたコンソールウィンドウで setup.bat の進行を待ちます。</li>
-            <li>server.properties 生成のためサーバーが一度起動します。起動が確認できたら、そのサーバーウィンドウを閉じてください。</li>
-            <li>コンソールに戻り、任意のキーを押して処理を続行します。</li>
-            <li>「完了」と表示されたら、このアプリが自動でダッシュボードへ遷移します（反映まで数秒かかる場合があります）。</li>
+            <li>保存先へ必要なファイルを準備します。</li>
+            <li>Minecraftの利用規約への同意を確認します。</li>
+            <li>サーバー・接続設定を作成し、haihu_world/worldに配信ワールドを生成します。</li>
+            <li>ワールドの保存とサーバーの自動停止、Forge・Bridgeの準備を確認します。</li>
+            <li>確認が終わると完了画面に切り替わります。</li>
           </ol>
         </section>
       )}
 
       {setupState === "launched" && (
         <section className="setup-verify-panel-v2">
-          <p>{verifying ? "処理完了を自動確認しています。コマンドプロンプトを閉じずにお待ちください。" : "コマンドプロンプトでの処理が終わったら、完了を確認してください。"}</p>
+          <p>{verifying ? "準備の完了を確認しています。そのままお待ちください。" : "Forgeのインストールが終わったら、完了を確認してください。"}</p>
           <button type="button" onClick={handleVerify} disabled={verifying}>
             {verifying ? "⏳ 確認中…" : "✅ セットアップ完了を確認"}
           </button>
@@ -694,7 +731,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
       <section className="setup-flow-panel-v2">
         <div className="setup-flow-copy-v2">
           <span>ⓘ</span>
-          <p>① forge_install.bat → ② <b>setup.bat</b> の順で実行されます。<br />セットアップ完了後はダッシュボードからサーバーを起動できます。</p>
+          <p>① Forgeの準備 → ② <b>環境構築</b> → 完了確認の順に進みます。<br />完了後はMinecraftランチャーで「1.20.1-forge-47.3.0」を選び、ダッシュボードからサーバーを起動できます。</p>
         </div>
         <FlowBlocks />
       </section>

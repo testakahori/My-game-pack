@@ -146,7 +146,9 @@ contextBridge.exposeInMainWorld("mygamepack", {
     return ipcRenderer.invoke("server:props:write", updates);
   },
 
-  // forge_install.bat を起動（Forge インストーラ GUI を表示）
+  // 同梱JavaでForgeインストーラーGUIを表示
+  serverForgeClientStatus: () => ipcRenderer.invoke("server:forgeClientStatus"),
+  serverSetupStatus: () => ipcRenderer.invoke("server:setup:status"),
   serverForgeInstall: () => ipcRenderer.invoke("server:forgeInstall"),
 
   serverForgeInstallAtPath: (folderPath) => {
