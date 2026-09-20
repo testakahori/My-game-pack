@@ -223,12 +223,6 @@
       "repeat": 100
     },
     {
-      "giftId": "8343",
-      "name": "Hand Heart",
-      "commandFile": "give_blindness.txt",
-      "repeat": 1
-    },
-    {
       "giftId": "11177",
       "name": "Coffee Magic",
       "commandFile": "wither_skeleton.txt",

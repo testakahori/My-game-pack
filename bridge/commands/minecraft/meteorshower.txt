@@ -5,5 +5,5 @@
 # SOUND: entity.ender_dragon.growl
 # PARTICLE: minecraft:end_rod
 # DESTRUCTIVE: true
-// 岩盤・深層岩・金・黒曜石・マグマの30ブロックの塊を20個、破片280個。光と炎を引いて斜めに急降下し、着弾地をクレーターにする
+// 5種類各10塊、1塊50ブロックの巨大岩と破片500個が斜めに飛来。プレイヤーも狙い、直撃ダメージとクレーター・岩の残骸を残す
 execute as @p at @s run doumaeffect meteorshower {Count}

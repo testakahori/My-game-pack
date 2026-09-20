@@ -5,5 +5,5 @@
 # SOUND: entity.player.hurt_freeze
 # PARTICLE: minecraft:snowflake
 # DESTRUCTIVE: true
-// 97×97の地表を凍結。プレイヤーを氷で埋めて攻撃し、閉じ込め中は継続ダメージ。暗闇と猛吹雪は2分、氷は残る
+// 97×97を凍結。頭上から5×5・厚さ3段の氷塊が落ちて押しつぶす。暗闇・吹雪は2分、氷は残る
 execute as @p at @s run doumaeffect iceage {Count}

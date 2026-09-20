@@ -5,5 +5,5 @@
 # SOUND: ambient.underwater.enter
 # PARTICLE: minecraft:splash
 # DESTRUCTIVE: true
-// 48ブロック上空の25×25範囲から大量の水とドラウンド30体・海の生き物11種類51体が降り注ぐ大洪水
+// 48ブロック上から25×25の水が急速に降る。水の中にドラウンド30体と海の生き物153体が漂う
 execute as @p at @s run doumaeffect flood {Count}
