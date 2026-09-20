@@ -570,7 +570,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
     setAllStartBusy(true);
     setApplyMsg(null);
     setWorldMsg(null);
-    addLog("一括起動を開始します…", "info");
+    addLog("最初にTikTok LIVE STUDIOで接続してください（手動操作）。続いてサーバー・Minecraft・BRIDGEを起動します。", "info");
     let stage: "config" | "forge" | "minecraft" | "bridge" | "done" = "config";
 
     // 読み上げ（TTS）が有効ならエンジンを裏で自動起動する。
@@ -638,8 +638,6 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
       } catch (mcErr: any) {
         addLog(`Minecraftランチャーの自動起動に失敗（手動で起動してください）: ${mcErr?.message ?? String(mcErr)}`, "warn");
       }
-
-      addLog("TikTok LIVE Studio でライブ接続を開始してください（ここは手動手順です）。", "warn");
 
       setBridgeState("starting");
       stage = "bridge";
@@ -777,7 +775,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
   const typedUsername = username.trim().replace(/^@/, "");
   const idApproved = typedUsername.length > 0 && appliedUsername === typedUsername;
   const worldDisplay = levelName ? levelName.replace(`${WORLD_PREFIX}/`, "") : "未設定";
-  const step1: StepStatus = forgeState  === "running" ? "done" : forgeState  === "error" ? "error" : forgeState  === "starting" ? "active" : "pending";
+  const stepForge: StepStatus = forgeState  === "running" ? "done" : forgeState  === "error" ? "error" : forgeState  === "starting" ? "active" : "pending";
   const stepBridge: StepStatus = bridgeState === "running" ? "done" : bridgeState === "error" ? "error" : bridgeState === "starting" ? "active" : "pending";
   const stepTikTok: StepStatus = tiktokConnected ? "done" : tiktokConfigured ? "active" : "pending";
   const isBusy = allStartBusy || forgeState === "starting" || bridgeState === "starting";
@@ -797,9 +795,9 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
   ] as const;
 
   const launchFlow = [
-    ["forge server起動", "Forge 1.20.1 が起動するまで待つ", step1],
-    ["Minecraft起動", "ランチャーを開いてサーバーに接続", "pending"],
-    ["TIKTOK LIVE STUDIO でライブ接続", "ライブ接続は手動で開始します", stepTikTok],
+    ["TIKTOK LIVE STUDIO でライブ接続", "最初にLIVE STUDIOを開いて接続します", stepTikTok],
+    ["Forgeサーバー起動", "Forge 1.20.1 が起動するまで待つ", stepForge],
+    ["Minecraft起動", "ランチャーを開いてサーバーに接続", gameRunning ? "done" : "pending"],
     ["BRIDGE起動", "TikTok → RCON 接続・ルール自動適用", stepBridge],
     ["配布ワールド選択", `${draft || "haihu_world/sakura"} を適用`, levelName ? "done" : "pending"],
     ["保護・安全設定", "監視・テスト・バックアップ確認", "done"],
@@ -813,7 +811,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
         <section className="cockpit-main">
           <div className="cockpit-panel-title">
             <span>›</span>
-            <div><h1>配信準備コックピット</h1><p>ForgeからTikTok経由でMinecraftをつなぎます</p></div>
+            <div><h1>配信準備コックピット</h1><p>TikTok LIVE STUDIOの接続後、MinecraftとBRIDGEを準備します</p></div>
           </div>
 
           <div className="cockpit-pipeline">
@@ -852,7 +850,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
               </button>
             </div>
           </div>
-          <p className="cockpit-all-start-note">一括起動＝順番に起動 ／ 一括停止＝ゲーム終了後にBRIDGEとサーバーをまとめて停止</p>
+          <p className="cockpit-all-start-note">先にTikTok LIVE STUDIOで接続してください。一括起動でサーバー → Minecraft → BRIDGEを起動します。一括停止でBRIDGEとサーバーを停止します。</p>
           <div className="cockpit-launcher-config">
             <button type="button" onClick={handlePickLauncher}>🎮 ランチャーの場所を指定</button>
             <span title={launcherPath || undefined}>
@@ -867,7 +865,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
             {launchFlow.map(([label, description, status], index) => (
               <div className={`cockpit-flow-step cockpit-flow-step--${status}`} key={label}>
                 <span>{index + 1}</span>
-                <i>{index === 2 ? <TikTokMark /> : ["▣","🎮","","⛓","♟","⬡","◉"][index]}</i>
+                <i>{index === 0 ? <TikTokMark /> : ["","▣","🎮","⛓","♟","⬡","◉"][index]}</i>
                 <div><b>{label}</b><small>{description}</small>{status === "done" ? <em>● 完了</em> : <em>● 待機中</em>}</div>
               </div>
             ))}
