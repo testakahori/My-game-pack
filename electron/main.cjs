@@ -17,6 +17,7 @@ const { runPreflight } = require("./preflight.cjs");
 const { planTestEvent } = require("./event_tests.cjs");
 const { createStreamSessions, streamBuckets } = require("./stream_sessions.cjs");
 const { saveGiftPanelPng } = require("./image_export.cjs");
+const { EULA_URL, inspectSetup, inspectForgeClient, launchForgeInstaller, prepareServerEnvironment } = require("./initial_setup.cjs");
 const streamSessions = createStreamSessions(() => path.join(getBridgeBatDir(), "stream-sessions.json"));
 const settingsBackups = createSettingsBackups({
   paths: () => ({
@@ -579,9 +580,9 @@ function getServerRoot() {
   const cfg = readAppConfig();
   // 指定先が消えていても別のサーバーに切り替えない。診断画面で同じパスを示す。
   if (cfg.serverFolder) return path.resolve(cfg.serverFolder);
-  // フォールバック: 未パッケージ時は開発フォルダ、パッケージ後はextraResources
+  // 初回の保存先はアプリの外。更新・アンインストールでワールドを失わない。
   if (!app.isPackaged) return path.resolve(__dirname, "..", "server", "Douma_Craft");
-  return path.join(process.resourcesPath, "server", "Douma_Craft");
+  return path.join(app.getPath("documents"), "MyGamePack", "Server");
 }
 
 function getBridgeBatDir() {
@@ -2044,22 +2045,32 @@ ipcMain.handle("folder:open", async (_event, folderPath) => {
 });
 
 // --------------------
-// IPC: 任意フォルダの setup.bat を実行
+// IPC: 同梱資材から初期設定を構築（PowerShell・外部コンソール不要）
 // --------------------
-ipcMain.handle("server:setup:atPath", async (_event, folderPath) => {
+let initialSetupRunning = false;
+async function setupServerAtPath(folderPath) {
   if (!folderPath || typeof folderPath !== "string") throw new Error("folderPath is required");
-  const bat = path.join(folderPath, "setup.bat");
-  if (!fs.existsSync(bat)) throw new Error(`setup.bat が見つかりません: ${bat}`);
-
-  // "start" 経由で新コンソールウィンドウを作成 → stdin/stdout が正しく繋がる
-  spawn("cmd.exe", ["/c", "start", "", "cmd.exe", "/c", bat], {
-    cwd: folderPath,
-    detached: true,
-    stdio: "ignore",
-  }).unref();
-
-  return { ok: true };
-});
+  if (initialSetupRunning) throw new Error("環境構築が進行中です。完了までお待ちください。");
+  if (serverProcRef) throw new Error("Minecraftサーバーを停止してから環境構築を実行してください。");
+  initialSetupRunning = true;
+  try {
+    let eulaAccepted = false;
+    try { eulaAccepted = /^\s*eula\s*=\s*true\s*$/m.test(fs.readFileSync(path.join(folderPath, "eula.txt"), "utf8")); } catch {}
+    if (!eulaAccepted) {
+      const choice = await dialog.showMessageBox({
+        type: "question", title: "Minecraft 利用規約への同意",
+        message: "Minecraftの利用規約（EULA）に同意して、サーバー環境を構築しますか？",
+        detail: `${EULA_URL}\n\n保存先: ${folderPath}\n「規約を開く」で内容を確認できます。`,
+        buttons: ["同意して構築", "規約を開く", "キャンセル"], defaultId: 2, cancelId: 2, noLink: true,
+      });
+      if (choice.response === 1) await shell.openExternal(EULA_URL);
+      if (choice.response !== 0) return { ok: false, canceled: true };
+      eulaAccepted = true;
+    }
+    return await prepareServerEnvironment(folderPath, { eulaAccepted });
+  } finally { initialSetupRunning = false; }
+}
+ipcMain.handle("server:setup:atPath", (_event, folderPath) => setupServerAtPath(folderPath));
 
 // --------------------
 // IPC: RCONパスワード.txt 読み込み
@@ -2143,53 +2154,20 @@ ipcMain.handle("server:datapack:deployNightVision", async () => {
 });
 
 // --------------------
-// IPC: Forge インストーラ起動 (forge_install.bat)
+// IPC: Forgeインストーラーを同梱Javaで直接起動
 // --------------------
-ipcMain.handle("server:forgeInstall", async () => {
-  const dir = getServerRoot();
-  const bat = path.join(dir, "forge_install.bat");
-  if (!fs.existsSync(bat)) throw new Error(`forge_install.bat not found: ${bat}`);
+ipcMain.handle("server:forgeInstall", () => launchForgeInstaller(getServerRoot()));
 
-  spawn("cmd.exe", ["/c", "start", "", "cmd.exe", "/c", bat], {
-    cwd: dir,
-    detached: true,
-    stdio: "ignore",
-  }).unref();
-
-  return { ok: true };
-});
-
-ipcMain.handle("server:forgeInstall:atPath", async (_event, folderPath) => {
+ipcMain.handle("server:forgeInstall:atPath", (_event, folderPath) => {
   if (!folderPath || typeof folderPath !== "string") throw new Error("folderPath is required");
-  const bat = path.join(folderPath, "forge_install.bat");
-  if (!fs.existsSync(bat)) throw new Error(`forge_install.bat が見つかりません: ${bat}`);
-
-  spawn("cmd.exe", ["/c", "start", "", "cmd.exe", "/c", bat], {
-    cwd: folderPath,
-    detached: true,
-    stdio: "ignore",
-  }).unref();
-
-  return { ok: true };
+  return launchForgeInstaller(folderPath);
 });
+ipcMain.handle("server:forgeClientStatus", () => inspectForgeClient(path.join(app.getPath("appData"), ".minecraft")));
 
 // --------------------
-// IPC: 初期セットアップ (setup.bat) ※インタラクティブ
+// IPC: 初期セットアップ
 // --------------------
-ipcMain.handle("server:setup", async () => {
-  const dir = getServerRoot();
-  const bat = path.join(dir, "setup.bat");
-  if (!fs.existsSync(bat)) throw new Error(`setup.bat not found: ${bat}`);
-
-  // "start" 経由で新コンソールウィンドウを作成 → stdin/stdout が正しく繋がる
-  spawn("cmd.exe", ["/c", "start", "", "cmd.exe", "/k", bat], {
-    cwd: dir,
-    detached: true,
-    stdio: "ignore",
-  }).unref();
-
-  return { ok: true };
-});
+ipcMain.handle("server:setup", () => setupServerAtPath(getServerRoot()));
 
 // --------------------
 // IPC: Gifts update (bat不要化)
@@ -2647,11 +2625,7 @@ ipcMain.handle("server:worlds:list", async () => {
 // --------------------
 ipcMain.handle("server:checkSetupComplete", async () => {
   const dir = getServerRoot();
-  const hasProps = fs.existsSync(path.join(dir, "server.properties"));
-  const hasLibraries = fs.existsSync(path.join(dir, "libraries"));
-  const hasRunBat = fs.existsSync(path.join(dir, "run.bat"));
-  const complete = hasProps && (hasLibraries || hasRunBat);
-  return { complete, dir };
+  return inspectSetup(dir);
 });
 
 // --------------------

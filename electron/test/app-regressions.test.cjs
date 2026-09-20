@@ -14,7 +14,7 @@ test("子プロセス: 成功・起動失敗・非ゼロ終了・タイムアウ
   await assert.rejects(runProc(process.execPath, ["-e", "setInterval(()=>{},1000)"], os.tmpdir(), { timeoutMs: 200 }), /完了しませんでした/);
 });
 
-function loadApp(t, run = async () => { throw new Error("unexpected process"); }, updater = {}) {
+function loadApp(t, run = async () => { throw new Error("unexpected process"); }, updater = {}, dialog = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mygamepack-regression-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const handlers = new Map();
@@ -28,7 +28,7 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
   };
   const requireMock = (name) => {
     if (name === "electron") return {
-      app, ipcMain: { handle: (name, fn) => handlers.set(name, fn), on() {} },
+      app, dialog, ipcMain: { handle: (name, fn) => handlers.set(name, fn), on() {} },
       clipboard: { writeText: text => copiedTexts.push(text) },
       BrowserWindow: { getAllWindows: () => [{ webContents: { send: (...args) => notifications.push(args) } }] },
     };
@@ -57,6 +57,7 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
       context.setTimeout = () => {};
       context.setupAutoUpdater();
     },
+    usePackagedPaths: () => { app.isPackaged = true; },
   };
 }
 
@@ -216,6 +217,32 @@ test("セットアップ: 保存するパスは絶対パス、消失しても別
   await app.invoke("app:config:write", { serverFolder: missing });
   const status = await app.invoke("server:checkSetupComplete");
   assert.equal(status.dir, missing);
+  assert.equal(status.complete, false);
+});
+
+test("初回構築IPC: 規約のキャンセルで同意・設定を保存せず、再試行できる", async t => {
+  let prompts = 0;
+  const app = loadApp(t, undefined, {}, { showMessageBox: async options => {
+    prompts++;
+    assert.equal(options.cancelId, 2);
+    assert.equal(options.defaultId, 2);
+    return { response: 2 };
+  } });
+  const target = path.join(app.root, "新しいフォルダー (3)");
+  fs.mkdirSync(target);
+  await app.invoke("app:config:write", { serverFolder: target });
+  assert.equal((await app.invoke("server:setup:atPath", target)).canceled, true);
+  assert.equal((await app.invoke("server:setup")).canceled, true);
+  assert.equal(prompts, 2);
+  assert.deepEqual(fs.readdirSync(target), []);
+  assert.equal((await app.invoke("server:checkSetupComplete")).complete, false);
+});
+
+test("初回の標準保存先: 更新されるアプリの同梱領域へワールドを作らない", async t => {
+  const app = loadApp(t);
+  app.usePackagedPaths();
+  const status = await app.invoke("server:checkSetupComplete");
+  assert.equal(status.dir, path.join(app.root, "MyGamePack", "Server"));
   assert.equal(status.complete, false);
 });
 

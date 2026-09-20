@@ -108,13 +108,14 @@ declare global {
       serverDatapackDeployNightVision: () => Promise<{ ok: true }>;
       serverPropsRead: () => Promise<Record<string, string>>;
       serverPropsWrite: (updates: Record<string, string>) => Promise<{ ok: true }>;
-      serverSetup: () => Promise<{ ok: true }>;
+      serverSetup: () => Promise<{ ok: boolean; canceled?: boolean }>;
+      serverForgeClientStatus: () => Promise<{ installed: boolean; version: string; launcherReady: boolean }>;
       serverForgeInstallAtPath: (folderPath: string) => Promise<{ ok: true }>;
       serverRconPasswordRead: () => Promise<{ found: boolean; password: string }>;
       dialogPickFolder: (title?: string) => Promise<{ canceled: boolean; path: string }>;
       dialogPickFile: (options?: { title?: string; filters?: Array<{ name: string; extensions: string[] }> }) => Promise<{ canceled: boolean; path: string }>;
       folderOpen: (folderPath: string) => Promise<{ ok: true; path: string }>;
-      serverSetupAtPath: (folderPath: string) => Promise<{ ok: true }>;
+      serverSetupAtPath: (folderPath: string) => Promise<{ ok: boolean; canceled?: boolean }>;
 
       // --------------------
       // GiftsViewer 統合
@@ -162,7 +163,7 @@ declare global {
       // --------------------
       serverCopyTemplate: (targetFolder: string) => Promise<{ ok: true }>;
       serverCopyTemplateStatus?: () => Promise<{ state: string; copied: number; total: number; error: string }>;
-      serverCheckSetupComplete: () => Promise<{ complete: boolean; dir: string }>;
+      serverCheckSetupComplete: () => Promise<{ complete: boolean; dir: string; missing?: string[] }>;
     };
   }
 }

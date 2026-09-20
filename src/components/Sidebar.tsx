@@ -86,7 +86,7 @@ const NAV_ITEMS: NavItem[] = [
   {
     page: AppPage.SETUP,
     label: "初期セットアップ",
-    sub: "setup.bat",
+    sub: "はじめての準備",
     icon: "🔧",
   },
 ];
