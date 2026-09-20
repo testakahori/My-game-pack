@@ -570,7 +570,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
     setAllStartBusy(true);
     setApplyMsg(null);
     setWorldMsg(null);
-    addLog("一括起動を開始します…", "info");
+    addLog("最初にTikTok LIVE STUDIOで接続してください（手動操作）。続いてサーバー・Minecraft・BRIDGEを起動します。", "info");
     let stage: "config" | "forge" | "minecraft" | "bridge" | "done" = "config";
 
     // 読み上げ（TTS）が有効ならエンジンを裏で自動起動する。
@@ -638,8 +638,6 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
       } catch (mcErr: any) {
         addLog(`Minecraftランチャーの自動起動に失敗（手動で起動してください）: ${mcErr?.message ?? String(mcErr)}`, "warn");
       }
-
-      addLog("TikTok LIVE Studio でライブ接続を開始してください（ここは手動手順です）。", "warn");
 
       setBridgeState("starting");
       stage = "bridge";
