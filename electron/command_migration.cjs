@@ -10,7 +10,7 @@ function migrateCommandReferences(config) {
     const file = path.posix.basename(String(value.commandFile || "").replace(/\\/g, "/")).toLowerCase().replace(/\.txt$/, "");
     if (file === "seichi_donut") next.commandFile = "fall_sand.txt";
     if (file === "husk01") next.commandFile = "husk.txt";
-    if (["tornado", "hukitobasu", "hurricane"].includes(file)) {
+    if (["tornado", "hukitobasu", "hurricane", "give_blindness", "petsummon"].includes(file)) {
       if (inArray) return undefined;
       next.commandFile = "";
       next.enabled = false;
@@ -30,7 +30,7 @@ function migrateRetiredCommands(bridgeDir) {
   const backup = path.join(bridgeDir, "retired-command-backups", new Date().toISOString().replace(/[:.]/g, "-"));
   fs.mkdirSync(backup, { recursive: true });
   fs.writeFileSync(path.join(backup, "config.minecraft.json"), raw, { flag: "wx" });
-  for (const file of ["seichi_donut.txt", "tornado.txt", "hukitobasu.txt", "hurricane.txt", "husk01.txt"]) {
+  for (const file of ["seichi_donut.txt", "tornado.txt", "hukitobasu.txt", "hurricane.txt", "husk01.txt", "give_blindness.txt", "petsummon.txt"]) {
     const source = path.join(bridgeDir, "commands", "minecraft", file);
     if (fs.existsSync(source)) fs.copyFileSync(source, path.join(backup, file));
   }

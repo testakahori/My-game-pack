@@ -44,3 +44,8 @@ test("吹き飛ばす・ハリケーンを削除し、重複ハスクは回数�
   assert.equal(input.mappings.length, 3);
   assert.deepEqual(migrateCommandReferences(next), next);
 });
+
+test('暗闇地獄とペット召喚だけを削除し、暗黒と愛犬の割り当てを保持', () => {
+ const input={mappings:[{commandFile:'give_blindness.txt'},{commandFile:'petsummon.txt'},{commandFile:'darkness.txt'},{commandFile:'wolf.txt'}],shareEvent:{enabled:true,commandFile:'petsummon.txt'}};
+ const next=migrateCommandReferences(input);assert.deepEqual(next.mappings,[{commandFile:'darkness.txt'},{commandFile:'wolf.txt'}]);assert.deepEqual(next.shareEvent,{enabled:false,commandFile:''});assert.equal(input.mappings.length,4);
+});

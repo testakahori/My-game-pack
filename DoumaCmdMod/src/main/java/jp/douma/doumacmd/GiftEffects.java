@@ -16,6 +16,8 @@ import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.FallingBlockEntity;
+import net.minecraft.world.entity.boss.wither.WitherBoss;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.entity.projectile.Arrow;
@@ -35,7 +37,7 @@ import java.util.function.IntConsumer;
 /** Server-thread effects. Large gifts are spread across ticks instead of spawning everything in one tick. */
 final class GiftEffects {
     static final Set<String> KEYS = Set.of("flood", "bullettime", "anvildrop", "chickenrain", "meteor",
-        "skytrap", "superjump", "volcano", "zombiewave", "iceage", "storm", "clearweather", "cataclysm", "meteorshower");
+        "skytrap", "superjump", "volcano", "zombiewave", "iceage", "storm", "clearweather", "cataclysm", "meteorshower", "witherhunt", "heavygravity");
     static final int JUMP_HEIGHT = 32;
     private final List<Job> jobs = new ArrayList<>();
     private final List<MeteorFlight> meteorFlights = new ArrayList<>();
@@ -43,6 +45,9 @@ final class GiftEffects {
     private final Map<String, Long> weatherEnds = new HashMap<>();
     private final Map<String, Blizzard> blizzards = new HashMap<>();
     private final Map<UUID, IcePrison> icePrisons = new HashMap<>();
+    private final Map<UUID, Long> heavyPlayers = new HashMap<>();
+    private final Map<UUID, WitherHunt> witherHunts = new HashMap<>();
+    private record WitherHunt(WitherBoss wither, UUID player) {}
     private long ticks;
     private Path weatherFile;
     private int failures;
@@ -91,7 +96,7 @@ final class GiftEffects {
             data.store(out, "Gift weather expiry (epoch milliseconds; independent of doWeatherCycle)");
         } catch (Exception e) { fail(e); }
     }
-    void stop() { saveWeather(); jobs.clear(); meteorFlights.forEach(m -> m.blocks.forEach(FallingBlockEntity::discard)); meteorFlights.clear(); jumps.clear(); blizzards.clear(); icePrisons.clear(); weatherEnds.clear(); }
+    void stop() { saveWeather(); jobs.clear(); meteorFlights.forEach(m -> m.blocks.forEach(FallingBlockEntity::discard)); meteorFlights.clear(); jumps.clear(); blizzards.clear(); icePrisons.clear(); heavyPlayers.clear(); witherHunts.clear(); weatherEnds.clear(); }
     int pendingJobs() { return jobs.size() + meteorFlights.size(); }
     int failures() { return failures; }
     String lastError() { return lastError; }
@@ -109,7 +114,7 @@ final class GiftEffects {
         switch (key) {
             case "clearweather" -> clearWeather(level);
             case "storm" -> { rain(level, 180); lightning(o, 20); }
-            case "iceage" -> { iceage(o); freezePrison(o, source.getPlayerOrException()); }
+            case "iceage" -> { iceage(o); fallingIce(o, source.getPlayerOrException(), count); }
             case "superjump" -> jump(source.getPlayerOrException(), count);
             case "skytrap" -> skytrap(source.getPlayerOrException());
             case "flood" -> flood(o, 30 * count);
@@ -117,7 +122,9 @@ final class GiftEffects {
             case "anvildrop" -> anvils(o, 100 * count);
             case "chickenrain" -> chickens(o, 200 * count);
             case "meteor" -> meteors(o, 100 * count);
-            case "meteorshower" -> meteorShower(o, 20 * count);
+            case "meteorshower" -> meteorShower(o, 50 * count, source.getPlayerOrException());
+            case "witherhunt" -> huntWithers(o, source.getPlayerOrException());
+            case "heavygravity" -> heavyGravity(source.getPlayerOrException());
             case "volcano" -> volcano(o, 50 * count);
             case "zombiewave" -> zombies(o, 50 * count);
             case "cataclysm" -> cataclysm(o, count, source.getPlayerOrException());
@@ -144,6 +151,7 @@ final class GiftEffects {
         tickJumps(server);
         tickIcePrisons(server);
         tickMeteors();
+        tickHuntersAndGravity(server);
         long now = System.currentTimeMillis();
         for (ServerLevel level : server.getAllLevels()) {
             String id = level.dimension().location().toString();
@@ -193,24 +201,36 @@ final class GiftEffects {
     private double random(Origin o, double radius) { return (o.level.random.nextDouble() * 2 - 1) * radius; }
 
     private void flood(Origin o, int drowned) {
-        int y = (int) high(o, 48);
-        job(25 * 25, 1, 128, i -> {
-            BlockPos p = BlockPos.containing(o.pos.x + i % 25 - 12, y, o.pos.z + i / 25 - 12);
-            if (o.level.getBlockState(p).canBeReplaced()) set(o, p, Blocks.WATER.defaultBlockState());
+        int top = (int)high(o, 48), bottom = Math.max(o.level.getMinBuildHeight(), (int)Math.floor(o.pos.y));
+        if (top <= bottom) return;
+        int centreX = (int)Math.floor(o.pos.x), centreZ = (int)Math.floor(o.pos.z);
+        // Lay down the waterfall from top to bottom at the shared block budget (~3 seconds).
+        // Animals wait for the water column and are placed inside it, with no downward impulse.
+        Job water = job((top - bottom + 1) * 625, 1, 512, i -> {
+            BlockPos p = new BlockPos(centreX + i % 25 - 12, top - i / 625, centreZ + i / 25 % 25 - 12);
+            if (o.level.getBlockState(p).canBeReplaced()) set(o, p, i < 625 ? Blocks.WATER.defaultBlockState()
+                : Blocks.WATER.defaultBlockState().setValue(LiquidBlock.LEVEL, 8));
         });
-        job(drowned, 2, 3, i -> summon(o, "drowned", o.pos.x + random(o, 10), y + 0.5, o.pos.z + random(o, 10),
-            "{Tags:[\"douma_flood\"],Motion:[0.0,-1.0,0.0]}"));
-        String[] seaTypes = {"cod", "salmon", "tropical_fish", "pufferfish", "squid", "glow_squid", "dolphin", "turtle", "axolotl", "guardian", "elder_guardian"};
-        int[] quantities = {8, 8, 10, 4, 4, 3, 3, 3, 3, 4, 1};
+        String[] types = {"drowned", "cod", "salmon", "tropical_fish", "pufferfish", "squid", "glow_squid", "dolphin", "turtle", "axolotl", "guardian", "elder_guardian"};
+        int[] quantities = {30, 24, 24, 30, 12, 12, 9, 9, 9, 9, 12, 3};
         int perGift = Arrays.stream(quantities).sum();
-        job(perGift * (drowned / 30), 2, 4, i -> {
+        Job animals = job(perGift * (drowned / 30), 2, 4, i -> {
             int slot = i % perGift, species = 0;
             while (slot >= quantities[species]) slot -= quantities[species++];
-            String extra = seaTypes[species].equals("tropical_fish")
-                ? ",Variant:" + new int[]{0, 65536, 16777216, 67108865, 117506305, 117899265}[i % 6] : "";
-            summon(o, seaTypes[species], o.pos.x + random(o, 10), y + 0.5, o.pos.z + random(o, 10),
-                "{Tags:[\"douma_flood\"],Motion:[0.0,-1.0,0.0]" + extra + "}");
+            for (int attempt = 0; attempt < 40; attempt++) {
+                int x = centreX + o.level.random.nextInt(19) - 9, z = centreZ + o.level.random.nextInt(19) - 9;
+                int y = Math.min(top - 2, bottom + 2 + o.level.random.nextInt(Math.max(1, Math.min(17, top - bottom - 3))));
+                BlockPos p = new BlockPos(x, y, z);
+                if (!o.allowed(p) || !o.level.getFluidState(p).is(FluidTags.WATER)
+                        || !o.level.getFluidState(p.above()).is(FluidTags.WATER)) continue;
+                String extra = types[species].equals("tropical_fish")
+                    ? ",Variant:" + new int[]{0, 65536, 16777216, 67108865, 117506305, 117899265}[i % 6] : "";
+                summon(o, types[species], x + 0.5, y + 0.2, z + 0.5,
+                    "{Tags:[\"douma_flood\"],Motion:[0.0,0.0,0.0]" + extra + "}");
+                return;
+            }
         });
+        animals.prerequisites = List.of(water);
     }
     private void anvils(Origin o, int total) {
         // 100 blocks: three 5x5 layers, two 3x3 layers, a cross and a two-block peak.
@@ -248,113 +268,138 @@ final class GiftEffects {
             "{Tags:[\"douma_meteor\"],ExplosionPower:2b,power:[0.0,-0.25,0.0],Motion:[0.0,-1.8,0.0]}"));
     }
 
+    private static final List<BlockPos> METEOR_SHAPE = meteorShape();
+    private static List<BlockPos> meteorShape() {
+        List<BlockPos> points = new ArrayList<>();
+        for (int x=-2;x<=2;x++) for(int y=-2;y<=2;y++) for(int z=-2;z<=2;z++) points.add(new BlockPos(x,y,z));
+        points.sort(Comparator.comparingDouble(p -> p.getX()*p.getX()+p.getY()*p.getY()+p.getZ()*p.getZ()
+            + Math.floorMod(p.getX()*31+p.getY()*17+p.getZ()*13,19)*0.013));
+        return List.copyOf(points.subList(0,50));
+    }
     private static final class MeteorFlight {
         final Origin origin;
         final Vec3 start, target, velocity;
+        Vec3 previous;
         final long launched;
         final int duration;
-        final boolean large;
+        final boolean large, explosive, remnant;
         final Block material;
         final List<FallingBlockEntity> blocks = new ArrayList<>();
+        final Set<UUID> hitPlayers = new HashSet<>();
         boolean ended;
-        MeteorFlight(Origin origin, Vec3 start, Vec3 target, long launched, boolean large, Block material) {
-            this.origin = origin; this.start = start; this.target = target; this.launched = launched;
-            this.large = large; this.material = material;
-            Vec3 delta = target.subtract(start);
-            duration = Math.max(12, (int)Math.ceil(delta.length() / (large ? 3.6 : 4.2)));
-            velocity = delta.scale(1.0 / duration);
+        MeteorFlight(Origin origin, Vec3 start, Vec3 target, long launched, boolean large, Block material, int index) {
+            this.origin=origin;this.start=this.previous=start;this.target=target;this.launched=launched;
+            this.large=large;this.material=material;
+            explosive=large && index%2==0;
+            remnant=large || index%5==0;
+            Vec3 delta=target.subtract(start);
+            duration=Math.max(12,(int)Math.ceil(delta.length()/(large?3.6:4.2)));
+            velocity=delta.scale(1.0/duration);
         }
     }
-    private Job meteorShower(Origin o, int clusters) {
-        Block[] materials = {Blocks.MAGMA_BLOCK, Blocks.BEDROCK, Blocks.DEEPSLATE, Blocks.GOLD_BLOCK, Blocks.OBSIDIAN};
-        Map<Integer, MeteorFlight> groups = new HashMap<>();
-        // Each wave contains one solid 30-block meteor and 14 single fragments.
-        // Spawn eight blocks per step so simultaneous gifts share the global entity budget.
-        return job(clusters * 44, 2, 8, i -> {
-            int wave = i / 44, part = i % 44;
-            MeteorFlight flight;
-            if (part < 30) {
-                flight = groups.computeIfAbsent(wave, n -> launchMeteor(o, n, true, materials[n % materials.length]));
-            } else {
-                flight = launchMeteor(o, wave * 14 + part - 30, false, materials[(wave + part) % materials.length]);
-            }
-            if (flight.ended) return;
-            int index = part < 30 ? part : 0;
-            // Three complete 3x3 layers and a three-block ridge: 30 touching blocks.
-            int dx = index < 27 ? index % 3 - 1 : index - 28;
-            int dy = index / 9;
-            int dz = index < 27 ? index / 3 % 3 - 1 : 0;
-            if (!flight.large) dx = dy = dz = 0;
-            Vec3 position = flight.start.add(flight.velocity.scale(ticks - flight.launched)).add(dx, dy, dz);
-            if (!o.allowed(BlockPos.containing(position))) return;
-            FallingBlockEntity block = EntityType.FALLING_BLOCK.create(o.level);
-            if (block == null) throw new IllegalStateException("Cannot create meteor block");
-            CompoundTag data = new CompoundTag(), state = new CompoundTag();
-            state.putString("Name", BuiltInRegistries.BLOCK.getKey(flight.material).toString());
-            data.put("BlockState", state); data.putInt("Time", 1);
-            data.putBoolean("DropItem", false); data.putBoolean("CancelDrop", true);
-            block.load(data); block.setNoGravity(true); block.setPos(position);
-            block.setDeltaMovement(flight.velocity);
+    private Job meteorShower(Origin o, int clusters, ServerPlayer targetPlayer) {
+        Block[] materials={Blocks.MAGMA_BLOCK,Blocks.BEDROCK,Blocks.DEEPSLATE,Blocks.GOLD_BLOCK,Blocks.OBSIDIAN};
+        Map<Integer,MeteorFlight> groups=new HashMap<>();
+        UUID targetId=targetPlayer.getUUID();
+        // Fifty touching blocks form an irregular boulder; ten fragments accompany each one.
+        return job(clusters*60,1,12,i->{
+            int wave=i/60,part=i%60;
+            MeteorFlight flight=part<50
+                ?groups.computeIfAbsent(wave,n->launchMeteor(o,n,true,materials[n%materials.length],targetId))
+                :launchMeteor(o,wave*10+part-50,false,materials[(wave+part)%materials.length],targetId);
+            if(flight.ended)return;
+            BlockPos offset=part<50?METEOR_SHAPE.get(part):BlockPos.ZERO;
+            Vec3 position=flight.start.add(flight.velocity.scale(ticks-flight.launched)).add(offset.getX(),offset.getY(),offset.getZ());
+            if(!o.allowed(BlockPos.containing(position)))return;
+            FallingBlockEntity block=EntityType.FALLING_BLOCK.create(o.level);
+            if(block==null)throw new IllegalStateException("Cannot create meteor block");
+            CompoundTag data=new CompoundTag(),state=new CompoundTag();
+            state.putString("Name",BuiltInRegistries.BLOCK.getKey(flight.material).toString());
+            data.put("BlockState",state);data.putInt("Time",1);
+            data.putBoolean("DropItem",false);data.putBoolean("CancelDrop",true);
+            block.load(data);block.setNoGravity(true);block.setPos(position);block.setDeltaMovement(flight.velocity);
             block.addTag("douma_meteorshower");
-            block.addTag(flight.large ? "douma_meteor_cluster" : "douma_meteor_fragment");
-            o.level.addFreshEntity(block); flight.blocks.add(block);
+            block.addTag(flight.large?"douma_meteor_cluster":"douma_meteor_fragment");
+            o.level.addFreshEntity(block);flight.blocks.add(block);
         });
     }
-    private MeteorFlight launchMeteor(Origin o, int index, boolean large, Block material) {
-        double angle = index * 2.3999632297 + (large ? 0 : 0.7);
-        double radius = large ? 4 + index % 5 * 5 : 3 + o.level.random.nextDouble() * 29;
-        int x = (int)Math.floor(o.pos.x + Math.cos(angle) * radius);
-        int z = (int)Math.floor(o.pos.z + Math.sin(angle) * radius);
-        int ground = loaded(o, x, z) ? o.level.getHeight(Heightmap.Types.OCEAN_FLOOR, x, z) : (int)o.pos.y;
-        Vec3 target = new Vec3(x + 0.5, ground, z + 0.5);
-        double approach = angle + 0.8;
-        double side = large ? 48 : 36;
-        Vec3 start = target.add(Math.cos(approach) * side,
-            Math.min(o.level.getMaxBuildHeight() - 5, Math.max(o.pos.y, ground) + (large ? 76 : 64)) - ground,
-            Math.sin(approach) * side);
-        MeteorFlight flight = new MeteorFlight(o, start, target, ticks, large, material);
-        if (o.allowed(BlockPos.containing(start)) && o.allowed(BlockPos.containing(target))) meteorFlights.add(flight);
-        else flight.ended = true;
-        return flight;
+    private MeteorFlight launchMeteor(Origin o,int index,boolean large,Block material,UUID targetId) {
+        ServerPlayer player=o.level.getServer().getPlayerList().getPlayer(targetId);
+        Vec3 focus=player!=null&&player.isAlive()&&player.serverLevel()==o.level?player.position():o.pos;
+        double angle=index*2.3999632297+(large?0:0.7);
+        boolean aimed=large?index%3==0:index%7==0;
+        double radius=aimed?0:large?4+index%5*5:3+o.level.random.nextDouble()*29;
+        int x=(int)Math.floor(focus.x+Math.cos(angle)*radius),z=(int)Math.floor(focus.z+Math.sin(angle)*radius);
+        int ground=loaded(o,x,z)?o.level.getHeight(Heightmap.Types.OCEAN_FLOOR,x,z):(int)focus.y;
+        Vec3 target=new Vec3(x+.5,ground+(large?2:0),z+.5);
+        double approach=angle+.8,side=large?48:36;
+        Vec3 start=target.add(Math.cos(approach)*side,
+            Math.min(o.level.getMaxBuildHeight()-5,Math.max(focus.y,ground)+(large?76:64))-target.y,Math.sin(approach)*side);
+        MeteorFlight flight=new MeteorFlight(o,start,target,ticks,large,material,index);
+        if(o.allowed(BlockPos.containing(start))&&o.allowed(BlockPos.containing(target)))meteorFlights.add(flight);
+        else flight.ended=true;
+        return flight; // The aim is fixed at launch; running away can evade it.
+    }
+    private void hitMeteorPlayers(MeteorFlight meteor,Vec3 position,FallingBlockEntity lead) {
+        double radius=meteor.large?2.25:.45;
+        AABB swept=new AABB(meteor.previous,position).inflate(radius+1);
+        for(ServerPlayer player:meteor.origin.level.getEntitiesOfClass(ServerPlayer.class,swept)) {
+            if(!player.isAlive()||player.isCreative()||player.isSpectator()||meteor.hitPlayers.contains(player.getUUID())
+                ||meteor.origin.protection.contains(player.getX(),player.getZ()))continue;
+            AABB hitbox=player.getBoundingBox().inflate(radius);
+            if(!hitbox.contains(meteor.previous)&&hitbox.clip(meteor.previous,position).isEmpty())continue;
+            meteor.hitPlayers.add(player.getUUID());
+            player.hurt(meteor.origin.level.damageSources().fallingBlock(lead),meteor.large?18.0f:4.0f);
+            player.knockback(meteor.large?1.0:.35,-meteor.velocity.x,-meteor.velocity.z);
+        }
+        meteor.previous=position;
     }
     private void tickMeteors() {
-        for (Iterator<MeteorFlight> it = meteorFlights.iterator(); it.hasNext();) {
-            MeteorFlight meteor = it.next();
-            FallingBlockEntity lead = meteor.blocks.isEmpty() ? null : meteor.blocks.get(0);
-            if (ticks - meteor.launched >= meteor.duration || (lead != null && lead.isRemoved())) {
-                Vec3 impact = lead != null && lead.isRemoved() ? lead.position() : meteor.target;
-                meteor.ended = true; meteor.blocks.forEach(FallingBlockEntity::discard); it.remove();
-                if (meteor.origin.allowed(BlockPos.containing(impact))) meteorImpact(meteor, impact);
+        for(Iterator<MeteorFlight> it=meteorFlights.iterator();it.hasNext();) {
+            MeteorFlight meteor=it.next();
+            FallingBlockEntity lead=meteor.blocks.isEmpty()?null:meteor.blocks.get(0);
+            Vec3 current=lead==null?meteor.start:lead.position();
+            if(lead!=null)hitMeteorPlayers(meteor,current,lead);
+            if(ticks-meteor.launched>=meteor.duration||(lead!=null&&lead.isRemoved())) {
+                Vec3 impact=lead!=null&&lead.isRemoved()?lead.position():meteor.target.add(0,meteor.large?-2:0,0);
+                meteor.ended=true;meteor.blocks.forEach(FallingBlockEntity::discard);it.remove();
+                if(meteor.origin.allowed(BlockPos.containing(impact)))meteorImpact(meteor,impact);
                 continue;
             }
-            for (FallingBlockEntity block : meteor.blocks) if (!block.isRemoved()) block.setDeltaMovement(meteor.velocity);
-            if (lead == null || ticks % (meteor.large ? 2 : 4) != 0) continue;
-            Vec3 p = lead.position(); ServerLevel level = meteor.origin.level;
-            double spread = meteor.large ? 1.1 : 0.12;
-            // Warm fire, blue-white sparks, and a long luminous wake distinguish the shower.
-            for (int trail = 0; trail < (meteor.large ? 4 : 2); trail++) {
-                Vec3 tail = p.subtract(meteor.velocity.scale(trail * 0.8));
-                level.sendParticles(meteor.material == Blocks.OBSIDIAN ? ParticleTypes.SOUL_FIRE_FLAME : ParticleTypes.FLAME,
-                    tail.x, tail.y + 1, tail.z, meteor.large ? 6 : 1, spread, spread, spread, 0.015);
-                level.sendParticles(ParticleTypes.END_ROD, tail.x, tail.y + 1, tail.z, meteor.large ? 3 : 1, spread, spread, spread, 0.02);
+            for(FallingBlockEntity block:meteor.blocks)if(!block.isRemoved())block.setDeltaMovement(meteor.velocity);
+            if(lead==null||ticks%(meteor.large?2:4)!=0)continue;
+            double spread=meteor.large?1.7:.12;
+            for(int trail=0;trail<(meteor.large?4:2);trail++) {
+                Vec3 tail=current.subtract(meteor.velocity.scale(trail*.8));
+                meteor.origin.level.sendParticles(meteor.material==Blocks.OBSIDIAN?ParticleTypes.SOUL_FIRE_FLAME:ParticleTypes.FLAME,
+                    tail.x,tail.y+1,tail.z,meteor.large?8:1,spread,spread,spread,.015);
+                meteor.origin.level.sendParticles(ParticleTypes.END_ROD,tail.x,tail.y+1,tail.z,meteor.large?4:1,spread,spread,spread,.02);
             }
         }
     }
-    private void meteorImpact(MeteorFlight meteor, Vec3 impact) {
-        Origin o = meteor.origin;
-        // The blast damages entities, while our own crater respects protected areas and bedrock.
-        o.level.explode(null, impact.x, impact.y, impact.z, meteor.large ? 3.5f : 1.0f, Level.ExplosionInteraction.NONE);
-        o.level.sendParticles(ParticleTypes.CLOUD, impact.x, impact.y + 0.4, impact.z,
-            meteor.large ? 70 : 8, meteor.large ? 5 : 1, 0.3, meteor.large ? 5 : 1, 0.16);
-        int radius = meteor.large ? 5 + o.level.random.nextInt(2) : 1;
-        int depth = meteor.large ? 5 : 2, side = radius * 2 + 1;
-        BlockPos centre = BlockPos.containing(impact);
-        job(side * side * (depth + 3), 1, 64, i -> {
-            int x = i % side - radius, z = i / side % side - radius, down = i / (side * side) - 1;
-            double distance = Math.sqrt(x * x + z * z);
-            int cut = (int)Math.ceil(depth * (1.0 - distance / (radius + 0.5)));
-            if (distance <= radius && down <= cut) set(o, centre.offset(x, -down, z), Blocks.AIR.defaultBlockState());
+    private void meteorImpact(MeteorFlight meteor,Vec3 impact) {
+        Origin o=meteor.origin;
+        if(meteor.explosive)o.level.explode(null,impact.x,impact.y,impact.z,3.5f,Level.ExplosionInteraction.NONE);
+        else o.level.playSound(null,impact.x,impact.y,impact.z,SoundEvents.STONE_BREAK,SoundSource.BLOCKS,meteor.large?3.0f:.35f,.65f);
+        o.level.sendParticles(ParticleTypes.CLOUD,impact.x,impact.y+.4,impact.z,
+            meteor.large?70:8,meteor.large?5:1,.3,meteor.large?5:1,.16);
+        int radius=meteor.large?5+o.level.random.nextInt(2):1;
+        int depth=meteor.large?5:2,side=radius*2+1;
+        BlockPos centre=BlockPos.containing(impact);
+        Job crater=job(side*side*(depth+3),1,64,i->{
+            int x=i%side-radius,z=i/side%side-radius,down=i/(side*side)-1;
+            double distance=Math.sqrt(x*x+z*z);
+            int cut=(int)Math.ceil(depth*(1.0-distance/(radius+.5)));
+            if(distance<=radius&&down<=cut)set(o,centre.offset(x,-down,z),Blocks.AIR.defaultBlockState());
         });
+        if(meteor.remnant) {
+            int pieces=meteor.large?(meteor.explosive?8:24):1;
+            Job debris=job(pieces,1,32,i->{
+                BlockPos offset=METEOR_SHAPE.get(i);
+                set(o,centre.offset(offset.getX(),-depth+2+offset.getY(),offset.getZ()),meteor.material.defaultBlockState());
+            });
+            debris.prerequisites=List.of(crater);
+        }
     }
 
     private void volcano(Origin o, int total) {
@@ -420,22 +465,21 @@ final class GiftEffects {
             if (o.level.getBlockState(snow).isAir()) set(o, snow, Blocks.SNOW.defaultBlockState());
         });
     }
-    private void freezePrison(Origin o, ServerPlayer player) {
+    private void fallingIce(Origin o, ServerPlayer player, int count) {
         BlockPos centre = player.blockPosition();
         if (!o.allowed(centre) || !o.allowed(centre.above())) return;
-        // Fill the body cells as well as the walls/roof: this is an attack, not just scenery.
-        for (int x = -1; x <= 1; x++) for (int z = -1; z <= 1; z++) for (int y = -1; y <= 2; y++)
-            set(o, centre.offset(x, y, z), Blocks.PACKED_ICE.defaultBlockState());
+        // A 5x5 slab, three layers thick, falls before any confinement damage begins.
+        job(75 * count, 1, 15, i -> {
+            int layer = i / 25, x = centre.getX() + i % 5 - 2, z = centre.getZ() + i / 5 % 5 - 2;
+            summon(o, "falling_block", x + 0.5, Math.min(o.level.getMaxBuildHeight()-2, centre.getY()+24+layer*3), z + 0.5,
+                "{Tags:[\"douma_icefall\"],BlockState:{Name:\"minecraft:packed_ice\"},Time:1,DropItem:0b,HurtEntities:1b,FallHurtAmount:4.0f,FallHurtMax:60,Motion:[0.0,-2.8,0.0]}");
+        });
         icePrisons.put(player.getUUID(), new IcePrison(o, centre, System.currentTimeMillis() + 120000));
-        if (insidePrison(player, centre) && intersectsIce(player)) {
-            player.setTicksFrozen(300);
-            player.hurt(o.level.damageSources().freeze(), 6.0f);
-        }
     }
     private boolean insidePrison(ServerPlayer player, BlockPos centre) {
-        return Math.abs(player.getX() - (centre.getX() + 0.5)) < 1.8
-            && Math.abs(player.getZ() - (centre.getZ() + 0.5)) < 1.8
-            && player.getY() >= centre.getY() - 1 && player.getY() < centre.getY() + 3;
+        return Math.abs(player.getX() - (centre.getX() + 0.5)) < 2.8
+            && Math.abs(player.getZ() - (centre.getZ() + 0.5)) < 2.8
+            && player.getY() >= centre.getY() - 1 && player.getY() < centre.getY() + 4;
     }
     private boolean intersectsIce(ServerPlayer player) {
         return BlockPos.betweenClosedStream(player.getBoundingBox().deflate(0.05))
@@ -515,7 +559,7 @@ final class GiftEffects {
             }
         });
         lava.prerequisites = List.of(crater, frost, fissures);
-        Job apocalypseSky = meteorShower(o, 20 * count);
+        Job apocalypseSky = meteorShower(o, 50 * count, target);
         apocalypseSky.prerequisites = List.of(crater, frost, fissures);
         o.level.playSound(null, o.pos.x, o.pos.y, o.pos.z, SoundEvents.WITHER_SPAWN, SoundSource.HOSTILE, 2.0f, 0.6f);
         int streamTop = (int)high(o, 12) - 1;
@@ -536,7 +580,39 @@ final class GiftEffects {
             if (loaded(o, x, z)) summon(o, "zombified_piglin", x + 0.5, surface(o, x, z), z + 0.5, "{Tags:[\"douma_cataclysm\"]}");
         });
         summon(o, "wither", o.pos.x + 10, Math.min(o.level.getMaxBuildHeight()-2, o.pos.y + 10), o.pos.z, "{Tags:[\"douma_cataclysm\"],Invul:100}");
+        huntWithers(o, target);
     }
+
+    private void huntWithers(Origin o, ServerPlayer player) {
+        for (WitherBoss wither : o.level.getEntitiesOfClass(WitherBoss.class, new AABB(o.pos, o.pos).inflate(40))) {
+            if (!wither.getTags().contains("gift_spawn_new") && !wither.getTags().contains("douma_cataclysm")
+                    && !wither.getTags().contains("douma_bossrush_wither")) continue;
+            witherHunts.put(wither.getUUID(), new WitherHunt(wither, player.getUUID()));
+            if (!player.isCreative() && !player.isSpectator()) wither.setTarget(player);
+        }
+    }
+    private void heavyGravity(ServerPlayer player) {
+        player.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, 160, 3, false, false));
+        heavyPlayers.put(player.getUUID(), ticks + 160);
+    }
+    private void tickHuntersAndGravity(MinecraftServer server) {
+        if (ticks % 2 == 0) for (Iterator<Map.Entry<UUID, Long>> it = heavyPlayers.entrySet().iterator(); it.hasNext();) {
+            var entry = it.next(); ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
+            if (ticks >= entry.getValue() || player == null || !player.isAlive()) { it.remove(); continue; }
+            Vec3 v = player.getDeltaMovement();
+            player.setDeltaMovement(v.x * 0.45, v.y, v.z * 0.45); player.hurtMarked = true;
+            player.connection.send(new ClientboundSetEntityMotionPacket(player));
+        }
+        if (ticks % 10 == 0) for (Iterator<WitherHunt> it = witherHunts.values().iterator(); it.hasNext();) {
+            WitherHunt hunt = it.next(); ServerPlayer player = server.getPlayerList().getPlayer(hunt.player);
+            if (!hunt.wither.isAlive() || player == null || !player.isAlive() || player.serverLevel() != hunt.wither.level()
+                    || hunt.wither.distanceToSqr(player) > 128 * 128) { it.remove(); continue; }
+            if (player.isCreative() || player.isSpectator()) continue;
+            hunt.wither.setTarget(player);
+            for (int head = 0; head < 3; head++) hunt.wither.setAlternativeTarget(head, player.getId());
+        }
+    }
+
     private void motion(ServerPlayer p, double y) {
         p.setOnGround(false);
         p.setDeltaMovement(p.getDeltaMovement().x, y, p.getDeltaMovement().z);

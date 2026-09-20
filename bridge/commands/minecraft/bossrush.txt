@@ -10,7 +10,8 @@ execute at @p run playsound entity.warden.emerge master @a ~ ~ ~ 1.6 0.8
 execute at @p run playsound event.raid.horn master @a ~ ~ ~ 1.8 0.6
 execute at @p run playsound entity.ravager.roar master @a ~ ~ ~ 1.6 0.7
 // ウィザー：頭上に出現（地形埋まり防止で高めの空中スポーン）
-execute at @p run summon minecraft:wither ~6 ~6 ~5
+execute at @p run summon minecraft:wither ~6 ~6 ~5 {Tags:["douma_bossrush_wither"]}
+execute as @p at @s run doumaeffect witherhunt 1
 // ウォーデン：地中から這い出る（近距離・埋まり防止で+1）
 execute at @p run summon minecraft:warden ~-5 ~1 ~-4
 // ラヴェジャー×3：四方から突進
