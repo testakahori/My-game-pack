@@ -178,6 +178,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
   const [forgeState, setForgeState] = useState<"idle" | "launching" | "launched">("idle");
   const [forgeClient, setForgeClient] = useState<{ installed: boolean; launcherReady: boolean } | null>(null);
   const [setupState, setSetupState] = useState<"idle" | "running" | "launched" | "error">("idle");
+  const [setupProgress, setSetupProgress] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [verifying, setVerifying] = useState(false);
   const [verifyMsg, setVerifyMsg] = useState("");
@@ -347,17 +348,19 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
 
   // テンプレコピー（JDK一式で数千ファイル）は数十秒かかることがある。進捗をポーリングして表示する。
   const runCopyTemplateWithProgress = async (targetFolder: string) => {
+    let copying = true;
     setCopyProgress({ copied: 0, total: 0 });
     const poll = api.serverCopyTemplateStatus
       ? setInterval(() => {
           api.serverCopyTemplateStatus()
-            .then((s: { copied?: number; total?: number }) => setCopyProgress({ copied: s.copied || 0, total: s.total || 0 }))
+            .then((s: { copied?: number; total?: number }) => { if (copying) setCopyProgress({ copied: s.copied || 0, total: s.total || 0 }); })
             .catch(() => {});
         }, 400)
       : null;
     try {
       await api.serverCopyTemplate(targetFolder);
     } finally {
+      copying = false;
       if (poll) clearInterval(poll);
       setCopyProgress(null);
     }
@@ -381,12 +384,21 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
 
   const handleSetup = async () => {
     setSetupState("running");
+    setSetupProgress("必要ファイルを準備しています…");
     setErrorMsg("");
+    let polling = false;
+    let poll: ReturnType<typeof setInterval> | undefined;
     try {
       const targetFolder = await resolveTargetFolder();
       if (!targetFolder) throw new Error("セットアップ先フォルダが設定されていません。フォルダを選択してください。");
       await api.appConfigWrite({ serverFolder: targetFolder });
       await runCopyTemplateWithProgress(targetFolder);
+      polling = true;
+      poll = setInterval(() => {
+        api.serverSetupStatus().then((status: { message: string }) => {
+          if (polling) setSetupProgress(status.message);
+        }).catch(() => {});
+      }, 500);
       const result = await api.serverSetupAtPath(targetFolder);
       if (result.canceled) {
         setSetupState("idle");
@@ -399,7 +411,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
     } catch (e: any) {
       setSetupState("error");
       setErrorMsg(`エラー: ${setupError(e)}`);
-    }
+    } finally { polling = false; if (poll) clearInterval(poll); }
   };
 
   const handleVerify = async () => {
@@ -650,7 +662,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
             <h2>環境構築をする</h2>
             <span>必須</span>
           </div>
-          <p>Minecraftの利用規約に同意すると、サーバーと接続設定を自動で準備します。完了はアプリが確認します。</p>
+          <p>Minecraftの利用規約に同意すると、サーバー設定と配信ワールドを自動で準備します。ワールドは haihu_world/world に作成し、保存後にサーバーを自動停止します。</p>
           <button
             type="button"
             onClick={handleSetup}
@@ -667,7 +679,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
         <div className="setup-step-meta-v2">
           <dl><dt>内容</dt><dd>環境構築・設定ファイル生成</dd></dl>
           <dl><dt>操作する場所</dt><dd>このアプリ内</dd></dl>
-          <dl><dt>所要時間（目安）</dt><dd>約 1〜5 分</dd></dl>
+          <dl><dt>所要時間（目安）</dt><dd>約 2〜5 分</dd></dl>
           <dl><dt>状態</dt><dd className={setupState === "launched" ? "is-done" : ""}>{setupState === "launched" ? "サーバー準備済み" : setupState === "running" ? "準備中" : "未完了"}</dd></dl>
         </div>
       </section>
@@ -690,6 +702,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
       )}
 
       {errorMsg && <div className="setup-error-v2">❌ {errorMsg}</div>}
+      {setupState === "running" && <div className="setup-verify-note-v2" role="status">{setupProgress}</div>}
       {verifyMsg && setupState !== "launched" && <div className="setup-verify-note-v2">{verifyMsg}</div>}
 
       {(setupState === "running" || setupState === "launched") && (
@@ -698,7 +711,8 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
           <ol>
             <li>保存先へ必要なファイルを準備します。</li>
             <li>Minecraftの利用規約への同意を確認します。</li>
-            <li>サーバー・接続設定を作成し、ForgeとBridgeの準備を確認します。</li>
+            <li>サーバー・接続設定を作成し、haihu_world/worldに配信ワールドを生成します。</li>
+            <li>ワールドの保存とサーバーの自動停止、Forge・Bridgeの準備を確認します。</li>
             <li>確認が終わると完了画面に切り替わります。</li>
           </ol>
         </section>

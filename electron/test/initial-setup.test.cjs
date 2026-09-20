@@ -4,7 +4,15 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { EventEmitter } = require("node:events");
-const { FORGE_VERSION, JAVA_TLS_ARGS, inspectSetup, inspectForgeClient, launchForgeInstaller, prepareServerEnvironment, missingServerFiles } = require("../initial_setup.cjs");
+const setup = require("../initial_setup.cjs");
+const { FORGE_VERSION, JAVA_TLS_ARGS, inspectSetup, inspectForgeClient, launchForgeInstaller, missingServerFiles } = setup;
+const prepareServerEnvironment = (root, options = {}) => setup.prepareServerEnvironment(root, {
+  ensureStopped: async () => {},
+  generateWorld: async (_root, destination) => {
+    fs.mkdirSync(destination, { recursive: true });
+    fs.writeFileSync(path.join(destination, "level.dat"), "saved world fixture");
+  }, ...options,
+});
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "first-install-"));
@@ -33,7 +41,7 @@ test("新規フォルダー: バッチ不要で同梱JavaからForge GUIを起�
     assert.deepEqual(args, [...JAVA_TLS_ARGS, "-jar", path.join(f.dir, `forge-${FORGE_VERSION}-installer.jar`)]);
     assert.equal(options.cwd, f.dir);
     assert.equal(options.shell, undefined);
-    assert.equal(options.windowsHide, true);
+    assert.equal(options.windowsHide, false);
     const child = new EventEmitter();
     child.unref = () => { unreferenced = true; };
     process.nextTick(() => child.emit("spawn"));
@@ -54,7 +62,7 @@ test("Forge GUI: 起動失敗・ファイル不足を成功扱いしない", asy
   assert.throws(() => launchForgeInstaller(f.dir), /不足/);
 });
 
-test("初回構築: 同意後に設定を生成し、コンソール・PowerShell・サーバー起動は不要", async t => {
+test("初回構築: 同意後に設定と配信ワールドを準備し、コンソール操作は不要", async t => {
   const f = fixture(t);
   assert.equal(inspectSetup(f.dir).complete, false);
   await assert.rejects(prepareServerEnvironment(f.dir), /同意/);
@@ -69,6 +77,8 @@ test("初回構築: 同意後に設定を生成し、コンソール・PowerShel
   assert.equal(f.read("eula.txt"), "eula=true\n");
   for (const arg of JAVA_TLS_ARGS) assert.ok(f.read("user_jvm_args.txt").includes(arg));
   assert.equal(fs.existsSync(path.join(f.dir, "world")), false);
+  assert.equal(fs.existsSync(path.join(f.dir, "haihu_world/world/level.dat")), true);
+  assert.match(f.read("server.properties"), /^level-name=haihu_world\/world$/m);
 });
 
 test("再試行: パスワード・既存ワールド設定・OP・ギフト設定を保持する", async t => {

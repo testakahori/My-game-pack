@@ -148,6 +148,7 @@ contextBridge.exposeInMainWorld("mygamepack", {
 
   // 同梱JavaでForgeインストーラーGUIを表示
   serverForgeClientStatus: () => ipcRenderer.invoke("server:forgeClientStatus"),
+  serverSetupStatus: () => ipcRenderer.invoke("server:setup:status"),
   serverForgeInstall: () => ipcRenderer.invoke("server:forgeInstall"),
 
   serverForgeInstallAtPath: (folderPath) => {

@@ -181,6 +181,12 @@ function createWindow() {
       sandbox: true,
     },
   });
+  win.on("close", event => {
+    if (!initialSetupRunning) return;
+    event.preventDefault();
+    void dialog.showMessageBox(win, { type: "info", title: "環境構築中です",
+      message: "ワールドと設定を準備しています。保存とサーバー停止が終わるまで、このアプリを開いたままお待ちください。" });
+  });
 
   const openExternalHttpUrl = (rawUrl) => {
     try {
@@ -1215,6 +1221,7 @@ function pipeServerStream(stream, prefix) {
 }
 
 ipcMain.handle("server:start", async () => {
+  if (initialSetupRunning) throw new Error("環境構築が完了するまでお待ちください。");
   const dir = getServerRoot();
   const bat = path.join(dir, "run.bat");
   if (!fs.existsSync(bat)) throw new Error(`run.bat not found: ${bat}`);
@@ -2048,11 +2055,14 @@ ipcMain.handle("folder:open", async (_event, folderPath) => {
 // IPC: 同梱資材から初期設定を構築（PowerShell・外部コンソール不要）
 // --------------------
 let initialSetupRunning = false;
+let initialSetupState = { state: "idle", message: "" };
+ipcMain.handle("server:setup:status", () => initialSetupState);
 async function setupServerAtPath(folderPath) {
   if (!folderPath || typeof folderPath !== "string") throw new Error("folderPath is required");
   if (initialSetupRunning) throw new Error("環境構築が進行中です。完了までお待ちください。");
   if (serverProcRef) throw new Error("Minecraftサーバーを停止してから環境構築を実行してください。");
   initialSetupRunning = true;
+  initialSetupState = { state: "running", message: "Minecraft利用規約への同意を確認しています…" };
   try {
     let eulaAccepted = false;
     try { eulaAccepted = /^\s*eula\s*=\s*true\s*$/m.test(fs.readFileSync(path.join(folderPath, "eula.txt"), "utf8")); } catch {}
@@ -2064,10 +2074,20 @@ async function setupServerAtPath(folderPath) {
         buttons: ["同意して構築", "規約を開く", "キャンセル"], defaultId: 2, cancelId: 2, noLink: true,
       });
       if (choice.response === 1) await shell.openExternal(EULA_URL);
-      if (choice.response !== 0) return { ok: false, canceled: true };
+      if (choice.response !== 0) {
+        initialSetupState = { state: "idle", message: "環境構築をキャンセルしました。" };
+        return { ok: false, canceled: true };
+      }
       eulaAccepted = true;
     }
-    return await prepareServerEnvironment(folderPath, { eulaAccepted });
+    const result = await prepareServerEnvironment(folderPath, { eulaAccepted,
+      onProgress: message => { initialSetupState = { state: "running", message }; },
+    });
+    initialSetupState = { state: "done", message: `環境構築が完了しました。配信ワールド: ${result.world}` };
+    return result;
+  } catch (error) {
+    initialSetupState = { state: "error", message: String(error?.message || error) };
+    throw error;
   } finally { initialSetupRunning = false; }
 }
 ipcMain.handle("server:setup:atPath", (_event, folderPath) => setupServerAtPath(folderPath));

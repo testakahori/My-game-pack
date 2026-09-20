@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { runProc } = require("./process_runner.cjs");
 const { atomicWrite } = require("./settings_backups.cjs");
+const { ensureManagedWorld, worldReady, assertSetupPortsAvailable } = require("./world_setup.cjs");
 
 const FORGE_VERSION = "1.20.1-47.3.0";
 const JAVA_DIR = "jdk-21.0.4+7";
@@ -51,6 +52,7 @@ function inspectSetup(root) {
   if (missingServerFiles(root).length) missing.push("Java・Forgeサーバーの必要ファイル");
   if (!isFile(path.join(root, "server.properties"))) missing.push("サーバー設定");
   if (props["enable-rcon"] !== "true" || !props["rcon.password"] || !Number(props["rcon.port"])) missing.push("RCON接続設定");
+  if (!worldReady(root, props["level-name"] || "world")) missing.push("配信ワールドの生成・保存");
   return { complete: missing.length === 0, dir: root, missing };
 }
 
@@ -70,18 +72,23 @@ function launchForgeInstaller(root, spawnProcess = spawn) {
     if (!isFile(file)) throw new Error(`インストール用のファイルが不足しています。「Forgeをインストールする」をもう一度押して準備し直してください: ${path.basename(file)}`);
   }
   return new Promise((resolve, reject) => {
-    const child = spawnProcess(java, [...JAVA_TLS_ARGS, "-jar", jar], { cwd: root, windowsHide: true, detached: true, stdio: "ignore" });
+    // javawはコンソールを作らない。GUIまで隠さないようwindowsHideはfalseにする。
+    const child = spawnProcess(java, [...JAVA_TLS_ARGS, "-jar", jar], { cwd: root, windowsHide: false, detached: true, stdio: "ignore" });
     child.once("error", error => reject(new Error(`Forgeインストーラーを起動できませんでした (${error.code || error.message})。`)));
     child.once("spawn", () => { child.unref(); resolve({ ok: true }); });
   });
 }
 
-async function prepareServerEnvironment(root, { eulaAccepted = false, runInstaller = runProc } = {}) {
+async function prepareServerEnvironment(root, { eulaAccepted = false, runInstaller = runProc, generateWorld, ensureStopped = assertSetupPortsAvailable, onProgress = () => {} } = {}) {
   if (!eulaAccepted && readProperties(read(path.join(root, "eula.txt"))).eula !== "true") {
     throw new Error("Minecraft利用規約への同意が必要です。");
   }
   const java = path.join(root, JAVA_DIR, "bin", "java.exe");
   if (!isFile(java)) throw new Error("同梱Javaが見つかりません。環境構築をもう一度実行してください。");
+  const beforeProps = readProperties(read(path.join(root, "server.properties")));
+  const ports = [Number(beforeProps["server-port"] || 25565), Number(beforeProps["rcon.port"] || 25575), 25576, 25577];
+  await ensureStopped(ports);
+  onProgress("Java・Forgeサーバーの必要ファイルを確認しています…");
   if (missingServerFiles(root).length) {
     const jar = path.join(root, `forge-${FORGE_VERSION}-installer.jar`);
     if (!isFile(jar)) throw new Error("Forgeインストーラーが見つかりません。環境構築をもう一度実行してください。");
@@ -107,9 +114,14 @@ async function prepareServerEnvironment(root, { eulaAccepted = false, runInstall
   atomicWrite(path.join(root, "RCON_password.txt"), password + "\n");
   atomicWrite(path.join(root, "RCONパスワード.txt"), password + "\n");
   atomicWrite(propsFile, mergeProperties(text, updates));
+  const configured = readProperties(read(propsFile));
+  const world = await ensureManagedWorld(root, {
+    levelName: configured["level-name"], ports, ensureStopped, generateWorld, onProgress,
+    selectWorld: name => atomicWrite(propsFile, mergeProperties(read(propsFile), { "level-name": name })),
+  });
   const status = inspectSetup(root);
   if (!status.complete) throw new Error(`セットアップが完了していません: ${status.missing.join("、")}`);
-  return { ok: true, ...status };
+  return { ok: true, ...status, world: world.world };
 }
 
 module.exports = { FORGE_VERSION, EULA_URL, JAVA_TLS_ARGS, inspectSetup, inspectForgeClient, launchForgeInstaller, prepareServerEnvironment, missingServerFiles };

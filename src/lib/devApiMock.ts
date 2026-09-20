@@ -230,6 +230,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
     },
     serverCopyTemplateStatus: async () => ({ state: "done", copied: 1, total: 1, error: "" }),
     serverForgeClientStatus: async () => ({ installed: true, version: "1.20.1-47.3.0", launcherReady: true }),
+    serverSetupStatus: async () => ({ state: "done", message: "環境構築が完了しました。配信ワールド: haihu_world/world" }),
     serverForgeInstallAtPath: async (targetFolder: string) => {
       addBridgeLog(`[SETUP] Forgeインストーラー起動: ${targetFolder}`);
       return { ok: true };

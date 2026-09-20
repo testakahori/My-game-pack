@@ -110,6 +110,7 @@ declare global {
       serverPropsWrite: (updates: Record<string, string>) => Promise<{ ok: true }>;
       serverSetup: () => Promise<{ ok: boolean; canceled?: boolean }>;
       serverForgeClientStatus: () => Promise<{ installed: boolean; version: string; launcherReady: boolean }>;
+      serverSetupStatus: () => Promise<{ state: string; message: string }>;
       serverForgeInstallAtPath: (folderPath: string) => Promise<{ ok: true }>;
       serverRconPasswordRead: () => Promise<{ found: boolean; password: string }>;
       dialogPickFolder: (title?: string) => Promise<{ canceled: boolean; path: string }>;
