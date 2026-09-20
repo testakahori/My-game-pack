@@ -67,6 +67,8 @@ public class DoumaCmdMod {
     private volatile String lastError = "";
     private long protectedSkips = 0;
     private long playerDeaths = 0;
+    private final GiftEffects giftEffects = new GiftEffects();
+    private GiftEffects.Protection currentEffectProtection;
 
     public DoumaCmdMod() {
         MinecraftForge.EVENT_BUS.register(this);
@@ -80,12 +82,14 @@ public class DoumaCmdMod {
     @SubscribeEvent
     public void onServerStarted(ServerStartedEvent event) {
         activeServer = event.getServer();
+        giftEffects.load(activeServer);
         startBridgeHttpServer(event.getServer());
         startWebSocketServer();
     }
 
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
+        giftEffects.stop();
         stopBridgeHttpServer();
         stopWebSocketServer();
         activeServer = null;
@@ -115,6 +119,7 @@ public class DoumaCmdMod {
         budget -= processQueue(activeServer, giftQueue, budget);
         budget -= processQueue(activeServer, otherQueue, budget);
         processQueue(activeServer, likeQueue, budget + LIKE_RESERVED_COMMANDS_PER_TICK);
+        giftEffects.tick(activeServer);
         if (++statusBroadcastTicks >= 20) {
             statusBroadcastTicks = 0;
             broadcastWebSocket(buildStatusJson());
@@ -122,6 +127,15 @@ public class DoumaCmdMod {
     }
 
     private void register(CommandDispatcher<CommandSourceStack> d) {
+        d.register(Commands.literal("doumaeffect").requires(src -> src.hasPermission(2))
+            .then(Commands.argument("effect", StringArgumentType.word())
+                .suggests((ctx, b) -> { GiftEffects.KEYS.forEach(b::suggest); return b.buildFuture(); })
+                .then(Commands.argument("count", IntegerArgumentType.integer(1, MAX_COUNT))
+                    .executes(ctx -> {
+                        try { return giftEffects.start(ctx.getSource(), StringArgumentType.getString(ctx, "effect"),
+                            IntegerArgumentType.getInteger(ctx, "count"), currentEffectProtection); }
+                        catch (Exception e) { ctx.getSource().sendFailure(Component.literal(e.getMessage())); return 0; }
+                    }))));
         SuggestionProvider<CommandSourceStack> keySuggest = (ctx, b) -> {
             for (String k : listKeys(ctx.getSource().getServer())) b.suggest(k);
             return b.buildFuture();
@@ -331,6 +345,8 @@ public class DoumaCmdMod {
         double tps = tickMs <= 0 ? 20.0 : Math.min(20.0, 1000.0 / tickMs);
         return "{\"ok\":true,\"gift\":" + gift + ",\"like\":" + like + ",\"other\":" + other
             + ",\"executed\":" + executedCommands + ",\"failed\":" + failedCommands
+            + ",\"effectsPending\":" + giftEffects.pendingJobs() + ",\"effectsFailed\":" + giftEffects.failures()
+            + ",\"effectsError\":\"" + jsonEscape(giftEffects.lastError()) + "\""
             + ",\"deaths\":" + playerDeaths
             + ",\"protectedSkips\":" + protectedSkips
             + ",\"lastError\":\"" + jsonEscape(lastError) + "\",\"tps\":" + String.format(Locale.ROOT, "%.2f", tps)
@@ -582,14 +598,19 @@ public class DoumaCmdMod {
             used += 5;
         }
 
-        // 1周分は必ず実行して前進を保証しつつ、予算内で繰り返す
+        // Native effects receive the full count once; normal command files retain repeat semantics.
         while (event.remaining > 0 && (used == 0 || used + parsed.commands.size() <= commandBudget)) {
-            for (String raw : parsed.commands) {
-                String cmd = applyPlaceholdersMinecraft(raw, event.listenerName);
-                performSilent(server, silent, cmd);
-                used++;
-            }
-            event.remaining--;
+            int count = "aggregate".equals(parsed.meta.get("COUNT_MODE")) ? event.remaining : 1;
+            currentEffectProtection = new GiftEffects.Protection(event.protectionEnabled,
+                event.protectX1, event.protectX2, event.protectZ1, event.protectZ2);
+            try {
+                for (String raw : parsed.commands) {
+                    String cmd = applyPlaceholdersMinecraft(raw, event.listenerName).replace("{Count}", Integer.toString(count));
+                    performSilent(server, silent, cmd);
+                    used++;
+                }
+            } finally { currentEffectProtection = null; }
+            event.remaining -= count;
         }
         return used;
     }

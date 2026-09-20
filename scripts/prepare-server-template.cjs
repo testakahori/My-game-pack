@@ -2,8 +2,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 // 実行済みサーバーを丸ごと配布しない。初回構築に必要な資材だけを許可する。
-function prepareServerTemplate(source, destination) {
+function prepareServerTemplate(source, destination, modJar) {
   if (fs.existsSync(destination)) throw new Error("Server template output already exists; use a fresh build directory.");
+  if (modJar && (!fs.existsSync(modJar) || !fs.statSync(modJar).isFile())) throw new Error(`Build the current DoumaCmdMod first: ${modJar}`);
   const directories = ["jdk-21.0.4+7", "libraries", "mods", "GiftStream_Pack"];
   const files = ["forge-1.20.1-47.3.0-installer.jar", "run.bat", "run.sh", "setup.bat", "user_jvm_args.txt"];
   for (const name of [...directories, ...files]) {
@@ -14,11 +15,19 @@ function prepareServerTemplate(source, destination) {
   for (const name of [...directories, ...files]) {
     fs.cpSync(path.join(source, name), path.join(destination, name), { recursive: true, filter: src => !/\.(log|bak)$/i.test(src) });
   }
+  if (modJar) {
+    const mods = path.join(destination, "mods");
+    for (const name of fs.readdirSync(mods).filter(name => /^doumacmd-.*\.jar$/i.test(name))) fs.unlinkSync(path.join(mods, name));
+    fs.copyFileSync(modJar, path.join(mods, path.basename(modJar)));
+  }
 }
 
 if (require.main === module) {
   const root = path.resolve(__dirname, "..");
-  prepareServerTemplate(path.join(root, "server", "Douma_Craft"), path.join(root, "build", "server-template"));
+  const version = fs.readFileSync(path.join(root, "DoumaCmdMod", "gradle.properties"), "utf8").match(/^mod_version=(.+)$/m)?.[1]?.trim();
+  if (!version) throw new Error("DoumaCmdMod version is missing");
+  prepareServerTemplate(path.join(root, "server", "Douma_Craft"), path.join(root, "build", "server-template"),
+    path.join(root, "DoumaCmdMod", "build", "libs", `doumacmd-${version}.jar`));
   console.log("Server template prepared (no worlds, player data, passwords or runtime settings).");
 }
 module.exports = { prepareServerTemplate };

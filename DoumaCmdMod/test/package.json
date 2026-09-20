@@ -1,0 +1,11 @@
+{
+  "name": "doumacmd-integration-tests",
+  "private": true,
+  "scripts": {
+    "test": "node gift-effects.cjs"
+  },
+  "dependencies": {
+    "mineflayer": "4.39.0",
+    "rcon-client": "4.2.5"
+  }
+}

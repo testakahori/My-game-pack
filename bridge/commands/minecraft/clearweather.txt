@@ -1,0 +1,6 @@
+# TITLE: 強制晴れ
+# SUBTITLE: {ListenerName}
+# CATEGORY: 天変地異
+# COUNT_MODE: aggregate
+// 雨・雷・吹雪を止めて晴れに戻す
+execute as @p at @s run doumaeffect clearweather {Count}

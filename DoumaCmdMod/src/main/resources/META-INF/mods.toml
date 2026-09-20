@@ -4,7 +4,7 @@ license="All Rights Reserved"
 
 [[mods]]
 modId="doumacmd"
-version="1.0.0"
+version="${mod_version}"
 displayName="Douma Command Mod"
 authors="Douma"
 description='''

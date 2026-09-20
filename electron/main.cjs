@@ -18,6 +18,7 @@ const { planTestEvent } = require("./event_tests.cjs");
 const { createStreamSessions, streamBuckets } = require("./stream_sessions.cjs");
 const { saveGiftPanelPng } = require("./image_export.cjs");
 const { EULA_URL, inspectSetup, inspectForgeClient, launchForgeInstaller, prepareServerEnvironment } = require("./initial_setup.cjs");
+const { migrateRetiredCommands } = require("./command_migration.cjs");
 const streamSessions = createStreamSessions(() => path.join(getBridgeBatDir(), "stream-sessions.json"));
 const settingsBackups = createSettingsBackups({
   paths: () => ({
@@ -628,6 +629,8 @@ const BRIDGE_REMOVED_BUNDLE_FILES = [
   "commands/minecraft/giant.txt",
   "commands/minecraft/invisible.txt",
   "commands/minecraft/tiny.txt",
+  "commands/minecraft/seichi_donut.txt",
+  "commands/minecraft/tornado.txt",
 ];
 const COPY_HASH_LIMIT_BYTES = 1024 * 1024;
 
@@ -946,6 +949,7 @@ function shouldSkipHeavyDir(entryName, srcSig, dstSig, forceHeavy) {
 }
 
 async function copyBridgeDifferential(src, dst, options = {}) {
+  migrateRetiredCommands(dst);
   const forceHeavy = options.forceHeavy === true;
   const preserveUserFiles = options.preserveUserFiles !== false;
   const srcSig = await getBridgeRuntimeSignature(src);

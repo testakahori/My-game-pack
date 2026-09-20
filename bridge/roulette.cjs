@@ -44,17 +44,16 @@ function createRouletteRunner({ sendFrame, sleep = ms => new Promise(resolve => 
   return (round, listenerName, fireWinner) => {
     const run = queue.then(async () => {
       const text = (value, color, bold = false) => JSON.stringify({ text: value, color, bold });
-      let step = 110;
-      for (let frame = 0; frame < 12; frame++) {
+      const delays = [...Array(24).fill(50), 70, 90, 120, 160];
+      for (let frame = 0; frame < delays.length; frame++) {
         const item = round.items[frame % round.items.length];
         await sendFrame([
-          "title @a times 0 12 4",
+          "title @a times 0 6 0",
           `title @a subtitle ${text(item.description || "ルーレット回転中…", "green")}`,
           `title @a title ${text(item.label, "yellow", true)}`,
           "execute as @a at @s run playsound block.note_block.hat master @s ~ ~ ~ 0.7 1.4",
         ], listenerName);
-        await sleep(step);
-        step = Math.min(500, Math.round(step * 1.18));
+        await sleep(delays[frame]);
       }
       const winner = round.winner;
       await sendFrame([
@@ -65,7 +64,7 @@ function createRouletteRunner({ sendFrame, sleep = ms => new Promise(resolve => 
         `execute as @a at @s run playsound ${round.stopSound} master @s ~ ~ ~ 1 1`,
         `execute at @a run particle ${round.particle} ~ ~1 ~ 0.8 1 0.8 0.08 30 force`,
       ], listenerName);
-      await sleep(600);
+      await sleep(400);
       await fireWinner(winner);
       return winner;
     });
