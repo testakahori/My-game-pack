@@ -45,3 +45,12 @@ Copy: action-oriented Japanese labels, OBS placement instructions and explicit s
 ## Native follow-up — v1.0.37
 
 The installed v1.0.36 app exposed an OS-specific image download failure missed by the dev process: Node fetch returned UNABLE_TO_VERIFY_LEAF_SIGNATURE while the catalog images displayed via Chromium. The image API now uses Electron net.fetch, retaining HTTPS-only redirects, MIME validation, a 10 MB streamed limit and timeout. A real catalog URL succeeded with the new transport and failed with the old one in the same Electron runtime. Six additional regression tests passed (82 total); native PNG save is rechecked after installation. The app icon is now included in the packaged files.
+
+
+## v1.0.38: gift commands inside the image editor
+
+- Registered gifts and selected preview cards now open the same focused command dialog. New assignments can also be added from the complete catalog.
+- Browser QA: command-only save retains custom caption and purple color; explicit image sync updates title/repeat; image undo retains the saved game command; reopening and the main gift settings page show the saved command/repeat. Invalid repeat 101 disables save. No browser console errors.
+- Native save IPC has regression coverage for preserving unrelated settings, stale edits, duplicate registrations, missing commands, invalid repeats, and failed validation. Existing backup and atomic write paths are reused.
+- React review: parallel independent reads, canceled-load guard, explicit async save, disabled pending actions, modal focus containment, accessible labels, and existing unsaved-change protection.
+- Screenshots and actual installed-app verification are recorded in the local handoff, outside the public repository.

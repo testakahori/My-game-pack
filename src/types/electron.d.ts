@@ -27,6 +27,9 @@ export type GiftsReadResult = {
   metaPath?: string;
 };
 
+export type GiftAssignment = { giftId: string | number; name?: string; commandFile?: string; repeat?: number };
+export type GiftMappingSaveRequest = { giftId: string; name: string; commandFile: string; repeat: number; expected: GiftAssignment[] };
+
 export type BridgeConfig = {
   rcon?: { host?: string; port?: number; password?: string };
   tiktok?: { username?: string };
@@ -61,6 +64,7 @@ declare global {
       // config
       // --------------------
       configRead: () => Promise<BridgeConfig>;
+      configGiftMappingSave: (request: GiftMappingSaveRequest) => Promise<{ ok: true; mappings: GiftAssignment[] }>;
       configMappingsWrite?: (mappings: BridgeConfig["mappings"]) => Promise<{ ok: true }>;
       configWrite: (cfg: BridgeConfig) => Promise<{ ok: true }>;
       configPath: () => Promise<string>;

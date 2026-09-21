@@ -8,7 +8,7 @@ const { transformSync } = require('esbuild');
 const file = path.resolve(__dirname, '../../src/lib/giftPanel.ts');
 const compiled = new Module(file, module);
 compiled._compile(transformSync(fs.readFileSync(file, 'utf8'), { loader: 'ts', format: 'cjs', target: 'node20' }).code, file);
-const { createPanel, normalizePanel, applyPanelTemplate, readPanelLibrary, panelLayout, cardColors, panelFilename } = compiled.exports;
+const { syncPanelGift, createPanel, normalizePanel, applyPanelTemplate, readPanelLibrary, panelLayout, cardColors, panelFilename } = compiled.exports;
 const card = (i = 0) => ({ id: 'card-' + i, giftId: '5655', giftName: 'バラ', image: 'https://example.com/rose.png', title: '回復', repeat: 1, category: 'お助け系', tone: 'help' });
 
 test('OBS designs round trip independent documents without altering card text, order or colors', () => {
@@ -60,4 +60,16 @@ test('PNG filename reports the full headline height and removes path characters'
   const design = createPanel(); design.name = '案内:/画像'; design.headline = 'ダイヤ64個\n集めたら勝ち';
   assert.equal(panelLayout(design).height, 680);
   assert.equal(panelFilename(design), '案内__画像_1080x680.png');
+});
+
+test('explicit command sync updates all matching cards while retaining image-only styling', () => {
+  const design = createPanel();
+  design.cards = [{ ...card(1), color: '#FF0000', textColor: '#FFFFFF', title: 'custom' }, card(2), { ...card(3), giftId: 'other' }];
+  const next = syncPanelGift(design, '5655', 'ゾンビ', 50, '敵対モブ');
+  assert.deepEqual(next.cards[0], { ...design.cards[0], title: 'ゾンビ', repeat: 50, category: '敵対モブ' });
+  assert.equal(next.cards[1].repeat, 50);
+  assert.equal(next.cards[2], design.cards[2]);
+  assert.equal(design.cards[0].title, 'custom');
+  assert.equal(next.width, design.width);
+  assert.equal(next.cards[0].tone, design.cards[0].tone);
 });

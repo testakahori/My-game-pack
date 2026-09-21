@@ -298,3 +298,31 @@ test("ギフト取得: ルームIDを指定し、不正な応答を拒否する"
   connection.webClient.getJsonObjectFromWebcastApi = async () => ({ data: { gifts: [] } });
   await assert.rejects(fetchGiftCatalog(connection), /有効なギフト一覧/);
 });
+
+test("画像編集のギフト保存IPC: 読み直した設定を保持し、競合と保存エラーを成功扱いしない", async t => {
+  const app = loadApp(t);
+  const dir = path.join(app.root, 'bridge', 'commands', 'minecraft');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'heal.txt'), '# TITLE: 回復');
+  fs.writeFileSync(path.join(dir, 'zombie.txt'), '# TITLE: ゾンビ');
+  const config = JSON.parse(fs.readFileSync(app.configPath, 'utf8'));
+  config.mappings = [{ giftId: '5655', name: 'バラ', commandFile: 'heal.txt', repeat: 1 }];
+  fs.writeFileSync(app.configPath, JSON.stringify(config));
+  const original = await app.invoke('config:read');
+  config.options.unrelated = 'latest';
+  fs.writeFileSync(app.configPath, JSON.stringify(config));
+  const request = { giftId: '5655', name: 'バラ', commandFile: 'zombie.txt', repeat: 3, expected: original.mappings };
+  const result = app.invoke('config:giftMapping:save', request);
+  assert.equal(result.ok, true);
+  const saved = JSON.parse(fs.readFileSync(app.configPath, 'utf8'));
+  assert.equal(saved.mappings[0].commandFile, 'zombie.txt');
+  assert.equal(saved.options.unrelated, 'latest');
+  assert.equal(saved.mappings[0].repeat, 3);
+  assert.throws(() => app.invoke('config:giftMapping:save', request), /別の操作/);
+  saved.tiktokUsername = '';
+  fs.writeFileSync(app.configPath, JSON.stringify(saved));
+  const before = fs.readFileSync(app.configPath, 'utf8');
+  const current = await app.invoke('config:read');
+  assert.throws(() => app.invoke('config:giftMapping:save', { ...request, expected: current.mappings }), /未承認/);
+  assert.equal(fs.readFileSync(app.configPath, 'utf8'), before);
+});

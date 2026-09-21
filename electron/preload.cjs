@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld("mygamepack", {
   // config read/write
   // --------------------
   configRead: () => ipcRenderer.invoke("config:read"),
+  configGiftMappingSave: (request) => ipcRenderer.invoke("config:giftMapping:save", request),
   configMappingsWrite: (mappings) => ipcRenderer.invoke("config:mappings:write", mappings),
 
   configWrite: (cfg) => {
