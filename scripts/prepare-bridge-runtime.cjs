@@ -63,12 +63,13 @@ esbuild.buildSync({
 // Bridgeと同じ監査済みconnectorを解決し、古いGiftsViewer/node_modulesへ依存しない。
 fs.mkdirSync(giftsToolsOutDir, { recursive: true });
 esbuild.buildSync({
-  entryPoints: [path.join(giftsToolsDir, "fetch_gifts.cjs")],
+  entryPoints: [path.join(giftsToolsDir, "fetch_gifts.cjs"), path.join(giftsToolsDir, "live_status.cjs")],
   bundle: true,
   platform: "node",
   target: "node20",
   format: "cjs",
-  outfile: path.join(giftsToolsOutDir, "fetch_gifts.cjs"),
+  outdir: giftsToolsOutDir,
+  outExtension: { ".js": ".cjs" },
   nodePaths: [path.join(bridgeDir, "node_modules")],
   logLevel: "silent",
 });

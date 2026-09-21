@@ -184,7 +184,7 @@ function createWindow() {
     },
   });
   win.on("close", event => {
-    if (!initialSetupRunning && !mapOperationBusy && !serverStarting) return;
+    if (!initialSetupRunning && !mapOperationBusy && !serverStarting && !serverStopping) return;
     event.preventDefault();
     void dialog.showMessageBox(win, { type: "info", title: "保存・準備中です",
       message: "ワールドと設定を準備しています。保存とサーバー停止が終わるまで、このアプリを開いたままお待ちください。" });
@@ -1255,7 +1255,7 @@ function pipeServerStream(stream, prefix) {
 
 async function startServer(resumeAfterMap = false) {
   if (!resumeAfterMap) assertMapIdle();
-  if (serverStarting) throw new Error("サーバーを起動中です。");
+  if (serverStarting || serverStopping) throw new Error("サーバーを起動・停止中です。完了までお待ちください。");
   serverStarting = true;
   try {
   if (initialSetupRunning) throw new Error("環境構築が完了するまでお待ちください。");
@@ -1263,6 +1263,14 @@ async function startServer(resumeAfterMap = false) {
   const bat = path.join(dir, "run.bat");
   if (!fs.existsSync(bat)) throw new Error(`run.bat not found: ${bat}`);
   if (serverProcRef) return { ok: true, alreadyRunning: true, backup: null };
+
+  // アプリを開き直しても、動作中のサーバーを再起動したりMAPに触れたりしない。
+  const existing = await getServerProcessStatus();
+  if (existing.running) {
+    if (!existing.modReady) throw new Error("起動済みのサーバーが見つかりましたが、MyGamePackのModに接続できません。サーバーの起動完了とModの設定を確認してください。");
+    appendServerLog("[SERVER] 起動済みのサーバーを使用します（このアプリからの停止・MAP操作はできません）");
+    return { ok: true, alreadyRunning: true, external: true, backup: null };
+  }
 
   await mapSaves.recover();
   // 起動前バックアップ。失敗してもサーバー起動は絶対にブロックしない
@@ -1318,38 +1326,21 @@ async function startServer(resumeAfterMap = false) {
 ipcMain.handle("server:start", () => startServer());
 
 // --------------------
-// IPC: サーバー停止（graceful: stdin へ stop → 15秒待ち → taskkill フォールバック）
+// IPC: サーバー停止（保存完了を待ち、保存中の強制終了はしない）
 // --------------------
 ipcMain.handle("server:stop", async () => {
   assertMapIdle();
+  if (serverStarting || serverStopping) throw new Error("サーバーを起動・停止中です。完了までお待ちください。");
   const proc = serverProcRef;
-  const pid = serverPid;
-  if (!proc && !pid) throw new Error("このセッションで起動したサーバーが見つかりません。");
-
-  const waitExit = new Promise((resolve) => {
-    let done = false;
-    const finish = (graceful) => { if (!done) { done = true; resolve(graceful); } };
-    if (proc) proc.once("exit", () => finish(true));
-    setTimeout(() => finish(false), 15000);
-  });
-
-  let wroteStop = false;
-  try {
-    if (proc?.stdin?.writable) {
-      appendServerLog("[SERVER] 停止コマンド（stop）を送信しました");
-      proc.stdin.write("stop\n");
-      wroteStop = true;
-    }
-  } catch { /* stdin が閉じていたら強制停止に回す */ }
-
-  const graceful = wroteStop ? await waitExit : false;
-  if (!graceful && pid) {
-    appendServerLog("[SERVER] 猶予内に終了しなかったため強制停止します");
-    try { spawnSync("taskkill", ["/F", "/T", "/PID", String(pid)], { windowsHide: true, timeout: 10000 }); } catch { /* ベストエフォート */ }
+  if (!proc) {
+    if ((await getServerProcessStatus()).running) throw new Error("このアプリを開く前から起動しているサーバーです。起動した画面で stop を実行してください。BRIDGEは単独で停止できます。");
+    return { ok: true, alreadyStopped: true, graceful: true };
   }
-  serverPid = null;
-  serverProcRef = null;
-  return { ok: true, graceful };
+  serverStopping = true;
+  try {
+    await stopMapServer();
+    return { ok: true, graceful: true };
+  } finally { serverStopping = false; }
 });
 
 // --------------------
@@ -1370,7 +1361,32 @@ ipcMain.handle("server:command", async (_event, command) => {
   serverProcRef.stdin.write(cmd + "\n");
   return { ok: true };
 });
-ipcMain.handle("server:processStatus", () => ({ running: !!serverProcRef, pid: serverPid }));
+async function getServerProcessStatus() {
+  if (serverProcRef) return { running: true, managed: true, pid: serverPid };
+  const listening = await isServerPortOpen();
+  if (!listening) return { running: false, managed: false, pid: null };
+  let modReady = false;
+  try {
+    const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8"));
+    const host = String(cfg.options?.doumaModHost || "127.0.0.1").toLowerCase();
+    if (["127.0.0.1", "localhost", "::1"].includes(host)) {
+      const status = await requestDouma("GET", "/douma/status");
+      modReady = status.ok === true && Number.isFinite(status.tps) && typeof status.player?.online === "boolean";
+    }
+  } catch { /* ポートは開いている。Modが準備中なら再起動せず案内する。 */ }
+  return { running: true, managed: false, pid: null, modReady };
+}
+ipcMain.handle("server:processStatus", getServerProcessStatus);
+
+const checkTikTokLive = require("./tiktok_live_status.cjs").createLiveStatusChecker({
+  query: async username => {
+    await ensureNodeRuntimeAvailable();
+    const tool = getGvToolPath("live_status.cjs");
+    const result = await runProc(getNodeCommand(), [tool, username], path.dirname(tool), { timeoutMs: 20000 });
+    return JSON.parse(result.out.trim());
+  },
+});
+ipcMain.handle("tiktok:liveStatus", (_event, username) => checkTikTokLive(username));
 
 // --------------------
 // IPC: Minecraft ランチャー/ゲーム本体の稼働検知（Gameノード表示用）
@@ -1783,6 +1799,7 @@ ipcMain.handle("operations:history:clear", () => {
 
 let mapOperationBusy = false;
 let serverStarting = false;
+let serverStopping = false;
 function assertMapIdle() {
   if (mapOperationBusy || mapSaves.isBusy()) throw new Error('MAPを保存・読込中です。完了までお待ちください。');
 }
@@ -1791,18 +1808,23 @@ async function portIsOpen(port, host = '127.0.0.1') {
     const socket = require('node:net').connect({ port, host });
     socket.setTimeout(1200);
     socket.once('connect', () => { socket.destroy(); resolve(true); });
-    socket.once('timeout', () => { socket.destroy(); reject(new Error('サーバーの停止状態を確認できません。MAP操作を中止しました。')); });
+    socket.once('timeout', () => { socket.destroy(); reject(new Error('サーバーの稼働状態を確認できません。時間をおいて再試行してください。')); });
     socket.once('error', error => { socket.destroy(); if (['ECONNREFUSED', 'EADDRNOTAVAIL'].includes(error.code)) resolve(false); else reject(error); });
   });
 }
 async function assertMapServerStopped() {
   if (serverProcRef || serverPid) throw new Error('サーバーが停止していません。MAP操作を中止しました。');
+  if (await isServerPortOpen()) throw new Error('別のMinecraftサーバーが起動しています。停止してからMAPを操作してください。');
+}
+async function isServerPortOpen() {
+  if (!fs.existsSync(path.join(getServerRoot(), 'server.properties'))) return false;
   const props = fs.readFileSync(path.join(getServerRoot(), 'server.properties'), 'utf8');
   const port = Number(props.match(/^server-port=(.+)$/m)?.[1]?.trim() || 25565);
   const host = props.match(/^server-ip=(.+)$/m)?.[1]?.trim();
   for (const address of new Set(['127.0.0.1', '::1', ...(host && host !== '0.0.0.0' && host !== '::' ? [host] : [])])) {
-    if (await portIsOpen(port, address)) throw new Error('別のMinecraftサーバーが起動しています。停止してからMAPを操作してください。');
+    if (await portIsOpen(port, address)) return true;
   }
+  return false;
 }
 const mapSaves = require('./map_saves.cjs').createMapSaves({ getRoot: getServerRoot, assertStopped: assertMapServerStopped });
 function waitChildExit(child, timeoutMs) {
@@ -1821,13 +1843,14 @@ async function stopMapServer() {
   const ended = waitChildExit(child, 120000);
   appendServerLog('[MAP] ワールドを保存して停止します');
   child.stdin.write('stop\n');
-  if (!await ended) throw new Error('サーバーの保存・停止が完了しませんでした。MAPは変更していません。停止完了後に再試行してください。');
-  if (child.exitCode !== 0) throw new Error('サーバーが正常終了しませんでした。MAPを変更せずに中止しました。Forgeログを確認してください。');
+  if (!await ended) throw new Error('サーバーの保存・停止がまだ完了していません。強制終了せずに待機しています。Forgeログを確認し、停止完了後に再試行してください。');
+  if (serverProcRef === child) { serverProcRef = null; serverPid = null; }
+  if (child.exitCode !== 0) throw new Error('サーバーが正常終了しませんでした。Forgeログを確認してください。');
   await assertMapServerStopped();
 }
 async function runMapOperation(action) {
   assertMapIdle();
-  if (initialSetupRunning || serverStarting) throw new Error('サーバーの準備が終わるまでお待ちください。');
+  if (initialSetupRunning || serverStarting || serverStopping) throw new Error('サーバーの準備・停止が終わるまでお待ちください。');
   mapOperationBusy = true;
   const restartServer = Boolean(serverProcRef), restartBridge = Boolean(bridgeProcRef || bridgeRestartTimer);
   try {

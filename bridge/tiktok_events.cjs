@@ -26,6 +26,9 @@ function normalizeTikTokEvent(input = {}, type = '') {
     userId: text(user.userId, user.idStr, user.id, data.userId),
     msgId: text(common.msgId, data.msgId, data.messageId, data.eventId, data.id),
     createTime: count(common.createTime, data.createTime) || 0,
+    comment: type === 'chat'
+      ? (typeof data.comment === 'string' && data.comment.trim() ? data.comment : typeof data.content === 'string' ? data.content : '')
+      : data.comment,
     giftId: text(data.giftId, gift.id, gift.gift_id),
     giftName: text(gift.name, details.giftName, details.name, data.giftName, extended.name),
     diamondCount: count(gift.diamondCount, details.diamondCount, data.diamondCount, extended.diamond_count) || 0,

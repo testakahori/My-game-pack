@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld("mygamepack", {
   // config read/write
   // --------------------
   configRead: () => ipcRenderer.invoke("config:read"),
+  tiktokLiveStatus: (username) => ipcRenderer.invoke("tiktok:liveStatus", username),
   giftTemplateSave: () => ipcRenderer.invoke("giftTemplate:save"),
   giftTemplateOpen: () => ipcRenderer.invoke("giftTemplate:open"),
   giftTemplateApply: (token) => ipcRenderer.invoke("giftTemplate:apply", token),
@@ -91,7 +92,7 @@ contextBridge.exposeInMainWorld("mygamepack", {
   // run.bat を起動（アプリ内コンソール取り込み）
   serverStart: () => ipcRenderer.invoke("server:start"),
 
-  // サーバー停止（graceful → 強制のフォールバック）
+  // サーバー停止（ワールド保存完了を待つ。強制終了しない）
   serverStop: () => ipcRenderer.invoke("server:stop"),
 
   // Forgeサーバーのログ・稼働状態（ダッシュボード表示用）

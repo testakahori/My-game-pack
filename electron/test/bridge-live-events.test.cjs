@@ -48,12 +48,15 @@ test('本番ハンドラー: protobuf→100いいね→タラ、贈り主名、�
   }
   const fakeProcess=Object.assign(new EventEmitter(),{argv:['node',source],env:{},platform:process.platform,cwd:()=>dir,exit:code=>{throw Error('unexpected exit '+code);}});
   const testFs={...fs,watch:(...args)=>{const w=fs.watch(...args);watchers.push(w);return w;}};
-  const context={module:{exports:{}},exports:{},__dirname:dir,__filename:source,process:fakeProcess,Buffer,URL,
+  const speech=[];
+  const context={module:{exports:{}},exports:{},__dirname:dir,__filename:source,process:fakeProcess,Buffer,URL,fixtureSpeech:speech,
     console:Object.fromEntries(['log','warn','error'].map(name=>[name,(...args)=>logs.push(args.join(' '))])),
     setTimeout:(fn,ms,...args)=>{const timer=setTimeout(fn,ms,...args);timers.add(timer);return timer;},clearTimeout,
     setInterval:(fn,ms,...args)=>{const timer=setInterval(fn,ms,...args);timers.add(timer);return timer;},clearInterval,
     require:id=>id==='tiktok-live-connector'?{TikTokLiveConnection:FixtureConnection}:id==='fs'?testFs:bridgeRequire(id)};
   vm.runInNewContext(fs.readFileSync(source,'utf8')+'\nmodule.exports.startFixture=main;',context,{filename:source});
+  // 音声出力だけを置換し、受信→正規化→コメント判定→TTSキューは本番を通す。
+  vm.runInNewContext('speakText = async (text, cfg) => { fixtureSpeech.push({text, cfg}); };',context);
   await context.module.exports.startFixture();
   await until(()=>logs.some(x=>x.includes('[TikTok] Connected.')),'connected');
   let msg=100;
@@ -93,4 +96,12 @@ test('本番ハンドラー: protobuf→100いいね→タラ、贈り主名、�
   await until(()=>requests.length===6,'second atomic save');await wait(180);
   assert.equal(requests.length,6);assert.equal(requests[5].count,3);assert.equal(connections,1);
   assert.ok(logs.some(x=>x.includes('name="バラ" from=赤堀堂馬')));
+  fs.writeFileSync(path.join(dir,'tts-settings.json'),JSON.stringify({enabled:true,commentEnabled:true,giftEnabled:false}));
+  await emit('WebcastChatMessage',{content:'こんばんは！'});
+  await until(()=>speech.length===1,'comment speech');
+  assert.equal(speech[0].text,'赤堀堂馬、こんばんは！');
+  assert.ok(logs.some(x=>x.includes('[TTS] コメントをキューへ追加')));
+  fs.writeFileSync(path.join(dir,'tts-settings.json'),JSON.stringify({enabled:true,commentEnabled:false,giftEnabled:false}));
+  await emit('WebcastChatMessage',{content:'読まない設定'});
+  await wait(50);assert.equal(speech.length,1,'コメントOFFは即時反映');
 });

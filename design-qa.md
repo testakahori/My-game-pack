@@ -83,3 +83,11 @@ The installed v1.0.36 app exposed an OS-specific image download failure missed b
 - ホームにBRIDGE起動・停止・再起動を常設。単体起動/再起動でゲームルールを再適用しない。イベント設定の「次回起動から有効」を自動反映の説明へ訂正。
 - 検証: npm run verify (Bridge14 + App108 = 122)、TypeScript、production build成功。コネクターの実protobuf encode/decodeとprocessDecodedData、本番Bridgeハンドラー、ローカルHTTP受信を通す回帰テストで100→200いいね、贈り主名、2回のatomic設定保存、再起動なしの反映を確認。
 - 本物のTikTokへの接続やギフト送信はこの回帰テストでは行わない。模擬メッセージを使用し、ゲーム内実行先はテストHTTPサーバー。
+
+
+## 2026-09-21 v1.0.42
+
+- TikTok LIVEの配信有無とBridgeプロセスを分離。30秒キャッシュ、通信失敗は不明扱い。実アカウントへのread-only取得でlive=trueを確認。
+- 起動済み外部サーバーをMod応答で確認して一括起動を続行。MAP操作は引き続き稼働中拒否。サーバー保存タイムアウト時に強制終了せず、停止失敗を成功表示しない。
+- ネイティブElectron分離fixtureでBridge停止中のライブ表示、外部Forge表示、起動続行、エラー表示を確認。Minecraft/ゲームルール/データパックの再実行なし。
+- 実protobufコメントcontent→本番ハンドラー→読み上げキューを検証。音声出力境界のみstub。131件のテストとtypecheck/buildを実施。
