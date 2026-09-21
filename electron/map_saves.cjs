@@ -54,7 +54,7 @@ function createMapSaves({ getRoot, assertStopped = async () => {}, rename = (a, 
     const root = fs.realpathSync(getRoot());
     const props = fs.readFileSync(path.join(root, 'server.properties'), 'utf8');
     const level = (props.match(/^level-name=(.*)$/m)?.[1] || 'world').trim();
-    if (/^(map-saves|backups)([\\/]|$)/i.test(level)) throw new Error('保存用フォルダーをプレイ用MAPには指定できません。');
+    if (/^(map-saves|backups)([\\/]|$)|^\.map-(stage|rollback)-/i.test(level)) throw new Error('保存用フォルダーをプレイ用MAPには指定できません。');
     const world = safePath(root, level), saves = safePath(root, 'map-saves');
     fs.mkdirSync(saves, { recursive: true });
     return { root, level, world, saves, journal: path.join(saves, 'restore-pending.json') };
@@ -76,13 +76,16 @@ function createMapSaves({ getRoot, assertStopped = async () => {}, rename = (a, 
   async function recover(c) {
     if (!fs.existsSync(c.journal)) return;
     const pending = JSON.parse(fs.readFileSync(c.journal, 'utf8'));
-    if (pending.level !== c.level || !ID.test(pending.safetyId) || !ID.test(pending.stageId)) throw new Error('MAP復元の中断を確認してください。保存先が変わっています。');
-    const oldWorld = safePath(c.saves, pending.safetyId + '/world');
+    const temporary = pending.version === 2;
+    if (pending.level !== c.level || !ID.test(pending.stageId) || !ID.test(temporary ? pending.rollbackId : pending.safetyId)) throw new Error('MAP復元の中断を確認してください。保存先が変わっています。');
+    // 旧バージョンの中断ジャーナルも復旧できる。新規ロードでは保存一覧を増やさない。
+    const oldWorld = temporary ? safePath(c.root, '.map-rollback-' + pending.rollbackId) : safePath(c.saves, pending.safetyId + '/world');
     const stage = safePath(c.root, '.map-stage-' + pending.stageId);
     if (!fs.existsSync(c.world) && fs.existsSync(oldWorld)) await rename(oldWorld, c.world);
-    if (!fs.existsSync(c.world)) throw new Error('MAPの復旧に失敗しました。自動退避したMAPを保持しています。');
+    if (!fs.existsSync(c.world)) throw new Error('MAPの復旧に失敗しました。復旧用の一時データを保持しています。');
     // Only remove staging folders whose absolute path is checked under this server.
     if (fs.existsSync(stage)) await fsp.rm(stage, { recursive: true, force: true });
+    if (temporary && fs.existsSync(oldWorld)) await fsp.rm(oldWorld, { recursive: true, force: true });
     await fsp.unlink(c.journal);
   }
   async function exclusive(fn) {
@@ -108,23 +111,22 @@ function createMapSaves({ getRoot, assertStopped = async () => {}, rename = (a, 
     return exclusive(async c => {
       const selected = readSave(c, id);
       if (JSON.stringify(await inventory(selected.world)) !== JSON.stringify(selected.manifest.files)) throw new Error('保存MAPが変更・破損しています。ロードを中止しました。');
-      const files = await inventory(c.world);
-      const safety = manifest(c, 'ロード前の自動退避 ' + now().toLocaleString('ja-JP'), 'before-load', files);
-      const safetyDir = safePath(c.saves, safety.id);
-      const stageId = crypto.randomUUID(), stage = safePath(c.root, '.map-stage-' + stageId);
-      await copyVerified(selected.world, stage, selected.manifest.files);
-      await fsp.mkdir(safetyDir);
-      atomicWrite(path.join(safetyDir, 'map.json'), JSON.stringify(safety, null, 2));
-      atomicWrite(c.journal, JSON.stringify({ level: c.level, safetyId: safety.id, stageId }));
+      await inventory(c.world);
+      const stageId = crypto.randomUUID(), rollbackId = crypto.randomUUID();
+      const stage = safePath(c.root, '.map-stage-' + stageId);
+      const rollback = safePath(c.root, '.map-rollback-' + rollbackId);
       try {
-        await rename(c.world, path.join(safetyDir, 'world'));
+        await copyVerified(selected.world, stage, selected.manifest.files);
+        atomicWrite(c.journal, JSON.stringify({ version: 2, level: c.level, rollbackId, stageId }));
+        await rename(c.world, rollback);
         await rename(stage, c.world);
-        await fsp.unlink(c.journal);
+        await recover(c);
       } catch (error) {
         await recover(c);
+        if (fs.existsSync(stage)) await fsp.rm(stage, { recursive: true, force: true });
         throw error;
       }
-      return { loaded: summary(selected.manifest), safety: summary(safety) };
+      return { loaded: summary(selected.manifest) };
     });
   }
   async function list() {

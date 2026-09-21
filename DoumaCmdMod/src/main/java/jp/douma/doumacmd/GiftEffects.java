@@ -49,7 +49,8 @@ final class GiftEffects {
     private final Map<UUID, WitherHunt> witherHunts = new HashMap<>();
     private record WitherHunt(WitherBoss wither, UUID player) {}
     private long ticks;
-    private Path weatherFile;
+    private Path weatherFile, meteorNightFile;
+    private final Map<ServerLevel, List<Job>> meteorNights = new HashMap<>();
     private int failures;
     private String lastError = "";
 
@@ -83,6 +84,16 @@ final class GiftEffects {
 
     void load(MinecraftServer server) {
         weatherFile = server.getServerDirectory().toPath().resolve("douma-weather-timers.properties");
+        meteorNightFile = server.getServerDirectory().toPath().resolve("douma-meteor-night.properties");
+        // An interrupted/restarted shower must never leave the world permanently at night.
+        if (Files.isRegularFile(meteorNightFile)) {
+            try (InputStream in = Files.newInputStream(meteorNightFile)) {
+                Properties interrupted = new Properties(); interrupted.load(in);
+                for (ServerLevel level : server.getAllLevels())
+                    if (interrupted.containsKey(level.dimension().location().toString())) meteorDay(level);
+            } catch (Exception e) { fail(e); }
+            saveMeteorNights();
+        }
         if (!Files.isRegularFile(weatherFile)) return;
         try (InputStream in = Files.newInputStream(weatherFile)) {
             Properties data = new Properties(); data.load(in);
@@ -96,7 +107,35 @@ final class GiftEffects {
             data.store(out, "Gift weather expiry (epoch milliseconds; independent of doWeatherCycle)");
         } catch (Exception e) { fail(e); }
     }
-    void stop() { saveWeather(); jobs.clear(); meteorFlights.forEach(m -> m.blocks.forEach(FallingBlockEntity::discard)); meteorFlights.clear(); jumps.clear(); blizzards.clear(); icePrisons.clear(); heavyPlayers.clear(); witherHunts.clear(); weatherEnds.clear(); }
+    private void saveMeteorNights() {
+        if (meteorNightFile == null) return;
+        try {
+            if (meteorNights.isEmpty()) { Files.deleteIfExists(meteorNightFile); return; }
+            Properties data = new Properties();
+            meteorNights.keySet().forEach(l -> data.setProperty(l.dimension().location().toString(), "active"));
+            try (OutputStream out = Files.newOutputStream(meteorNightFile)) { data.store(out, "Return to day after an interrupted meteor shower"); }
+        } catch (Exception e) { fail(e); }
+    }
+    private static void meteorDay(ServerLevel level) {
+        long day = level.getDayTime();
+        level.setDayTime(day - Math.floorMod(day, 24000L) + 1000L);
+    }
+    private void tickMeteorNights() {
+        if (meteorNights.isEmpty()) return;
+        meteorNights.values().forEach(list -> list.removeIf(j -> j.index >= j.total));
+        // Dimension clocks can share level data. Keep all clocks at night until every
+        // overlapping shower has finished, including its final flying fragment.
+        if (meteorNights.values().stream().allMatch(List::isEmpty) && meteorFlights.isEmpty()) {
+            meteorNights.keySet().forEach(GiftEffects::meteorDay);
+            meteorNights.clear(); saveMeteorNights();
+        } else if (ticks % 20 == 0) {
+            for (ServerLevel level : meteorNights.keySet()) {
+                long day = level.getDayTime();
+                level.setDayTime(day - Math.floorMod(day, 24000L) + 18000L);
+            }
+        }
+    }
+    void stop() { meteorNights.keySet().forEach(GiftEffects::meteorDay); meteorNights.clear(); saveMeteorNights(); saveWeather(); jobs.clear(); meteorFlights.forEach(m -> m.blocks.forEach(FallingBlockEntity::discard)); meteorFlights.clear(); jumps.clear(); blizzards.clear(); icePrisons.clear(); heavyPlayers.clear(); witherHunts.clear(); weatherEnds.clear(); }
     int pendingJobs() { return jobs.size() + meteorFlights.size(); }
     int failures() { return failures; }
     String lastError() { return lastError; }
@@ -151,6 +190,7 @@ final class GiftEffects {
         tickJumps(server);
         tickIcePrisons(server);
         tickMeteors();
+        tickMeteorNights();
         tickHuntersAndGravity(server);
         long now = System.currentTimeMillis();
         for (ServerLevel level : server.getAllLevels()) {
@@ -271,16 +311,20 @@ final class GiftEffects {
     private static final List<BlockPos> METEOR_SHAPE = meteorShape();
     private static List<BlockPos> meteorShape() {
         List<BlockPos> points = new ArrayList<>();
-        for (int x=-2;x<=2;x++) for(int y=-2;y<=2;y++) for(int z=-2;z<=2;z++) points.add(new BlockPos(x,y,z));
-        points.sort(Comparator.comparingDouble(p -> p.getX()*p.getX()+p.getY()*p.getY()+p.getZ()*p.getZ()
-            + Math.floorMod(p.getX()*31+p.getY()*17+p.getZ()*13,19)*0.013));
-        return List.copyOf(points.subList(0,50));
+        // Seven blocks across: a solid round core with uneven knuckles on the surface.
+        // Keep the centre first so the collision/trail anchor is always the boulder centre.
+        for (int x=-3;x<=3;x++) for(int y=-3;y<=3;y++) for(int z=-3;z<=3;z++) {
+            double bump = Math.floorMod(x*31+y*17+z*13,19)*0.065;
+            if (x*x+y*y+z*z <= 9.6-bump) points.add(new BlockPos(x,y,z));
+        }
+        points.sort(Comparator.comparingInt(p -> p.getX()*p.getX()+p.getY()*p.getY()+p.getZ()*p.getZ()));
+        return List.copyOf(points);
     }
     private static final class MeteorFlight {
         final Origin origin;
         final Vec3 start, target, velocity;
         Vec3 previous;
-        final long launched;
+        long launched = -1;
         final int duration;
         final boolean large, explosive, remnant;
         final Block material;
@@ -288,7 +332,7 @@ final class GiftEffects {
         final Set<UUID> hitPlayers = new HashSet<>();
         boolean ended;
         MeteorFlight(Origin origin, Vec3 start, Vec3 target, long launched, boolean large, Block material, int index) {
-            this.origin=origin;this.start=this.previous=start;this.target=target;this.launched=launched;
+            this.origin=origin;this.start=this.previous=start;this.target=target;
             this.large=large;this.material=material;
             explosive=large && index%2==0;
             remnant=large || index%5==0;
@@ -301,15 +345,15 @@ final class GiftEffects {
         Block[] materials={Blocks.MAGMA_BLOCK,Blocks.BEDROCK,Blocks.DEEPSLATE,Blocks.GOLD_BLOCK,Blocks.OBSIDIAN};
         Map<Integer,MeteorFlight> groups=new HashMap<>();
         UUID targetId=targetPlayer.getUUID();
-        // Fifty touching blocks form an irregular boulder; ten fragments accompany each one.
-        return job(clusters*60,1,12,i->{
-            int wave=i/60,part=i%60;
-            MeteorFlight flight=part<50
+        int size=METEOR_SHAPE.size(), perWave=size+10;
+        Job shower=job(clusters*perWave,1,12,i->{
+            int wave=i/perWave,part=i%perWave;
+            MeteorFlight flight=part<size
                 ?groups.computeIfAbsent(wave,n->launchMeteor(o,n,true,materials[n%materials.length],targetId))
-                :launchMeteor(o,wave*10+part-50,false,materials[(wave+part)%materials.length],targetId);
+                :launchMeteor(o,wave*10+part-size,false,materials[(wave+part)%materials.length],targetId);
             if(flight.ended)return;
-            BlockPos offset=part<50?METEOR_SHAPE.get(part):BlockPos.ZERO;
-            Vec3 position=flight.start.add(flight.velocity.scale(ticks-flight.launched)).add(offset.getX(),offset.getY(),offset.getZ());
+            BlockPos offset=part<size?METEOR_SHAPE.get(part):BlockPos.ZERO;
+            Vec3 position=flight.start.add(offset.getX(),offset.getY(),offset.getZ());
             if(!o.allowed(BlockPos.containing(position)))return;
             FallingBlockEntity block=EntityType.FALLING_BLOCK.create(o.level);
             if(block==null)throw new IllegalStateException("Cannot create meteor block");
@@ -317,11 +361,17 @@ final class GiftEffects {
             state.putString("Name",BuiltInRegistries.BLOCK.getKey(flight.material).toString());
             data.put("BlockState",state);data.putInt("Time",1);
             data.putBoolean("DropItem",false);data.putBoolean("CancelDrop",true);
-            block.load(data);block.setNoGravity(true);block.setPos(position);block.setDeltaMovement(flight.velocity);
+            block.load(data);block.setNoGravity(true);block.noPhysics=true;block.setPos(position);block.setDeltaMovement(Vec3.ZERO);
             block.addTag("douma_meteorshower");
             block.addTag(flight.large?"douma_meteor_cluster":"douma_meteor_fragment");
             o.level.addFreshEntity(block);flight.blocks.add(block);
+            if (!flight.large || part==size-1) flight.launched=ticks;
         });
+        meteorNights.computeIfAbsent(o.level, l -> new ArrayList<>()).add(shower);
+        long day=o.level.getDayTime();
+        o.level.setDayTime(day-Math.floorMod(day,24000L)+18000L);
+        saveMeteorNights();
+        return shower;
     }
     private MeteorFlight launchMeteor(Origin o,int index,boolean large,Block material,UUID targetId) {
         ServerPlayer player=o.level.getServer().getPlayerList().getPlayer(targetId);
@@ -332,16 +382,22 @@ final class GiftEffects {
         int x=(int)Math.floor(focus.x+Math.cos(angle)*radius),z=(int)Math.floor(focus.z+Math.sin(angle)*radius);
         int ground=loaded(o,x,z)?o.level.getHeight(Heightmap.Types.OCEAN_FLOOR,x,z):(int)focus.y;
         Vec3 target=new Vec3(x+.5,ground+(large?2:0),z+.5);
-        double approach=angle+.8,side=large?48:36;
-        Vec3 start=target.add(Math.cos(approach)*side,
-            Math.min(o.level.getMaxBuildHeight()-5,Math.max(focus.y,ground)+(large?76:64))-target.y,Math.sin(approach)*side);
+        double approach=angle+.8,side=large?82:70;
+        double rise=Math.min(o.level.getMaxBuildHeight()-5,Math.max(focus.y,ground)+(large?38:32))-target.y;
+        Vec3 start=target.add(Math.cos(approach)*side,rise,Math.sin(approach)*side);
+        // Shorten both axes together near the loaded-area edge, retaining the shallow angle.
+        while (side>34 && (!o.allowed(BlockPos.containing(start).offset(-4,0,-4))
+                || !o.allowed(BlockPos.containing(start).offset(4,0,4)))) {
+            double scale=(side-8)/side; side-=8; rise*=scale;
+            start=target.add(Math.cos(approach)*side,rise,Math.sin(approach)*side);
+        }
         MeteorFlight flight=new MeteorFlight(o,start,target,ticks,large,material,index);
         if(o.allowed(BlockPos.containing(start))&&o.allowed(BlockPos.containing(target)))meteorFlights.add(flight);
         else flight.ended=true;
         return flight; // The aim is fixed at launch; running away can evade it.
     }
     private void hitMeteorPlayers(MeteorFlight meteor,Vec3 position,FallingBlockEntity lead) {
-        double radius=meteor.large?2.25:.45;
+        double radius=meteor.large?3.3:.45;
         AABB swept=new AABB(meteor.previous,position).inflate(radius+1);
         for(ServerPlayer player:meteor.origin.level.getEntitiesOfClass(ServerPlayer.class,swept)) {
             if(!player.isAlive()||player.isCreative()||player.isSpectator()||meteor.hitPlayers.contains(player.getUUID())
@@ -358,7 +414,13 @@ final class GiftEffects {
         for(Iterator<MeteorFlight> it=meteorFlights.iterator();it.hasNext();) {
             MeteorFlight meteor=it.next();
             FallingBlockEntity lead=meteor.blocks.isEmpty()?null:meteor.blocks.get(0);
-            Vec3 current=lead==null?meteor.start:lead.position();
+            if (meteor.launched<0) {
+                // A failed/partially assembled job cannot keep the night active forever.
+                boolean assembling=meteorNights.getOrDefault(meteor.origin.level,List.of()).stream().anyMatch(j->j.index<j.total);
+                if (assembling) continue;
+                meteor.ended=true;meteor.blocks.forEach(FallingBlockEntity::discard);it.remove();continue;
+            }
+            Vec3 current=meteor.start.add(meteor.velocity.scale(ticks-meteor.launched));
             if(lead!=null)hitMeteorPlayers(meteor,current,lead);
             if(ticks-meteor.launched>=meteor.duration||(lead!=null&&lead.isRemoved())) {
                 Vec3 impact=lead!=null&&lead.isRemoved()?lead.position():meteor.target.add(0,meteor.large?-2:0,0);
@@ -366,9 +428,15 @@ final class GiftEffects {
                 if(meteor.origin.allowed(BlockPos.containing(impact)))meteorImpact(meteor,impact);
                 continue;
             }
-            for(FallingBlockEntity block:meteor.blocks)if(!block.isRemoved())block.setDeltaMovement(meteor.velocity);
+            for(int index=0;index<meteor.blocks.size();index++) {
+                FallingBlockEntity block=meteor.blocks.get(index);
+                if(block.isRemoved())continue;
+                BlockPos offset=meteor.large?METEOR_SHAPE.get(index):BlockPos.ZERO;
+                block.setPos(current.add(offset.getX(),offset.getY(),offset.getZ()));
+                block.setDeltaMovement(meteor.velocity);
+            }
             if(lead==null||ticks%(meteor.large?2:4)!=0)continue;
-            double spread=meteor.large?1.7:.12;
+            double spread=meteor.large?2.7:.12;
             for(int trail=0;trail<(meteor.large?4:2);trail++) {
                 Vec3 tail=current.subtract(meteor.velocity.scale(trail*.8));
                 meteor.origin.level.sendParticles(meteor.material==Blocks.OBSIDIAN?ParticleTypes.SOUL_FIRE_FLAME:ParticleTypes.FLAME,

@@ -18,6 +18,7 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mygamepack-regression-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const handlers = new Map();
+  let serverSpawn;
   const notifications = [];
   const copiedTexts = [];
   const mainPath = path.resolve(__dirname, "../main.cjs");
@@ -27,6 +28,10 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
     requestSingleInstanceLock: () => true, whenReady: () => ({ then() {} }), on() {},
   };
   const requireMock = (name) => {
+    if (name === 'child_process') {
+      const real = realRequire(name);
+      return { ...real, spawn: (...args) => serverSpawn ? serverSpawn(...args) : real.spawn(...args) };
+    }
     if (name === "electron") return {
       app, dialog, ipcMain: { handle: (name, fn) => handlers.set(name, fn), on() {} },
       clipboard: { writeText: text => copiedTexts.push(text) },
@@ -58,6 +63,7 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
       context.setupAutoUpdater();
     },
     usePackagedPaths: () => { app.isPackaged = true; },
+    mockServerSpawn: fn => { serverSpawn = fn; },
     setServer: child => { context.fixtureChild = child; vm.runInContext('serverProcRef = fixtureChild; serverPid = fixtureChild?.pid || null;', context); },
     shortenServerWait: () => vm.runInContext('const originalWait = waitChildExit; waitChildExit = child => originalWait(child, 30);', context),
   };
@@ -365,7 +371,7 @@ test('MAP IPC: save/load round trip and Markdown export use the selected server'
   fs.writeFileSync(path.join(world, 'level.dat'), 'after');
   const loaded = await app.invoke('world:saves:load', saved.saved.id); assert.equal(loaded.ok, true);
   assert.equal(fs.readFileSync(path.join(world, 'level.dat'), 'utf8'), 'before');
-  assert.equal((await app.invoke('world:saves:list')).saves.length, 2);
+  assert.equal((await app.invoke('world:saves:list')).saves.length, 1);
   const md = await app.invoke('operations:stats:export'); assert.equal(md.ok, true); assert.match(fs.readFileSync(report, 'utf8'), /# 配信統計/);
 });
 test('MAP IPC: stop waits for server save; path changes, starts and a second operation are blocked', async t => {
@@ -457,4 +463,18 @@ test('server stop: a save timeout leaves the process alive and reports incomplet
   await assert.rejects(app.invoke('server:stop'), /強制終了せず/);
   assert.equal((await app.invoke('server:processStatus')).running, true);
   assert.equal(child.exitCode, null);
+});
+
+test('server startup: legacy automatic backup setting never creates a MAP save', async t => {
+  const app = loadApp(t); await app.invoke('app:config:write', { serverFolder: app.root, autoBackupOnServerStart: true });
+  const world = path.join(app.root, 'world'); fs.mkdirSync(world); fs.writeFileSync(path.join(world, 'level.dat'), 'original');
+  fs.writeFileSync(path.join(app.root, 'server.properties'), 'level-name=world\nserver-port=39970\n');
+  fs.writeFileSync(path.join(app.root, 'run.bat'), 'must never execute');
+  const child = new (require('node:events').EventEmitter)();
+  Object.assign(child, { pid: 123456, stdout: new (require('node:stream').PassThrough)(), stderr: new (require('node:stream').PassThrough)() });
+  let starts = 0; app.mockServerSpawn(() => { starts++; return child; });
+  assert.equal((await app.invoke('server:start')).ok, true);
+  assert.equal(starts, 1);
+  assert.equal((await app.invoke('world:saves:list')).saves.length, 0);
+  assert.equal(fs.readFileSync(path.join(world, 'level.dat'), 'utf8'), 'original');
 });

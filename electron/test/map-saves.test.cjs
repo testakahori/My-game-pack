@@ -18,7 +18,7 @@ function fixture(t, options = {}) {
   fs.writeFileSync(path.join(world, 'DIM-1', 'region', 'r.0.0.mca'), 'nether before');
   return { root, world, service: createMapSaves({ getRoot: () => root, ...options }) };
 }
-test('MAP: named save restores terrain, inventory and dimensions; prior map remains loadable', async t => {
+test('MAP: only explicit saves add history; repeated loads restore terrain without automatic saves', async t => {
   const { root, world, service } = fixture(t);
   const before = await inventory(world), saved = await service.save('配信前 / ダイヤ集め');
   assert.equal(saved.name, '配信前 / ダイヤ集め'); assert.equal(saved.files, 3);
@@ -27,12 +27,14 @@ test('MAP: named save restores terrain, inventory and dimensions; prior map rema
   fs.writeFileSync(path.join(world, 'playerdata', 'player.dat'), 'inventory after');
   fs.writeFileSync(path.join(world, 'DIM-1', 'region', 'r.0.0.mca'), 'nether after');
   fs.writeFileSync(path.join(world, 'new.dat'), 'new file');
-  const after = await inventory(world);
-  const result = await service.load(saved.id);
+  await service.load(saved.id);
   assert.deepEqual(await inventory(world), before);
-  assert.equal((await service.list()).saves.length, 2);
-  await service.load(result.safety.id);
-  assert.deepEqual(await inventory(world), after);
+  assert.equal((await service.list()).saves.length, 1);
+  await service.load(saved.id);
+  await service.recover();
+  assert.deepEqual(await inventory(world), before);
+  assert.equal((await service.list()).saves.length, 1);
+  assert.deepEqual(fs.readdirSync(root).filter(n => n.startsWith('.map-')), []);
 });
 test('MAP: corrupted save, missing files and traversal are rejected before altering current world', async t => {
   const { root, world, service } = fixture(t);
@@ -83,4 +85,17 @@ test('MAP: linked world directories and links inside a save cannot escape the se
   fs.symlinkSync(linked, path.join(world, 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
   await assert.rejects(service.save('unsafe'), /リンク/);
   assert.deepEqual(fs.readdirSync(linked), []);
+});
+
+test('MAP: interrupted temporary rollback recovers without adding saved history', async t => {
+  const { root, world, service } = fixture(t); const before = await inventory(world);
+  await service.save('manual checkpoint');
+  const rollbackId = crypto.randomUUID(), stageId = crypto.randomUUID();
+  fs.renameSync(world, path.join(root, '.map-rollback-' + rollbackId));
+  fs.mkdirSync(path.join(root, '.map-stage-' + stageId));
+  fs.writeFileSync(path.join(root, 'map-saves', 'restore-pending.json'), JSON.stringify({ version: 2, level: 'haihu_world/world', rollbackId, stageId }));
+  await service.recover();
+  assert.deepEqual(await inventory(world), before);
+  assert.equal((await service.list()).saves.length, 1);
+  assert.deepEqual(fs.readdirSync(root).filter(n => n.startsWith('.map-')), []);
 });

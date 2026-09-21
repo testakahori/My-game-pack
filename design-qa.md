@@ -91,3 +91,10 @@ The installed v1.0.36 app exposed an OS-specific image download failure missed b
 - 起動済み外部サーバーをMod応答で確認して一括起動を続行。MAP操作は引き続き稼働中拒否。サーバー保存タイムアウト時に強制終了せず、停止失敗を成功表示しない。
 - ネイティブElectron分離fixtureでBridge停止中のライブ表示、外部Forge表示、起動続行、エラー表示を確認。Minecraft/ゲームルール/データパックの再実行なし。
 - 実protobufコメントcontent→本番ハンドラー→読み上げキューを検証。音声出力境界のみstub。131件のテストとtypecheck/buildを実施。
+
+## v1.0.42 追加修正（2026-09-21）
+
+- MAP: 保存ボタンだけで保存一覧を追加。起動時・ロード前の自動保存を廃止。旧設定trueでも新規保存なし。ロード失敗・中断時は一時退避から復旧し、履歴を増やさない。
+- 本番TikTok connectorのprotobuf encode/decode → processDecodedData → Bridge本番ハンドラー → ローカルHTTPまで、フォロー・シェア・訪問・未設定ギフトを確認。接続中のOFFも反映。未設定ギフトは連打増分のみ実行し、終了通知で二重発火しない。実際のTikTok利用者がこれらの操作を行ったLIVE試験とは区別する。
+- 流星群: Mod 1.3.3。109ブロックの岩球50塊＋破片500個=5950個、5素材各1190個。専用Forgeで斜めの移動、直撃ダメージ（1024→529）、クレーター1504セル、残骸5素材、25爆発、夜18000→昼1000を確認。重ねがけ、発動中の正常停止、異常終了を模した夜の復旧も確認。
+- 検証: npm run verify（Bridge14 + App119 = 133件）・TypeScript・Vite・Java17/Forgeビルド成功。Electron実レンダラーでもライブ表示・起動済みForge・一括操作の正常/異常表示を再確認。

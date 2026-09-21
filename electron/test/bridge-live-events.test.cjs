@@ -16,7 +16,7 @@ async function until(check,label) {
   for(let i=0;i<150;i++) { if(check()) return; await wait(20); }
   assert.fail('Timed out: '+label);
 }
-test('本番ハンドラー: protobuf→100いいね→タラ、贈り主名、接続中の設定2回保存をHTTPまで確認', async t=>{
+test('本番ハンドラー: いいね・ギフト・コメント・フォロー・シェア・訪問・未設定ギフトと設定即時反映', async t=>{
   // Windows CI's TEMP may contain an 8.3 alias (RUNNER~1). fs.watch's native
   // rename notifications use the long path; watch the same canonical spelling.
   const dir=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'bridge-live-events-')));
@@ -62,7 +62,7 @@ test('本番ハンドラー: protobuf→100いいね→タラ、贈り主名、�
   let msg=100;
   const emit=async(type,fields)=>{
     const message={...proto[type].decode(new Uint8Array()),...fields,
-      common:{...proto.CommonMessageData.decode(new Uint8Array()),msgId:String(++msg),createTime:String(Math.floor(Date.now()/1000))},
+      common:{...proto.CommonMessageData.decode(new Uint8Array()),msgId:String(++msg),createTime:String(Math.floor(Date.now()/1000)),...fields.common},
       user:{...proto.User.decode(new Uint8Array()),id:'123',displayId:'akahoridouma',nickname:'赤堀堂馬'}};
     if(fields.gift)message.gift={...proto.Gift.decode(new Uint8Array()),...fields.gift};
     const data=proto[type].decode(proto[type].encode(message).finish());
@@ -104,4 +104,33 @@ test('本番ハンドラー: protobuf→100いいね→タラ、贈り主名、�
   fs.writeFileSync(path.join(dir,'tts-settings.json'),JSON.stringify({enabled:true,commentEnabled:false,giftEnabled:false}));
   await emit('WebcastChatMessage',{content:'読まない設定'});
   await wait(50);assert.equal(speech.length,1,'コメントOFFは即時反映');
+  // The current connector routes social events using common.displayText.key.
+  const social = key => {
+    const bytes = Buffer.from(key);
+    return { displayText: proto.CommonMessageData.decode(Uint8Array.from([66, bytes.length + 2, 10, bytes.length, ...bytes])).displayText };
+  };
+  config.followEvent={enabled:true,commandFile:'zombie.txt',repeat:2};
+  config.shareEvent={enabled:true,commandFile:'skeleton.txt',repeat:3};
+  config.memberEvent={enabled:true,commandFile:'cod.txt',repeat:4};
+  config.unmappedGiftEvent={enabled:true,commandFile:'cod.txt',repeat:2};
+  await save();
+  const fireFour=async()=>{
+    await emit('WebcastSocialMessage',{common:social('pm_main_follow_message'),action:'1'});
+    await emit('WebcastSocialMessage',{common:social('pm_main_share_message'),action:'3'});
+    await emit('WebcastMemberMessage',{action:1});
+    await emit('WebcastGiftMessage',{giftId:'99999',gift:{name:'未設定ギフト',diamondCount:5},repeatCount:1});
+  };
+  await fireFour();await until(()=>requests.length===10,'follow/share/member/unmapped reach Mod HTTP');
+  assert.deepEqual(requests.slice(6).map(x=>[x.type,x.key,x.count,x.listenerName]).sort(),[
+    ['other','zombie',2,'赤堀堂馬'],['other','skeleton',3,'赤堀堂馬'],
+    ['other','cod',4,'赤堀堂馬'],['gift','cod',2,'赤堀堂馬']].sort());
+  await emit('WebcastGiftMessage',{giftId:'99999',gift:{name:'未設定ギフト'},repeatCount:3});
+  await until(()=>requests.length===11,'unmapped streak delta');
+  assert.equal(requests[10].count,4,'追加2個 × 設定2回');
+  await emit('WebcastGiftMessage',{giftId:'99999',repeatCount:3,repeatEnd:1});
+  await wait(180);assert.equal(requests.length,11,'未設定ギフトの連打終了で重複発火しない');
+  for(const key of ['followEvent','shareEvent','memberEvent','unmappedGiftEvent'])config[key].enabled=false;
+  await save();await fireFour();await wait(180);
+  assert.equal(requests.length,11,'4種類とも再接続せずOFFを反映');
+  assert.equal(connections,1);
 });
