@@ -26,7 +26,7 @@ export const TONES: { id: PanelTone; label: string; color: string }[] = [
 export const TEMPLATES = [
   { id: 'compact' as const, name: 'ライブグリッド', sub: '黒地でギフトが引き立つ一覧', badge: '6列 × 2段', color: '#F6C76A' },
   { id: 'light' as const, name: 'クリアカード', sub: '白地で文字をくっきり見せる', badge: '6列 × 1段', color: '#5BBDFC' },
-  { id: 'neon' as const, name: 'ナイトステージ', sub: '暗い画面に映えるカラーの枠', badge: '4列 × 2段', color: '#B59AFA' },
+  { id: 'neon' as const, name: 'ナイトステージ', sub: '暗い画面に映えるカラーの枠', badge: '6列 × 2段', color: '#B59AFA' },
 ];
 export function panelId() { return crypto.randomUUID(); }
 export function clamp(value: unknown, min: number, max: number, fallback: number): number {
@@ -44,11 +44,11 @@ export function createPanel(template: PanelTemplate = 'compact'): PanelDesign {
   const light = template === 'light', neon = template === 'neon';
   return {
     id: panelId(), name: light ? '配信ルール' : 'ギフト案内', template, cards: [],
-    columns: neon ? 4 : 6, rows: light ? 1 : 2, width: 1080, height: light ? 230 : neon ? 560 : 420,
-    fontSize: neon ? 36 : 30, gap: light ? 8 : 2, padding: 12, radius: light ? 12 : neon ? 10 : 0,
+    columns: 6, rows: light ? 1 : 2, width: 1080, height: light ? 230 : 420,
+    fontSize: 30, gap: light ? 8 : 2, padding: 12, radius: light ? 12 : neon ? 10 : 0,
     headline: '', headlineColor: '#FFEB3B', headlineSize: 100,
     colorMode: 'uniform', colorTarget: 'border', accent: light ? '#5BBDFC' : neon ? '#B59AFA' : '#F6C76A',
-    background: light ? '#F8FAFC' : neon ? '#171329' : '#141414',
+    background: light ? '#F8FAFC' : neon ? '#211D31' : '#252830',
     palette: Object.fromEntries(TONES.map(t => [t.id, t.color])) as Record<PanelTone, string>,
     showRepeat: true, outerFrame: true,
   };
@@ -77,13 +77,13 @@ export function normalizePanel(input: unknown): PanelDesign {
     };
   });
   return { ...base, id: str(v.id, 100) || base.id, name: str(v.name, 60, base.name), cards,
-    columns: clamp(v.columns, 1, 12, base.columns), rows: clamp(v.rows, 1, 8, base.rows),
-    width: clamp(v.width, 360, 3840, base.width), height: clamp(v.height, 120, 2160, base.height),
+    columns: template === 'neon' && v.columns === 4 && v.rows === 2 ? 6 : clamp(v.columns, 1, 12, base.columns), rows: clamp(v.rows, 1, 8, base.rows),
+    width: clamp(v.width, 360, 3840, base.width), height: template === 'neon' && v.columns === 4 && v.rows === 2 && v.height === 560 ? 420 : clamp(v.height, 120, 2160, base.height),
     fontSize: clamp(v.fontSize, 10, 96, base.fontSize), gap: clamp(v.gap, 0, 32, base.gap),
     padding: clamp(v.padding, 4, 80, base.padding), radius: clamp(v.radius, 0, 32, base.radius),
     headline: str(v.headline, 80), headlineColor: color(v.headlineColor, base.headlineColor), headlineSize: clamp(v.headlineSize, 24, 120, base.headlineSize),
     colorMode: v.colorMode === 'category' ? 'category' : 'uniform', colorTarget: v.colorTarget === 'background' ? 'background' : 'border',
-    accent: color(v.accent, base.accent), background: color(v.background, base.background),
+    accent: color(v.accent, base.accent), background: template === 'compact' && ['#000000', '#141414'].includes(String(v.background).toLowerCase()) ? base.background : color(v.background, base.background),
     palette: Object.fromEntries(TONES.map(t => [t.id, color(v.palette?.[t.id], t.color)])) as Record<PanelTone, string>,
     showRepeat: v.showRepeat !== false, outerFrame: v.outerFrame !== false,
   };

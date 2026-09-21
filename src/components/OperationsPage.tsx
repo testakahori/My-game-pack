@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import EventTestPanel from "./EventTestPanel";
-import StreamRecordingPanel from "./StreamRecordingPanel";
+import WorldSavesPanel from "./WorldSavesPanel";
 import SettingsBackupsPanel from "./SettingsBackupsPanel";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 
@@ -130,24 +130,6 @@ function CreeperSignal() {
   );
 }
 
-function ProtectionMap() {
-  return (
-    <div className="ops-protection-map" aria-hidden="true">
-      <div className="ops-map-grid" />
-      <span className="ops-map-pin ops-map-pin--nw" />
-      <span className="ops-map-pin ops-map-pin--ne" />
-      <span className="ops-map-pin ops-map-pin--sw" />
-      <span className="ops-map-pin ops-map-pin--se" />
-      <span className="ops-map-axis ops-map-axis--n">N</span>
-      <span className="ops-map-axis ops-map-axis--e">E</span>
-      <span className="ops-map-axis ops-map-axis--s">S</span>
-      <span className="ops-map-axis ops-map-axis--w">W</span>
-      <span className="ops-map-shield">🛡</span>
-      <span className="ops-map-label">拠点</span>
-    </div>
-  );
-}
-
 export default function OperationsPage({ onRestored }: { onRestored: () => void }) {
   const { hasChanges } = useUnsavedGuard();
   const api = (window as any).mygamepack;
@@ -162,7 +144,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
   const [updater, setUpdater] = useState<any>({ state: "idle" });
   const [bridgeProcess, setBridgeProcess] = useState<any>({ running: false, restartCount: 0 });
   const [bridgeSync, setBridgeSync] = useState<any>({ state: "idle" });
-  const [opsTab, setOpsTab] = useState("test");
+  const [opsTab, setOpsTab] = useState("map");
   const [showHistory, setShowHistory] = useState(false);
   const [now, setNow] = useState(new Date());
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
@@ -229,7 +211,6 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
 
 
   const o = cfg.options || {};
-  const protection = o.protection || {};
   const latestAt = history[0]?.at;
   const worldName = parseWorldName(serverProps["level-name"] || appCfg.world || cfg.world);
   const serverFolderLabel = tailPath(appCfg.serverFolder);
@@ -244,13 +225,6 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
         [key]: value,
       },
     }));
-  };
-
-  const setProtection = (patch: Record<string, any>) => {
-    setOption("protection", {
-      ...(cfg.options?.protection || {}),
-      ...patch,
-    });
   };
 
   const save = async () => {
@@ -273,16 +247,6 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
     } catch (error: any) {
       setNotice(`保存失敗: ${error?.message || String(error)}`);
     } finally { setSaving(false); }
-  };
-
-  const backupWorld = async () => {
-    try {
-      setNotice("ワールドをバックアップ中…");
-      const result = await api.worldBackup();
-      setNotice(result?.message || "ワールドをバックアップしました");
-    } catch (error: any) {
-      setNotice(`バックアップ失敗: ${error?.message || String(error)}`);
-    }
   };
 
   const openCommandsFolder = async () => {
@@ -427,8 +391,9 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
         <CreeperSignal />
       </OpsPanel>
 
-      <nav className="studio-ops-tabs" aria-label="運用センターのメニュー">{[["test", "テスト・記録"], ["safety", "保護・設定"], ["maintenance", "バックアップ・更新"], ["advanced", "詳細設定"]].map(([id, label]) => <button key={id} aria-pressed={opsTab === id} onClick={() => setOpsTab(id)}>{label}</button>)}{hasChanges && <button className="studio-ops-save" disabled={saving} onClick={save}>変更を保存</button>}</nav>
-      <div hidden={opsTab !== "test"}><StreamRecordingPanel /><EventTestPanel onTested={refresh} /></div>
+      <nav className="studio-ops-tabs" aria-label="運用センターのメニュー">{[["map", "MAPセーブ・ロード"], ["test", "イベントテスト"], ["safety", "動作設定"], ["maintenance", "設定復元・更新"], ["advanced", "詳細設定"]].map(([id, label]) => <button key={id} aria-pressed={opsTab === id} onClick={() => setOpsTab(id)}>{label}</button>)}{hasChanges && <button className="studio-ops-save" disabled={saving} onClick={save}>変更を保存</button>}</nav>
+      <div hidden={opsTab !== "map"}><WorldSavesPanel active={opsTab === "map"} /></div>
+      <div hidden={opsTab !== "test"}><EventTestPanel onTested={refresh} /></div>
       <div className="ops-main-grid" hidden={opsTab !== "safety"}>
 
         <OpsPanel className="ops-stability-card">
@@ -436,7 +401,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
             <span className="ops-panel-icon ops-panel-icon--shield">🛡</span>
             <div>
               <h2>安定運用・荒らし対策</h2>
-              <p>連打・保護・バックアップを安全側に調整します。</p>
+              <p>連打・読み上げ・自動セーブを調整します。</p>
             </div>
           </div>
 
@@ -468,48 +433,9 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
                   checked={appCfg.autoBackupOnServerStart !== false}
                   onChange={(event) => setAppCfg((value: any) => ({ ...value, autoBackupOnServerStart: event.target.checked }))}
                 />
-                サーバー起動前にワールドを自動バックアップ
+                サーバー起動前にMAPを自動セーブ
               </label>
-              <label className="ops-check-row">
-                <input
-                  type="checkbox"
-                  checked={protection.enabled === true}
-                  onChange={(event) => setProtection({ enabled: event.target.checked })}
-                />
-                拠点保護エリア内ではTNT・マグマ・落とし穴を抑止
-              </label>
-            </div>
-
-            <div className="ops-protection">
-              <div className="ops-protection-head">
-                <span>保護エリア（座標） ⓘ</span>
-                <button type="button" className="ops-small-button" onClick={() => setNotice("保護エリアを画面内で確認しました")}>⌘ 地図で確認</button>
-              </div>
-              <div className="ops-two-cols">
-                <FieldLabel label="X1">
-                  <input type="number" value={protection.x1 ?? -20} onChange={(event) => setProtection({ x1: Number(event.target.value) || 0 })} />
-                </FieldLabel>
-                <FieldLabel label="Z1">
-                  <input type="number" value={protection.z1 ?? -20} onChange={(event) => setProtection({ z1: Number(event.target.value) || 0 })} />
-                </FieldLabel>
-                <FieldLabel label="X2">
-                  <input type="number" value={protection.x2 ?? 20} onChange={(event) => setProtection({ x2: Number(event.target.value) || 0 })} />
-                </FieldLabel>
-                <FieldLabel label="Z2">
-                  <input type="number" value={protection.z2 ?? 20} onChange={(event) => setProtection({ z2: Number(event.target.value) || 0 })} />
-                </FieldLabel>
-              </div>
-              <ProtectionMap />
-              <div className="ops-save-row">
-                <button type="button" className="ops-primary-button ops-primary-button--violet" onClick={save}>▣ 保存</button>
-                <button
-                  type="button"
-                  className="ops-primary-button ops-primary-button--orange"
-                  onClick={backupWorld}
-                >
-                  ▣ ワールドを今すぐバックアップ
-                </button>
-              </div>
+              <button type="button" className="ops-primary-button ops-primary-button--violet" disabled={saving} onClick={save}>動作設定を保存</button>
             </div>
           </div>
         </OpsPanel>

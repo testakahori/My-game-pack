@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import StreamRecordingPanel from "./StreamRecordingPanel";
+import { useUnsavedChanges } from '../UnsavedChanges';
 import MinecraftBlockIcon from "./MinecraftBlockIcon";
 
 type NameCount = { name: string; count: number };
 type StreamStat = {
-  id: string; title?: string; recorded?: boolean; active?: boolean;
+  id: string; title?: string; recorded?: boolean; active?: boolean; source?: string; segments?: { startedAt: string; endedAt: string | null }[]; viewerSamples?: number;
   start: string; end: string; durationMs: number; events: number;
   gift: number; like: number; share: number; follow: number; member: number; other: number;
   succeeded: number; failed: number;
@@ -72,9 +73,20 @@ export default function StatsDashboardPage() {
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"dashboard" | "list" | "detail">("dashboard");
-  const [detailIndex, setDetailIndex] = useState<number>(0);
+  const [detailId, setDetailId] = useState<string>('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [error, setError] = useState("");
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportNotice, setExportNotice] = useState('');
+  const exportRunning = useRef(false);
+  useUnsavedChanges(false, exportBusy);
+  const exportStats = async (streamId?: string) => {
+    if (exportRunning.current) return;
+    exportRunning.current = true; setExportBusy(true); setExportNotice('');
+    try { const result = await window.mygamepack.operationsStatsExport(streamId); if (result.ok) setExportNotice(result.streams + '配信をMarkdownに保存しました: ' + result.path); }
+    catch (e) { setExportNotice('書き出せませんでした: ' + String((e as Error).message || e)); }
+    finally { exportRunning.current = false; setExportBusy(false); }
+  };
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -167,7 +179,8 @@ export default function StatsDashboardPage() {
 
   return (
     <div className="stats-page stats-design-page page-surface max-w-none">
-      <StreamRecordingPanel onChanged={refresh} />
+      <StreamRecordingPanel />
+      {exportNotice && <p role="status">{exportNotice}</p>}
       {error ? <p role="alert">集計できませんでした: {error}</p> : null}
       <section className="stats-summary-panel">
         <div className="stats-heading-row">
@@ -179,7 +192,7 @@ export default function StatsDashboardPage() {
             >
               配信統計{view === "list" ? "（配信集計）" : view === "detail" ? "（配信詳細）" : "ダッシュボード"} <span style={{ fontSize: 14, opacity: 0.7 }}>▾</span>
             </h1>
-            <p>開始・終了を記録した配信はその時刻で集計します。記録のない過去の区間は90分の間隔で分けた推定値です。このバージョン以降のテスト発火は除外します。</p>
+            <p>TikTokの配信ごとに自動集計。時間は接続を観測した区間の合計です。過去の記録には手動・推定が含まれます。内訳はコマンド要求回数で、実際のギフト数・いいね数・収益ではありません。テスト発火は除外します。</p>
             {menuOpen && (
               <div
                 style={{
@@ -211,19 +224,20 @@ export default function StatsDashboardPage() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div className="stats-summary-tile stats-summary-tile--green" style={{ minWidth: 150 }}>
-              <span>🕒</span><small>今月の配信時間</small>
+              <span>🕒</span><small>今月の記録時間</small>
               <b>{data.monthly ? fmtDuration(data.monthly.totalDurationMs) : "0分"}</b>
             </div>
+            <button disabled={exportBusy} onClick={() => void exportStats()}>MDファイルで書き出す</button>
             <button onClick={() => refresh()}>↻ 更新</button>
           </div>
         </div>
         <div className="stats-summary-grid">
           {[
             ["▣","配信数",o.streams,"blue"],
-            ["⌁","総イベント",o.events,"violet"],
-            ["🎁","ギフト",o.gift,"pink"],
-            ["♥","いいね",o.like,"pink"],
-            ["💎","総ダイヤ",o.diamonds ?? 0,"violet"],
+            ["⌁","コマンド履歴",o.events,"violet"],
+            ["🎁","ギフト発コマンド",o.gift,"pink"],
+            ["♥","いいね発コマンド",o.like,"pink"],
+            ["!","失敗した履歴",o.failed,"violet"],
             ["✓","成功率",success,"green"],
           ].map(([icon,label,value,tone]) => (
             <div className={`stats-summary-tile stats-summary-tile--${tone}`} key={String(label)}>
@@ -246,9 +260,9 @@ export default function StatsDashboardPage() {
             <div className="stats-table" style={{ fontSize: 13 }}>
               <p style={{ fontWeight: 800, color: "#8ba0b8" }}>
                 <span style={{ minWidth: 170 }}>日付（クリックで詳細）</span>
-                <b>配信時間</b>
+                <b>記録時間</b>
                 <em>時間（累計）</em>
-                <strong>💎 総ダイヤ</strong>
+                <strong>コマンド履歴</strong>
               </p>
               {data.streams.map((s, index) => {
                 // 累計は古い配信からの積み上げ（streams は新しい順なので後ろから足す）
@@ -257,7 +271,7 @@ export default function StatsDashboardPage() {
                   <p key={s.id || s.start}>
                     <button
                       type="button"
-                      onClick={() => { setDetailIndex(index); setView("detail"); }}
+                      onClick={() => { setDetailId(s.id); setView("detail"); }}
                       style={{
                         background: "none", border: "none", cursor: "pointer", padding: 0,
                         color: "#3fd5ff", fontWeight: 800, textDecoration: "underline", fontSize: 13, minWidth: 170, textAlign: "left",
@@ -267,7 +281,7 @@ export default function StatsDashboardPage() {
                     </button>
                     <b>{fmtDuration(s.durationMs)}</b>
                     <em>{fmtDuration(cumulative)}</em>
-                    <strong>💎 {s.diamonds ?? 0}</strong>
+                    <strong>{s.events}件</strong>
                   </p>
                 );
               })}
@@ -278,7 +292,7 @@ export default function StatsDashboardPage() {
 
       {/* ══ 配信別詳細 ══ */}
       {view === "detail" && (() => {
-        const s = data.streams[detailIndex];
+        const s = data.streams.find(row => row.id === detailId);
         if (!s) return <section className="stats-empty">配信データが見つかりません。<button type="button" onClick={() => setView("list")}>一覧へ戻る</button></section>;
         const detailRows = history
           .map((r) => ({ ...r, t: Date.parse(r.at) || 0 }))
@@ -289,7 +303,7 @@ export default function StatsDashboardPage() {
             <section className="stats-session-panel">
               <div className="stats-session-title">
                 <span>配信詳細</span>
-                <h2>{fmtRange(s.start, s.end)}</h2>
+                <h2>{fmtRange(s.start, s.end)}</h2><small>{s.source === "automatic" ? "自動記録" : s.recorded ? "過去の手動記録" : "過去の推定記録"}</small><button disabled={exportBusy} onClick={() => void exportStats(s.id)}>この配信をMDで保存</button>
                 <em>{fmtDuration(s.durationMs)}</em>
                 <small>
                   <button type="button" onClick={() => setView("list")} style={{ fontSize: 11 }}>← 配信集計へ戻る</button>
@@ -297,13 +311,13 @@ export default function StatsDashboardPage() {
               </div>
               <div className="stats-session-metrics">
                 {[
-                  ["🕒",s.recorded ? "記録した配信時間" : "推定配信時間",fmtDuration(s.durationMs),""],
+                  ["🕒",s.recorded ? "観測した記録時間" : "推定配信時間",fmtDuration(s.durationMs),""],
                   ["♟","視聴者数（イベント参加）",s.uniqueSenders,"人"],
-                  ["📈","最高同接",s.maxViewers || 0,"人"],
-                  ["📊","平均同接",s.avgViewers || 0,"人"],
-                  ["🎁","ギフト",s.gift,""],
-                  ["♥","いいね",s.like,""],
-                  ["💎","ダイヤモンド",s.diamonds ?? 0,""],
+                  ["📈","最高同接",s.viewerSamples ? s.maxViewers : "未取得",s.viewerSamples ? "人" : ""],
+                  ["📊","平均同接",s.viewerSamples ? s.avgViewers : "未取得",s.viewerSamples ? "人" : ""],
+                  ["🎁","ギフト発コマンド",s.gift,""],
+                  ["♥","いいね発コマンド",s.like,""],
+                  ["⌁","コマンド履歴",s.events,"件"],
                   ["✓","成功率",successRate(s.succeeded, s.succeeded + s.failed),""],
                 ].map(([icon,label,value,suffix]) => (
                   <div key={String(label)}><span>{icon}</span><small>{label}</small><b>{value}{suffix}</b></div>
@@ -312,7 +326,7 @@ export default function StatsDashboardPage() {
             </section>
             <div className="stats-analytics-grid">
               <section className="stats-analytics-card">
-                <h2>イベント内訳</h2>
+                <h2>コマンド要求の内訳</h2>
                 <div className="stats-stack">
                   <span style={{width:`${(s.gift/kinds)*100}%`}} />
                   <i style={{width:`${(s.like/kinds)*100}%`}} />
@@ -321,10 +335,10 @@ export default function StatsDashboardPage() {
                 {[["ギフト",s.gift,"pink"],["いいね",s.like,"violet"],["シェア",s.share,"green"],["フォロー",s.follow,"amber"],["訪問",s.member,"amber"],["その他",s.other,"blue"]].map(([label,value,tone]) => (
                   <p key={String(label)}><span className={`dot dot--${tone}`} />{label}<b>{value}</b><em>{Math.round((Number(value)/kinds)*100)}%</em></p>
                 ))}
-                <footer>合計 <b>{s.events}</b> イベント</footer>
+                <footer>合計 <b>{s.gift+s.like+s.share+s.follow+s.member+s.other}</b> 回 / 履歴 {s.events}件</footer>
               </section>
               <section className="stats-analytics-card stats-top-card">
-                <h2>トップギフター</h2>
+                <h2>参加者上位（コマンド回数）</h2>
                 {s.topSenders.length ? (
                   s.topSenders.slice(0,3).map((sender,index) => <p className="stats-ranker" key={sender.name}><span>{index+1}</span><b>{sender.name}</b><em>×{sender.count}</em></p>)
                 ) : <p className="stats-no-data">データなし</p>}
@@ -353,17 +367,17 @@ export default function StatsDashboardPage() {
       })()}
 
       {view === "dashboard" && (loading && !latest ? <section className="stats-empty">集計中…</section> : !latest ? (
-        <section className="stats-empty">まだ配信記録がありません。配信に合わせて「配信開始を記録」を押してください。</section>
+        <section className="stats-empty">まだ配信記録がありません。ダッシュボードからTikTokへ接続すると、自動で記録を開始します。</section>
       ) : (
         <>
           <section className="stats-session-panel">
-            <div className="stats-session-title"><span>配信 #1</span><h2>{fmtRange(latest.start, latest.end)}</h2><em>{latest.recorded ? latest.active ? "記録中" : "開始・終了を記録済み" : "過去の記録（推定）"}</em><small>{latest.recorded ? "配信時間" : "推定配信時間"} {fmtDuration(latest.durationMs)} / イベント参加者 {latest.uniqueSenders}人</small></div>
+            <div className="stats-session-title"><span>配信 #1</span><h2>{fmtRange(latest.start, latest.end)}</h2><em>{latest.recorded ? latest.active ? "記録中" : "観測終了" : "過去の記録（推定）"}</em><small>{latest.recorded ? "記録時間" : "推定配信時間"} {fmtDuration(latest.durationMs)} / コマンドに参加した人 {latest.uniqueSenders}人</small></div>
             <div className="stats-session-metrics">
               {[
-                ["♟","視聴者",latest.uniqueSenders,"人"],
-                ["🎁","ギフト",latest.gift,""],
-                ["♥","いいね",latest.like,""],
-                ["⚡","その他イベント",latest.other,""],
+                ["♟","コマンド参加者",latest.uniqueSenders,"人"],
+                ["🎁","ギフト発コマンド",latest.gift,""],
+                ["♥","いいね発コマンド",latest.like,""],
+                ["⚡","その他のコマンド",latest.other,""],
               ].map(([icon,label,value,suffix]) => <div key={String(label)}><span>{icon}</span><small>{label}</small><b>{value}{suffix}</b></div>)}
             </div>
             <div className="stats-timeline">
@@ -383,7 +397,7 @@ export default function StatsDashboardPage() {
 
           <div className="stats-analytics-grid">
             <section className="stats-analytics-card">
-              <h2>イベント内訳 ⓘ</h2>
+              <h2>コマンド要求の内訳 ⓘ</h2>
               <div className="stats-stack">
                 <span style={{width:`${(o.gift/totalKinds)*100}%`}} />
                 <i style={{width:`${(o.like/totalKinds)*100}%`}} />
@@ -392,11 +406,11 @@ export default function StatsDashboardPage() {
               {[["ギフト",o.gift,"pink"],["いいね",o.like,"violet"],["シェア",o.share,"green"],["訪問",o.member,"amber"]].map(([label,value,tone]) => (
                 <p key={String(label)}><span className={`dot dot--${tone}`} />{label}<b>{value}</b><em>{Math.round((Number(value)/totalKinds)*100)}.0%</em></p>
               ))}
-              <footer>合計 <b>{o.events}</b></footer>
+              <footer>合計 <b>{o.gift+o.like+o.share+o.follow+o.member+o.other}</b> 回 / 履歴 {o.events}件</footer>
             </section>
 
             <section className="stats-analytics-card stats-line-card">
-              <h2>ギフト＆いいね 推移</h2>
+              <h2>ギフト＆いいね発コマンドの推移</h2>
               <div className="stats-chart-legend"><span>━ ギフト</span><i>━ いいね</i></div>
               <svg viewBox="0 0 260 150" role="img" aria-label="ギフトといいねの推移">
                 <g className="grid"><path d="M25 15V132H250M25 44H250M25 73H250M25 102H250M80 15V132M135 15V132M190 15V132" /></g>
@@ -412,15 +426,15 @@ export default function StatsDashboardPage() {
             </section>
 
             <section className="stats-analytics-card stats-top-card">
-              <h2>トップギフト</h2>
+              <h2>最多コマンド</h2>
               {latest.topCommands[0] ? (
-                <div className="stats-top-gift"><span><MinecraftBlockIcon /></span><div><b>{latest.topCommands[0].name}</b><small>💎 {latest.topCommands[0].count}</small></div><em>100%</em></div>
+                <div className="stats-top-gift"><span><MinecraftBlockIcon /></span><div><b>{latest.topCommands[0].name}</b><small>{latest.topCommands[0].count} 回</small></div></div>
               ) : (
                 <p className="stats-no-data">データなし</p>
               )}
-              <h2>トップギフター</h2>
+              <h2>参加者上位（コマンド回数）</h2>
               {latest.topSenders.length ? (
-                latest.topSenders.slice(0,3).map((sender,index) => <p className="stats-ranker" key={sender.name}><span>{index+1}</span><b>{sender.name}</b><em>💎 {sender.count}</em></p>)
+                latest.topSenders.slice(0,3).map((sender,index) => <p className="stats-ranker" key={sender.name}><span>{index+1}</span><b>{sender.name}</b><em>{sender.count} 回</em></p>)
               ) : (
                 <p className="stats-no-data">データなし</p>
               )}

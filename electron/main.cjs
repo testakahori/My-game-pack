@@ -19,6 +19,7 @@ const { createStreamSessions, streamBuckets } = require("./stream_sessions.cjs")
 const { saveGiftPanelPng } = require("./image_export.cjs");
 const { EULA_URL, inspectSetup, inspectForgeClient, launchForgeInstaller, prepareServerEnvironment } = require("./initial_setup.cjs");
 const { migrateRetiredCommands } = require("./command_migration.cjs");
+const { exportStreamStatsMarkdown } = require("./stats_export.cjs");
 const streamSessions = createStreamSessions(() => path.join(getBridgeBatDir(), "stream-sessions.json"));
 const settingsBackups = createSettingsBackups({
   paths: () => ({
@@ -28,7 +29,7 @@ const settingsBackups = createSettingsBackups({
     backups: path.join(app.getPath("userData"), "settings-backups", crypto.createHash("sha256").update(path.resolve(getConfigPath())).digest("hex").slice(0, 16)),
   }),
   version: () => app.getVersion(), readTts: () => readTtsSettings(),
-  isRunning: () => Boolean(bridgeProcRef || bridgeRestartTimer),
+  isRunning: () => Boolean(bridgeProcRef || bridgeRestartTimer || mapOperationBusy || serverStarting),
 });
 
 const isDev = process.env.ELECTRON_DEV === "1";
@@ -183,9 +184,9 @@ function createWindow() {
     },
   });
   win.on("close", event => {
-    if (!initialSetupRunning) return;
+    if (!initialSetupRunning && !mapOperationBusy && !serverStarting) return;
     event.preventDefault();
-    void dialog.showMessageBox(win, { type: "info", title: "環境構築中です",
+    void dialog.showMessageBox(win, { type: "info", title: "保存・準備中です",
       message: "ワールドと設定を準備しています。保存とサーバー停止が終わるまで、このアプリを開いたままお待ちください。" });
   });
 
@@ -1252,17 +1253,22 @@ function pipeServerStream(stream, prefix) {
   });
 }
 
-ipcMain.handle("server:start", async () => {
+async function startServer(resumeAfterMap = false) {
+  if (!resumeAfterMap) assertMapIdle();
+  if (serverStarting) throw new Error("サーバーを起動中です。");
+  serverStarting = true;
+  try {
   if (initialSetupRunning) throw new Error("環境構築が完了するまでお待ちください。");
   const dir = getServerRoot();
   const bat = path.join(dir, "run.bat");
   if (!fs.existsSync(bat)) throw new Error(`run.bat not found: ${bat}`);
   if (serverProcRef) return { ok: true, alreadyRunning: true, backup: null };
 
+  await mapSaves.recover();
   // 起動前バックアップ。失敗してもサーバー起動は絶対にブロックしない
   // （旧実装は失敗時に throw して Forge が起動不能になる事故があった）。
   let backup = null;
-  if (readAppConfig().autoBackupOnServerStart !== false) {
+  if (!resumeAfterMap && readAppConfig().autoBackupOnServerStart !== false) {
     try {
       const result = await createWorldBackup("server-start");
       backup = { ok: true, message: result.message };
@@ -1307,12 +1313,15 @@ ipcMain.handle("server:start", async () => {
   });
 
   return { ok: true, backup };
-});
+  } finally { serverStarting = false; }
+}
+ipcMain.handle("server:start", () => startServer());
 
 // --------------------
 // IPC: サーバー停止（graceful: stdin へ stop → 15秒待ち → taskkill フォールバック）
 // --------------------
 ipcMain.handle("server:stop", async () => {
+  assertMapIdle();
   const proc = serverProcRef;
   const pid = serverPid;
   if (!proc && !pid) throw new Error("このセッションで起動したサーバーが見つかりません。");
@@ -1351,6 +1360,7 @@ ipcMain.handle("server:logs", () => ({ ok: true, lines: [...serverLogBuffer] }))
 // Forgeサーバーのコンソールへコマンドを1行送る（op 付与やデバッグの脱出ハッチ）。
 // 先頭の "/" は付けても付けなくてもよい（コンソールでは不要なので取り除く）。
 ipcMain.handle("server:command", async (_event, command) => {
+  assertMapIdle();
   if (!isOperatorAuthed()) throw new Error("運営ログインが必要です。ログインし直してからコンソールコマンドを送信してください。");
   const cmd = String(command || "").trim().replace(/^\//, "");
   if (!cmd) throw new Error("コマンドが空です");
@@ -1423,7 +1433,7 @@ async function launchBridge() {
   const spawnOnce = () => {
     appendBridgeLog(`[BRIDGE] 起動します: ${indexJs}`);
     const child = spawn(nodeCmd, [indexJs, "--config", path.join(dir, "config.minecraft.json")], {
-      cwd: dir, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
+      cwd: dir, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"],
     });
     bridgeProcRef = child;
     bridgePid = child.pid;
@@ -1451,44 +1461,31 @@ async function stopBridge() {
   bridgeStopRequested = true;
   bridgeRestartPolicy.requestStop();
   if (bridgeRestartTimer) { clearTimeout(bridgeRestartTimer); bridgeRestartTimer = null; }
-
   const child = bridgeProcRef;
-  // このセッションで起動した child があるなら exit を待つ（taskkill は非同期なので待たないと再起動が空振りする）
-  const waitExit = child
-    ? new Promise((resolve) => {
-        let done = false;
-        const finish = () => { if (!done) { done = true; resolve(); } };
-        child.once("exit", finish);
-        setTimeout(finish, 5000); // 保険：5秒でタイムアウト
-      })
-    : Promise.resolve();
-
-  const pid = bridgePid || (child && child.pid) || null;
-  if (pid) {
-    appendBridgeLog(`[BRIDGE] 停止要求 PID ${pid}`);
-    try { spawn("taskkill", ["/F", "/T", "/PID", String(pid)], { windowsHide: true }); } catch { /* fallthrough */ }
-  } else {
-    appendBridgeLog("[BRIDGE] PID不明のためコマンドラインで停止を試行します");
+  if (!child) return { ok: true };
+  if (child.connected) {
+    const ended = waitChildExit(child, 7000);
+    child.send({ type: 'shutdown' }, error => { if (error) appendBridgeLog('[BRIDGE] ' + error.message); });
+    if (await ended) return { ok: true };
   }
-
-  await waitExit;
-  killBridgeByCommandLine(); // 前セッション由来のオーファンを掃除（このbridgeのcommandLineに限定）
-  bridgePid = null;
-  bridgeProcRef = null;
+  const ended = waitChildExit(child, 5000);
+  try { spawn('taskkill.exe', ['/F', '/T', '/PID', String(child.pid)], { windowsHide: true }); } catch {}
+  if (!await ended) throw new Error('Bridgeを停止できませんでした。ログを確認してください。');
   return { ok: true };
 }
 
-ipcMain.handle("bridge:launch", async () => launchBridge());
+ipcMain.handle("bridge:launch", async () => { assertMapIdle(); return launchBridge(); });
 
 // --------------------
 // IPC: Bridge 停止
 // --------------------
-ipcMain.handle("bridge:stop", async () => stopBridge());
+ipcMain.handle("bridge:stop", async () => { assertMapIdle(); return stopBridge(); });
 
 // --------------------
 // IPC: Bridge 再起動（停止完了を待ってから起動する。UI側の stop→launch 連打は使わない）
 // --------------------
 ipcMain.handle("bridge:restart", async () => {
+  assertMapIdle();
   await stopBridge();
   await new Promise((r) => setTimeout(r, 400)); // ポート/ファイル解放の猶予
   return launchBridge();
@@ -1499,7 +1496,7 @@ ipcMain.handle("bridge:processStatus", () => {
   try {
     runtime = JSON.parse(fs.readFileSync(path.join(getBridgeBatDir(), "runtime-status.json"), "utf8"));
   } catch {}
-  return { ...status, ...getProcessMetrics(bridgePid), tiktok: status.running ? (runtime.tiktok || null) : null };
+  return { ...status, ...getProcessMetrics(bridgePid), tiktok: status.running ? (runtime.tiktok || null) : null, recording: status.running ? (runtime.recording || null) : null };
 });
 
 ipcMain.handle("bridge:logs", () => ({ ok: true, lines: [...bridgeLogBuffer] }));
@@ -1659,7 +1656,7 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
         type: step.type === "like" ? "like" : ["gift", "mapped_gift", "unmapped_gift"].includes(step.type) ? "gift" : "other",
         key: step.commandFile.replace(/\.txt$/i, ""), count: step.count, listenerName: plan.sender,
         announce: bridgeCfg.options?.announceEnabled !== false,
-        protectionEnabled: protection.enabled === true,
+        protectionEnabled: false,
         protectX1: Number(protection.x1 || 0), protectX2: Number(protection.x2 || 0),
         protectZ1: Number(protection.z1 || 0), protectZ2: Number(protection.z2 || 0),
       };
@@ -1681,7 +1678,13 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
   } finally { testEventRunning = false; }
 });
 
-ipcMain.handle("stream:session:status", () => ({ active: streamSessions.active() }));
+ipcMain.handle("stream:session:status", () => {
+  const sessions = streamSessions.read();
+  const current = streamBuckets([], sessions, 90 * 60000).find(s => s.source === 'automatic' && s.active);
+  let runtime = {};
+  try { runtime = JSON.parse(fs.readFileSync(path.join(getBridgeBatDir(), 'runtime-status.json'), 'utf8')); } catch {}
+  return { active: current && bridgeProcRef ? sessions.find(s => s.id === current.id) : null, monitoring: Boolean(bridgeProcRef), error: bridgeProcRef ? runtime.recording?.error || '' : '' };
+});
 ipcMain.handle("stream:session:start", (_event, title) => streamSessions.start(title));
 ipcMain.handle("stream:session:end", (_event, value) => streamSessions.end(value?.id, value?.endedAt));
 ipcMain.handle("image:saveGiftPanel", (_event, value) => saveGiftPanelPng(dialog, value));
@@ -1777,53 +1780,77 @@ ipcMain.handle("operations:history", () => readOperationsHistory());
 ipcMain.handle("operations:history:clear", () => {
   fs.writeFileSync(getOperationsHistoryPath(), "[]", "utf8"); return { ok: true };
 });
-async function createWorldBackup(reason = "manual") {
-  const propsPath = path.join(getServerRoot(), "server.properties");
-  if (!fs.existsSync(propsPath)) throw new Error("server.properties がありません");
-  const m = fs.readFileSync(propsPath, "utf8").match(/^level-name=(.+)$/m);
-  const world = path.join(getServerRoot(), (m?.[1] || "world").trim());
-  if (!fs.existsSync(world)) throw new Error(`ワールドがありません: ${world}`);
-  const outDir = path.join(getServerRoot(), "backups");
-  fs.mkdirSync(outDir, { recursive: true });
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const zip = path.join(outDir, `world-${stamp}.zip`);
-  // powershell -Command に後続引数を渡しても $args には入らない（旧実装が常に
-  // 「バックアップ失敗 (1)」になっていた真因）。パスは環境変数経由で渡す。
-  // session.lock はサーバー稼働中ロックされて読めないため、robocopy で一時フォルダーへ
-  // 除外コピーしてから圧縮する（robocopy は exit code 0〜7 が成功扱い）。
-  const script = [
-    "$ErrorActionPreference = 'Stop'",
-    "$world = $env:DOUMA_BACKUP_WORLD",
-    "$zip = $env:DOUMA_BACKUP_ZIP",
-    "$staging = Join-Path $env:TEMP ('douma-backup-' + [guid]::NewGuid().ToString('N'))",
-    "robocopy $world (Join-Path $staging 'world') /E /R:1 /W:1 /XF session.lock | Out-Null",
-    "if ($LASTEXITCODE -ge 8) { throw ('robocopy failed: exit ' + $LASTEXITCODE) }",
-    "Compress-Archive -LiteralPath (Join-Path $staging 'world') -DestinationPath $zip -CompressionLevel Fastest",
-    "Remove-Item -LiteralPath $staging -Recurse -Force",
-    "exit 0",
-  ].join("; ");
-  await new Promise((resolve, reject) => {
-    const ps = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
-      windowsHide: true,
-      env: { ...process.env, DOUMA_BACKUP_WORLD: world, DOUMA_BACKUP_ZIP: zip },
-    });
-    let errText = "";
-    ps.stderr.on("data", chunk => { errText += String(chunk); });
-    ps.on("exit", code => {
-      if (code === 0) return resolve();
-      const detail = errText.split(/\r?\n/).map(line => line.trim()).find(Boolean) || "";
-      reject(new Error(`バックアップ失敗 (${code})${detail ? `: ${detail}` : ""}`));
-    });
-    ps.on("error", reject);
-  });
-  // ディスク圧迫防止：直近10件だけ残して古いバックアップを削除
-  try {
-    const old = fs.readdirSync(outDir).filter(name => /^world-.*\.zip$/.test(name)).sort().reverse().slice(10);
-    for (const name of old) fs.rmSync(path.join(outDir, name), { force: true });
-  } catch {}
-  return { ok: true, path: zip, reason, message: `バックアップ完了: ${path.basename(zip)}` };
+
+let mapOperationBusy = false;
+let serverStarting = false;
+function assertMapIdle() {
+  if (mapOperationBusy || mapSaves.isBusy()) throw new Error('MAPを保存・読込中です。完了までお待ちください。');
 }
-ipcMain.handle("world:backup", async () => createWorldBackup("manual"));
+async function portIsOpen(port, host = '127.0.0.1') {
+  return new Promise((resolve, reject) => {
+    const socket = require('node:net').connect({ port, host });
+    socket.setTimeout(1200);
+    socket.once('connect', () => { socket.destroy(); resolve(true); });
+    socket.once('timeout', () => { socket.destroy(); reject(new Error('サーバーの停止状態を確認できません。MAP操作を中止しました。')); });
+    socket.once('error', error => { socket.destroy(); if (['ECONNREFUSED', 'EADDRNOTAVAIL'].includes(error.code)) resolve(false); else reject(error); });
+  });
+}
+async function assertMapServerStopped() {
+  if (serverProcRef || serverPid) throw new Error('サーバーが停止していません。MAP操作を中止しました。');
+  const props = fs.readFileSync(path.join(getServerRoot(), 'server.properties'), 'utf8');
+  const port = Number(props.match(/^server-port=(.+)$/m)?.[1]?.trim() || 25565);
+  const host = props.match(/^server-ip=(.+)$/m)?.[1]?.trim();
+  for (const address of new Set(['127.0.0.1', '::1', ...(host && host !== '0.0.0.0' && host !== '::' ? [host] : [])])) {
+    if (await portIsOpen(port, address)) throw new Error('別のMinecraftサーバーが起動しています。停止してからMAPを操作してください。');
+  }
+}
+const mapSaves = require('./map_saves.cjs').createMapSaves({ getRoot: getServerRoot, assertStopped: assertMapServerStopped });
+function waitChildExit(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise(resolve => {
+    const done = value => { clearTimeout(timer); child.removeListener('exit', ended); resolve(value); };
+    const ended = () => done(true);
+    const timer = setTimeout(() => done(false), timeoutMs);
+    child.once('exit', ended);
+  });
+}
+async function stopMapServer() {
+  const child = serverProcRef;
+  if (!child) { await assertMapServerStopped(); return; }
+  if (!child.stdin?.writable) throw new Error('サーバーに保存・停止を送信できません。ダッシュボードで停止してください。');
+  const ended = waitChildExit(child, 120000);
+  appendServerLog('[MAP] ワールドを保存して停止します');
+  child.stdin.write('stop\n');
+  if (!await ended) throw new Error('サーバーの保存・停止が完了しませんでした。MAPは変更していません。停止完了後に再試行してください。');
+  if (child.exitCode !== 0) throw new Error('サーバーが正常終了しませんでした。MAPを変更せずに中止しました。Forgeログを確認してください。');
+  await assertMapServerStopped();
+}
+async function runMapOperation(action) {
+  assertMapIdle();
+  if (initialSetupRunning || serverStarting) throw new Error('サーバーの準備が終わるまでお待ちください。');
+  mapOperationBusy = true;
+  const restartServer = Boolean(serverProcRef), restartBridge = Boolean(bridgeProcRef || bridgeRestartTimer);
+  try {
+    if (restartBridge) await stopBridge();
+    await stopMapServer();
+    const result = await action();
+    let restartError = '';
+    try {
+      if (restartServer) await startServer(true);
+      if (restartBridge) await launchBridge();
+    } catch (error) { restartError = error.message; }
+    return { ok: true, ...result, restarted: restartServer, restartError };
+  } finally { mapOperationBusy = false; }
+}
+ipcMain.handle('world:saves:list', async () => ({ ...(await mapSaves.list()), busy: mapOperationBusy || mapSaves.isBusy() }));
+ipcMain.handle('world:saves:save', (_event, name) => runMapOperation(async () => ({ saved: await mapSaves.save(name) })));
+ipcMain.handle('world:saves:load', (_event, id) => runMapOperation(() => mapSaves.load(id)));
+
+async function createWorldBackup(reason = 'manual') {
+  const saved = await mapSaves.save(reason === 'server-start' ? '起動前 ' + new Date().toLocaleString('ja-JP') : '', reason);
+  return { ok: true, path: path.join(getServerRoot(), 'map-saves', saved.id), reason, message: 'MAPを保存しました: ' + saved.name };
+}
+ipcMain.handle('world:backup', () => runMapOperation(() => createWorldBackup()));
 
 function getPresetDir() {
   const dir = path.join(getBridgeBatDir(), "presets");
@@ -1871,93 +1898,12 @@ ipcMain.handle("operations:stats", () => {
 // 配信ごとにギフト数・発動数・失敗数・最頻ギフト・トップギフターを集計する。
 // gapMinutes 以上イベントが途切れたら別の配信とみなす（既定90分）。
 function computeStreamStats(gapMinutes) {
-  const gapMs = Math.max(5, Number(gapMinutes) || 90) * 60 * 1000;
-  const sorted = readOperationsHistory()
-    .filter((r) => r.source !== "test")
-    .map((r) => ({ ...r, t: Date.parse(r.at) || 0 }))
-    .filter((r) => r.t > 0)
-    .sort((a, b) => a.t - b.t);
-
-  const buckets = streamBuckets(sorted, streamSessions.read(), gapMs);
-
-  const top = (obj) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, 3)
-    .map(([name, count]) => ({ name, count }));
-
-  const viewerMetrics = readViewerMetrics();
-
-  const summarize = (b) => {
-    const byCommand = {}, bySender = {};
-    // type は gift/like に加えて、historyType経由で share/follow/member が実値として記録される
-    // （Mod向けキューは常に"other"だが、統計上の内訳はここで区別する）。それ以外は other に集約。
-    let gift = 0, like = 0, share = 0, follow = 0, member = 0, other = 0, succeeded = 0, failed = 0;
-    let diamonds = 0;
-    for (const r of b.rows) {
-      const amount = Number(r.count || 1);
-      if (r.ok) succeeded++; else failed++;
-      if (r.type === "gift") gift += amount;
-      else if (r.type === "like") like += amount;
-      else if (r.type === "share") share += amount;
-      else if (r.type === "follow") follow += amount;
-      else if (r.type === "member") member += amount;
-      else other += amount;
-      if (Number(r.diamond) > 0) diamonds += Number(r.diamond) * amount;
-      byCommand[r.commandFile || "unknown"] = (byCommand[r.commandFile || "unknown"] || 0) + amount;
-      bySender[r.sender || "unknown"] = (bySender[r.sender || "unknown"] || 0) + amount;
-    }
-    // 配信区間内の視聴者数（bridge が60秒毎に記録）から 最高同接/平均 を求める
-    const windowMetrics = viewerMetrics.filter((m) => b.recorded ? m.t >= b.startT && (b.active ? m.t <= b.lastT : m.t < b.lastT) : m.t >= b.startT - 60000 && m.t <= b.lastT + 60000);
-    const maxViewers = windowMetrics.length ? Math.max(...windowMetrics.map((m) => m.viewers)) : 0;
-    const avgViewers = windowMetrics.length
-      ? Math.round(windowMetrics.reduce((a, m) => a + m.viewers, 0) / windowMetrics.length)
-      : 0;
-    return {
-      id: b.id || `estimated-${b.startT}`, title: b.title || "", recorded: b.recorded, active: b.active,
-      start: new Date(b.startT).toISOString(),
-      end: new Date(b.lastT).toISOString(),
-      durationMs: b.lastT - b.startT,
-      events: b.rows.length,
-      gift, like, share, follow, member, other, succeeded, failed,
-      diamonds,
-      maxViewers,
-      avgViewers,
-      uniqueSenders: Object.keys(bySender).length,
-      topCommands: top(byCommand),
-      topSenders: top(bySender),
-    };
-  };
-
-  const cutoff = Date.now() - 30 * 86400000;
-  const streams = buckets.filter(b => b.lastT >= cutoff).map(summarize).reverse(); // 新しい配信を先頭に
-  const sum = (key) => streams.reduce((a, s) => a + (s[key] || 0), 0);
-
-  // 今月（ローカル時刻基準）の配信合計時間
-  const now = new Date();
-  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const monthStreams = streams.filter((s) => {
-    const d = new Date(s.start);
-    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-  });
-
-  return {
-    activeSession: streamSessions.active(),
-    gapMinutes: gapMs / 60000,
-    overall: {
-      streams: streams.length,
-      events: sum("events"),
-      gift: sum("gift"), like: sum("like"), share: sum("share"), follow: sum("follow"),
-      member: sum("member"), other: sum("other"),
-      succeeded: sum("succeeded"), failed: sum("failed"),
-      diamonds: sum("diamonds"),
-    },
-    monthly: {
-      month: monthKey,
-      streams: monthStreams.length,
-      totalDurationMs: buckets.reduce((a, b) => a + Math.max(0, Math.min(b.lastT, now.getTime()) - Math.max(b.startT, new Date(now.getFullYear(), now.getMonth(), 1).getTime())), 0),
-      diamonds: monthStreams.reduce((a, s) => a + (s.diamonds || 0), 0),
-    },
-    streams,
-  };
+  return require('./stream_statistics.cjs').computeStreamStats({ rows: readOperationsHistory(), sessions: streamSessions.read(), viewerMetrics: readViewerMetrics(), gapMinutes });
 }
+ipcMain.handle('operations:stats:export', (_event, streamId) => exportStreamStatsMarkdown({
+  stats: computeStreamStats(), streamId, dialog, parent: BrowserWindow.getFocusedWindow(),
+}));
+
 ipcMain.handle("operations:streamStats", (_event, gapMinutes) => computeStreamStats(gapMinutes));
 
 // --------------------
@@ -2020,6 +1966,7 @@ ipcMain.handle("server:props:read", async () => {
 // IPC: server.properties 書き込み
 // --------------------
 ipcMain.handle("server:props:write", async (_event, updates) => {
+  assertMapIdle();
   if (typeof updates !== "object" || updates === null) throw new Error("updates must be an object");
 
   const propsPath = path.join(getServerRoot(), "server.properties");
@@ -2090,6 +2037,7 @@ let initialSetupRunning = false;
 let initialSetupState = { state: "idle", message: "" };
 ipcMain.handle("server:setup:status", () => initialSetupState);
 async function setupServerAtPath(folderPath) {
+  assertMapIdle();
   if (!folderPath || typeof folderPath !== "string") throw new Error("folderPath is required");
   if (initialSetupRunning) throw new Error("環境構築が進行中です。完了までお待ちください。");
   if (serverProcRef) throw new Error("Minecraftサーバーを停止してから環境構築を実行してください。");
@@ -2426,6 +2374,7 @@ ipcMain.handle("gv:settings:write", async (_event, v) => {
 ipcMain.handle("app:config:read", async () => readPublicAppConfig());
 
 ipcMain.handle("app:config:write", async (_event, data) => {
+  if (data && ('serverFolder' in data || 'world' in data)) { assertMapIdle(); if (serverStarting) throw new Error('サーバーの起動中は保存先を変更できません。'); }
   if (typeof data !== "object" || data === null) throw new Error("data must be an object");
   if (Object.hasOwn(data, "autoBackupOnServerStart") && data.autoBackupOnServerStart !== readAppConfig().autoBackupOnServerStart && fs.existsSync(getConfigPath())) settingsBackups.create("automatic");
   writeAppConfig(sanitizeRendererAppConfigUpdate(data));

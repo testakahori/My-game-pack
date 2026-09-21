@@ -662,7 +662,7 @@ function sendDoumaModEvent({ host, port, type, commandFile, count, listenerName,
     count: clampInt(count, 1, 100, 1),
     listenerName: String(listenerName || "viewer"),
     announce: announce !== false,
-    protectionEnabled: runtimeProtection.enabled === true,
+    protectionEnabled: false,
     protectX1: Number(runtimeProtection.x1 || 0),
     protectX2: Number(runtimeProtection.x2 || 0),
     protectZ1: Number(runtimeProtection.z1 || 0),
@@ -1329,6 +1329,17 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     }, { priority: 8 });
   });
 
+  const { createAutomaticRecorder } = require('./stream_sessions.cjs');
+  const automaticRecording = createAutomaticRecorder(() => path.join(__dirname, 'stream-sessions.json'));
+  function recordStream(action, ...args) {
+    if (action === 'heartbeat' && !automaticRecording.activeId()) return;
+    try { automaticRecording[action](...args); updateRuntimeStatus({ recording: { state: automaticRecording.activeId() ? 'recording' : 'waiting', error: '' } }); }
+    catch (error) { console.error('[Stream recording]', error.message); updateRuntimeStatus({ recording: { state: 'error', error: error.message } }); }
+  }
+  const recordingTimer = setInterval(() => recordStream('heartbeat'), 15000);
+  recordingTimer.unref();
+  tiktok.on('streamEnd', () => recordStream('end', 'live-ended'));
+
   async function connectTikTokWithRetry() {
     let failureCount = 0;
     updateRuntimeStatus({
@@ -1338,6 +1349,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       try {
         const state = await tiktok.connect();
         connectedAt = Date.now();
+        recordStream('connect', tiktokUsername, state.roomId);
         console.log(`[TikTok] Connected. roomId=${state.roomId}`);
         console.log(`[Bridge] connectedAt: ${connectedAt}`);
         updateRuntimeStatus({
@@ -1378,6 +1390,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   tiktok.on("disconnected", (data = {}) => {
     const reason = String(data?.reason || `code=${data?.code ?? "unknown"}`);
     console.warn(`[TikTok] Disconnected: ${reason}`);
+    recordStream('end', 'connection-lost');
     updateRuntimeStatus({
       tiktok: { state: "retrying", username: tiktokUsername, error: reason, at: new Date().toISOString() },
     });
@@ -1691,7 +1704,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     if (Number.isFinite(v) && v >= 0) currentViewers = v;
   });
   const viewerMetricsTimer = setInterval(() => {
-    if (currentViewers <= 0) return;
+    if (!automaticRecording.activeId() || currentViewers <= 0) return;
     try {
       fs.appendFileSync(metricsPath, JSON.stringify({ at: new Date().toISOString(), viewers: currentViewers }) + "\n", "utf8");
     } catch { /* 記録失敗は無視 */ }
@@ -1958,7 +1971,9 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     }
   });
 
-  process.on("SIGINT", () => {
+  function shutdownBridge() {
+    recordStream('end', 'monitoring-stopped');
+    clearInterval(recordingTimer);
     console.log("\n[Bridge] Stopping...");
     doumaWebSocketStopping = true;
     if (tiktokReconnectTimer) clearTimeout(tiktokReconnectTimer);
@@ -1967,7 +1982,11 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       tiktok.disconnect();
     } catch {}
     process.exit(0);
-  });
+  }
+  process.on('SIGINT', shutdownBridge);
+  process.on('SIGTERM', shutdownBridge);
+  process.on('disconnect', shutdownBridge);
+  process.on('message', message => { if (message?.type === 'shutdown') shutdownBridge(); });
 }
 
 if (require.main === module) {

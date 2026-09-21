@@ -27,10 +27,10 @@ function normalizeMappings(value) {
   });
 }
 function parseTemplate(raw) {
-  if (Buffer.byteLength(raw, 'utf8') > MAX_BYTES) throw new Error('テンプレートは2MBまでです。');
+  if (Buffer.byteLength(raw, 'utf8') > MAX_BYTES) throw new Error('ギフト設定ファイルは2MBまでです。');
   let value;
-  try { value = JSON.parse(raw.replace(/^\uFEFF/, '')); } catch { throw new Error('JSONを読み取れません。ギフト設定テンプレートのファイルを選んでください。'); }
-  if (value?.format !== FORMAT || value.version !== 1) throw new Error('対応していないテンプレート形式です。このアプリの「テンプレートを保存」で作成したJSONを選んでください。');
+  try { value = JSON.parse(raw.replace(/^\uFEFF/, '')); } catch { throw new Error('JSONを読み取れません。保存したギフト設定のファイルを選んでください。'); }
+  if (value?.format !== FORMAT || value.version !== 1) throw new Error('対応していないファイル形式です。このアプリの「ギフト設定保存」で作成したJSONを選んでください。');
   return { format: FORMAT, version: 1,
     name: typeof value.name === 'string' ? value.name.slice(0, 100) : 'ギフト設定',
     appVersion: typeof value.appVersion === 'string' ? value.appVersion.slice(0, 30) : '',
@@ -45,7 +45,7 @@ function createGiftTemplates({ dialog, context, writeConfig, appVersion, now = (
     async save() {
       const source = context();
       const mappings = normalizeMappings(read(source.configPath).mappings);
-      const picked = await dialog.showSaveDialog({ title: 'ギフト設定を保存', buttonLabel: '保存', defaultPath: 'ギフト設定_' + new Date(now()).toISOString().slice(0, 10) + '.json', filters: [{ name: 'ギフト設定テンプレート', extensions: ['json'] }] });
+      const picked = await dialog.showSaveDialog({ title: 'ギフト設定を保存', buttonLabel: '保存', defaultPath: 'ギフト設定_' + new Date(now()).toISOString().slice(0, 10) + '.json', filters: [{ name: 'ギフト設定保存', extensions: ['json'] }] });
       if (picked.canceled || !picked.filePath) return { canceled: true };
       if (path.resolve(picked.filePath).toLowerCase() === path.resolve(source.configPath).toLowerCase()) throw new Error('アプリの設定ファイル自体には上書きできません。別の名前で保存してください。');
       const name = path.basename(picked.filePath).replace(/\.json$/i, '').slice(0, 100);
@@ -55,10 +55,10 @@ function createGiftTemplates({ dialog, context, writeConfig, appVersion, now = (
     },
     async open() {
       pending = null;
-      const picked = await dialog.showOpenDialog({ title: 'ギフト設定を読込', buttonLabel: '読込', properties: ['openFile'], filters: [{ name: 'ギフト設定テンプレート', extensions: ['json'] }] });
+      const picked = await dialog.showOpenDialog({ title: 'ギフト設定を読込', buttonLabel: '読込', properties: ['openFile'], filters: [{ name: 'ギフト設定保存', extensions: ['json'] }] });
       if (picked.canceled || !picked.filePaths?.[0]) return { canceled: true };
       const file = picked.filePaths[0];
-      if (fs.statSync(file).size > MAX_BYTES) throw new Error('テンプレートは2MBまでです。');
+      if (fs.statSync(file).size > MAX_BYTES) throw new Error('ギフト設定ファイルは2MBまでです。');
       const template = parseTemplate(fs.readFileSync(file, 'utf8'));
       const source = context();
       const before = read(source.configPath).mappings || [];
