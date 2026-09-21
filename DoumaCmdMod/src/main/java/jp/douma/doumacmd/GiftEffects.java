@@ -8,6 +8,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
+import net.minecraft.network.protocol.game.ClientboundTeleportEntityPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -345,14 +346,23 @@ final class GiftEffects {
         Block[] materials={Blocks.MAGMA_BLOCK,Blocks.BEDROCK,Blocks.DEEPSLATE,Blocks.GOLD_BLOCK,Blocks.OBSIDIAN};
         Map<Integer,MeteorFlight> groups=new HashMap<>();
         UUID targetId=targetPlayer.getUUID();
-        int size=METEOR_SHAPE.size(), perWave=size+10;
-        Job shower=job(clusters*perWave,1,12,i->{
+        int size=METEOR_SHAPE.size(), fragments=100, perWave=size*2+fragments;
+        // Each wave builds two solid boulders side by side and launches them together.
+        // Fragment slots are spread across every tick instead of a burst after each rock.
+        // One slot still creates at most one entity, respecting the shared entity budget.
+        Job shower=job((clusters/2)*perWave,1,16,i->{
             int wave=i/perWave,part=i%perWave;
-            MeteorFlight flight=part<size
-                ?groups.computeIfAbsent(wave,n->launchMeteor(o,n,true,materials[n%materials.length],targetId))
-                :launchMeteor(o,wave*10+part-size,false,materials[(wave+part)%materials.length],targetId);
+            int smallBefore=part*fragments/perWave, smallAfter=(part+1)*fragments/perWave;
+            boolean fragment=smallAfter>smallBefore;
+            int bodyPart=part-smallBefore, cluster=wave*2+bodyPart%2;
+            MeteorFlight flight=fragment
+                ?launchMeteor(o,wave*fragments+smallBefore,false,materials[(wave*fragments+smallBefore)%materials.length],targetId)
+                :groups.computeIfAbsent(cluster,n->launchMeteor(o,n,true,materials[n%materials.length],targetId));
+            if(part==perWave-1) {
+                for(int n=wave*2;n<wave*2+2;n++) { MeteorFlight rock=groups.get(n); if(rock!=null)rock.launched=ticks; }
+            }
             if(flight.ended)return;
-            BlockPos offset=part<size?METEOR_SHAPE.get(part):BlockPos.ZERO;
+            BlockPos offset=fragment?BlockPos.ZERO:METEOR_SHAPE.get(bodyPart/2);
             Vec3 position=flight.start.add(offset.getX(),offset.getY(),offset.getZ());
             if(!o.allowed(BlockPos.containing(position)))return;
             FallingBlockEntity block=EntityType.FALLING_BLOCK.create(o.level);
@@ -365,7 +375,7 @@ final class GiftEffects {
             block.addTag("douma_meteorshower");
             block.addTag(flight.large?"douma_meteor_cluster":"douma_meteor_fragment");
             o.level.addFreshEntity(block);flight.blocks.add(block);
-            if (!flight.large || part==size-1) flight.launched=ticks;
+            if (!flight.large) flight.launched=ticks;
         });
         meteorNights.computeIfAbsent(o.level, l -> new ArrayList<>()).add(shower);
         long day=o.level.getDayTime();
@@ -381,8 +391,11 @@ final class GiftEffects {
         double radius=aimed?0:large?4+index%5*5:3+o.level.random.nextDouble()*29;
         int x=(int)Math.floor(focus.x+Math.cos(angle)*radius),z=(int)Math.floor(focus.z+Math.sin(angle)*radius);
         int ground=loaded(o,x,z)?o.level.getHeight(Heightmap.Types.OCEAN_FLOOR,x,z):(int)focus.y;
+        // Repeated fragments should scar the impact area, not drill an ever-deeper shaft.
+        // A stable impact floor also keeps later meteors shallow and visible to the player.
+        ground=Math.max(ground,(int)Math.floor(o.pos.y)-8);
         Vec3 target=new Vec3(x+.5,ground+(large?2:0),z+.5);
-        double approach=angle+.8,side=large?82:70;
+        double approach=.65+Math.sin(index*.37)*.22,side=large?82:70;
         double rise=Math.min(o.level.getMaxBuildHeight()-5,Math.max(focus.y,ground)+(large?38:32))-target.y;
         Vec3 start=target.add(Math.cos(approach)*side,rise,Math.sin(approach)*side);
         // Shorten both axes together near the loaded-area edge, retaining the shallow angle.
@@ -434,6 +447,12 @@ final class GiftEffects {
                 BlockPos offset=meteor.large?METEOR_SHAPE.get(index):BlockPos.ZERO;
                 block.setPos(current.add(offset.getX(),offset.getY(),offset.getZ()));
                 block.setDeltaMovement(meteor.velocity);
+                // Falling blocks normally synchronize at different spawn-relative intervals.
+                // Keep an entire boulder on the same frame, including both rocks at launch.
+                if (meteor.large && (ticks-meteor.launched)%4==0) {
+                    meteor.origin.level.getChunkSource().broadcastAndSend(block,new ClientboundTeleportEntityPacket(block));
+                    meteor.origin.level.getChunkSource().broadcastAndSend(block,new ClientboundSetEntityMotionPacket(block));
+                }
             }
             if(lead==null||ticks%(meteor.large?2:4)!=0)continue;
             double spread=meteor.large?2.7:.12;

@@ -1324,12 +1324,34 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   });
 
   const { createAutomaticRecorder } = require('./stream_sessions.cjs');
+  const { createAudienceRecorder } = require('./audience_stats.cjs');
+  const audience = createAudienceRecorder(() => path.join(__dirname, 'stream-audience.json'));
   const automaticRecording = createAutomaticRecorder(() => path.join(__dirname, 'stream-sessions.json'));
   function recordStream(action, ...args) {
     if (action === 'heartbeat' && !automaticRecording.activeId()) return;
-    try { automaticRecording[action](...args); updateRuntimeStatus({ recording: { state: automaticRecording.activeId() ? 'recording' : 'waiting', error: '' } }); }
+    try {
+      const session = automaticRecording[action](...args);
+      if (action === 'connect' && automaticRecording.activeId()) audience.connect(session);
+      else if (action === 'end') audience.end();
+      else {
+        if (automaticRecording.activeId() && !audience.active()) throw new Error('受信統計を開始できませんでした。統計ファイルを確認してBridgeを再起動してください。');
+        audience.flush();
+      }
+      updateRuntimeStatus({ recording: { state: automaticRecording.activeId() ? 'recording' : 'waiting', error: '' } }); }
     catch (error) { console.error('[Stream recording]', error.message); updateRuntimeStatus({ recording: { state: 'error', error: error.message } }); }
   }
+  // Record received activity before command eligibility/mute checks; test fire bypasses TikTok.
+  for (const type of ['gift', 'like', 'chat', 'share', 'follow', 'member', 'roomUser']) {
+    tiktok.on(type, data => {
+      if (isPreConnectionEvent(data)) return;
+      try { audience.receive(type, data); }
+      catch (error) { updateRuntimeStatus({ recording: { state: 'error', error: error.message } }); console.error('[Audience recording]', error.message); }
+    });
+  }
+  const audienceTimer = setInterval(() => {
+    try { audience.flush(); } catch (error) { updateRuntimeStatus({ recording: { state: 'error', error: error.message } }); console.error('[Audience recording]', error.message); }
+  }, 1000);
+  audienceTimer.unref();
   const recordingTimer = setInterval(() => recordStream('heartbeat'), 15000);
   recordingTimer.unref();
   tiktok.on('streamEnd', () => recordStream('end', 'live-ended'));
@@ -1974,6 +1996,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
   function shutdownBridge() {
     recordStream('end', 'monitoring-stopped');
+    clearInterval(audienceTimer);
     clearInterval(recordingTimer);
     console.log("\n[Bridge] Stopping...");
     doumaWebSocketStopping = true;

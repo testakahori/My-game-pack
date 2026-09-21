@@ -163,6 +163,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
     gapMinutes: 90,
     overall: { streams: 1, events: devHistoryRows.length, gift: 1, like: 10, share: 1, follow: 0, member: 1, other: 0, succeeded: devHistoryRows.length, failed: 0 },
     streams: [{
+      received: null, earnings: null,
       id: "preview-stream", source: "estimated", recorded: false, viewerSamples: 0,
       start: new Date(devHistoryStart).toISOString(),
       end: now,
@@ -450,6 +451,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
     operationsHistory: async () => [...devHistoryRows],
     operationsStats: async () => ({ total: 0, succeeded: 0, failed: 0, topCommands: [], topSenders: [] }),
     operationsHistoryClear: ok,
+    operationsEarningsSave: async () => ({ ok: true }),
     operationsStreamStats: async (gapMinutes: number) => ({ ...streamStats, gapMinutes }),
     testEvent: async () => ({ ok: false, message: '実際のイベントテストはインストール版で利用してください。' }),
     minecraftGrantOp: async () => ({ ok: true, name: "dev_player" }),

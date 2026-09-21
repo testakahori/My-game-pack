@@ -644,6 +644,8 @@ const BRIDGE_PRESERVE_FILES = new Set([
   "operations-history.json",
   "stream-sessions.json",
   "stream-metrics.jsonl",
+  "stream-audience.json",
+  "stream-earnings.json",
   "runtime-status.json",
 ]);
 // バンドルから廃止したファイルの墓標リスト。差分同期はコピーのみで配信先の余剰ファイルを
@@ -1911,11 +1913,13 @@ ipcMain.handle("operations:stats", () => {
 // 配信ごとにギフト数・発動数・失敗数・最頻ギフト・トップギフターを集計する。
 // gapMinutes 以上イベントが途切れたら別の配信とみなす（既定90分）。
 function computeStreamStats(gapMinutes) {
-  return require('./stream_statistics.cjs').computeStreamStats({ rows: readOperationsHistory(), sessions: streamSessions.read(), viewerMetrics: readViewerMetrics(), gapMinutes });
+  return require('./stream_statistics.cjs').computeStreamStats({ rows: readOperationsHistory(), sessions: streamSessions.read(), viewerMetrics: readViewerMetrics(), audience: require("../bridge/audience_stats.cjs").readAudienceStats(path.join(getBridgeBatDir(), "stream-audience.json")), earnings: require("./stream_earnings.cjs").readEarnings(path.join(getBridgeBatDir(), "stream-earnings.json")), gapMinutes });
 }
 ipcMain.handle('operations:stats:export', (_event, streamId) => exportStreamStatsMarkdown({
   stats: computeStreamStats(), streamId, dialog, parent: BrowserWindow.getFocusedWindow(),
 }));
+
+ipcMain.handle("operations:earnings:save", (_event, id, amount) => require("./stream_earnings.cjs").saveEarnings(path.join(getBridgeBatDir(), "stream-earnings.json"), computeStreamStats().streams, id, amount));
 
 ipcMain.handle("operations:streamStats", (_event, gapMinutes) => computeStreamStats(gapMinutes));
 
