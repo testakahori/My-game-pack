@@ -169,7 +169,7 @@ const CommandSetManager: React.FC = () => {
           <label className="text-xs text-gray-400"># RANDOM<input value={random} onChange={e=>setRandom(e.target.value)} placeholder="heal.txt*50,tnt.txt*50" className="w-full mt-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2"/></label>
           <label className="text-xs text-gray-400"># SOUND<input value={sound} onChange={e=>setSound(e.target.value)} placeholder="entity.experience_orb.pickup" className="w-full mt-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2"/></label>
           <label className="text-xs text-gray-400"># PARTICLE<input value={particle} onChange={e=>setParticle(e.target.value)} placeholder="minecraft:happy_villager" className="w-full mt-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2"/></label>
-          <label className="flex items-center gap-2 text-xs text-amber-300"><input type="checkbox" checked={destructive} onChange={e=>setDestructive(e.target.checked)}/>地形破壊系（拠点保護対象）</label>
+          <label className="flex items-center gap-2 text-xs text-amber-300"><input type="checkbox" checked={destructive} onChange={e=>setDestructive(e.target.checked)}/>地形破壊系</label>
         </div>
 
         {/* コマンド入力 */}

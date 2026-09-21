@@ -163,6 +163,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
     gapMinutes: 90,
     overall: { streams: 1, events: devHistoryRows.length, gift: 1, like: 10, share: 1, follow: 0, member: 1, other: 0, succeeded: devHistoryRows.length, failed: 0 },
     streams: [{
+      id: "preview-stream", source: "estimated", recorded: false, viewerSamples: 0,
       start: new Date(devHistoryStart).toISOString(),
       end: now,
       durationMs: Date.now() - devHistoryStart,
@@ -190,7 +191,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
       const a = document.createElement('a'); a.href = dataUrl; a.download = filename; a.click();
       return { canceled: false };
     },
-    streamSessionStatus: async () => ({ active: JSON.parse(localStorage.getItem('dev-stream-session') || 'null') }),
+    streamSessionStatus: async () => ({ active: null, monitoring: false, error: '' }),
     streamSessionStart: async (title: string) => {
       const existing = JSON.parse(localStorage.getItem('dev-stream-session') || 'null');
       if (existing) return existing;
@@ -464,6 +465,10 @@ if (import.meta.env.DEV && !win.mygamepack) {
       return { ok: true as const };
     },
     worldBackup: ok,
+    worldSavesList: async () => ({ world: 'haihu_world/world', busy: false, recoveryPending: false, saves: [] }),
+    worldSavesSave: async () => { throw new Error('MAPの保存はインストール版で利用できます。'); },
+    worldSavesLoad: async () => { throw new Error('MAPの読込はインストール版で利用できます。'); },
+    operationsStatsExport: async () => { throw new Error('配信統計の書き出しはインストール版で利用できます。'); },
     presetsList: async () => ["配信用"],
     presetsSave: ok,
     presetsLoad: async () => ({ ok: true }),

@@ -1,9 +1,8 @@
 import React, { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { GiftMapping } from '../types';
 import type { GiftAssignment } from '../types/electron';
-import GiftCommandDialog from './GiftCommandDialog';
 import { useUnsavedChanges, useUnsavedGuard } from '../UnsavedChanges';
-import { applyPanelTemplate, cardColors, clamp, createPanel, normalizePanel, panelFilename, panelId, panelLayout, readPanelLibrary, syncPanelGift, PANEL_STORAGE_KEY, TEMPLATES, TONES, toneForCategory, type PanelCard, type PanelDesign, type PanelLibrary } from '../lib/giftPanel';
+import { applyPanelTemplate, cardColors, clamp, createPanel, normalizePanel, panelFilename, panelId, panelLayout, readPanelLibrary, PANEL_STORAGE_KEY, TEMPLATES, TONES, toneForCategory, type PanelCard, type PanelDesign, type PanelLibrary } from '../lib/giftPanel';
 import { drawGiftPanel, type PanelImages } from '../lib/giftPanelCanvas';
 
 type Gift = { id: number; name: string; diamond_count: number; image?: string | null };
@@ -45,7 +44,6 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
   const [gifts, setGifts] = useState<Gift[]>([]);
   const [metadata, setMetadata] = useState<Meta[]>([]);
   const [savedMappings, setSavedMappings] = useState<GiftAssignment[]>(mappings);
-  const [commandGift, setCommandGift] = useState<PanelCard | null>(null);
   const [loading, setLoading] = useState(true);
   const [dataError, setDataError] = useState('');
   const [reload, setReload] = useState(0);
@@ -181,15 +179,12 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
     if (documents.length >= 20 || (storageError && !confirmDiscard())) return;
     dispatch({ type: 'replace', value: createPanel() }); setSelected(null); setNotice('');
   };
-  const assignment = card ? savedMappings.find(m => String(m.giftId) === card.giftId) : undefined;
-  const assignedCommand = metadata.find(m => m.name === assignment?.commandFile);
   const cardInspector = card ? <section className="panel-inspector" aria-label="選択したカードの編集">
-          <div className="panel-inspector-heading"><div><b>{selectedIndex + 1}. {card.giftName}</b><small>文字・色・コマンドを編集</small></div><div className="panel-inline-actions">
+          <div className="panel-inspector-heading"><div><b>{selectedIndex + 1}. {card.giftName}</b><small>文字・色・並び順を編集</small></div><div className="panel-inline-actions">
             <button className="studio-icon-button" aria-label="カードを前へ移動" disabled={selectedIndex <= 0} onClick={() => moveCard(card.id, selectedIndex - 1)}><i className="fa-solid fa-arrow-left" /></button>
             <button className="studio-icon-button" aria-label="カードを後ろへ移動" disabled={selectedIndex === design.cards.length - 1} onClick={() => moveCard(card.id, selectedIndex + 1)}><i className="fa-solid fa-arrow-right" /></button>
             <button className="studio-quiet" onClick={() => removeCard(card.id)}><i className="fa-regular fa-trash-can" />削除</button>
           </div></div>
-          <div className="panel-command-link"><small>ゲーム内の設定</small><b>{assignment?.commandFile ? (assignedCommand?.title || assignment.commandFile) + ' ×' + (assignment.repeat || 1) : 'コマンド未登録'}</b><button className="studio-quiet" onClick={() => setCommandGift(card)}><i className="fa-solid fa-link" />コマンド設定</button></div>
           <p className="panel-hint">以下は画像の表示だけを変更します。</p>
           <div className="panel-inspector-fields"><label className="panel-field"><span>効果名・表示する文字</span><textarea rows={2} maxLength={120} value={card.title} onChange={e => updateCard({ title: e.target.value })} /></label><NumberField label="表示する回数" value={card.repeat} min={1} max={9999} onChange={repeat => updateCard({ repeat })} /><label className="panel-field"><span>内容のグループ</span><select value={card.tone} onChange={e => updateCard({ tone: e.target.value as PanelCard['tone'] })}>{TONES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}</select></label></div>
           <div className="panel-card-colors"><span>このカードの色</span>{TONES.map(t => <button key={t.id} className="panel-swatch" style={{ background: design.palette[t.id] }} aria-label={t.label + 'の色にする'} onClick={() => updateCard({ color: design.palette[t.id] })} />)}
@@ -198,12 +193,6 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
           </div>
         </section> : <p className="panel-hint">プレビューのカードを選ぶと、表示する文字や色を編集できます。</p>;
   return <div className="panel-studio">
-    {commandGift && <GiftCommandDialog giftId={commandGift.giftId} giftName={commandGift.giftName} hasCards={design.cards.some(c => c.giftId === commandGift.giftId)} onClose={() => setCommandGift(null)} onSaved={(nextMappings, command, repeat, syncImage) => {
-      setSavedMappings(nextMappings);
-      if (syncImage) commit(syncPanelGift(design, commandGift.giftId, command.title, repeat, command.category));
-      setNotice(commandGift.giftName + 'のコマンドを「' + command.title + ' ×' + repeat + '」に保存しました。' + (syncImage ? 'この画像の効果名・回数も更新しました。OBSで使うPNGは保存し直してください。' : '画像の表示はそのままです。'));
-      setCommandGift(null);
-    }} />}
     <header className="studio-page-heading">
       <div><span className="studio-eyebrow">CREATOR STUDIO</span><h1>配信画像<span className="studio-tag">OBS用 PNG</span></h1><p>ギフトの楽しさを、ひと目で伝えよう。</p></div>
       <div className="panel-heading-actions">
@@ -283,11 +272,11 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
 
         {design.cards.length > 0 && <div className="panel-order"><div className="panel-order-heading"><span>並び順 <small>ドラッグで入れ替え</small></span><button className="studio-quiet" onClick={() => { patch({ cards: [] }); setSelected(null); }}>すべて外す</button></div><div className="panel-order-strip">{design.cards.map((c, i) => <button key={c.id} className={selected === c.id ? 'is-selected' : ''} aria-label={(i + 1) + '番のカードを選択'} draggable onDragStart={() => { dragId.current = c.id; }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (dragId.current) moveCard(dragId.current, i); dragId.current = null; }} onDragEnd={() => { dragId.current = null; }} onClick={() => { setSelected(c.id); setControls('card'); }}><small>{i + 1}</small>{c.image && <img src={c.image} alt="" loading="lazy" />}<span>{c.title}</span></button>)}</div></div>}
         <section className="panel-library">
-          <div className="panel-library-heading"><div className="panel-section-label"><span>02</span><h2>ギフト・コマンド</h2></div><button className="studio-quiet" onClick={addMapped} disabled={!mappedCards.length || design.cards.length >= 96 || loading}>設定済みをまとめて追加</button></div>
+          <div className="panel-library-heading"><div className="panel-section-label"><span>02</span><h2>画像に使うギフト</h2></div><button className="studio-quiet" onClick={addMapped} disabled={!mappedCards.length || design.cards.length >= 96 || loading}>設定済みをまとめて追加</button></div>
           <div className="panel-library-tools"><div className="panel-segments"><button aria-pressed={source === 'mapped'} onClick={() => setSource('mapped')}>設定済み {mappedCards.length}</button><button aria-pressed={source === 'all'} onClick={() => setSource('all')}>すべて {gifts.length}</button></div><label className="panel-search"><i className="fa-solid fa-magnifying-glass" /><input aria-label="画像に使うギフトを検索" placeholder="ギフト名・効果名で検索" value={search} onChange={e => setSearch(e.target.value)} /></label></div>
-          {loading ? <p className="panel-library-empty" role="status">ギフトを読み込んでいます…</p> : dataError ? <div className="studio-alert" role="alert">{dataError}<button onClick={() => setReload(n => n + 1)}>再読み込み</button></div> : !available.length ? <p className="panel-library-empty">{source === 'mapped' && !mappedCards.length ? '「すべて」からギフトを選び、コマンド設定や画像への追加ができます。' : '一致するギフトがありません。検索する文字を変えてください。'}</p> : <div className="panel-gift-grid">{available.slice(0, 100).map(c => <article key={c.id} className="panel-gift-entry"><button className="panel-gift-add" aria-label={c.giftName + 'を画像に追加'} disabled={design.cards.length >= 96} onClick={() => addCards([c])} title={c.giftName + ' / ' + c.title}>
+          {loading ? <p className="panel-library-empty" role="status">ギフトを読み込んでいます…</p> : dataError ? <div className="studio-alert" role="alert">{dataError}<button onClick={() => setReload(n => n + 1)}>再読み込み</button></div> : !available.length ? <p className="panel-library-empty">{source === 'mapped' && !mappedCards.length ? '「すべて」からギフトを選んで画像に追加できます。' : '一致するギフトがありません。検索する文字を変えてください。'}</p> : <div className="panel-gift-grid">{available.slice(0, 100).map(c => <article key={c.id} className="panel-gift-entry"><button className="panel-gift-add" aria-label={c.giftName + 'を画像に追加'} disabled={design.cards.length >= 96} onClick={() => addCards([c])} title={c.giftName + ' / ' + c.title}>
             <div>{c.image ? <img src={c.image} alt="" loading="lazy" /> : <i className="fa-solid fa-gift" />}<span className="panel-gift-plus">+</span></div><b>{c.giftName}</b><small>{c.title}</small>
-          </button><button className="panel-gift-command" aria-label={c.giftName + 'のコマンド設定'} onClick={() => setCommandGift(c)}><i className="fa-solid fa-link" />コマンド設定</button></article>)}</div>}
+          </button></article>)}</div>}
           {available.length > 100 && <p className="panel-hint">先頭100件を表示しています。検索してギフトを絞り込めます。</p>}
           {design.cards.length >= 96 && <p className="panel-hint">1つの画像には96枚まで追加できます。別のデザインに分けて作成してください。</p>}
         </section>

@@ -800,7 +800,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
     ["Minecraft起動", "ランチャーを開いてサーバーに接続", gameRunning ? "done" : "pending"],
     ["BRIDGE起動", "TikTok → RCON 接続・ルール自動適用", stepBridge],
     ["配布ワールド選択", `${draft || "haihu_world/sakura"} を適用`, levelName ? "done" : "pending"],
-    ["保護・安全設定", "監視・テスト・バックアップ確認", "done"],
+    ["MAP保存・動作設定", "監視・テスト・バックアップ確認", "done"],
     ["TIKTOK LIVE 配信開始", "配信開始ボタンはLive Studio側で押します", "pending"],
   ] as const;
 
@@ -934,14 +934,10 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
           </section>
 
           <section className="cockpit-info-card cockpit-safety-card">
-          <h2><span>⬡</span> 保護＆バックアップ</h2>
-          <div className="cockpit-safety-state"><span>⬡</span><div><b>{safety.protection || safety.autoBackup ? "一部有効" : "未設定"}</b><small>運用センターで詳細を設定できます</small></div></div>
-          <ul>
-            <li>{bridgeProcess.running ? "✓" : "○"} BRIDGEログ監視{bridgeProcess.running ? "" : "（停止中）"}</li>
-            <li>{safety.protection ? "✓" : "○"} 拠点保護エリア{safety.protection ? "" : "（未設定）"}</li>
-            <li>{safety.autoBackup ? "✓" : "○"} サーバー起動時バックアップ{safety.autoBackup ? "" : "（無効）"}</li>
-            <li>✓ クラッシュ時自動再起動</li>
-          </ul>
+          <h2><span>◇</span> MAPセーブ・ロード</h2>
+          <div className="cockpit-safety-state"><span>◇</span><div><b>遊ぶ前の世界を保存</b><small>地形も持ち物も、保存した時点へ</small></div></div>
+          <ul><li>{safety.autoBackup ? '✓ 起動前の自動セーブ 有効' : '○ 起動前の自動セーブ 無効'}</li><li>読み込み前のMAPも自動で退避</li></ul>
+          <button type="button" onClick={() => onNavigate(AppPage.OPERATIONS)}>MAPの保存・読込を開く</button>
           </section>
         </div>
       </div>

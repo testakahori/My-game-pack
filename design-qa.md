@@ -64,3 +64,15 @@ The installed v1.0.36 app exposed an OS-specific image download failure missed b
 - A template with a missing command disabled Apply and displayed the missing filename. Cancel kept the original config.
 - Native PNG export: 1080×420, 162497 bytes, all 8 images visible, no × controls in output. Evidence: local QA files 31–33 and v139-native-qa.json.
 - Limitation: the first native save-dialog invocation after installing exited with Windows code 0xc0000409. The cause is not established. After restarting, five native save/open operations (including PNG export) completed without recurrence; this is not claimed fixed, and Norton is not established as the cause.
+
+
+## v1.0.40: MAP saves and automatic stream records (2026-09-21)
+
+- Image editor no longer exposes command-edit controls; charcoal gold cards and Night Stage 6×2; gift save/load wording simplified.
+- Named MAP snapshots include inventory and dimensions; verify SHA256 before swap, automatically retain pre-load world, recover interrupted swaps, reject active external server and concurrent path/start operations. No PowerShell in the new MAP save/load path.
+- Record TikTok room IDs and observed connection intervals automatically; same-room reconnects stay together, zero-event broadcasts retained, stale heartbeat stops crash duration growth. Explicitly distinguish command counts from actual TikTok gift/like/coin totals.
+- Native isolated Electron fixture: named save → modify world and player data → UI load → original data restored and modified world present in automatic safety save. User's actual world untouched during this test.
+- Native save dialog wrote 3374-byte UTF-8 Markdown with two simulated broadcasts (1200/600 observed seconds), room IDs and escaped Japanese names. No real TikTok LIVE end-to-end test was performed while offline.
+- Native image preview loaded Heart Me image against charcoal background; card inspector contained image text, repeat, group and color only.
+- Validation: TypeScript, 14 Bridge scenarios, 100 app tests and production Vite build passed.
+- Previous v1.0.39 one-time native save-dialog 0xc0000409 crash remains unexplained; it did not reproduce in this task's Markdown save flow.

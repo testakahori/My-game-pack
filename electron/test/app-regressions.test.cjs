@@ -30,7 +30,7 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
     if (name === "electron") return {
       app, dialog, ipcMain: { handle: (name, fn) => handlers.set(name, fn), on() {} },
       clipboard: { writeText: text => copiedTexts.push(text) },
-      BrowserWindow: { getAllWindows: () => [{ webContents: { send: (...args) => notifications.push(args) } }] },
+      BrowserWindow: { getFocusedWindow: () => null, getAllWindows: () => [{ webContents: { send: (...args) => notifications.push(args) } }] },
     };
     if (name === "electron-updater") return { autoUpdater: updater };
     if (name === "./process_runner.cjs") return { runProc: run };
@@ -58,6 +58,7 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
       context.setupAutoUpdater();
     },
     usePackagedPaths: () => { app.isPackaged = true; },
+    setServer: child => { context.fixtureChild = child; vm.runInContext('serverProcRef = fixtureChild; serverPid = fixtureChild?.pid || null;', context); },
   };
 }
 
@@ -349,4 +350,45 @@ test("ギフトテンプレートIPC: 確認後に割り当てのみ適用し、
   assert.equal(backups.length, 1);
   await app.invoke('settings:backups:restore', backups[0].id);
   assert.deepEqual(JSON.parse(fs.readFileSync(app.configPath, 'utf8')), before);
+});
+
+
+test('MAP IPC: save/load round trip and Markdown export use the selected server', async t => {
+  const report = path.join(os.tmpdir(), 'stats-export-' + require('node:crypto').randomUUID() + '.md');
+  t.after(() => fs.rmSync(report, { force: true }));
+  const app = loadApp(t, undefined, undefined, { showSaveDialog: async () => ({ canceled: false, filePath: report }) });
+  await app.invoke('app:config:write', { serverFolder: app.root });
+  const world = path.join(app.root, 'world'); fs.mkdirSync(world); fs.writeFileSync(path.join(world, 'level.dat'), 'before');
+  fs.writeFileSync(path.join(app.root, 'server.properties'), 'level-name=world\nserver-port=39968\n');
+  const saved = await app.invoke('world:saves:save', 'first'); assert.equal(saved.ok, true);
+  fs.writeFileSync(path.join(world, 'level.dat'), 'after');
+  const loaded = await app.invoke('world:saves:load', saved.saved.id); assert.equal(loaded.ok, true);
+  assert.equal(fs.readFileSync(path.join(world, 'level.dat'), 'utf8'), 'before');
+  assert.equal((await app.invoke('world:saves:list')).saves.length, 2);
+  const md = await app.invoke('operations:stats:export'); assert.equal(md.ok, true); assert.match(fs.readFileSync(report, 'utf8'), /# 配信統計/);
+});
+test('MAP IPC: stop waits for server save; path changes, starts and a second operation are blocked', async t => {
+  const { EventEmitter } = require('node:events');
+  const app = loadApp(t); await app.invoke('app:config:write', { serverFolder: app.root });
+  const world = path.join(app.root, 'world'); fs.mkdirSync(world); fs.writeFileSync(path.join(world, 'level.dat'), 'current');
+  fs.writeFileSync(path.join(app.root, 'server.properties'), 'level-name=world\nserver-port=39969\n');
+  const child = new EventEmitter(); Object.assign(child, { pid: 123456, exitCode: null, signalCode: null });
+  let requested = false; child.stdin = { writable: true, write: text => { assert.equal(text, 'stop\n'); requested = true; } }; app.setServer(child);
+  const saving = app.invoke('world:saves:save', 'checkpoint'); assert.equal(requested, true);
+  await assert.rejects(app.invoke('app:config:write', { serverFolder: app.root + '-other' }), /保存・読込中/);
+  await assert.rejects(app.invoke('server:start'), /保存・読込中/);
+  await assert.rejects(app.invoke('server:props:write', { 'level-name': 'different' }), /保存・読込中/);
+  await assert.rejects(app.invoke('world:saves:save', 'second'), /保存・読込中/);
+  assert.equal(fs.existsSync(path.join(app.root, 'map-saves')), false);
+  child.exitCode = 0; app.setServer(null); child.emit('exit', 0);
+  const result = await saving; assert.equal(result.saved.name, 'checkpoint');
+  assert.match(result.restartError, /run.bat/); // The save remains successful even if relaunch fails.
+});
+test('MAP IPC: external listening server prevents a snapshot', async t => {
+  const app = loadApp(t); await app.invoke('app:config:write', { serverFolder: app.root });
+  const server = require('node:net').createServer(); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  fs.writeFileSync(path.join(app.root, 'server.properties'), 'level-name=world\nserver-port=' + server.address().port + '\n');
+  await assert.rejects(app.invoke('world:saves:save', 'unsafe'), /別のMinecraftサーバー/);
+  assert.equal(fs.existsSync(path.join(app.root, 'map-saves')), false);
 });
