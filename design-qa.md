@@ -41,3 +41,7 @@ Copy: action-oriented Japanese labels, OBS placement instructions and explicit s
 ## Evidence index
 
 07-dashboard-fixed.png, 08-color-cards.png, 11-light-template.png, 12-editor-1024.png, 14-gift-settings.png, 15-event-settings.png, 16-roulette-settings.png, 17-tts.png, 18-stats.png, 19-reference-comparison.png, 20-setup.png, 21-final-editor.png, 22-final-vertical.png, 23-final-operations.png, png-validation.json. Earlier screenshots precede small final styling/copy adjustments; final editor and operations captures show v1.0.36.
+
+## Native follow-up — v1.0.37
+
+The installed v1.0.36 app exposed an OS-specific image download failure missed by the dev process: Node fetch returned UNABLE_TO_VERIFY_LEAF_SIGNATURE while the catalog images displayed via Chromium. The image API now uses Electron net.fetch, retaining HTTPS-only redirects, MIME validation, a 10 MB streamed limit and timeout. A real catalog URL succeeded with the new transport and failed with the old one in the same Electron runtime. Six additional regression tests passed (82 total); native PNG save is rechecked after installation. The app icon is now included in the packaged files.
