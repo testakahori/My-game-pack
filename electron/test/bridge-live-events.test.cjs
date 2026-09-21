@@ -17,7 +17,9 @@ async function until(check,label) {
   assert.fail('Timed out: '+label);
 }
 test('本番ハンドラー: protobuf→100いいね→タラ、贈り主名、接続中の設定2回保存をHTTPまで確認', async t=>{
-  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bridge-live-events-'));
+  // Windows CI's TEMP may contain an 8.3 alias (RUNNER~1). fs.watch's native
+  // rename notifications use the long path; watch the same canonical spelling.
+  const dir=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'bridge-live-events-')));
   const requests=[], logs=[], timers=new Set(), watchers=[];
   const server=http.createServer((req,res)=>{
     let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{
