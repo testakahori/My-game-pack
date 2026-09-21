@@ -1,7 +1,7 @@
 {
   "name": "tiktok-bridge-ui",
   "private": true,
-  "version": "1.0.35",
+  "version": "1.0.36",
   "description": "MyGamePack 用の設定編集UI（TikTok Bridge統合UI）",
   "author": "Douma Akahori",
   "type": "module",
@@ -22,7 +22,8 @@
   "dependencies": {
     "electron-updater": "^6.8.9",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "@fortawesome/fontawesome-free": "^7.3.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.18",

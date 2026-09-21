@@ -13,6 +13,7 @@ export enum AppPage {
   SETUP = "setup",
   OPERATIONS = "operations",
   STATS = "stats",
+  IMAGE_EDITOR = "image_editor",
 }
 
 export enum AppTab {

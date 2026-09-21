@@ -431,7 +431,7 @@ const TTSSettingsPage: React.FC = () => {
         <div className="tts-control-header__title">
           <SpeakerWaveIcon />
           <div>
-            <h1>音声コントロール</h1>
+            <h1>読み上げ</h1>
             <p>コメント・ギフトを VOICEVOX / AivisSpeech で読み上げます</p>
           </div>
         </div>

@@ -316,7 +316,22 @@ if (import.meta.env.DEV && !win.mygamepack) {
     },
     serverGamerulesApply: ok,
     serverDatapackDeployNightVision: ok,
-    configRead: async () => structuredClone(bridgeConfig),
+    configRead: async () => {
+      // Explicit visual QA fixture; never enabled in packaged Electron or written to a server.
+      if (new URLSearchParams(window.location.search).get("demo") === "panels" && !bridgeConfig.mappings.length) {
+        const data = await readDevGifts();
+        const samples = [
+          ["7934", "zombie.txt", 20], ["6090", "flood.txt", 1], ["5655", "heal.txt", 1],
+          ["5658", "villager.txt", 5], ["6097", "tnt.txt", 1], ["6064", "skeleton.txt", 10],
+          ["5269", "superjump.txt", 1], ["5585", "meteorshower.txt", 1], ["5586", "goldapple.txt", 3],
+          ["5660", "iceage.txt", 1], ["5487", "lovedog.txt", 1], ["6544", "daiyasoubi.txt", 1],
+        ];
+        bridgeConfig.mappings = samples.map(([id, commandFile, repeat]) => ({
+          giftId: id, name: data.gifts.find((gift: any) => String(gift.id) === id)?.name || id, commandFile, repeat,
+        }));
+      }
+      return structuredClone(bridgeConfig);
+    },
     configWrite: async (next: any) => {
       bridgeConfig = structuredClone(next);
       return { ok: true };
@@ -324,6 +339,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
     configPath: async () => "config.minecraft.json（開発ブラウザーでは実パスなし）",
     configValidate: async () => ({ ok: true, errors: [], warnings: [] }),
     bridgeCommandsList: readDevCommands,
+    bridgeCommandsReadMeta: readDevCommands,
     bridgeCommandsWrite: ok,
     bridgeCommandsOpenFolder: ok,
     giftsRead: readDevGifts,

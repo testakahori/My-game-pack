@@ -81,7 +81,7 @@ function tailPath(value?: string, fallback = "server/Douma_Craft") {
 }
 
 function parseWorldName(value?: string) {
-  if (!value) return "sakura";
+  if (!value) return "未設定";
   const parts = String(value).split(/[\\/]+/).filter(Boolean);
   return parts.at(-1) || value;
 }
@@ -162,6 +162,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
   const [updater, setUpdater] = useState<any>({ state: "idle" });
   const [bridgeProcess, setBridgeProcess] = useState<any>({ running: false, restartCount: 0 });
   const [bridgeSync, setBridgeSync] = useState<any>({ state: "idle" });
+  const [opsTab, setOpsTab] = useState("test");
   const [showHistory, setShowHistory] = useState(false);
   const [now, setNow] = useState(new Date());
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
@@ -229,8 +230,6 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
 
   const o = cfg.options || {};
   const protection = o.protection || {};
-  const backlog = (status.gift || 0) + (status.like || 0) + (status.other || 0);
-  const pct = Math.min(100, Math.max(8, backlog ? backlog / 10 : status.online ? 24 : 62));
   const latestAt = history[0]?.at;
   const worldName = parseWorldName(serverProps["level-name"] || appCfg.world || cfg.world);
   const serverFolderLabel = tailPath(appCfg.serverFolder);
@@ -355,11 +354,9 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
 
   return (
     <div className="operations-page ops-page">
-      <SettingsBackupsPanel onRestored={onRestored} />
-      <StreamRecordingPanel />
       <header className="ops-header">
         <div>
-          <h1>運用センター / <span>Mission Control</span></h1>
+          <h1>運用センター</h1>
           <p>サーバーの監視・テスト・安全運用を統合管理します。</p>
         </div>
         <div className="ops-header-cards" aria-label="現在の運用状態">
@@ -383,7 +380,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
           <div className="ops-panel-heading">
             <span className="ops-panel-icon ops-panel-icon--cyan">❄</span>
             <div>
-              <h2>Mod死活監視</h2>
+              <h2>接続状況</h2>
               <p>2秒ごとに /douma/status を確認</p>
             </div>
           </div>
@@ -419,30 +416,20 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
             </button>
           </div>
 
-          <div className="ops-heartbeat">
-            {Array.from({ length: 46 }).map((_, index) => (
-              <span
-                key={index}
-                className={index < Math.round((pct / 100) * 46) ? "is-active" : ""}
-                style={{ ["--i" as string]: index }}
-              />
-            ))}
-            <svg viewBox="0 0 150 38" aria-hidden="true">
-              <polyline points="0,24 24,24 32,7 43,32 58,17 75,19 88,22 103,17 118,24 150,24" />
-            </svg>
-          </div>
+          <p className="studio-monitor-note">{status.online ? "サーバーとModが応答しています。下のテストでイベントの発火を確認できます。" : "サーバーを起動すると、接続状態とコマンドの実行状況をここで確認できます。"}</p>
 
           <div className="ops-monitor-bottom">
-            <span>最終確認: {fmtShortTime(latestAt)}（2秒前）</span>
-            <b>次回確認まで: 00:00:01</b>
+            <span>最終イベント: {latestAt ? fmtShortTime(latestAt) : "なし"}</span>
+            <span>2秒ごとに接続を確認</span>
           </div>
         </div>
 
         <CreeperSignal />
       </OpsPanel>
 
-      <div className="ops-main-grid">
-        <EventTestPanel onTested={refresh} />
+      <nav className="studio-ops-tabs" aria-label="運用センターのメニュー">{[["test", "テスト・記録"], ["safety", "保護・設定"], ["maintenance", "バックアップ・更新"], ["advanced", "詳細設定"]].map(([id, label]) => <button key={id} aria-pressed={opsTab === id} onClick={() => setOpsTab(id)}>{label}</button>)}{hasChanges && <button className="studio-ops-save" disabled={saving} onClick={save}>変更を保存</button>}</nav>
+      <div hidden={opsTab !== "test"}><StreamRecordingPanel /><EventTestPanel onTested={refresh} /></div>
+      <div className="ops-main-grid" hidden={opsTab !== "safety"}>
 
         <OpsPanel className="ops-stability-card">
           <div className="ops-panel-heading">
@@ -529,7 +516,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
       </div>
 
       <div className="ops-bottom-grid">
-        <OpsPanel className="ops-json-card">
+        <div hidden={opsTab !== "advanced"}><OpsPanel className="ops-json-card">
           <div className="ops-card-topline">
             <div className="ops-panel-heading">
               <span className="ops-panel-icon ops-panel-icon--violet">☷</span>
@@ -568,7 +555,8 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
           </div>
         </OpsPanel>
 
-        <OpsPanel className="ops-update-card">
+        </div>
+        <div hidden={opsTab !== "maintenance"}><SettingsBackupsPanel onRestored={onRestored} /><OpsPanel className="ops-update-card">
           <div className="ops-card-topline">
             <div>
               <h2>アプリ自動更新</h2>
@@ -622,6 +610,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
         </OpsPanel>
       </div>
 
+      </div>
       {notice && <div className="ops-notice">{notice}</div>}
 
       {showHistory && (

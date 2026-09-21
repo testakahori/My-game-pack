@@ -1,63 +1,13 @@
-// src/components/Header.tsx
 import React from "react";
 import { AppTab } from "../types";
-import MinecraftBlockIcon from "./MinecraftBlockIcon";
-
-type Props = {
-  activeTab: AppTab;
-  setActiveTab: (t: AppTab) => void;
-
-  // ※ もし subtitle を表示してるなら App.tsx から渡してるはずなので残す
-  subtitle?: string;
-};
-
-const Header: React.FC<Props> = ({ activeTab, setActiveTab, subtitle }) => {
-  const tabBtn = (tab: AppTab, label: string, icon: string) => {
-    const isActive = activeTab === tab;
-
-    return (
-      <button
-        type="button"
-        onClick={() => setActiveTab(tab)}
-        aria-current={isActive ? "page" : undefined}
-        className={[
-          "px-4 py-2 rounded-full text-sm font-bold transition-all flex items-center gap-2",
-          "focus:outline-none focus:ring-2 focus:ring-cyan-500/60",
-          isActive
-            ? "bg-cyan-600 text-white shadow-lg"
-            : "bg-gray-800 text-gray-200 hover:bg-gray-700 border border-gray-700",
-        ].join(" ")}
-      >
-        <i className={icon}></i>
-        {label}
-      </button>
-    );
-  };
-
-  return (
-    <header className="gift-tabs-header bg-gray-900/60 backdrop-blur border-b border-gray-800 sticky top-0 z-50">
-      <div className="gift-tabs-header__inner container mx-auto px-4 py-4 flex items-center justify-between gap-4">
-        {/* Left brand */}
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="gift-tabs-cube w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-600 to-blue-600 flex items-center justify-center shadow-lg shrink-0">
-            <MinecraftBlockIcon />
-          </div>
-          <div className="min-w-0">
-            <div className="text-white font-black leading-tight truncate">MC TikTok Bridge（統合UI）</div>
-            <div className="text-[11px] text-gray-400 truncate">{subtitle ?? "Minecraft / 7DTD を1画面で切り替え"}</div>
-          </div>
-        </div>
-
-        {/* Center nav */}
-        <nav className="flex items-center gap-2 flex-wrap justify-center">
-          {tabBtn(AppTab.COMMAND_SETS, "コマンド設定", "fa-solid fa-file-lines")}
-          {tabBtn(AppTab.MAPPINGS, "ギフト設定", "fa-solid fa-gift")}
-          {tabBtn(AppTab.IMAGE_EDITOR, "画像編集", "fa-solid fa-image")}
-        </nav>
-
-      </div>
-    </header>
-  );
-};
-
-export default Header;
+type Props = { activeTab: AppTab; setActiveTab: (tab: AppTab) => void; subtitle?: string };
+export default function Header({ activeTab, setActiveTab }: Props) {
+  return <header className="studio-gift-header">
+    <div><span className="studio-eyebrow">GIFT ACTIONS</span><h1>ギフト設定</h1><p>ギフトを選んで、Minecraftで起こることを決めよう。</p></div>
+    <nav className="studio-subnav" aria-label="ギフト設定のメニュー">
+      <button aria-current={activeTab === AppTab.MAPPINGS ? "page" : undefined} onClick={() => setActiveTab(AppTab.MAPPINGS)}><i className="fa-solid fa-gift" />ギフトの割り当て</button>
+      <button aria-current={activeTab === AppTab.COMMAND_SETS ? "page" : undefined} onClick={() => setActiveTab(AppTab.COMMAND_SETS)}><i className="fa-solid fa-terminal" />コマンド編集</button>
+      <button className="studio-subnav-link" onClick={() => setActiveTab(AppTab.IMAGE_EDITOR)}><i className="fa-regular fa-image" />配信画像を作る<i className="fa-solid fa-arrow-up-right-from-square" /></button>
+    </nav>
+  </header>;
+}

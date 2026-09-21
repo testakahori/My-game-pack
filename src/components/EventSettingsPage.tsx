@@ -321,10 +321,9 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
       {/* ══ ヘッダー + アクション ══ */}
       <div className="events-header flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-black text-white">イベント設定</h1>
+          <h1 className="text-2xl font-black text-white">いいね・フォロー</h1>
           <p className="text-gray-400 text-sm mt-1">
-            いいね・シェア・訪問 でコマンドを発火します。
-            <code className="text-cyan-400 text-xs ml-1">config.minecraft.json</code> に保存されます。
+            いいね・フォロー・シェア・訪問など、イベントごとの動きを設定します。
           </p>
         </div>
         <div className="events-header__actions flex items-center gap-2 shrink-0">
