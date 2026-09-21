@@ -332,6 +332,16 @@ if (import.meta.env.DEV && !win.mygamepack) {
       }
       return structuredClone(bridgeConfig);
     },
+    configGiftMappingSave: async (request: any) => {
+      const matches = bridgeConfig.mappings.filter((row: any) => String(row.giftId) === request.giftId);
+      if (JSON.stringify(matches) !== JSON.stringify(request.expected)) throw new Error("このギフトの設定が別の操作で変更されました。閉じて開き直してください。");
+      if (matches.length > 1) throw new Error("このギフトが重複登録されています。");
+      const commands = await readDevCommands();
+      if (!commands.some((command: any) => command.name === request.commandFile) || !Number.isInteger(request.repeat) || request.repeat < 1 || request.repeat > 100) throw new Error("コマンドと回数を確認してください。");
+      const updated = { ...matches[0], giftId: request.giftId, name: request.name, commandFile: request.commandFile, repeat: request.repeat };
+      bridgeConfig.mappings = matches.length ? bridgeConfig.mappings.map((row: any) => String(row.giftId) === request.giftId ? updated : row) : [...bridgeConfig.mappings, updated];
+      return { ok: true, mappings: structuredClone(bridgeConfig.mappings) };
+    },
     configWrite: async (next: any) => {
       bridgeConfig = structuredClone(next);
       return { ok: true };

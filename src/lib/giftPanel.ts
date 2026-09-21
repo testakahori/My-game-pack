@@ -120,3 +120,8 @@ export function panelFilename(design: PanelDesign) {
   const name = design.name.trim().replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').replace(/[. ]+$/, '').slice(0, 60) || 'ギフト案内';
   const layout = panelLayout(design); return `${name}_${layout.width}x${layout.height}.png`;
 }
+
+/** Explicitly copy a saved assignment into this image, preserving presentation. */
+export function syncPanelGift(design: PanelDesign, giftId: string, title: string, repeat: number, category: string): PanelDesign {
+  return { ...design, cards: design.cards.map(card => card.giftId === giftId ? { ...card, title, repeat, category } : card) };
+}

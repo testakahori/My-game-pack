@@ -324,6 +324,8 @@ ipcMain.handle("config:read", async () => {
   return JSON.parse(raw);
 });
 
+const { updateGiftMapping } = require("./gift_mapping.cjs");
+
 function writeBridgeConfig(nextConfig) {
   const validation = validateBridgeConfig(nextConfig);
   if (!validation.ok) throw new Error(`設定エラー:\n${validation.errors.join("\n")}`);
@@ -351,6 +353,17 @@ ipcMain.handle("config:mappings:write", async (_event, mappings) => {
   const configPath = getConfigPath();
   ensureConfigExists(configPath);
   return writeBridgeConfig({ ...JSON.parse(fs.readFileSync(configPath, "utf8")), mappings });
+});
+
+ipcMain.handle("config:giftMapping:save", (_event, request) => {
+  const configPath = getConfigPath();
+  ensureConfigExists(configPath);
+  const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
+  const names = fs.existsSync(dir) ? fs.readdirSync(dir).filter(name => name.endsWith(".txt") && !name.startsWith("_") && fs.statSync(path.join(dir, name)).isFile()) : [];
+  const next = updateGiftMapping(JSON.parse(fs.readFileSync(configPath, "utf8")), request, names);
+  // Keep read / compare / write synchronous so another IPC cannot interleave.
+  writeBridgeConfig(next);
+  return { ok: true, mappings: next.mappings };
 });
 
 ipcMain.handle("config:path", async () => {
