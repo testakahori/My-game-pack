@@ -54,3 +54,13 @@ The installed v1.0.36 app exposed an OS-specific image download failure missed b
 - Native save IPC has regression coverage for preserving unrelated settings, stale edits, duplicate registrations, missing commands, invalid repeats, and failed validation. Existing backup and atomic write paths are reused.
 - React review: parallel independent reads, canceled-load guard, explicit async save, disabled pending actions, modal focus containment, accessible labels, and existing unsaved-change protection.
 - Screenshots and actual installed-app verification are recorded in the local handoff, outside the public repository.
+
+## v1.0.39 — Gift templates and card removal
+
+- Typecheck, production build and 99 automated checks (14 Bridge + 85 app) passed. CI passed on Windows/Linux and for the Mod build.
+- Browser and installed app: individual top-right × removes only that card; undo restores it; saved gift commands remain unchanged. Native design went from 8 to 7 to 8 cards.
+- Native save exported all 5 existing gift assignments with only gift ID/name/command filename/repeat. No account or connection data was exported.
+- Native open preview left settings untouched. Apply changed 5 rows to the 2-row test set, including heal.txt ×2. Loading the exported original JSON restored the complete original config.
+- A template with a missing command disabled Apply and displayed the missing filename. Cancel kept the original config.
+- Native PNG export: 1080×420, 162497 bytes, all 8 images visible, no × controls in output. Evidence: local QA files 31–33 and v139-native-qa.json.
+- Limitation: the first native save-dialog invocation after installing exited with Windows code 0xc0000409. The cause is not established. After restarting, five native save/open operations (including PNG export) completed without recurrence; this is not claimed fixed, and Norton is not established as the cause.
