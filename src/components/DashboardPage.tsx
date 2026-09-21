@@ -7,7 +7,7 @@ import type { GiftMapping } from "../types";
 
 type RunState = "stopped" | "starting" | "running" | "error";
 type LogType  = "info" | "ok" | "error" | "warn";
-type StepStatus = "pending" | "active" | "done" | "error" | "optional";
+type StepStatus = "pending" | "active" | "done" | "error" | "optional" | "manual";
 
 interface LogEntry {
   id: number;
@@ -44,6 +44,9 @@ function safeParse<T>(raw: string | null, fallback: T): T {
 
 function nowStr(): string {
   return new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+function errorMessage(error: any): string {
+  return String(error?.message ?? error).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "");
 }
 
 let logIdCounter = 0;
@@ -160,6 +163,7 @@ const stepStyle: Record<StepStatus, { num: string; label: string }> = {
   done:     { num: "bg-emerald-700 text-white",       label: "text-emerald-300" },
   error:    { num: "bg-red-700 text-white",           label: "text-red-300" },
   optional: { num: "bg-gray-800/60 text-gray-500",    label: "text-white" },
+  manual:   { num: "bg-gray-800/60 text-gray-500",    label: "text-white" },
 };
 
 const LaunchStep: React.FC<{ step: number; label: string; desc: string; status: StepStatus }> = ({ step, label, desc, status }) => {
@@ -252,8 +256,10 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
   const [forgeState,  setForgeState]  = useState<RunState>("stopped");
   const [bridgeState, setBridgeState] = useState<RunState>("stopped");
   const [allStartBusy, setAllStartBusy] = useState(false);
+  const [launchNotice, setLaunchNotice] = useState<{ type: LogType; text: string } | null>(null);
 
   const [username,  setUsername]  = useState<string>("");
+  const [accountLive, setAccountLive] = useState<{ username: string; state: "empty" | "checking" | "live" | "offline" | "error"; error?: string }>({ username: "", state: "empty" });
   const usernameLoadedRef = useRef(false);
   const [applyBusy, setApplyBusy] = useState(false);
   const [applyMsg,  setApplyMsg]  = useState<{ type: "ok" | "error"; text: string } | null>(null);
@@ -271,7 +277,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
   const [bridgeLogs, setBridgeLogs] = useState<string[]>([]);
   const [serverLogs, setServerLogs] = useState<string[]>([]);
   const [consoleCmd, setConsoleCmd] = useState("");
-  const [serverProc, setServerProc] = useState<{ running?: boolean; pid?: number | null }>({});
+  const [serverProc, setServerProc] = useState<{ running?: boolean; managed?: boolean; pid?: number | null }>({});
   const [gameRunning, setGameRunning] = useState(false);
   const [launcherPath, setLauncherPath] = useState<string>("");
   const [allStopBusy, setAllStopBusy] = useState(false);
@@ -286,7 +292,9 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
   }, []);
 
   useEffect(() => {
-    if (log.length > 0) logEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    // ページ全体をログへスクロールすると、起動ボタンと原因表示が画面外になる。
+    const panel = logEndRef.current?.parentElement;
+    if (log.length > 0 && panel) panel.scrollTo({ top: panel.scrollHeight });
   }, [log]);
 
   // username は config.minecraft.json を優先して初期化する（ハードコード既定値で実アカウントを潰さない）
@@ -313,6 +321,27 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
     if (!usernameLoadedRef.current) return; // 初期ロード前の空文字で localStorage を潰さない
     localStorage.setItem(LS_TIKTOK_USER, username);
   }, [username]);
+
+  useEffect(() => {
+    let disposed = false;
+    let checking = false;
+    const id = username.trim().replace(/^@/, "").toLowerCase();
+    setAccountLive({ username: id, state: id ? "checking" : "empty" });
+    if (!id) return;
+    const refresh = async () => {
+      if (checking) return;
+      checking = true;
+      try {
+        const status = await api.tiktokLiveStatus(id);
+        if (!disposed) setAccountLive(status);
+      } catch {
+        if (!disposed) setAccountLive({ username: id, state: "error", error: "配信状態を確認できませんでした。" });
+      } finally { checking = false; }
+    };
+    const first = window.setTimeout(refresh, 600);
+    const timer = window.setInterval(refresh, 30000);
+    return () => { disposed = true; window.clearTimeout(first); window.clearInterval(timer); };
+  }, [api, username]);
 
   // 保護＆バックアップカードの実状態（拠点保護・起動時バックアップ）を読み込む
   useEffect(() => {
@@ -413,7 +442,8 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
     setForgeState("starting"); addLog("Forgeサーバーを起動中…");
     try {
       // 暗視は初期設定：どのワールドでも常時付与されるよう、起動前に毎回データパックを配置する
-      try { await api.serverDatapackDeployNightVision(); } catch { /* optional */ }
+      const current = await api.serverProcessStatus?.();
+      if (!current?.running) try { await api.serverDatapackDeployNightVision(); } catch { /* optional */ }
       const started = await api.serverStart(); setForgeState("running");
       logBackupResult(started?.backup);
       addLog("Forgeサーバーを起動しました。", "ok");
@@ -439,7 +469,9 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
       await api.serverStop(); setForgeState("stopped");
       addLog("Forgeサーバーを停止しました。", "ok");
     } catch (e: any) {
-      setForgeState("error"); addLog(`サーバー停止エラー: ${e?.message ?? String(e)}`, "error");
+      setForgeState("error");
+      const text = `サーバー停止エラー: ${errorMessage(e)}`;
+      setLaunchNotice({ type: "error", text }); addLog(text, "error");
     }
   };
 
@@ -566,7 +598,8 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
     setAllStartBusy(true);
     setApplyMsg(null);
     setWorldMsg(null);
-    addLog("最初にTikTok LIVE STUDIOで接続してください（手動操作）。続いてサーバー・Minecraft・BRIDGEを起動します。", "info");
+    setLaunchNotice({ type: "info", text: "一括起動を開始しました。保存済みの設定を確認しています…" });
+    addLog("一括起動を開始します。起動済みのサーバーはそのまま使用します。", "info");
     let stage: "config" | "forge" | "minecraft" | "bridge" | "done" = "config";
 
     // 読み上げ（TTS）が有効ならエンジンを裏で自動起動する。
@@ -575,6 +608,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
       try {
         const tts = await api.ttsSettingsRead?.();
         if (!tts?.enabled) return;
+        setLaunchNotice({ type: "info", text: "読み上げエンジンを確認・起動しています…" });
         addLog(`読み上げエンジン（${tts.engine}）を確認・起動しています…`, "info");
         const launched = await api.ttsLaunchEngine?.(tts.engine);
         if (launched?.ok) {
@@ -591,6 +625,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
 
     try {
       if (isWorldDirty) {
+        if ((await api.serverProcessStatus?.())?.running) throw new Error("サーバーが起動中のため、ワールドを切り替えられません。停止してから変更してください。");
         setWorldSaving(true);
         addLog(`配布ワールド設定を保存中: ${draft}`, "info");
         await api.serverPropsWrite({ "level-name": draft });
@@ -617,32 +652,40 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
 
       setForgeState("starting");
       stage = "forge";
+      setLaunchNotice({ type: "info", text: "Forgeサーバーの状態を確認・起動しています…" });
       addLog("Forgeサーバーを起動中…", "info");
       // 暗視は初期設定：ワールド変更の有無にかかわらず毎回データパックを配置する
-      try { await api.serverDatapackDeployNightVision(); } catch { /* optional */ }
+      const currentServer = await api.serverProcessStatus?.();
+      if (!currentServer?.running) try { await api.serverDatapackDeployNightVision(); } catch { /* optional */ }
       const started = await api.serverStart();
       setForgeState("running");
       logBackupResult(started?.backup);
-      addLog("Forgeサーバーを起動しました。", "ok");
+      addLog(started?.alreadyRunning ? "起動済みのForgeサーバーを使用します。" : "Forgeサーバーを起動しました。", "ok");
 
       stage = "minecraft";
-      addLog("Minecraftランチャーを起動中…", "info");
+      setLaunchNotice({ type: "info", text: "Minecraftの起動状態を確認しています…" });
       // Minecraft起動失敗は致命にしない（配信はサーバー＋Bridgeで成立する。ランチャーは手動でも可）
       try {
-        await api.minecraftLaunch();
-        addLog("Minecraftランチャーを起動しました。サーバーへ接続してください。", "ok");
+        const minecraft = await api.minecraftStatus?.();
+        if (minecraft?.running) {
+          addLog("Minecraftは起動済みです。", "ok");
+        } else {
+          await api.minecraftLaunch();
+          addLog("Minecraftランチャーを起動しました。サーバーへ接続してください。", "ok");
+        }
       } catch (mcErr: any) {
         addLog(`Minecraftランチャーの自動起動に失敗（手動で起動してください）: ${mcErr?.message ?? String(mcErr)}`, "warn");
       }
 
       setBridgeState("starting");
       stage = "bridge";
+      setLaunchNotice({ type: "info", text: "BRIDGEを起動しています。TikTokへの接続状況は上の表示で確認できます。" });
       addLog("BRIDGEを起動中…", "info");
       await api.bridgeLaunch();
       setBridgeState("running");
       addLog("BRIDGEを起動しました。", "ok");
 
-      try {
+      if (!started?.alreadyRunning) try {
         await api.serverGamerulesApply();
         addLog("ゲームルール（常昼・晴れ・keepInventory・暗視）を適用しました。", "ok");
       } catch (ge: any) {
@@ -663,12 +706,14 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
       }
 
       stage = "done";
+      setLaunchNotice({ type: "ok", text: "一括起動が完了しました。TikTokへの接続状況は上の表示で確認できます。" });
       addLog("一括起動が完了しました。", "ok");
     } catch (e: any) {
-      const msg = e?.message ?? String(e);
+      const msg = errorMessage(e);
       if (stage === "forge") setForgeState("error");
       if (stage === "minecraft") addLog("Minecraft起動段階で止まりました。ランチャーのインストール場所を確認してください。", "error");
       if (stage === "bridge") setBridgeState("error");
+      setLaunchNotice({ type: "error", text: `一括起動が止まりました: ${msg}` });
       addLog(`一括起動エラー: ${msg}`, "error");
     } finally {
       setWorldSaving(false);
@@ -679,13 +724,16 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
   const handleAllStop = async () => {
     if (allStopBusy) return;
     setAllStopBusy(true);
+    const errors: string[] = [];
+    setLaunchNotice({ type: "info", text: "BRIDGEとサーバーを停止しています。ワールドの保存完了までお待ちください。" });
     addLog("一括停止を開始します…", "info");
     try {
       await api.bridgeStop();
       setBridgeState("stopped");
       addLog("BRIDGEを停止しました。", "ok");
     } catch (e: any) {
-      addLog(`BRIDGE停止: ${e?.message ?? String(e)}`, "warn");
+      const text = `BRIDGE停止: ${errorMessage(e)}`;
+      errors.push(text); addLog(text, "error");
     }
     try {
       setForgeState("starting");
@@ -694,10 +742,14 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
       setForgeState("stopped");
       addLog("Forgeサーバーを停止しました。", "ok");
     } catch (e: any) {
-      setForgeState("stopped");
-      addLog(`Forgeサーバー停止: ${e?.message ?? String(e)}`, "warn");
+      setForgeState("error");
+      const text = `Forgeサーバー停止: ${errorMessage(e)}`;
+      errors.push(text); addLog(text, "error");
     }
-    addLog("一括停止が完了しました。", "ok");
+    const notice = errors.length
+      ? { type: "error" as const, text: `停止が完了していません。${errors.join(" ")}` }
+      : { type: "ok" as const, text: "一括停止が完了しました。" };
+    setLaunchNotice(notice); addLog(notice.text, notice.type);
     setAllStopBusy(false);
   };
 
@@ -769,11 +821,12 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
   const tiktokConfigured = username.trim().length > 0;
   const tiktokConnected = bridgeProcess.running === true && bridgeProcess.tiktok?.state === "connected";
   const typedUsername = username.trim().replace(/^@/, "");
+  const liveState = accountLive.username === typedUsername.toLowerCase() ? accountLive.state : "checking";
+  const liveLabel = liveState === "live" ? "接続済み（配信中）" : liveState === "offline" ? "配信していません" : liveState === "empty" ? "未設定" : liveState === "error" ? "確認できません" : "配信を確認中";
   const idApproved = typedUsername.length > 0 && appliedUsername === typedUsername;
   const worldDisplay = levelName ? levelName.replace(`${WORLD_PREFIX}/`, "") : "未設定";
   const stepForge: StepStatus = forgeState  === "running" ? "done" : forgeState  === "error" ? "error" : forgeState  === "starting" ? "active" : "pending";
   const stepBridge: StepStatus = bridgeState === "running" ? "done" : bridgeState === "error" ? "error" : bridgeState === "starting" ? "active" : "pending";
-  const stepTikTok: StepStatus = tiktokConnected ? "done" : tiktokConfigured ? "active" : "pending";
   const isBusy = allStartBusy || allStopBusy || forgeState === "starting" || bridgeState === "starting";
 
   const logTypeStyle: Record<LogType, string> = {
@@ -784,14 +837,14 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
   };
 
   const pipeline = [
-    { label: "TikTok", value: tiktokConfigured ? `@${typedUsername}` : "未設定", icon: "tiktok", state: tiktokConnected ? "running" : "stopped", tone: "green", runningText: "接続済み" },
-    { label: "Forge Server", value: "Forge 1.20.1", icon: "▣", state: forgeState, tone: "red", runningText: "接続中" },
+    { label: "TikTok LIVE", value: tiktokConfigured ? `@${typedUsername}` : "未設定", icon: "tiktok", state: liveState === "live" ? "running" : liveState === "checking" ? "starting" : "stopped", tone: "green", runningText: "接続済み（配信中）" },
+    { label: "Forge Server", value: serverProc.running && serverProc.managed === false ? "起動済み（アプリ外）" : "Forge 1.20.1", icon: "▣", state: forgeState, tone: "red", runningText: "接続中" },
     { label: "Game", value: gameRunning ? "Minecraft 検知中" : worldDisplay, icon: "world", state: gameRunning ? "running" : "stopped", tone: "green", runningText: "起動中" },
     { label: "Bridge", value: "TikTok → Minecraft", icon: "⛓", state: bridgeState, tone: "red", runningText: "接続中" },
   ] as const;
 
   const launchFlow = [
-    ["TIKTOK LIVE STUDIO でライブ接続", "最初にLIVE STUDIOを開いて接続します", stepTikTok],
+    ["TIKTOK LIVE STUDIO でライブ接続", "接続済みなら「一括起動」へ進めます", "manual"],
     ["Forgeサーバー起動", "Forge 1.20.1 が起動するまで待つ", stepForge],
     ["Minecraft起動", "ランチャーを開いてサーバーに接続", gameRunning ? "done" : "pending"],
     ["BRIDGE起動", "TikTok → RCON 接続・ルール自動適用", stepBridge],
@@ -819,7 +872,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
                     <span>{item.icon === "tiktok" ? <TikTokMark /> : item.icon === "world" ? <GrassBlockIcon /> : item.icon}</span>
                   </div>
                   <em className={item.state === "running" ? "is-running" : "is-stopped"}>
-                    ● {item.state === "running" ? item.runningText : item.state === "starting" ? "処理中" : "停止中"}
+                    ● {item.icon === "tiktok" ? liveLabel : item.state === "running" ? item.runningText : item.state === "starting" ? "処理中" : item.state === "error" ? "エラー" : "停止中"}
                   </em>
                   <small>{item.value}</small>
                 </div>
@@ -839,7 +892,10 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
             </div>
 
           </div>
-          <p className="cockpit-all-start-note">先にTikTok LIVE STUDIOで接続してください。一括起動でサーバー → Minecraft → BRIDGEを起動します。一括停止でBRIDGEとサーバーを停止します。</p>
+          <p className="cockpit-all-start-note">TikTokはアカウントのライブ配信状態を30秒ごとに確認します。イベントの受信にはBRIDGEの起動が必要です。</p>
+          {launchNotice && <p role={launchNotice.type === "error" ? "alert" : "status"} className={`cockpit-launch-notice cockpit-launch-notice--${launchNotice.type}`}>{launchNotice.text}</p>}
+          <p className="cockpit-all-start-note">LIVE STUDIOで接続済みなら「一括起動」を押してください。サーバー → Minecraft → BRIDGEの順に準備し、起動済みのものはそのまま使用します。</p>
+          {serverProc.running && serverProc.managed === false && <p className="cockpit-all-start-note">このアプリを開く前からサーバーが動いています。BRIDGEは接続できます。サーバー停止・MAP保存は、起動した画面で stop を実行してから行ってください。</p>}
           <section className="cockpit-bridge-controls" aria-label="BRIDGE単体操作">
             <strong>BRIDGEだけを操作</strong>
             <div className="cockpit-bridge-actions">
@@ -872,7 +928,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
               <div className={`cockpit-flow-step cockpit-flow-step--${status}`} key={label}>
                 <span>{index + 1}</span>
                 <i>{index === 0 ? <TikTokMark /> : ["","▣","🎮","⛓","♟","⬡","◉"][index]}</i>
-                <div><b>{label}</b><small>{description}</small>{status === "done" ? <em>● 完了</em> : <em>● 待機中</em>}</div>
+                <div><b>{label}</b><small>{description}</small>{status === "done" ? <em>● 完了</em> : status === "manual" ? <em>● LIVE STUDIO側で確認</em> : <em>● 待機中</em>}</div>
               </div>
             ))}
           </div>

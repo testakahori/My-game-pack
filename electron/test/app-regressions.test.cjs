@@ -59,6 +59,7 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
     },
     usePackagedPaths: () => { app.isPackaged = true; },
     setServer: child => { context.fixtureChild = child; vm.runInContext('serverProcRef = fixtureChild; serverPid = fixtureChild?.pid || null;', context); },
+    shortenServerWait: () => vm.runInContext('const originalWait = waitChildExit; waitChildExit = child => originalWait(child, 30);', context),
   };
 }
 
@@ -391,4 +392,69 @@ test('MAP IPC: external listening server prevents a snapshot', async t => {
   fs.writeFileSync(path.join(app.root, 'server.properties'), 'level-name=world\nserver-port=' + server.address().port + '\n');
   await assert.rejects(app.invoke('world:saves:save', 'unsafe'), /別のMinecraftサーバー/);
   assert.equal(fs.existsSync(path.join(app.root, 'map-saves')), false);
+});
+
+async function runningServerFixture(t, modResponse = { ok: true, tps: 20, player: { online: true } }) {
+  const app = loadApp(t);
+  await app.invoke('app:config:write', { serverFolder: app.root });
+  const game = require('node:net').createServer(socket => socket.end());
+  const mod = require('node:http').createServer((_req, res) => res.end(JSON.stringify(modResponse)));
+  await new Promise(resolve => game.listen(0, '127.0.0.1', resolve));
+  await new Promise(resolve => mod.listen(0, '127.0.0.1', resolve));
+  t.after(() => Promise.all([game, mod].map(s => new Promise(resolve => { s.close(resolve); s.closeAllConnections?.(); }))));
+  fs.writeFileSync(path.join(app.root, 'server.properties'), `level-name=world\nserver-port=${game.address().port}\n`);
+  fs.writeFileSync(path.join(app.root, 'run.bat'), 'must not run');
+  fs.mkdirSync(path.join(app.root, 'world'));
+  fs.writeFileSync(path.join(app.root, 'world', 'level.dat'), 'world stays unchanged');
+  const cfg = JSON.parse(fs.readFileSync(app.configPath));
+  cfg.options.doumaModHost = '127.0.0.1'; cfg.options.doumaModPort = mod.address().port;
+  fs.writeFileSync(app.configPath, JSON.stringify(cfg));
+  return app;
+}
+
+test('server startup: reuse a running Mod server after reopening the app without touching MAP files', async t => {
+  const app = await runningServerFixture(t);
+  const status = await app.invoke('server:processStatus');
+  assert.equal(status.running, true); assert.equal(status.managed, false); assert.equal(status.modReady, true);
+  const started = await app.invoke('server:start');
+  assert.equal(started.alreadyRunning, true); assert.equal(started.external, true);
+  assert.equal(fs.existsSync(path.join(app.root, 'map-saves')), false);
+  assert.equal(fs.readFileSync(path.join(app.root, 'world/level.dat'), 'utf8'), 'world stays unchanged');
+  await assert.rejects(app.invoke('server:stop'), /起動した画面で stop/);
+  await assert.rejects(app.invoke('world:saves:save', 'live'), /別のMinecraftサーバー/);
+  assert.equal((await app.invoke('server:processStatus')).running, true);
+});
+
+test('server startup: an occupied port without the Mod blocks a duplicate launch with an actionable error', async t => {
+  const app = await runningServerFixture(t, { message: 'not the Mod' });
+  assert.equal((await app.invoke('server:processStatus')).modReady, false);
+  await assert.rejects(app.invoke('server:start'), /MyGamePackのModに接続できません/);
+  assert.equal(fs.existsSync(path.join(app.root, 'map-saves')), false);
+});
+
+test('server stop: wait for save completion and prevent concurrent restarts', async t => {
+  const app = loadApp(t); await app.invoke('app:config:write', { serverFolder: app.root });
+  const child = new (require('node:events').EventEmitter)();
+  Object.assign(child, { pid: 123456, exitCode: null, signalCode: null });
+  let requested = false, completed = false;
+  child.stdin = { writable: true, write: text => { assert.equal(text, 'stop\n'); requested = true; } };
+  app.setServer(child);
+  const stopped = app.invoke('server:stop').then(result => { completed = true; return result; });
+  assert.equal(requested, true); assert.equal(completed, false);
+  await assert.rejects(app.invoke('server:start'), /起動・停止中/);
+  await assert.rejects(app.invoke('server:stop'), /起動・停止中/);
+  await assert.rejects(app.invoke('world:saves:save', 'saving'), /準備・停止/);
+  child.exitCode = 0; child.emit('exit', 0);
+  assert.equal((await stopped).graceful, true);
+  assert.equal((await app.invoke('server:processStatus')).running, false);
+});
+
+test('server stop: a save timeout leaves the process alive and reports incomplete shutdown', async t => {
+  const app = loadApp(t); app.shortenServerWait();
+  const child = new (require('node:events').EventEmitter)();
+  Object.assign(child, { pid: 123456, exitCode: null, signalCode: null, stdin: { writable: true, write() {} } });
+  app.setServer(child);
+  await assert.rejects(app.invoke('server:stop'), /強制終了せず/);
+  assert.equal((await app.invoke('server:processStatus')).running, true);
+  assert.equal(child.exitCode, null);
 });

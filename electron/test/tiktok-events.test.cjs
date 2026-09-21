@@ -13,6 +13,15 @@ function decoded(type, values) {
   }
   return proto[type].decode(proto[type].encode(message).finish());
 }
+test('現行protobufコメント: contentを本文へ変換し、旧comment・数字の0・空本文も保持する', () => {
+  const raw = decoded('WebcastChatMessage', { content:'こんばんは！', user:{ nickname:'赤堀堂馬' } });
+  const event = normalizeTikTokEvent(raw, 'chat');
+  assert.equal(event.comment, 'こんばんは！'); assert.equal(getStableSender(event), '赤堀堂馬');
+  assert.equal(normalizeTikTokEvent({ comment:'以前の形式' }, 'chat').comment, '以前の形式');
+  assert.equal(normalizeTikTokEvent(decoded('WebcastChatMessage', { content:'0' }), 'chat').comment, '0');
+  assert.equal(normalizeTikTokEvent(decoded('WebcastChatMessage', {}), 'chat').comment, '');
+  assert.equal(raw.comment, undefined);
+});
 test('現行protobuf: 贈り主・ギフト名・コイン・メッセージIDをネストから取得', () => {
   const raw = decoded('WebcastGiftMessage', { common: { msgId:'8676543210987654321', createTime:'1800000000' },
     user:{ nickname:'赤堀堂馬', displayId:'akahoridouma', id:'1234567890123456789' },
