@@ -42,6 +42,7 @@ export type BridgeConfig = {
 declare global {
   interface Window {
     mygamepack: {
+      bridgeCommandsReadMeta: () => Promise<Array<{ name: string; title: string; category: string; description?: string }>>;
       bridgeCommandsList: () => Promise<Array<{ name: string; title: string }>>;
       testEvent: (event: { type: string; preview?: boolean; listenerName?: string; commandFile?: string; giftId?: string; count?: number; previousLikes?: number; likeCount?: number; deaths?: number; followCount?: number; comment?: string; pollOption?: string }) => Promise<{ ok: boolean; message: string; preview?: boolean; notes?: string[]; steps?: Array<{ label: string; commandFile: string; count: number }>; fired?: Array<{ ok: boolean; message: string }> }>;
       streamSessionStatus: () => Promise<{ active: StreamSession | null }>;

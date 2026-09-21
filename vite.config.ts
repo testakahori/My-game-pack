@@ -132,13 +132,14 @@ function ttsDevHelperPlugin(): Plugin {
         }
         const files = fs.readdirSync(dir).filter((file) => file.endsWith(".txt")).sort();
         const commands = files.map((name) => {
-          let title = name;
+          let title = name, category = "";
           try {
             const content = fs.readFileSync(path.join(dir, name), "utf-8");
             const match = content.match(/^#\s*TITLE:\s*(.+)$/m);
             if (match) title = match[1].trim();
+            category = content.match(/^#\s*CATEGORY:\s*(.+)$/m)?.[1].trim() || "";
           } catch {}
-          return { name, title };
+          return { name, title, category };
         });
         sendJson(res, 200, commands);
       });

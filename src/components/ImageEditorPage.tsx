@@ -1,686 +1,283 @@
-// src/components/ImageEditorPage.tsx
-// 画像編集ページ: 登録済みギフトを6列×2段のグリッドに並べてPNG保存
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { GiftMapping } from "../types";
-
-// ─── 型定義 ──────────────────────────────────────────────────────────────────
+import React, { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
+import type { GiftMapping } from '../types';
+import { useUnsavedChanges, useUnsavedGuard } from '../UnsavedChanges';
+import { applyPanelTemplate, cardColors, clamp, createPanel, normalizePanel, panelFilename, panelId, panelLayout, readPanelLibrary, PANEL_STORAGE_KEY, TEMPLATES, TONES, toneForCategory, type PanelCard, type PanelDesign, type PanelLibrary } from '../lib/giftPanel';
+import { drawGiftPanel, type PanelImages } from '../lib/giftPanelCanvas';
 
 type Gift = { id: number; name: string; diamond_count: number; image?: string | null };
-type CommandMeta = { name: string; title: string; category: string };
-
-type GiftCardData = {
-  instanceId: string;
-  giftId: string;
-  giftName: string;
-  giftImageUrl: string | null;
-  title: string;       // \n で明示改行可
-  category: string;
-  repeat: number;
-  bgColor: string;
-};
-
-type Props = { mappings: GiftMapping[] };
-
-// ─── カテゴリ → 背景色 ───────────────────────────────────────────────────────
-
-const CATEGORY_COLORS: Record<string, string> = {
-  "妨害系": "#778FFF",
-  "お助け系": "#FF8181",
-  "友好MOB": "#FF8181",
-};
-const DEFAULT_BG = "#8FA8C8";
-
-function getCategoryColor(category: string): string {
-  return CATEGORY_COLORS[category?.trim()] ?? DEFAULT_BG;
+type Meta = { name: string; title: string; category: string };
+type History = { past: PanelDesign[]; present: PanelDesign; future: PanelDesign[] };
+type Action = { type: 'edit' | 'replace'; value: PanelDesign } | { type: 'undo' } | { type: 'redo' };
+function historyReducer(state: History, action: Action): History {
+  if (action.type === 'undo') return state.past.length ? { past: state.past.slice(0, -1), present: state.past[state.past.length - 1], future: [state.present, ...state.future] } : state;
+  if (action.type === 'redo') return state.future.length ? { past: [...state.past, state.present], present: state.future[0], future: state.future.slice(1) } : state;
+  if (action.type === 'replace') return { past: [], present: action.value, future: [] };
+  if (JSON.stringify(state.present) === JSON.stringify(action.value)) return state;
+  return { past: [...state.past.slice(-49), state.present], present: normalizePanel(action.value), future: [] };
 }
-
-// ─── Electron API ────────────────────────────────────────────────────────────
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getApi(): any { return (window as any).mygamepack ?? null; }
-
-// ─── Canvas ユーティリティ ────────────────────────────────────────────────────
-
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  const radius = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.lineTo(x + w - radius, y); ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
-  ctx.lineTo(x + w, y + h - radius); ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
-  ctx.lineTo(x + radius, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
-  ctx.lineTo(x, y + radius); ctx.quadraticCurveTo(x, y, x + radius, y);
-  ctx.closePath();
+function loadLibrary() {
+  try { return { library: readPanelLibrary(localStorage.getItem(PANEL_STORAGE_KEY)), error: '' }; }
+  catch { return { library: readPanelLibrary(null), error: '保存データを読み込めませんでした。元のデータを保護し、自動保存を止めています。' }; }
 }
-
-/** 1セグメント（改行なし）を maxWidth に収まるよう行分割 */
-function wrapSegment(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
-  if (!text) return [""];
-  if (ctx.measureText(text).width <= maxWidth) return [text];
-  const lines: string[] = [];
-  let cur = "";
-  for (const ch of text) {
-    const test = cur + ch;
-    if (ctx.measureText(test).width > maxWidth && cur.length > 0) { lines.push(cur); cur = ch; }
-    else cur = test;
-  }
-  if (cur) lines.push(cur);
-  return lines;
+function NumberField({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (n: number) => void }) {
+  return <label className="panel-field"><span>{label}</span><input type="number" min={min} max={max} value={value} onChange={e => onChange(clamp(e.target.value, min, max, value))} /></label>;
 }
-
-/** タイトル文字列（\n で明示改行）→ canvas 描画行配列 */
-function getTextLines(ctx: CanvasRenderingContext2D, title: string, maxWidth: number): string[] {
-  return title.split("\n").flatMap((seg) => wrapSegment(ctx, seg, maxWidth));
+function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (color: string) => void }) {
+  return <label className="panel-color-field"><input type="color" aria-label={label} value={value} onChange={e => onChange(e.target.value)} /><span>{label}</span><small>{value.toUpperCase()}</small></label>;
 }
-
-/** カード1枚を描画 */
-function drawCard(
-  ctx: CanvasRenderingContext2D,
-  x: number, y: number, w: number, h: number,
-  card: GiftCardData,
-  img: HTMLImageElement | null,
-  fontSize: number,
-  highlight = false,
-) {
-  const bw = 3;
-  const cr = Math.min(12, w * 0.08, h * 0.08);
-
-  ctx.save();
-
-  // 黒縁
-  roundRect(ctx, x, y, w, h, cr);
-  ctx.fillStyle = highlight ? "#00FFFF" : "#000000";
-  ctx.fill();
-
-  // 背景色
-  roundRect(ctx, x + bw, y + bw, w - bw * 2, h - bw * 2, Math.max(1, cr - bw));
-  ctx.fillStyle = card.bgColor;
-  ctx.fill();
-
-  // カード内クリップ
-  roundRect(ctx, x + bw, y + bw, w - bw * 2, h - bw * 2, Math.max(1, cr - bw));
-  ctx.clip();
-
-  // ギフト画像（上58%）
-  const imgAreaH = h * 0.58;
-  const imgPad = 6;
-  const imgAreaX = x + bw + imgPad;
-  const imgAreaY = y + bw + imgPad;
-  const imgAreaW = w - bw * 2 - imgPad * 2;
-  const imgAreaHInner = imgAreaH - imgPad * 2;
-
-  if (img && img.naturalWidth > 0) {
-    const scale = Math.min(imgAreaW / img.naturalWidth, imgAreaHInner / img.naturalHeight);
-    const dw = img.naturalWidth * scale;
-    const dh = img.naturalHeight * scale;
-    ctx.drawImage(img, imgAreaX + (imgAreaW - dw) / 2, imgAreaY + (imgAreaHInner - dh) / 2, dw, dh);
-  }
-
-  // テキストエリア（下42%）
-  const textAreaY = y + h * 0.58;
-  const textAreaH = h - h * 0.58 - bw;
-  const maxTW = w - (bw + 5) * 2;
-  const fs = Math.max(8, fontSize);
-
-  ctx.font = `bold ${fs}px "Yu Gothic","Meiryo",sans-serif`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "top";
-
-  const titleLines = getTextLines(ctx, card.title || card.giftName, maxTW);
-  const lineH = fs * 1.25;
-  const repFs = Math.max(7, Math.round(fs * 0.82));
-  const repText = card.repeat > 1 ? `×${card.repeat}` : "";
-  const repH = repText ? repFs * 1.4 : 0;
-  const totalH = titleLines.length * lineH + repH;
-  let ty = textAreaY + Math.max(2, (textAreaH - totalH) / 2);
-
-  ctx.font = `bold ${fs}px "Yu Gothic","Meiryo",sans-serif`;
-  for (const line of titleLines) {
-    ctx.strokeStyle = "rgba(0,0,0,0.95)"; ctx.lineWidth = 3.5; ctx.lineJoin = "round";
-    ctx.strokeText(line, x + w / 2, ty);
-    ctx.fillStyle = "#FFFFFF"; ctx.fillText(line, x + w / 2, ty);
-    ty += lineH;
-  }
-  if (repText) {
-    ctx.font = `bold ${repFs}px "Yu Gothic","Meiryo",sans-serif`;
-    ctx.strokeStyle = "rgba(0,0,0,0.95)"; ctx.lineWidth = 2.5;
-    ctx.strokeText(repText, x + w / 2, ty);
-    ctx.fillStyle = "#FFFFFF"; ctx.fillText(repText, x + w / 2, ty);
-  }
-
-  ctx.restore();
-
-  // ハイライト枠（編集中）
-  if (highlight) {
-    ctx.save();
-    roundRect(ctx, x + 1, y + 1, w - 2, h - 2, cr);
-    ctx.strokeStyle = "#00E5FF";
-    ctx.lineWidth = 3;
-    ctx.setLineDash([6, 3]);
-    ctx.stroke();
-    ctx.restore();
-  }
+function fitCards(design: PanelDesign, cards: PanelCard[]) {
+  const columns = Math.max(design.columns, Math.ceil(cards.length / 8));
+  const rows = Math.max(design.rows, Math.ceil(cards.length / columns));
+  return { ...design, cards, columns, rows, height: Math.min(2160, Math.round(design.height / design.rows * rows)) };
 }
+const EMPTY_MAPPINGS: GiftMapping[] = [];
 
-// ─── カウンター ───────────────────────────────────────────────────────────────
-
-let _cnt = 0;
-function newId() { return `ie_${Date.now()}_${++_cnt}`; }
-
-// ─── コンポーネント ───────────────────────────────────────────────────────────
-
-const ImageEditorPage: React.FC<Props> = ({ mappings }) => {
+export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mappings?: GiftMapping[] }) {
+  const initial = useMemo(loadLibrary, []);
+  const libraryRef = useRef<PanelLibrary>(initial.library);
+  const [documents, setDocuments] = useState(initial.library.designs);
+  const [history, dispatch] = useReducer(historyReducer, { past: [], present: initial.library.designs.find(d => d.id === initial.library.activeId)!, future: [] });
+  const design = history.present;
+  const [storageError, setStorageError] = useState(initial.error);
+  const [recoveryRequired, setRecoveryRequired] = useState(Boolean(initial.error));
   const [gifts, setGifts] = useState<Gift[]>([]);
-  const [commandMeta, setCommandMeta] = useState<Record<string, CommandMeta>>({});
-  const [selectedCards, setSelectedCards] = useState<GiftCardData[]>([]);
-  const [dragFromIdx, setDragFromIdx] = useState<number | null>(null);
-  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
-
-  // 編集中スロット
-  const [editingIdx, setEditingIdx] = useState<number | null>(null);
-  const [origTitle, setOrigTitle] = useState("");
-
-  // レイアウト設定
-  const [cols, setCols] = useState(6);
-  const [rows, setRows] = useState(2);
-  const [canvasWidth, setCanvasWidth] = useState(1080);
-  const [canvasHeight, setCanvasHeight] = useState(480);
-  const [fontSize, setFontSize] = useState(14);
-  const [gap, setGap] = useState(8);
-  const [padding, setPadding] = useState(8);
-
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const imageCache = useRef<Map<string, HTMLImageElement | null>>(new Map());
-  const [imgLoadTick, setImgLoadTick] = useState(0);
+  const [metadata, setMetadata] = useState<Meta[]>([]);
+  const [savedMappings, setSavedMappings] = useState<GiftMapping[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dataError, setDataError] = useState('');
+  const [reload, setReload] = useState(0);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [source, setSource] = useState<'mapped' | 'all'>('mapped');
+  const [search, setSearch] = useState('');
+  const [controls, setControls] = useState<'template' | 'style' | 'card'>('template');
+  const [preview, setPreview] = useState<'image' | 'vertical' | 'horizontal'>('image');
+  const [position, setPosition] = useState<'top' | 'bottom'>('top');
   const [exporting, setExporting] = useState(false);
-  const [exportNotice, setExportNotice] = useState("");
+  const [notice, setNotice] = useState('');
+  const [drawError, setDrawError] = useState('');
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const cache = useRef(new Map<string, { status: 'loading' | 'ready' | 'error'; image?: HTMLImageElement }>());
+  const [imageTick, setImageTick] = useState(0);
+  const alive = useRef(true);
+  const dragId = useRef<string | null>(null);
+  const { confirmDiscard } = useUnsavedGuard();
+  useUnsavedChanges(Boolean(storageError), exporting);
+  const commit = (value: PanelDesign) => { dispatch({ type: 'edit', value }); setNotice(''); };
+  const patch = (value: Partial<PanelDesign>) => commit({ ...design, ...value });
 
-  // ─ データ読み込み ─
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  useLayoutEffect(() => {
+    if (recoveryRequired) return;
+    const current = libraryRef.current;
+    const next: PanelLibrary = { version: 1, activeId: design.id, designs: current.designs.some(d => d.id === design.id) ? current.designs.map(d => d.id === design.id ? design : d) : [...current.designs, design] };
+    libraryRef.current = next;
+    setDocuments(next.designs);
+    try { localStorage.setItem(PANEL_STORAGE_KEY, JSON.stringify(next)); setStorageError(''); }
+    catch { setStorageError('自動保存できません。空き容量を確認してください。画面を閉じる前にPNGを保存できます。'); }
+  }, [design, recoveryRequired]);
   useEffect(() => {
-    getApi()?.giftsRead?.()
-      .then((res: { gifts: Gift[] }) => setGifts(res?.gifts ?? []))
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    getApi()?.bridgeCommandsReadMeta?.()
-      .then((list: CommandMeta[]) => {
-        const map: Record<string, CommandMeta> = {};
-        for (const m of list) map[m.name] = m;
-        setCommandMeta(map);
-      })
-      .catch(() => {});
-  }, []);
-
-  // ─ 利用可能ギフト ─
-  const availableCards = useMemo<GiftCardData[]>(() =>
-    mappings
-      .filter((m) => m.commandFile)
-      .map((m) => {
-        const gift = gifts.find((g) => String(g.id) === String(m.giftId));
-        const meta = commandMeta[m.commandFile] ?? null;
-        const title = meta?.title ?? m.commandFile.replace(/\.txt$/i, "");
-        const category = meta?.category ?? "";
-        return {
-          instanceId: `avail_${m.id}`,
-          giftId: m.giftId,
-          giftName: m.name || gift?.name || m.giftId,
-          giftImageUrl: gift?.image ?? null,
-          title,
-          category,
-          repeat: m.repeat ?? 1,
-          bgColor: getCategoryColor(category),
-        };
-      }),
-  [mappings, gifts, commandMeta]);
-
-  // ─ 画像プリロード ─
-  useEffect(() => {
-    const api = getApi();
-    if (!api?.gvGiftsFetchImageBase64) return;
-    for (const card of selectedCards) {
-      const url = card.giftImageUrl;
-      if (!url || imageCache.current.has(url)) continue;
-      imageCache.current.set(url, null);
-      api.gvGiftsFetchImageBase64(url)
-        .then((b64: string) => {
-          if (!b64) return;
-          const img = new Image();
-          img.onload = () => { imageCache.current.set(url, img); setImgLoadTick((n) => n + 1); };
-          img.src = b64.startsWith("data:") ? b64 : `data:image/png;base64,${b64}`;
-        })
-        .catch(() => { imageCache.current.set(url, null); });
-    }
-  }, [selectedCards]);
-
-  // ─ キャンバス描画 ─
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    if (canvas.width !== canvasWidth) canvas.width = canvasWidth;
-    if (canvas.height !== canvasHeight) canvas.height = canvasHeight;
-    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-
-    const cardW = (canvasWidth - padding * 2 - gap * Math.max(0, cols - 1)) / cols;
-    const cardH = (canvasHeight - padding * 2 - gap * Math.max(0, rows - 1)) / rows;
-
-    for (let i = 0; i < Math.min(selectedCards.length, cols * rows); i++) {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const x = padding + col * (cardW + gap);
-      const y = padding + row * (cardH + gap);
-      const card = selectedCards[i];
-      const img = card.giftImageUrl ? (imageCache.current.get(card.giftImageUrl) ?? null) : null;
-      drawCard(ctx, x, y, cardW, cardH, card, img, fontSize, editingIdx === i);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCards, cols, rows, canvasWidth, canvasHeight, fontSize, gap, padding, imgLoadTick, editingIdx]);
-
-  // ─ スロット操作 ─
-  const maxSlots = cols * rows;
-
-  const addCard = useCallback((card: GiftCardData) => {
-    setSelectedCards((prev) => {
-      if (prev.length >= maxSlots) return prev;
-      return [...prev, { ...card, instanceId: newId() }];
+    let canceled = false; setLoading(true); setDataError('');
+    Promise.all([window.mygamepack.giftsRead(), window.mygamepack.bridgeCommandsReadMeta(), window.mygamepack.configRead()])
+      .then(([catalog, commands, config]: any[]) => {
+        if (canceled) return;
+        setGifts(Array.isArray(catalog?.gifts) ? catalog.gifts : []);
+        setMetadata(Array.isArray(commands) ? commands : []);
+        setSavedMappings(Array.isArray(config?.mappings) ? config.mappings : []);
+      }).catch(e => { if (!canceled) setDataError('ギフトを読み込めませんでした: ' + String(e?.message || e)); })
+      .finally(() => { if (!canceled) setLoading(false); });
+    return () => { canceled = true; };
+  }, [reload]);
+  const mappedCards = useMemo(() => (mappings.length ? mappings : savedMappings).filter(m => m.commandFile).map((m, i): PanelCard => {
+    const gift = gifts.find(g => String(g.id) === String(m.giftId));
+    const meta = metadata.find(c => c.name === m.commandFile);
+    return { id: 'mapped-' + i, giftId: String(m.giftId), giftName: m.name || gift?.name || String(m.giftId),
+      image: gift?.image || null, title: meta?.title || m.commandSetLabel || m.commandFile.replace(/\.txt$/i, ''),
+      repeat: m.repeat || 1, category: meta?.category || '', tone: toneForCategory(meta?.category || '') };
+  }), [mappings, savedMappings, gifts, metadata]);
+  const available = useMemo(() => {
+    const cards = source === 'mapped' ? mappedCards : gifts.map((g): PanelCard => mappedCards.find(c => c.giftId === String(g.id)) || {
+      id: 'gift-' + g.id, giftId: String(g.id), giftName: g.name, image: g.image || null, title: g.name, repeat: 1, category: '', tone: 'other',
     });
-  }, [maxSlots]);
+    const query = search.trim().toLocaleLowerCase();
+    return cards.filter(c => [c.giftName, c.title, c.giftId].some(t => t.toLocaleLowerCase().includes(query)));
+  }, [mappedCards, gifts, source, search]);
 
-  const removeCard = useCallback((idx: number) => {
-    setSelectedCards((prev) => prev.filter((_, i) => i !== idx));
-    setEditingIdx((cur) => (cur === idx ? null : cur !== null && cur > idx ? cur - 1 : cur));
-  }, []);
-
-  const updateCard = useCallback((idx: number, patch: Partial<GiftCardData>) => {
-    setSelectedCards((prev) => prev.map((c, i) => i === idx ? { ...c, ...patch } : c));
-  }, []);
-
-  const clearCards = useCallback(() => {
-    setSelectedCards([]);
-    setEditingIdx(null);
-  }, []);
-
-  // ─ 編集開始 ─
-  const startEdit = useCallback((idx: number, card: GiftCardData) => {
-    setEditingIdx(idx);
-    setOrigTitle(card.title);
-  }, []);
-
-  const closeEdit = useCallback(() => setEditingIdx(null), []);
-
-  // ─ プレビュークリック → カード検出 ─
-  const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const cx = (e.clientX - rect.left) * scaleX;
-    const cy = (e.clientY - rect.top) * scaleY;
-
-    const cardW = (canvasWidth - padding * 2 - gap * Math.max(0, cols - 1)) / cols;
-    const cardH = (canvasHeight - padding * 2 - gap * Math.max(0, rows - 1)) / rows;
-
-    for (let i = 0; i < Math.min(selectedCards.length, cols * rows); i++) {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const x = padding + col * (cardW + gap);
-      const y = padding + row * (cardH + gap);
-      if (cx >= x && cx <= x + cardW && cy >= y && cy <= y + cardH) {
-        if (editingIdx === i) { setEditingIdx(null); }
-        else { startEdit(i, selectedCards[i]); }
-        return;
+  useEffect(() => {
+    const queue = [...new Set(design.cards.map(c => c.image).filter((u): u is string => Boolean(u)))].filter(url => !cache.current.has(url));
+    queue.forEach(url => cache.current.set(url, { status: 'loading' }));
+    const worker = async () => {
+      while (queue.length && alive.current) {
+        const url = queue.shift()!;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const image = await Promise.race([
+            (async () => {
+              const base64 = await window.mygamepack.gvGiftsFetchImageBase64(url);
+              if (!base64) throw new Error('画像なし');
+              return await new Promise<HTMLImageElement>((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img); img.onerror = () => reject(new Error('画像を開けません'));
+                img.src = base64.startsWith('data:') ? base64 : 'data:image/png;base64,' + base64;
+              });
+            })(),
+            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('画像の読み込みがタイムアウトしました')), 20000); }),
+          ]);
+          cache.current.set(url, { status: 'ready', image });
+        } catch { cache.current.set(url, { status: 'error' }); }
+        finally { if (timer) clearTimeout(timer); if (alive.current) setImageTick(t => t + 1); }
       }
-    }
-    setEditingIdx(null);
-  }, [canvasWidth, canvasHeight, padding, gap, cols, rows, selectedCards, editingIdx, startEdit]);
-
-  // ─ ドラッグ並び替え ─
-  const handleDragStart = (idx: number) => setDragFromIdx(idx);
-  const handleDragOver = (e: React.DragEvent, idx: number) => { e.preventDefault(); setDragOverIdx(idx); };
-  const handleDrop = (toIdx: number) => {
-    if (dragFromIdx !== null && dragFromIdx !== toIdx) {
-      setSelectedCards((prev) => {
-        const next = [...prev];
-        const [moved] = next.splice(dragFromIdx, 1);
-        next.splice(toIdx, 0, moved);
-        return next;
-      });
-      setEditingIdx((cur) => {
-        if (cur === null) return null;
-        if (cur === dragFromIdx) return toIdx;
-        if (dragFromIdx! < cur && toIdx >= cur) return cur - 1;
-        if (dragFromIdx! > cur && toIdx <= cur) return cur + 1;
-        return cur;
-      });
-    }
-    setDragFromIdx(null); setDragOverIdx(null);
+    };
+    const workers = Math.min(4, queue.length);
+    for (let i = 0; i < workers; i++) void worker();
+  }, [design.cards, imageTick]);
+  const images = useMemo<PanelImages>(() => new Map([...cache.current.entries()].filter(([, v]) => v.image).map(([url, v]) => [url, v.image!])), [imageTick]);
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    try { drawGiftPanel(canvasRef.current, design, images); setDrawError(''); }
+    catch (e) { setDrawError('プレビューを描画できません: ' + String(e)); }
+  }, [design, images]);
+  const layout = panelLayout(design);
+  const urls = [...new Set(design.cards.map(c => c.image).filter((url): url is string => Boolean(url)))];
+  const pending = urls.filter(url => !cache.current.has(url) || cache.current.get(url)?.status === 'loading').length;
+  const failed = urls.filter(url => cache.current.get(url)?.status === 'error');
+  const selectedIndex = design.cards.findIndex(c => c.id === selected);
+  const card = design.cards[selectedIndex];
+  const updateCard = (value: Partial<PanelCard>) => patch({ cards: design.cards.map(c => c.id === selected ? { ...c, ...value } : c) });
+  const moveCard = (fromId: string, to: number) => {
+    const from = design.cards.findIndex(c => c.id === fromId);
+    if (from < 0 || to < 0 || to >= design.cards.length || from === to) return;
+    const next = [...design.cards]; const [moved] = next.splice(from, 1); next.splice(to, 0, moved);
+    patch({ cards: next });
   };
-  const handleDragEnd = () => { setDragFromIdx(null); setDragOverIdx(null); };
-
-  // ─ PNG 書き出し ─
+  const addCards = (cards: PanelCard[]) => {
+    const next = cards.slice(0, 96 - design.cards.length).map(c => ({ ...c, id: panelId() }));
+    if (!next.length) return;
+    commit(fitCards(design, [...design.cards, ...next])); setSelected(next[0].id);
+  };
   const exportPng = async () => {
-    const canvas = canvasRef.current;
-    if (!canvas || exporting) return;
-    setExporting(true);
+    if (exporting || pending || failed.length || layout.overflow || !design.cards.length) return;
+    setExporting(true); setNotice('');
     try {
-      const dataUrl = canvas.toDataURL("image/png");
-      const filename = `gift_panel_${cols}x${rows}_${canvasWidth}x${canvasHeight}.png`;
-      const result = await window.mygamepack.giftPanelSavePng(dataUrl, filename);
-      setExportNotice(result.canceled ? "保存をキャンセルしました。" : `ギフト案内画像を保存しました。${result.path || ""}`);
-    } catch (error) { setExportNotice(`保存できませんでした: ${error instanceof Error ? error.message : String(error)}`); }
+      await document.fonts.ready;
+      const cleanCanvas = document.createElement('canvas');
+      drawGiftPanel(cleanCanvas, design, images);
+      const result = await window.mygamepack.giftPanelSavePng(cleanCanvas.toDataURL('image/png'), panelFilename(design));
+      setNotice(result.canceled ? '保存をキャンセルしました。' : 'PNGを保存しました。OBSの「画像」ソースで選択してください。' + (result.path ? ' ' + result.path : ''));
+    } catch (e) { setNotice('PNGを保存できませんでした: ' + String(e)); }
     finally { setExporting(false); }
   };
-
-  // 現在編集中のカード
-  const editingCard = editingIdx !== null ? selectedCards[editingIdx] ?? null : null;
-
-  const legend = Object.entries(CATEGORY_COLORS).filter(
-    ([k], i, arr) => arr.findIndex(([k2]) => k2 === k) === i,
-  );
-
-  return (
-    <div className="max-w-6xl mx-auto space-y-5 pb-10">
-      <p role="status" className="text-sm text-cyan-200">{exportNotice || "PNG保存で、配信に表示するギフト案内画像の保存先を選べます。"}</p>
-
-      {/* ─ 設定バー ─ */}
-      <div className="bg-gray-800 border border-gray-700 rounded-2xl p-4">
-        <div className="text-sm font-bold text-gray-100 mb-3">キャンバス設定</div>
-        <div className="flex flex-wrap gap-3 items-end">
-          {([
-            ["列数", cols, setCols, 1, 12],
-            ["行数", rows, setRows, 1, 8],
-          ] as [string, number, (v: number) => void, number, number][]).map(([lbl, val, set, mn, mx]) => (
-            <label key={lbl} className="flex flex-col gap-1">
-              <span className="text-xs text-gray-400">{lbl}</span>
-              <input type="number" min={mn} max={mx} value={val}
-                onChange={(e) => set(Math.max(mn, Math.min(mx, Number(e.target.value))))}
-                className="w-16 bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-2 py-1.5" />
-            </label>
-          ))}
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-gray-400">幅 (px)</span>
-            <input type="number" min={400} max={3840} step={10} value={canvasWidth}
-              onChange={(e) => setCanvasWidth(Math.max(400, Number(e.target.value)))}
-              className="w-24 bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-2 py-1.5" />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-gray-400">高さ (px)</span>
-            <input type="number" min={200} max={2160} step={10} value={canvasHeight}
-              onChange={(e) => setCanvasHeight(Math.max(200, Number(e.target.value)))}
-              className="w-24 bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-2 py-1.5" />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-gray-400">文字サイズ</span>
-            <input type="number" min={8} max={48} value={fontSize}
-              onChange={(e) => setFontSize(Math.max(8, Math.min(48, Number(e.target.value))))}
-              className="w-20 bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-2 py-1.5" />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-gray-400">カード間隔</span>
-            <input type="number" min={0} max={32} value={gap}
-              onChange={(e) => setGap(Math.max(0, Math.min(32, Number(e.target.value))))}
-              className="w-20 bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-2 py-1.5" />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-gray-400">外側余白</span>
-            <input type="number" min={0} max={32} value={padding}
-              onChange={(e) => setPadding(Math.max(0, Math.min(32, Number(e.target.value))))}
-              className="w-20 bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-2 py-1.5" />
-          </label>
-          <div className="ml-auto">
-            <button type="button" onClick={exportPng} disabled={selectedCards.length === 0}
-              className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white font-bold rounded-xl text-sm transition flex items-center gap-2">
-              <i className="fa-solid fa-download" />PNG保存
-            </button>
+  const retryImages = () => { failed.forEach(url => cache.current.delete(url)); setImageTick(t => t + 1); };
+  const addMapped = () => addCards(mappedCards.filter(c => !design.cards.some(d => d.giftId === c.giftId && d.title === c.title)));
+  const switchDocument = (id: string) => {
+    if (storageError && !confirmDiscard()) return;
+    const next = libraryRef.current.designs.find(d => d.id === id); if (!next) return;
+    dispatch({ type: 'replace', value: next }); setSelected(null); setNotice('');
+  };
+  const newDocument = () => {
+    if (documents.length >= 20 || (storageError && !confirmDiscard())) return;
+    dispatch({ type: 'replace', value: createPanel() }); setSelected(null); setNotice('');
+  };
+  const cardInspector = card ? <section className="panel-inspector" aria-label="選択したカードの編集">
+          <div className="panel-inspector-heading"><div><b>{selectedIndex + 1}. {card.giftName}</b><small>画像の表示だけを変更します</small></div><div className="panel-inline-actions">
+            <button className="studio-icon-button" aria-label="カードを前へ移動" disabled={selectedIndex <= 0} onClick={() => moveCard(card.id, selectedIndex - 1)}><i className="fa-solid fa-arrow-left" /></button>
+            <button className="studio-icon-button" aria-label="カードを後ろへ移動" disabled={selectedIndex === design.cards.length - 1} onClick={() => moveCard(card.id, selectedIndex + 1)}><i className="fa-solid fa-arrow-right" /></button>
+            <button className="studio-quiet" onClick={() => { patch({ cards: design.cards.filter(c => c.id !== card.id) }); setSelected(null); }}><i className="fa-regular fa-trash-can" />削除</button>
+          </div></div>
+          <div className="panel-inspector-fields"><label className="panel-field"><span>効果名・表示する文字</span><textarea rows={2} maxLength={120} value={card.title} onChange={e => updateCard({ title: e.target.value })} /></label><NumberField label="表示する回数" value={card.repeat} min={1} max={9999} onChange={repeat => updateCard({ repeat })} /><label className="panel-field"><span>内容のグループ</span><select value={card.tone} onChange={e => updateCard({ tone: e.target.value as PanelCard['tone'] })}>{TONES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}</select></label></div>
+          <div className="panel-card-colors"><span>このカードの色</span>{TONES.map(t => <button key={t.id} className="panel-swatch" style={{ background: design.palette[t.id] }} aria-label={t.label + 'の色にする'} onClick={() => updateCard({ color: design.palette[t.id] })} />)}
+            <input type="color" aria-label="カードの自由な色" value={cardColors(design, card).accent} onChange={e => updateCard({ color: e.target.value })} /><button className="studio-quiet" onClick={() => updateCard({ color: undefined, textColor: undefined })}>自動配色に戻す</button>
+            <label className="panel-check"><input type="checkbox" checked={Boolean(card.textColor)} onChange={e => updateCard({ textColor: e.target.checked ? cardColors(design, card).text : undefined })} />文字色を指定</label>{card.textColor && <input type="color" aria-label="カードの文字色" value={card.textColor} onChange={e => updateCard({ textColor: e.target.value })} />}
           </div>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {legend.map(([cat, color]) => (
-            <span key={cat} className="flex items-center gap-1.5 text-xs text-gray-300">
-              <span className="inline-block w-3 h-3 rounded border border-black" style={{ background: color }} />
-              {cat}
-            </span>
-          ))}
-          <span className="flex items-center gap-1.5 text-xs text-gray-300">
-            <span className="inline-block w-3 h-3 rounded border border-black" style={{ background: DEFAULT_BG }} />
-            その他
-          </span>
-        </div>
+        </section> : <p className="panel-hint">プレビューのカードを選ぶと、表示する文字や色を編集できます。</p>;
+  return <div className="panel-studio">
+    <header className="studio-page-heading">
+      <div><span className="studio-eyebrow">CREATOR STUDIO</span><h1>配信画像<span className="studio-tag">OBS用 PNG</span></h1><p>ギフトの楽しさを、ひと目で伝えよう。</p></div>
+      <div className="panel-heading-actions">
+        <span className={'panel-save-state' + (storageError ? ' is-error' : '')}><i className={'fa-solid ' + (storageError ? 'fa-circle-exclamation' : 'fa-check')} />{storageError ? '保存を確認' : '編集は自動保存'}</span>
+        <button className="studio-primary" disabled={!design.cards.length || Boolean(pending || failed.length || layout.overflow || drawError || exporting)} onClick={() => void exportPng()}><i className="fa-solid fa-download" />{exporting ? '保存中…' : 'PNGを保存'}</button>
       </div>
-
-      {/* ─ 2カラム: 利用可能ギフト ｜ 選択済みスロット ─ */}
-      <div className="grid grid-cols-2 gap-4">
-
-        {/* 利用可能ギフト */}
-        <div className="bg-gray-800 border border-gray-700 rounded-2xl p-4">
-          <div className="text-sm font-bold text-gray-100 mb-2">
-            登録済みギフト
-            <span className="text-xs text-gray-400 font-normal ml-2">クリックで追加</span>
-          </div>
-          {availableCards.length === 0 ? (
-            <p className="text-xs text-gray-500 py-6 text-center">「ギフト設定」タブでギフトを登録してください</p>
-          ) : (
-            <div className="flex flex-wrap gap-2 max-h-52 overflow-y-auto pr-1">
-              {availableCards.map((card) => (
-                <button key={card.instanceId} type="button" onClick={() => addCard(card)}
-                  disabled={selectedCards.length >= maxSlots}
-                  title={`${card.giftName} - ${card.title}`}
-                  className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-600 hover:border-cyan-500 hover:bg-gray-700 transition disabled:opacity-40 bg-gray-900"
-                  style={{ width: 68 }}>
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center border border-black/30 overflow-hidden"
-                    style={{ background: card.bgColor }}>
-                    {card.giftImageUrl
-                      ? <img src={card.giftImageUrl} alt={card.giftName} className="w-full h-full object-contain" />
-                      : <i className="fa-solid fa-gift text-white/70 text-lg" />}
-                  </div>
-                  <div className="text-[10px] text-gray-300 truncate w-full text-center">{card.title}</div>
-                  {card.repeat > 1 && <div className="text-[9px] text-gray-400">×{card.repeat}</div>}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* 選択済みスロット */}
-        <div className="bg-gray-800 border border-gray-700 rounded-2xl p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-sm font-bold text-gray-100">
-              選択中
-              <span className="text-xs text-gray-400 font-normal ml-2">
-                {selectedCards.length}/{maxSlots} ｜ ドラッグで並び替え
-              </span>
-            </div>
-            {selectedCards.length > 0 && (
-              <button type="button" onClick={clearCards}
-                className="text-xs text-gray-400 hover:text-red-400 transition px-2 py-1 rounded-lg hover:bg-gray-700">
-                全クリア
-              </button>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2 max-h-52 overflow-y-auto pr-1">
-            {Array.from({ length: maxSlots }).map((_, idx) => {
-              const card = selectedCards[idx];
-              const isEdit = editingIdx === idx;
-              const isDragSrc = dragFromIdx === idx;
-              const isDragOver = dragOverIdx === idx;
-              return (
-                <div key={idx}
-                  draggable={!!card}
-                  onDragStart={() => card && handleDragStart(idx)}
-                  onDragOver={(e) => handleDragOver(e, idx)}
-                  onDrop={() => handleDrop(idx)}
-                  onDragEnd={handleDragEnd}
-                  className={[
-                    "relative flex flex-col items-center gap-1 p-2 rounded-xl border transition select-none",
-                    card
-                      ? isDragSrc ? "opacity-40 border-gray-600 bg-gray-900 cursor-grabbing"
-                        : isEdit ? "border-cyan-400 bg-cyan-950/40 cursor-pointer"
-                          : "cursor-grab bg-gray-900 border-gray-600 hover:border-gray-500"
-                      : "border-dashed border-gray-700 bg-gray-900/20",
-                    isDragOver && !isDragSrc ? "border-cyan-500 bg-cyan-950/30" : "",
-                  ].join(" ")}
-                  style={{ width: 68 }}
-                  onClick={() => card && (isEdit ? closeEdit() : startEdit(idx, card))}
-                >
-                  <span className="absolute top-1 left-1.5 text-[9px] text-gray-600">{idx + 1}</span>
-                  {card ? (
-                    <>
-                      <div className="w-10 h-10 rounded-lg flex items-center justify-center border border-black/30 overflow-hidden"
-                        style={{ background: card.bgColor }}>
-                        {card.giftImageUrl
-                          ? <img src={card.giftImageUrl} alt={card.giftName} className="w-full h-full object-contain" />
-                          : <i className="fa-solid fa-gift text-white/70 text-lg" />}
-                      </div>
-                      <div className="text-[10px] text-gray-300 truncate w-full text-center">{card.title.replace(/\n/g, " ")}</div>
-                      {isEdit && (
-                        <span className="absolute top-0.5 right-0.5 text-[8px] text-cyan-400">
-                          <i className="fa-solid fa-pen" />
-                        </span>
-                      )}
-                      <button type="button"
-                        onClick={(e) => { e.stopPropagation(); removeCard(idx); }}
-                        className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-600 hover:bg-red-500 text-white rounded-full text-[9px] flex items-center justify-center leading-none shadow">
-                        ×
-                      </button>
-                    </>
-                  ) : (
-                    <div className="w-10 h-10 rounded-lg border border-dashed border-gray-700" />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* ─ カード編集パネル（選択中のみ表示）─ */}
-      {editingCard && editingIdx !== null && (
-        <div className="bg-gray-800 border border-cyan-700/50 rounded-2xl p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-sm font-bold text-cyan-300 flex items-center gap-2">
-              <i className="fa-solid fa-pen" />
-              スロット #{editingIdx + 1} を編集中
-              <span className="text-gray-400 font-normal text-xs">{editingCard.giftName}</span>
-            </div>
-            <button type="button" onClick={closeEdit}
-              className="text-xs text-gray-400 hover:text-gray-200 px-2 py-1 rounded-lg hover:bg-gray-700 transition">
-              閉じる
-            </button>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            {/* タイトルテキスト */}
-            <div>
-              <label className="text-xs text-gray-400 block mb-1">
-                タイトルテキスト
-                <span className="text-gray-600 ml-2">（Enter で改行・自動折り返しも有効）</span>
-              </label>
-              <textarea
-                value={editingCard.title}
-                onChange={(e) => updateCard(editingIdx, { title: e.target.value })}
-                rows={4}
-                className="w-full bg-gray-900 border border-gray-600 focus:border-cyan-500 text-white text-sm rounded-xl px-3 py-2 resize-y outline-none"
-                placeholder="タイトルを入力（Enterで改行）"
-              />
-              <div className="flex gap-2 mt-1.5">
-                <button type="button"
-                  onClick={() => updateCard(editingIdx, { title: origTitle })}
-                  disabled={editingCard.title === origTitle}
-                  className="text-xs text-gray-400 hover:text-gray-200 disabled:opacity-40 px-2 py-1 rounded-lg hover:bg-gray-700 transition">
-                  元に戻す
-                </button>
-                <button type="button"
-                  onClick={() => updateCard(editingIdx, { title: editingCard.title + "\n" })}
-                  className="text-xs text-gray-500 hover:text-gray-300 px-2 py-1 rounded-lg hover:bg-gray-700 transition">
-                  + 改行を追加
-                </button>
-              </div>
-            </div>
-
-            {/* 数量 + 背景色 */}
-            <div className="space-y-3">
-              <label className="flex flex-col gap-1">
-                <span className="text-xs text-gray-400">数量（×N 表示、1 のとき非表示）</span>
-                <input type="number" min={1} max={999} value={editingCard.repeat}
-                  onChange={(e) => updateCard(editingIdx, { repeat: Math.max(1, Number(e.target.value)) })}
-                  className="w-24 bg-gray-900 border border-gray-600 focus:border-cyan-500 text-white text-sm rounded-xl px-3 py-2 outline-none" />
-              </label>
-
-              <div>
-                <span className="text-xs text-gray-400 block mb-1">背景色</span>
-                <div className="flex items-center gap-2">
-                  <input type="color" value={editingCard.bgColor}
-                    onChange={(e) => updateCard(editingIdx, { bgColor: e.target.value })}
-                    className="w-10 h-9 rounded-lg border border-gray-600 cursor-pointer bg-transparent" />
-                  <code className="text-xs text-gray-300">{editingCard.bgColor}</code>
-                  <button type="button"
-                    onClick={() => updateCard(editingIdx, { bgColor: getCategoryColor(editingCard.category) })}
-                    disabled={editingCard.bgColor === getCategoryColor(editingCard.category)}
-                    className="text-xs text-gray-400 hover:text-gray-200 disabled:opacity-40 px-2 py-1 rounded-lg hover:bg-gray-700 transition">
-                    カテゴリ色に戻す
-                  </button>
-                </div>
-
-                {/* カテゴリ色クイック選択 */}
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {Object.entries({
-                    ...CATEGORY_COLORS,
-                    "その他": DEFAULT_BG,
-                  }).filter(([, v], i, a) => a.findIndex(([, v2]) => v2 === v) === i)
-                    .map(([label, color]) => (
-                      <button key={color} type="button"
-                        onClick={() => updateCard(editingIdx, { bgColor: color })}
-                        title={label}
-                        className={[
-                          "w-6 h-6 rounded-md border-2 transition",
-                          editingCard.bgColor === color ? "border-white scale-110" : "border-transparent hover:border-gray-400",
-                        ].join(" ")}
-                        style={{ background: color }} />
-                    ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─ キャンバスプレビュー ─ */}
-      <div className="bg-gray-800 border border-gray-700 rounded-2xl p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-sm font-bold text-gray-100">
-            プレビュー
-            <span className="text-xs text-gray-400 font-normal ml-2">
-              {canvasWidth}×{canvasHeight}px ｜ 透過PNG
-            </span>
-            {selectedCards.length > 0 && (
-              <span className="text-xs text-gray-500 font-normal ml-2">
-                （カードをクリックして編集）
-              </span>
-            )}
-          </div>
-          <button type="button" onClick={exportPng} disabled={selectedCards.length === 0}
-            className="px-4 py-1.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white font-bold rounded-lg text-xs transition flex items-center gap-1.5">
-            <i className="fa-solid fa-download" />PNG保存
-          </button>
-        </div>
-
-        <div className="rounded-xl overflow-auto"
-          style={{ backgroundImage: "repeating-conic-gradient(#555 0% 25%, #333 0% 50%)", backgroundSize: "16px 16px" }}>
-          <canvas
-            ref={canvasRef}
-            onClick={handleCanvasClick}
-            style={{
-              display: "block", width: "100%", imageRendering: "auto",
-              cursor: selectedCards.length > 0 ? "pointer" : "default",
-            }}
-          />
-        </div>
-      </div>
+    </header>
+    {storageError && <div className="studio-alert" role="alert">{storageError}{recoveryRequired && <button onClick={() => {
+      try { localStorage.setItem(PANEL_STORAGE_KEY + '.recovery', localStorage.getItem(PANEL_STORAGE_KEY) || ''); setRecoveryRequired(false); } catch { setStorageError('退避できませんでした。ストレージの空き容量を確認してください。'); }
+    }}>元データを退避して編集を保存</button>}</div>}
+    {notice && <p className="studio-notice" role="status">{notice}</p>}
+    <div className="panel-document-bar">
+      <label>保存したデザイン<select aria-label="保存したデザイン" value={design.id} onChange={e => switchDocument(e.target.value)}>{documents.map(d => <option key={d.id} value={d.id}>{d.name || '名称未設定'}</option>)}</select></label>
+      <button className="studio-quiet" onClick={newDocument} disabled={documents.length >= 20 || exporting}><i className="fa-solid fa-plus" />新しく作る</button>
+      <span className="panel-toolbar-spacer" />
+      <button className="studio-quiet" disabled={!history.past.length || exporting} onClick={() => dispatch({ type: 'undo' })}><i className="fa-solid fa-rotate-left" />元に戻す</button>
+      <button className="studio-icon-button" aria-label="やり直す" disabled={!history.future.length || exporting} onClick={() => dispatch({ type: 'redo' })}><i className="fa-solid fa-rotate-right" /></button>
     </div>
-  );
-};
+    <div className="panel-workbench">
+      <aside className="panel-settings">
+        <div className="panel-segments" aria-label="画像の設定"><button aria-pressed={controls === 'template'} onClick={() => setControls('template')}>テンプレート</button><button aria-pressed={controls === 'style'} onClick={() => setControls('style')}>色・配置</button><button aria-pressed={controls === 'card'} onClick={() => setControls('card')}>カード</button></div>
+        {controls === 'template' ? <>
+          <div className="panel-section-label"><span>01</span><h2>見せ方を選ぶ</h2></div>
+          <div className="panel-template-list">{TEMPLATES.map(t => <button key={t.id} className={'panel-template' + (design.template === t.id ? ' is-active' : '')} aria-pressed={design.template === t.id} onClick={() => commit(applyPanelTemplate(design, t.id))}>
+            <div className={'panel-template-art is-' + t.id} aria-hidden="true">{Array.from({ length: t.id === 'light' ? 6 : 12 }, (_, i) => <span key={i} />)}</div>
+            <span className="panel-template-name">{t.name}<small>{t.badge}</small></span><span className="panel-template-description">{t.sub}</span>
+          </button>)}</div>
+          <p className="panel-hint">選んだギフトと表示名を保ったまま、見た目を切り替えられます。</p>
+        </> : controls === 'style' ? <>
+          <div className="panel-section-label"><span>03</span><h2>色とレイアウト</h2></div>
+          <label className="panel-field"><span>色の分け方</span><select value={design.colorMode} onChange={e => patch({ colorMode: e.target.value as PanelDesign['colorMode'] })}><option value="uniform">全体を同じ色に</option><option value="category">内容のグループで色分け</option></select></label>
+          <div className="panel-segments"><button aria-pressed={design.colorTarget === 'border'} onClick={() => patch({ colorTarget: 'border' })}>枠に色をつける</button><button aria-pressed={design.colorTarget === 'background'} onClick={() => patch({ colorTarget: 'background' })}>背景に色をつける</button></div>
+          <ColorField label="基本の色・外枠" value={design.accent} onChange={accent => patch({ accent })} />
+          <ColorField label="カードの背景" value={design.background} onChange={background => patch({ background })} />
+          {design.colorMode === 'category' && <div className="panel-palette">{TONES.map(t => <ColorField key={t.id} label={t.label} value={design.palette[t.id]} onChange={color => patch({ palette: { ...design.palette, [t.id]: color } })} />)}</div>}
+          <div className="panel-field-row"><NumberField label="列" value={design.columns} min={1} max={12} onChange={columns => patch({ columns })} /><NumberField label="段" value={design.rows} min={1} max={8} onChange={rows => patch({ rows })} /></div>
+          <label className="panel-field"><span>文字サイズ <b>{design.fontSize}px</b></span><input type="range" min={10} max={96} value={design.fontSize} onChange={e => patch({ fontSize: Number(e.target.value) })} /></label>
+          <details className="panel-details"><summary>サイズ・余白を細かく調整</summary><div className="panel-field-row"><NumberField label="幅 px" value={design.width} min={360} max={3840} onChange={width => patch({ width })} /><NumberField label="一覧の高さ px" value={design.height} min={120} max={2160} onChange={height => patch({ height })} /></div>
+            <div className="panel-field-row"><NumberField label="間隔" value={design.gap} min={0} max={32} onChange={gap => patch({ gap })} /><NumberField label="外側の余白" value={design.padding} min={4} max={80} onChange={padding => patch({ padding })} /></div>
+            <NumberField label="角の丸み" value={design.radius} min={0} max={32} onChange={radius => patch({ radius })} />
+            <NumberField label="見出しの文字サイズ" value={design.headlineSize} min={24} max={120} onChange={headlineSize => patch({ headlineSize })} />
+            <ColorField label="見出しの色" value={design.headlineColor} onChange={headlineColor => patch({ headlineColor })} />
+            <label className="panel-check"><input type="checkbox" checked={design.showRepeat} onChange={e => patch({ showRepeat: e.target.checked })} />回数（×10など）を表示</label>
+            <label className="panel-check"><input type="checkbox" checked={design.outerFrame} onChange={e => patch({ outerFrame: e.target.checked })} />全体を囲む枠</label>
+          </details>
+        </> : cardInspector}
+        <label className="panel-field"><span>デザイン名</span><input value={design.name} maxLength={60} onChange={e => patch({ name: e.target.value })} /></label>
+        <label className="panel-field"><span>見出し <small>任意・3行まで</small></span><textarea rows={2} value={design.headline} maxLength={80} placeholder={'ダイヤ64個\n集めたら勝ち'} onChange={e => patch({ headline: e.target.value.split('\n').slice(0, 3).join('\n') })} /></label>
+        <details className="panel-details panel-obs-help"><summary><i className="fa-solid fa-circle-info" />OBSへの置き方</summary><ol><li>「PNGを保存」で画像を保存。</li><li>OBSの「ソース」の ＋ から「画像」を追加。</li><li>保存したPNGを選び、四隅をドラッグして配置。</li></ol><p>上下に分けて置く場合は、デザインを2つ作って別々のPNGにします。余白は透明です。</p></details>
+      </aside>
+      <section className="panel-main">
+        <div className="panel-preview-shell">
+          <div className="panel-preview-toolbar"><div><i className="fa-regular fa-image" /><b>プレビュー</b><small>{layout.width} × {layout.height}px</small></div><select aria-label="プレビューの表示" value={preview} onChange={e => setPreview(e.target.value as typeof preview)}><option value="image">完成画像</option><option value="vertical">縦配信 9:16</option><option value="horizontal">横配信 16:9</option></select></div>
+          {preview !== 'image' && <div className="panel-placement"><span>配置イメージ</span><button aria-pressed={position === 'top'} onClick={() => setPosition('top')}>上に置く</button><button aria-pressed={position === 'bottom'} onClick={() => setPosition('bottom')}>下に置く</button><small>PNGには含まれません</small></div>}
+          <div className={'panel-preview-stage is-' + preview}>
+            <div className={'panel-scene is-' + preview + ' position-' + position}>
+              <div className="panel-canvas-wrap" style={{ aspectRatio: layout.width + '/' + layout.height }}>
+                <canvas ref={canvasRef} aria-label="ギフト案内画像のプレビュー" />
+                {design.cards.slice(0, layout.slots).map((c, i) => <button key={c.id} className={'panel-card-hit' + (selected === c.id ? ' is-selected' : '')} aria-label={(i + 1) + '番 ' + c.giftName + 'の表示を編集'} aria-pressed={selected === c.id} onClick={() => { setSelected(c.id); setControls('card'); }} style={{
+                  left: (layout.padding + i % design.columns * (layout.cardWidth + layout.gap)) / layout.width * 100 + '%',
+                  top: (layout.headingHeight + layout.padding + Math.floor(i / design.columns) * (layout.cardHeight + layout.gap)) / layout.height * 100 + '%',
+                  width: layout.cardWidth / layout.width * 100 + '%', height: layout.cardHeight / layout.height * 100 + '%',
+                }} />)}
+                {!design.cards.length && <div className="panel-empty"><i className="fa-solid fa-layer-group" /><h3>あなたの配信に、ひと目でわかる案内を。</h3><p>テンプレートを選んで、ギフトを追加しましょう。</p><button className="studio-primary" disabled={!mappedCards.length || loading} onClick={addMapped}>設定済みギフトをまとめて追加</button><small>または下の一覧から1つずつ選べます</small></div>}
+              </div>
+              {preview !== 'image' && <div className="panel-game-placeholder"><i className="fa-solid fa-video" /><span>ゲーム映像・カメラのスペース</span><small>{preview === 'vertical' ? '9 : 16' : '16 : 9'}</small></div>}
+            </div>
+          </div>
+          <div className="panel-preview-footer"><span><i className="fa-solid fa-border-none" />余白は透明</span><span>{design.cards.length}枚 / {layout.slots}枠</span><span>カードを選んで表示を編集</span></div>
+        </div>
+        {(pending > 0 || failed.length > 0 || drawError || layout.overflow > 0) && <div className="studio-alert" role="status">
+          {pending > 0 && <p>ギフト画像を読み込み中… 残り{pending}枚</p>}
+          {failed.length > 0 && <p>{failed.length}枚の画像を読み込めませんでした。<button onClick={retryImages}>画像を再読み込み</button></p>}
+          {drawError && <p>{drawError}</p>}
+          {layout.overflow > 0 && <p>{layout.overflow}枚が枠に入りません。すべて入るまで保存を止めています。<button onClick={() => commit(fitCards(design, design.cards))}>すべて収まるように調整</button></p>}
+        </div>}
 
-export default ImageEditorPage;
+        {design.cards.length > 0 && <div className="panel-order"><div className="panel-order-heading"><span>並び順 <small>ドラッグで入れ替え</small></span><button className="studio-quiet" onClick={() => { patch({ cards: [] }); setSelected(null); }}>すべて外す</button></div><div className="panel-order-strip">{design.cards.map((c, i) => <button key={c.id} className={selected === c.id ? 'is-selected' : ''} aria-label={(i + 1) + '番のカードを選択'} draggable onDragStart={() => { dragId.current = c.id; }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (dragId.current) moveCard(dragId.current, i); dragId.current = null; }} onDragEnd={() => { dragId.current = null; }} onClick={() => { setSelected(c.id); setControls('card'); }}><small>{i + 1}</small>{c.image && <img src={c.image} alt="" loading="lazy" />}<span>{c.title}</span></button>)}</div></div>}
+        <section className="panel-library">
+          <div className="panel-library-heading"><div className="panel-section-label"><span>02</span><h2>ギフトを追加</h2></div><button className="studio-quiet" onClick={addMapped} disabled={!mappedCards.length || design.cards.length >= 96 || loading}>設定済みをまとめて追加</button></div>
+          <div className="panel-library-tools"><div className="panel-segments"><button aria-pressed={source === 'mapped'} onClick={() => setSource('mapped')}>設定済み {mappedCards.length}</button><button aria-pressed={source === 'all'} onClick={() => setSource('all')}>すべて {gifts.length}</button></div><label className="panel-search"><i className="fa-solid fa-magnifying-glass" /><input aria-label="画像に使うギフトを検索" placeholder="ギフト名・効果名で検索" value={search} onChange={e => setSearch(e.target.value)} /></label></div>
+          {loading ? <p className="panel-library-empty" role="status">ギフトを読み込んでいます…</p> : dataError ? <div className="studio-alert" role="alert">{dataError}<button onClick={() => setReload(n => n + 1)}>再読み込み</button></div> : !available.length ? <p className="panel-library-empty">{source === 'mapped' && !mappedCards.length ? 'ギフト設定を作ると、効果名も自動で入ります。「すべて」から画像だけ選ぶこともできます。' : '一致するギフトがありません。検索する文字を変えてください。'}</p> : <div className="panel-gift-grid">{available.slice(0, 100).map(c => <button key={c.id} disabled={design.cards.length >= 96} onClick={() => addCards([c])} title={c.giftName + ' / ' + c.title}>
+            <div>{c.image ? <img src={c.image} alt="" loading="lazy" /> : <i className="fa-solid fa-gift" />}<span className="panel-gift-plus">+</span></div><b>{c.giftName}</b><small>{c.title}</small>
+          </button>)}</div>}
+          {available.length > 100 && <p className="panel-hint">先頭100件を表示しています。検索してギフトを絞り込めます。</p>}
+          {design.cards.length >= 96 && <p className="panel-hint">1つの画像には96枚まで追加できます。別のデザインに分けて作成してください。</p>}
+        </section>
+      </section>
+    </div>
+  </div>;
+}

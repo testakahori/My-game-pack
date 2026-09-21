@@ -4,6 +4,7 @@ import { AppPage } from "./types";
 import Sidebar from "./components/Sidebar";
 import DashboardPage from "./components/DashboardPage";
 import GiftSettingsPage from "./components/GiftSettingsPage";
+import ImageEditorPage from "./components/ImageEditorPage";
 import InitialSetupPage from "./components/InitialSetupPage";
 import GiftsViewerPage from "./components/GiftsViewerPage";
 import CommandsListPage from "./components/CommandsListPage";
@@ -17,11 +18,12 @@ import LoginPage from "./components/LoginPage";
 import { UnsavedChangesProvider, useUnsavedGuard } from "./UnsavedChanges";
 
 const PAGE_TITLE: Partial<Record<AppPage, string>> = {
-  [AppPage.DASHBOARD]: "ダッシュボード",
+  [AppPage.DASHBOARD]: "配信ホーム",
   [AppPage.GIFTS]: "ギフト設定",
-  [AppPage.EVENTS]: "イベント設定①",
-  [AppPage.EVENTS2]: "イベント設定②",
-  [AppPage.TTS]: "🔊 読み上げ設定",
+  [AppPage.EVENTS]: "いいね・フォロー",
+  [AppPage.EVENTS2]: "ルーレット・コメント",
+  [AppPage.TTS]: "読み上げ",
+  [AppPage.IMAGE_EDITOR]: "配信画像",
   [AppPage.GIFTS_VIEWER]: "ギフト一覧",
   [AppPage.COMMANDS]: "コマンド一覧",
   [AppPage.SETUP]: "初期セットアップ",
@@ -150,16 +152,15 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="app-shell flex h-screen flex-col bg-gray-900 text-gray-100 overflow-hidden">
+    <div className="app-shell ui-refresh flex h-screen flex-col bg-gray-900 text-gray-100 overflow-hidden">
       <header className="global-app-header">
         <div className="global-app-identity">
           <div className="global-app-cube"><MinecraftBlockIcon /></div>
-          <div><b>MC TikTok Bridge（統合UI）</b><small>{appVersion ? `v${appVersion}` : ""}</small></div>
+          <div><b>MyGamePack <em className="global-app-edition">BRIDGE</em></b><small>{appVersion ? `v${appVersion}` : ""}</small></div>
         </div>
         <div className="global-app-status">
-          <span><i className={`status-dot ${headerStatus.bridgeRunning ? "status-dot--ok" : "status-dot--warn"}`} />システム状態: <b>{headerStatus.bridgeRunning ? "正常" : "Bridge停止中"}</b></span>
-          <span>⌁ 接続: <b>{headerStatus.modOnline ? "オンライン" : "オフライン"}</b></span>
-          <span>⬡ Bridge: <b>{headerStatus.bridgeRunning ? "監視中" : "停止中"}</b></span>
+          <span><i className={`status-dot ${headerStatus.modOnline ? "status-dot--ok" : "status-dot--warn"}`} />Minecraft <b>{headerStatus.modOnline ? "接続済み" : "未接続"}</b></span>
+          <span>BRIDGE <b>{headerStatus.bridgeRunning ? "稼働中" : "停止中"}</b></span>
           <time>{clock.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}</time>
         </div>
         <div className="global-window-controls">
@@ -177,7 +178,7 @@ const App: React.FC = () => {
         />
 
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          <header className="app-topbar" aria-hidden="true">
+          <header className="app-topbar">
             <div className="app-topbar-title">{PAGE_TITLE[activePage]}</div>
           </header>
 
@@ -190,7 +191,8 @@ const App: React.FC = () => {
           )}
 
           {/* GiftSettingsPage は独自に Header（タブ）を持つため p-0 */}
-          {activePage === AppPage.GIFTS && <GiftSettingsPage />}
+          {activePage === AppPage.GIFTS && <GiftSettingsPage onOpenImageEditor={() => navigateTo(AppPage.IMAGE_EDITOR)} />}
+          {activePage === AppPage.IMAGE_EDITOR && <div className="page-pad p-6"><ImageEditorPage /></div>}
 
           {activePage === AppPage.EVENTS && (
             <div className="page-pad p-6">

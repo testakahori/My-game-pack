@@ -408,10 +408,9 @@ const EventSettings2Page: React.FC = () => {
     <div className="events-page events2-page page-surface max-w-none space-y-5">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-black text-white">イベント設定②</h1>
+          <h1 className="text-2xl font-black text-white">ルーレット・コメント</h1>
           <p className="text-gray-400 text-sm mt-1">
-            ルーレット・デスルーレット・コメントギフト。
-            <code className="text-cyan-400 text-xs ml-1">config.minecraft.json</code> に保存されます。
+            ルーレットの中身と、死亡・コメント時の動きを設定します。
           </p>
         </div>
         <button

@@ -60,7 +60,7 @@ function configToGiftMappings(cfg: any): GiftMapping[] {
     });
 }
 
-const GiftSettingsPage: React.FC = () => {
+const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpenImageEditor }) => {
   const { confirmDiscard } = useUnsavedGuard();
   const [activeTab, setActiveTab]       = useState<AppTab>(AppTab.MAPPINGS);
   const [mappings, setMappings]         = useState<GiftMapping[]>([]);
@@ -97,7 +97,7 @@ const GiftSettingsPage: React.FC = () => {
   useEffect(() => {
     const savedTabRaw = localStorage.getItem(LS_ACTIVE_TAB);
     const savedTab = savedTabRaw ? safeParse<AppTab>(savedTabRaw, AppTab.MAPPINGS) : null;
-    if (savedTab && isAppTab(savedTab)) setActiveTab(savedTab);
+    if (savedTab && isAppTab(savedTab)) setActiveTab(savedTab === AppTab.IMAGE_EDITOR ? AppTab.MAPPINGS : savedTab);
     setCommandSets(safeParse<CommandSet[]>(localStorage.getItem(LS_COMMAND_SETS), []));
 
     const api = (window as any).mygamepack;
@@ -257,7 +257,7 @@ const GiftSettingsPage: React.FC = () => {
   return (
     <div className="gift-settings-shell page-surface flex flex-col min-h-full">
       {saveError && <p role="alert" className="gift-catalog-error">{saveError}</p>}
-      <Header activeTab={activeTab} setActiveTab={tab => { if (tab !== activeTab && confirmDiscard()) setActiveTab(tab); }} />
+      <Header activeTab={activeTab} setActiveTab={tab => { if (tab !== activeTab && confirmDiscard()) { if (tab === AppTab.IMAGE_EDITOR && onOpenImageEditor) onOpenImageEditor(); else setActiveTab(tab); } }} />
       <div className="flex-1 p-6">{tabContent}</div>
     </div>
   );

@@ -811,7 +811,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
         <section className="cockpit-main">
           <div className="cockpit-panel-title">
             <span>›</span>
-            <div><h1>配信準備コックピット</h1><p>TikTok LIVE STUDIOの接続後、MinecraftとBRIDGEを準備します</p></div>
+            <div><h1>配信の準備をはじめよう</h1><p>TikTok LIVE STUDIOの接続後、MinecraftとBRIDGEを準備します</p></div>
           </div>
 
           <div className="cockpit-pipeline">
@@ -841,6 +841,10 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
                 <span>■</span> 一括停止
               </button>
             </div>
+
+          </div>
+          <p className="cockpit-all-start-note">先にTikTok LIVE STUDIOで接続してください。一括起動でサーバー → Minecraft → BRIDGEを起動します。一括停止でBRIDGEとサーバーを停止します。</p>
+          <details className="studio-advanced"><summary>個別操作・ランチャー設定</summary>
             <div className="cockpit-bridge-actions" aria-label="BRIDGE単体操作">
               <button type="button" onClick={handleBridgeStop} disabled={isBusy} className="cockpit-bridge-action cockpit-bridge-action--stop">
                 ■ BRIDGE停止
@@ -849,14 +853,13 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
                 ↻ BRIDGE再起動
               </button>
             </div>
-          </div>
-          <p className="cockpit-all-start-note">先にTikTok LIVE STUDIOで接続してください。一括起動でサーバー → Minecraft → BRIDGEを起動します。一括停止でBRIDGEとサーバーを停止します。</p>
           <div className="cockpit-launcher-config">
             <button type="button" onClick={handlePickLauncher}>🎮 ランチャーの場所を指定</button>
             <span title={launcherPath || undefined}>
               {launcherPath || "未設定（標準のインストール場所を自動検索します）"}
             </span>
           </div>
+          </details>
         </section>
 
         <aside className="cockpit-flow-panel">
@@ -957,6 +960,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
         </div>
       </section>
 
+      <details className="studio-advanced"><summary>接続ログ・サーバーコマンドを開く</summary>
       <div className="cockpit-log-panels">
         <section className="cockpit-bridge-log-panel">
           <div className="cockpit-bridge-log-head">
@@ -1022,6 +1026,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
         </section>
       </div>
 
+      </details>
       <div className="cockpit-hidden-actions" aria-hidden="true">
         <button onClick={handleServerStart}>start</button><button onClick={handleServerStop}>stop</button>
         <button onClick={handleBridgeStart}>bridge</button><button onClick={handleBridgeStop}>bridge stop</button><button onClick={handleBridgeRestart}>bridge restart</button>
