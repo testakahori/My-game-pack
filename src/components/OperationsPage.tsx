@@ -151,7 +151,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
   const [appVersion, setAppVersion] = useState("");
   const [saving, setSaving] = useState(false);
   const [savedSnapshot, setSavedSnapshot] = useState("");
-  const currentSnapshot = JSON.stringify({ options: cfg.options || {}, autoBackup: appCfg.autoBackupOnServerStart !== false, gameplayText });
+  const currentSnapshot = JSON.stringify({ options: cfg.options || {}, gameplayText });
   useUnsavedChanges(Boolean(savedSnapshot) && currentSnapshot !== savedSnapshot, saving);
 
   useEffect(() => {
@@ -198,7 +198,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
       setAppCfg(appConfigValue);
       setServerProps(propsValue);
       setGameplayText(JSON.stringify(bridgeConfig?.options?.gameplay || {}, null, 2));
-      if (config.status === "fulfilled" && appConfig.status === "fulfilled") setSavedSnapshot(JSON.stringify({ options: bridgeConfig.options || {}, autoBackup: appConfigValue.autoBackupOnServerStart !== false, gameplayText: JSON.stringify(bridgeConfig?.options?.gameplay || {}, null, 2) }));
+      if (config.status === "fulfilled" && appConfig.status === "fulfilled") setSavedSnapshot(JSON.stringify({ options: bridgeConfig.options || {}, gameplayText: JSON.stringify(bridgeConfig?.options?.gameplay || {}, null, 2) }));
     });
 
     refresh();
@@ -236,10 +236,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
       const next = { ...latest, options: { ...(latest.options || {}), ...(cfg.options || {}), gameplay } };
       const validation = await api.configValidate(next);
       if (!validation.ok) throw new Error(validation.errors.join("\n"));
-      await Promise.all([
-        api.configWrite(next),
-        api.appConfigWrite({ autoBackupOnServerStart: appCfg.autoBackupOnServerStart !== false }),
-      ]);
+      await api.configWrite(next);
       setSavedSnapshot(currentSnapshot);
       setLastSavedAt(new Date().toISOString());
       setNotice(validation.warnings?.length ? `保存しました: ${validation.warnings.join(" / ")}` : "運用設定を保存しました");
@@ -401,7 +398,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
             <span className="ops-panel-icon ops-panel-icon--shield">🛡</span>
             <div>
               <h2>安定運用・荒らし対策</h2>
-              <p>連打・読み上げ・自動セーブを調整します。</p>
+              <p>連打・読み上げの動作を調整します。</p>
             </div>
           </div>
 
@@ -427,14 +424,6 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
               <FieldLabel label="TTS NGワード（カンマ区切り）">
                 <input value={(o.ttsNgWords || []).join(", ")} onChange={(event) => setOption("ttsNgWords", event.target.value.split(",").map((value) => value.trim()).filter(Boolean))} placeholder="例）暴言, URL, 宣伝" />
               </FieldLabel>
-              <label className="ops-check-row">
-                <input
-                  type="checkbox"
-                  checked={appCfg.autoBackupOnServerStart !== false}
-                  onChange={(event) => setAppCfg((value: any) => ({ ...value, autoBackupOnServerStart: event.target.checked }))}
-                />
-                サーバー起動前にMAPを自動セーブ
-              </label>
               <button type="button" className="ops-primary-button ops-primary-button--violet" disabled={saving} onClick={save}>動作設定を保存</button>
             </div>
           </div>

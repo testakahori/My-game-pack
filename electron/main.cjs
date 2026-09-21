@@ -1273,17 +1273,7 @@ async function startServer(resumeAfterMap = false) {
   }
 
   await mapSaves.recover();
-  // 起動前バックアップ。失敗してもサーバー起動は絶対にブロックしない
-  // （旧実装は失敗時に throw して Forge が起動不能になる事故があった）。
-  let backup = null;
-  if (!resumeAfterMap && readAppConfig().autoBackupOnServerStart !== false) {
-    try {
-      const result = await createWorldBackup("server-start");
-      backup = { ok: true, message: result.message };
-    } catch (e) {
-      backup = { ok: false, message: e.message };
-    }
-  }
+  // MAPは「保存する」を押した時だけ作成。旧autoBackup設定が残っていても自動保存しない。
 
   // 黒い別窓は開かず、出力をアプリ内（ダッシュボードのForgeログ）へ取り込む。
   // run.bat 末尾の pause は NO_PAUSE=1 で無効化される。stdin は stop コマンド送信用。
@@ -1320,7 +1310,7 @@ async function startServer(resumeAfterMap = false) {
     if (serverProcRef === proc) { serverPid = null; serverProcRef = null; }
   });
 
-  return { ok: true, backup };
+  return { ok: true };
   } finally { serverStarting = false; }
 }
 ipcMain.handle("server:start", () => startServer());
@@ -1869,8 +1859,8 @@ ipcMain.handle('world:saves:list', async () => ({ ...(await mapSaves.list()), bu
 ipcMain.handle('world:saves:save', (_event, name) => runMapOperation(async () => ({ saved: await mapSaves.save(name) })));
 ipcMain.handle('world:saves:load', (_event, id) => runMapOperation(() => mapSaves.load(id)));
 
-async function createWorldBackup(reason = 'manual') {
-  const saved = await mapSaves.save(reason === 'server-start' ? '起動前 ' + new Date().toLocaleString('ja-JP') : '', reason);
+async function createWorldBackup() {
+  const saved = await mapSaves.save('', 'manual');
   return { ok: true, path: path.join(getServerRoot(), 'map-saves', saved.id), reason, message: 'MAPを保存しました: ' + saved.name };
 }
 ipcMain.handle('world:backup', () => runMapOperation(() => createWorldBackup()));

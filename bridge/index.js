@@ -1447,9 +1447,14 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       }
       // unmappedGiftEvent が有効なら実行
       if (enabledCommand(unmappedGiftEvent)) {
+        const rc = Number(data.repeatCount);
+        const delta = Number.isFinite(rc) && rc > 0
+          ? computeStreakDelta(streakLastCount, 'unmapped:' + giftId + ':' + getSenderIdentity(data), rc, data.repeatEnd, Date.now(), STREAK_TTL_MS)
+          : 1;
+        if (delta <= 0) return;
+        const unmappedRepeat = delta * clampInt(unmappedGiftEvent.repeat ?? 1, 1, 100, 1);
         const unmappedMap = { commandFile: ensureTxt(unmappedGiftEvent.commandFile), name: `unmapped:${giftId}` };
         if (doumaMod) {
-          const unmappedRepeat = clampInt(unmappedGiftEvent.repeat ?? 1, 1, 100, 1);
           console.log(`[Gift] (unmapped) -> DoumaMod file=${unmappedGiftEvent.commandFile} repeat=${unmappedRepeat}`);
           dispatchDoumaEvent(`unmapped:${giftId}`, {
             type: "gift",
@@ -1464,7 +1469,6 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         }
         const resolved = resolveCommands(unmappedMap);
         if (resolved.ok) {
-          const unmappedRepeat = clampInt(unmappedGiftEvent.repeat ?? 1, 1, 100, 1);
           const ctx = {
             gameType: targetType === "minecraft" ? "minecraft" : "7dtd",
             listenerName: sender,

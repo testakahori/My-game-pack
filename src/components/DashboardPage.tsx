@@ -284,7 +284,6 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
   const [mcId, setMcId] = useState("");
   const [mcIdBusy, setMcIdBusy] = useState(false);
   const [mcIdMsg, setMcIdMsg] = useState<{ type: "ok" | "error" | "info"; text: string } | null>(null);
-  const [safety, setSafety] = useState<{ protection: boolean; autoBackup: boolean }>({ protection: false, autoBackup: true });
   const logEndRef = useRef<HTMLDivElement>(null);
 
   const addLog = useCallback((text: string, type: LogType = "info") => {
@@ -343,18 +342,11 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
     return () => { disposed = true; window.clearTimeout(first); window.clearInterval(timer); };
   }, [api, username]);
 
-  // 保護＆バックアップカードの実状態（拠点保護・起動時バックアップ）を読み込む
+  // ランチャーとマイクラIDの保存設定を読み込む
   useEffect(() => {
     (async () => {
       try {
-        const [appCfg, cfg] = await Promise.all([
-          api.appConfigRead?.() ?? Promise.resolve({}),
-          api.configRead?.() ?? Promise.resolve({}),
-        ]);
-        setSafety({
-          protection: cfg?.options?.protection?.enabled === true,
-          autoBackup: appCfg?.autoBackupOnServerStart !== false,
-        });
+        const appCfg = await api.appConfigRead?.();
         if (typeof appCfg?.minecraftLauncherPath === "string") setLauncherPath(appCfg.minecraftLauncherPath);
         if (typeof appCfg?.minecraftPlayerName === "string") setMcId(appCfg.minecraftPlayerName);
       } catch { /* 表示は既定値のまま */ }
@@ -432,20 +424,13 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
   useUnsavedChanges(!worldLoading && (isWorldDirty || (appliedUsername !== null && username.trim().replace(/^@/, "") !== appliedUsername)), applyBusy || worldSaving);
 
   // ── ハンドラー ──
-  const logBackupResult = (backup?: { ok: boolean; message: string } | null) => {
-    if (!backup) return;
-    if (backup.ok) addLog(`起動前バックアップ: ${backup.message}`, "ok");
-    else addLog(`起動前バックアップに失敗しました（サーバー起動は続行）: ${backup.message}`, "warn");
-  };
-
   const handleServerStart = async () => {
     setForgeState("starting"); addLog("Forgeサーバーを起動中…");
     try {
       // 暗視は初期設定：どのワールドでも常時付与されるよう、起動前に毎回データパックを配置する
       const current = await api.serverProcessStatus?.();
       if (!current?.running) try { await api.serverDatapackDeployNightVision(); } catch { /* optional */ }
-      const started = await api.serverStart(); setForgeState("running");
-      logBackupResult(started?.backup);
+      await api.serverStart(); setForgeState("running");
       addLog("Forgeサーバーを起動しました。", "ok");
     } catch (e: any) {
       setForgeState("error"); addLog(`サーバー起動エラー: ${e?.message ?? String(e)}`, "error");
@@ -659,7 +644,6 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
       if (!currentServer?.running) try { await api.serverDatapackDeployNightVision(); } catch { /* optional */ }
       const started = await api.serverStart();
       setForgeState("running");
-      logBackupResult(started?.backup);
       addLog(started?.alreadyRunning ? "起動済みのForgeサーバーを使用します。" : "Forgeサーバーを起動しました。", "ok");
 
       stage = "minecraft";
@@ -995,7 +979,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
           <section className="cockpit-info-card cockpit-safety-card">
           <h2><span>◇</span> MAPセーブ・ロード</h2>
           <div className="cockpit-safety-state"><span>◇</span><div><b>遊ぶ前の世界を保存</b><small>地形も持ち物も、保存した時点へ</small></div></div>
-          <ul><li>{safety.autoBackup ? '✓ 起動前の自動セーブ 有効' : '○ 起動前の自動セーブ 無効'}</li><li>読み込み前のMAPも自動で退避</li></ul>
+          <ul><li>「保存する」を押した時だけ保存</li><li>自動セーブなし</li></ul>
           <button type="button" onClick={() => onNavigate(AppPage.OPERATIONS)}>MAPの保存・読込を開く</button>
           </section>
         </div>

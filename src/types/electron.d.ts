@@ -1,7 +1,7 @@
 // src/types/electron.d.ts
 export {};
 export type MapSave = { id: string; name: string; createdAt: string; level: string; reason: string; bytes: number; files: number };
-export type MapOperationResult = { ok: boolean; saved?: MapSave; loaded?: MapSave; safety?: MapSave; restarted?: boolean; restartError?: string };
+export type MapOperationResult = { ok: boolean; saved?: MapSave; loaded?: MapSave; restarted?: boolean; restartError?: string };
 export type StreamSession = { id: string; title: string; startedAt: string; endedAt: string | null };
 
 export type PreflightCheck = { id: string; title: string; status: "ok" | "warn" | "error" | "skip"; detail: string; page: string };
