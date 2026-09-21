@@ -1,5 +1,5 @@
 // electron/main.cjs
-const { app, BrowserWindow, ipcMain, session, shell, clipboard, nativeImage, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, session, net, shell, clipboard, nativeImage, dialog } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
@@ -2355,40 +2355,9 @@ ipcMain.handle("gv:gifts:openHtml", async () => {
 // --------------------
 // gv:gifts:fetchImageBase64
 // --------------------
-ipcMain.handle("gv:gifts:fetchImageBase64", async (_event, url) => {
-  let parsed;
-  try { parsed = new URL(String(url || "")); }
-  catch { throw new Error("URL is invalid"); }
-  if (parsed.protocol !== "https:") throw new Error("HTTPS image URL only");
-
-  const response = await fetch(parsed.href, { signal: AbortSignal.timeout(10000) });
-  if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-  if (new URL(response.url).protocol !== "https:") throw new Error("Insecure image redirect blocked");
-
-  const mimeType = String(response.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
-  if (!mimeType.startsWith("image/")) throw new Error("Response is not an image");
-  const maxBytes = 10 * 1024 * 1024;
-  const declaredBytes = Number(response.headers.get("content-length") || 0);
-  if (declaredBytes > maxBytes) throw new Error("Image is too large (max 10MB)");
-
-  const chunks = [];
-  let totalBytes = 0;
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("Image response body is empty");
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    totalBytes += value.byteLength;
-    if (totalBytes > maxBytes) {
-      await reader.cancel();
-      throw new Error("Image is too large (max 10MB)");
-    }
-    chunks.push(Buffer.from(value));
-  }
-  const buffer = Buffer.concat(chunks, totalBytes);
-
-  return `data:${mimeType};base64,${buffer.toString("base64")}`;
-});
+const { fetchGiftImage } = require("./gift_image.cjs");
+ipcMain.handle("gv:gifts:fetchImageBase64", (_event, url) =>
+  fetchGiftImage(url, (input, init) => net.fetch(input, init)));
 
 // --------------------
 // gv:gifts:copyPngDataUrl
