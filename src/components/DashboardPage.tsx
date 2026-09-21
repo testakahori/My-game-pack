@@ -448,8 +448,6 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
     try {
       await api.bridgeLaunch(); setBridgeState("running");
       addLog("BRIDGEを起動しました。", "ok");
-      try { await api.serverGamerulesApply(); addLog("ゲームルール（常昼・晴れ・keepInventory・暗視）を適用しました。", "ok"); }
-      catch (ge: any) { addLog(`ゲームルール適用をスキップ: ${ge?.message ?? String(ge)}`, "warn"); }
     } catch (e: any) {
       setBridgeState("error"); addLog(`BRIDGE起動エラー: ${e?.message ?? String(e)}`, "error");
     }
@@ -477,8 +475,6 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
       }
       setBridgeState("running");
       addLog("BRIDGEを再起動しました。", "ok");
-      try { await api.serverGamerulesApply(); addLog("ゲームルールを再適用しました。", "ok"); }
-      catch (ge: any) { addLog(`ゲームルール再適用をスキップ: ${ge?.message ?? String(ge)}`, "warn"); }
     } catch (e: any) {
       setBridgeState("error"); addLog(`BRIDGE再起動エラー: ${e?.message ?? String(e)}`, "error");
     }
@@ -778,7 +774,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
   const stepForge: StepStatus = forgeState  === "running" ? "done" : forgeState  === "error" ? "error" : forgeState  === "starting" ? "active" : "pending";
   const stepBridge: StepStatus = bridgeState === "running" ? "done" : bridgeState === "error" ? "error" : bridgeState === "starting" ? "active" : "pending";
   const stepTikTok: StepStatus = tiktokConnected ? "done" : tiktokConfigured ? "active" : "pending";
-  const isBusy = allStartBusy || forgeState === "starting" || bridgeState === "starting";
+  const isBusy = allStartBusy || allStopBusy || forgeState === "starting" || bridgeState === "starting";
 
   const logTypeStyle: Record<LogType, string> = {
     info:  "text-gray-500",
@@ -844,15 +840,22 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
 
           </div>
           <p className="cockpit-all-start-note">先にTikTok LIVE STUDIOで接続してください。一括起動でサーバー → Minecraft → BRIDGEを起動します。一括停止でBRIDGEとサーバーを停止します。</p>
-          <details className="studio-advanced"><summary>個別操作・ランチャー設定</summary>
-            <div className="cockpit-bridge-actions" aria-label="BRIDGE単体操作">
-              <button type="button" onClick={handleBridgeStop} disabled={isBusy} className="cockpit-bridge-action cockpit-bridge-action--stop">
+          <section className="cockpit-bridge-controls" aria-label="BRIDGE単体操作">
+            <strong>BRIDGEだけを操作</strong>
+            <div className="cockpit-bridge-actions">
+              <button type="button" onClick={handleBridgeStart} disabled={isBusy || bridgeState === "running"} className="cockpit-bridge-action cockpit-bridge-action--start">
+                ▶ BRIDGE起動
+              </button>
+              <button type="button" onClick={handleBridgeStop} disabled={isBusy || bridgeState === "stopped"} className="cockpit-bridge-action cockpit-bridge-action--stop">
                 ■ BRIDGE停止
               </button>
-              <button type="button" onClick={handleBridgeRestart} disabled={isBusy} className="cockpit-bridge-action cockpit-bridge-action--restart">
+              <button type="button" onClick={handleBridgeRestart} disabled={isBusy || bridgeState === "stopped"} className="cockpit-bridge-action cockpit-bridge-action--restart">
                 ↻ BRIDGE再起動
               </button>
             </div>
+            <p>サーバーとMinecraftは動かしたまま操作できます。いいね・ギフトの割り当ては保存後、数秒で自動反映されます。接続アカウントを変えたときはBRIDGEを再起動してください。</p>
+          </section>
+          <details className="studio-advanced"><summary>ランチャー設定</summary>
           <div className="cockpit-launcher-config">
             <button type="button" onClick={handlePickLauncher}>🎮 ランチャーの場所を指定</button>
             <span title={launcherPath || undefined}>
