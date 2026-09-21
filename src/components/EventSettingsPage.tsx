@@ -266,7 +266,7 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
       snapshot.current = makeSnapshot(likeEvents, unmappedGiftEvent, shareEvent, followEvent, memberEvent);
       setIsDirty(false);
       onDirtyChange?.(false);
-      setMsg({ type: "ok", text: "保存しました。次回 BRIDGE 起動から有効になります。" });
+      setMsg({ type: "ok", text: "保存しました。稼働中のBRIDGEには数秒で自動反映されます。" });
       setTimeout(() => setMsg(null), 4000);
     } catch (e: any) {
       setMsg({ type: "error", text: `保存エラー: ${e?.message ?? String(e)}` });
@@ -584,7 +584,7 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
           {isDirty ? (
             <p className="text-sm font-bold text-amber-300">⚠ 未保存の変更があります</p>
           ) : (
-            <p className="text-sm text-gray-500">保存後は BRIDGE を再起動してください</p>
+            <p className="text-sm text-gray-500">保存後は稼働中のBRIDGEに数秒で自動反映されます。再起動は不要です。</p>
           )}
         </div>
         <button

@@ -76,3 +76,10 @@ The installed v1.0.36 app exposed an OS-specific image download failure missed b
 - Native image preview loaded Heart Me image against charcoal background; card inspector contained image text, repeat, group and color only.
 - Validation: TypeScript, 14 Bridge scenarios, 100 app tests and production Vite build passed.
 - Previous v1.0.39 one-time native save-dialog 0xc0000409 crash remains unexplained; it did not reproduce in this task's Markdown save flow.
+# v1.0.41 — TikTokイベント形式とBRIDGE単体操作
+
+- 原因: 導入済みTikTokLiveConnection 2.4.3はv3 protobufのuser/common/gift、いいねcount/totalを渡す一方、Bridgeが旧フラット項目だけを参照していた。実配信ログにGift from=unknown、Like発火なしを確認。
+- 旧/現行形式の正規化、初回パケットの新規いいね計上、接続秒の時刻比較、同名別ユーザーの連打状態分離を修正。連打終了通知の余分な1発も抑制。
+- ホームにBRIDGE起動・停止・再起動を常設。単体起動/再起動でゲームルールを再適用しない。イベント設定の「次回起動から有効」を自動反映の説明へ訂正。
+- 検証: npm run verify (Bridge14 + App108 = 122)、TypeScript、production build成功。コネクターの実protobuf encode/decodeとprocessDecodedData、本番Bridgeハンドラー、ローカルHTTP受信を通す回帰テストで100→200いいね、贈り主名、2回のatomic設定保存、再起動なしの反映を確認。
+- 本物のTikTokへの接続やギフト送信はこの回帰テストでは行わない。模擬メッセージを使用し、ゲーム内実行先はテストHTTPサーバー。

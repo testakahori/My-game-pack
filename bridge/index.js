@@ -32,6 +32,7 @@ const { validateBridgeConfig } = require("./config_schema");
 const { prepareRoulette, createRouletteRunner } = require("./roulette.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted } = require("./feature_engine");
 const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras } = require("./event_rules.cjs");
+const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter } = require("./tiktok_events.cjs");
 let runtimeProtection = { enabled: false };
 let doumaWebSocket = null;
 let doumaWebSocketStopping = false;
@@ -522,16 +523,8 @@ const DEDUPE_WINDOW_MS = 2500; // 2.5秒以内の同一イベントは捨てる�
 const DEDUPE_FALLBACK_WINDOW_MS = 200; // msgId なしのフォールバックキー用（短めにして誤判定を抑制）
 const DEDUPE_CLEANUP_MS = 15000;
 
-function getStableSender(data) {
-  return (
-    String(data.nickname ?? "").trim() ||
-    String(data.uniqueId ?? "").trim() ||
-    String(data.userId ?? "").trim() ||
-    "unknown"
-  );
-}
-
 function dedupeKeyFromGift(data) {
+  data = normalizeTikTokEvent(data, 'gift');
   const msgId =
     data.msgId ||
     data.messageId ||
@@ -542,7 +535,7 @@ function dedupeKeyFromGift(data) {
     "";
 
   const giftId = String(data.giftId ?? "");
-  const user = getStableSender(data);
+  const user = getSenderIdentity(data);
   const repeatCount = String(data.repeatCount ?? "");
   const repeatEnd = String(data.repeatEnd ?? "");
 
@@ -559,12 +552,12 @@ function dedupeKeyFromGift(data) {
 // 【修正2026-07-08 C】ベースライン残留でギフトが無視される問題を解消：
 //  - streakMap は { count, at } を保持し、ttlMs で失効させる
 //  - 前回値より小さい repeatCount（＝新しいstreak開始）や失効時は baseline を捨てて delta=1
-//  - どのケースでも「無視(return)」しない
+//  - 受信済みの同じ個数の終了通知は追加分0（終了時だけ余計に1回発火させない）
 //  - repeatEnd は truthy 判定（ライブラリが 1/true どちらを返しても終了扱い）
 function computeStreakDelta(streakMap, key, rcNum, repeatEnd, now, ttlMs) {
   const prevEntry = streakMap.get(key);
   const isFresh = prevEntry && (now - prevEntry.at) < ttlMs;
-  const delta = isFresh && rcNum > prevEntry.count
+  const delta = isFresh && repeatEnd && rcNum === prevEntry.count ? 0 : isFresh && rcNum > prevEntry.count
     ? rcNum - prevEntry.count // 正常な連打の増分
     : 1; // 新しいstreak開始 / baseline消失 / 巻き戻り → 最低1回は必ず発火
 
@@ -1208,6 +1201,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
   // 初回接続・再接続時の過去コメント再送を止め、ライブ中に届いたイベントだけ処理する。
   const tiktok = new TikTokLiveConnection(tiktokUsername, { processInitialData: false });
+  const likeCounter = createLikeCounter();
   let connectedAt = 0;
   let tiktokConnectLoop = null;
   let tiktokReconnectTimer = null;
@@ -1349,6 +1343,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       try {
         const state = await tiktok.connect();
         connectedAt = Date.now();
+        likeCounter.reset();
         recordStream('connect', tiktokUsername, state.roomId);
         console.log(`[TikTok] Connected. roomId=${state.roomId}`);
         console.log(`[Bridge] connectedAt: ${connectedAt}`);
@@ -1409,15 +1404,14 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
   // イベントの createTime（秒）が接続前なら無視する
   function isPreConnectionEvent(data) {
-    const t = Number(data.createTime ?? 0);
-    if (t <= 0) return false; // タイムスタンプ無しは通す
-    return t * 1000 < connectedAt;
+    return beforeConnection(data, connectedAt);
   }
 
   console.log("[Bridge] Listening for gifts...");
   console.log("[Bridge] Press Ctrl+C to stop.");
 
   tiktok.on("gift", async (data) => {
+    data = normalizeTikTokEvent(data, 'gift');
     if (isMuted(data)) return;
     // [診断ログ] TikTok ライブラリが受信した全ギフトイベントを記録
     const _rawGiftId = String(data.giftId ?? "");
@@ -1537,10 +1531,11 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
     // streakは「増えた分(delta)」だけ反応（詳細は computeStreakDelta のコメント参照）
     const delta = isStreak
-      ? computeStreakDelta(streakLastCount, `${giftId}:${sender}`, rcNum, data.repeatEnd, now, STREAK_TTL_MS)
+      ? computeStreakDelta(streakLastCount, `${giftId}:${getSenderIdentity(data)}`, rcNum, data.repeatEnd, now, STREAK_TTL_MS)
       : 1;
 
     let times = delta * baseRepeat;
+    if (times <= 0) return; // 連打終了通知は追加ギフトではない（送信時の最小1への丸めも避ける）。
     times = featureEngine.recordGift({ giftId, sender, commandFile: mapping.commandFile, count: times });
 
     if (doumaMod) {
@@ -1639,6 +1634,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   const commentGiftLastAt = new Map(); // rule毎の連投クールダウン
 
   tiktok.on("chat", async (data) => {
+    data = normalizeTikTokEvent(data, 'chat');
     if (isPreConnectionEvent(data)) return;
     if (isMuted(data)) return;
 
@@ -1700,6 +1696,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
   let currentViewers = 0;
   tiktok.on("roomUser", (data) => {
+    data = normalizeTikTokEvent(data, 'roomUser');
     const v = Number(data?.viewerCount ?? 0);
     if (Number.isFinite(v) && v >= 0) currentViewers = v;
   });
@@ -1714,8 +1711,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // --------------------
   // Like イベント（X いいねごとにコマンド発火）
   // --------------------
-  // しきい値の重複設定でも衝突しないよう「しきい値|コマンドファイル」でベースライン管理
-  const likeTriggeredAt = new Map(); // `${threshold}|${commandFile}` -> lastTriggeredMultiple
+  // 全ルールが同じ前回/今回の累計を使う。ルールを配信中に変更しても過去分を発火しない。
 
   // DoumaModモードのいいねはミニバッチ化：短時間の連続発火を1イベントに圧縮して
   // HTTP送信とMod側キューの消費を抑える（ギフトを圧迫させない）
@@ -1745,24 +1741,22 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   }
 
   tiktok.on("like", async (data) => {
+    data = normalizeTikTokEvent(data, 'like');
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
     if (isMuted(data)) return;
-    const total = Number(data.totalLikeCount ?? 0);
+    const progress = likeCounter.next(data);
+    if (!progress) return;
+    const { total, previousTotal } = progress;
+    if (previousTotal === 0 || likeEvents.some(ev => enabledCommand(ev) && Math.floor(total / Number(ev.threshold)) > Math.floor(previousTotal / Number(ev.threshold)))) {
+      console.log(`[Like:RAW] total=${total} previous=${previousTotal} count=${data.likeCount ?? '(none)'} from=${getStableSender(data)}`);
+    }
     featureEngine.recordLikes(total, getStableSender(data));
     for (const ev of likeEvents) {
       if (ev.enabled === false || !ev.commandFile || !ev.threshold) continue;
       const thresh = clampInt(ev.threshold, 1, 1000000, 10);
-      const likeKey = `${thresh}|${ev.commandFile}`;
-      const currentMultiple = Math.floor(total / thresh);
-      if (!likeTriggeredAt.has(likeKey)) {
-        // 初回イベントは現在の累積いいね数をベースラインとして記録するだけで発火しない
-        likeTriggeredAt.set(likeKey, currentMultiple);
-        continue;
-      }
-      const lastMultiple = likeTriggeredAt.get(likeKey);
+      const lastMultiple = Math.floor(previousTotal / thresh);
       const { newTriggers, triggersToRun, skippedTriggers } = likeRuleProgress(ev, total, lastMultiple, maxLikeCatchUpPerEvent);
       if (newTriggers <= 0) continue;
-      likeTriggeredAt.set(likeKey, currentMultiple);
 
       const mapping = { commandFile: ensureTxt(ev.commandFile), name: ev.label || `${thresh}いいね` };
       const sender = getStableSender(data);
@@ -1822,6 +1816,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // Share イベント
   // --------------------
   tiktok.on("share", async (data) => {
+    data = normalizeTikTokEvent(data, 'share');
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
     if (isMuted(data)) return;
     if (!enabledCommand(shareEvent)) return;
@@ -1876,6 +1871,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // Follow（フォロー）イベント
   // --------------------
   tiktok.on("follow", async (data) => {
+    data = normalizeTikTokEvent(data, 'follow');
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
     if (isMuted(data)) return;
     const sender = getStableSender(data);
@@ -1930,6 +1926,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // Member（訪問）イベント
   // --------------------
   tiktok.on("member", async (data) => {
+    data = normalizeTikTokEvent(data, 'member');
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
     if (isMuted(data)) return;
     if (!enabledCommand(memberEvent)) return;
