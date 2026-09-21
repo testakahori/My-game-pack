@@ -64,7 +64,7 @@ test('本番ハンドラー: いいね・ギフト・コメント・フォロー
     const message={...proto[type].decode(new Uint8Array()),...fields,
       common:{...proto.CommonMessageData.decode(new Uint8Array()),msgId:String(++msg),createTime:String(Math.floor(Date.now()/1000)),...fields.common},
       user:{...proto.User.decode(new Uint8Array()),id:'123',displayId:'akahoridouma',nickname:'赤堀堂馬'}};
-    if(fields.gift)message.gift={...proto.Gift.decode(new Uint8Array()),...fields.gift};
+    if(fields.gift)message.gift={...proto.Gift.decode(new Uint8Array()),type:1,...fields.gift};
     const data=proto[type].decode(proto[type].encode(message).finish());
     await connection.processDecodedData({type,data});
   };
@@ -133,4 +133,8 @@ test('本番ハンドラー: いいね・ギフト・コメント・フォロー
   await save();await fireFour();await wait(180);
   assert.equal(requests.length,11,'4種類とも再接続せずOFFを反映');
   assert.equal(connections,1);
+  await until(() => { try { return JSON.parse(fs.readFileSync(path.join(dir,'stream-audience.json'),'utf8')).streams[0].visits===2; } catch { return false; } }, 'received statistics flushed');
+  const received=JSON.parse(fs.readFileSync(path.join(dir,'stream-audience.json'),'utf8')).streams[0];
+  assert.deepEqual([received.gifts,received.coins,received.unknownCoinGifts,received.likes,received.comments,received.follows,received.shares,received.visits], [7,12,3,300,2,2,2,2]);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir,'stream-sessions.json'),'utf8'))[0].id,received.id);
 });

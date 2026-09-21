@@ -54,6 +54,8 @@ declare global {
       worldSavesList: () => Promise<{ world: string; busy: boolean; recoveryPending: boolean; saves: MapSave[] }>;
       worldSavesSave: (name: string) => Promise<MapOperationResult>;
       worldSavesLoad: (id: string) => Promise<MapOperationResult>;
+      operationsStreamStats: (gapMinutes?: number) => Promise<import("./streamStats").Stats>;
+      operationsEarningsSave: (id: string, amount: number | null) => Promise<{ ok: boolean }>;
       operationsStatsExport: (streamId?: string) => Promise<{ ok: boolean; canceled?: boolean; path?: string; streams?: number }>;
       streamSessionStatus: () => Promise<{ active: StreamSession | null; monitoring?: boolean; error?: string }>;
       streamSessionStart: (title?: string) => Promise<StreamSession>;

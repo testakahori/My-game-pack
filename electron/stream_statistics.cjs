@@ -1,5 +1,5 @@
 const { streamBuckets } = require('./stream_sessions.cjs');
-function computeStreamStats({ rows, sessions, viewerMetrics = [], gapMinutes = 90, nowMs = Date.now() }) {
+function computeStreamStats({ rows, sessions, viewerMetrics = [], audience = [], earnings = [], gapMinutes = 90, nowMs = Date.now() }) {
   const gapMs = Math.max(5, Number(gapMinutes) || 90) * 60 * 1000;
   const sorted = rows
     .filter((r) => r.source !== "test")
@@ -43,6 +43,7 @@ function computeStreamStats({ rows, sessions, viewerMetrics = [], gapMinutes = 9
     const avgViewers = windowMetrics.length
       ? Math.round(windowMetrics.reduce((a, m) => a + m.viewers, 0) / windowMetrics.length)
       : 0;
+    const received = audience.find(row => row.id === b.id);
     return {
       id: b.id || `estimated-${b.startT}`, title: b.title || "", recorded: b.recorded, active: b.active, source: b.source || "estimated", roomId: b.roomId || "", endReason: b.endReason || "", segments: b.segments || [],
       start: new Date(b.startT).toISOString(),
@@ -51,16 +52,18 @@ function computeStreamStats({ rows, sessions, viewerMetrics = [], gapMinutes = 9
       events: b.rows.length,
       gift, like, share, follow, member, other, succeeded, failed,
 
-      maxViewers,
-      avgViewers, viewerSamples: windowMetrics.length,
+      maxViewers: received?.viewerSamples ? received.maxViewers : maxViewers,
+      avgViewers: received?.viewerSamples ? Math.round(received.viewerSum / received.viewerSamples) : avgViewers,
+      viewerSamples: received?.viewerSamples || windowMetrics.length,
+      received: received ? { gifts: received.gifts, coins: received.coins, unknownCoinGifts: received.unknownCoinGifts, likes: received.likes, comments: received.comments, follows: received.follows, shares: received.shares, visits: received.visits, durationMs: observedDuration(b, Date.parse(received.startedAt)), startedAt: received.startedAt, updatedAt: received.updatedAt, giftBreakdown: received.giftBreakdown } : null,
+      earnings: earnings.find(row => row.id === b.id) || null,
       uniqueSenders: Object.keys(bySender).length,
       topCommands: top(byCommand),
       topSenders: top(bySender),
     };
   };
 
-  const cutoff = nowMs - 30 * 86400000;
-  const streams = buckets.filter(b => b.lastT >= cutoff).map(summarize).reverse(); // 新しい配信を先頭に
+  const streams = buckets.map(summarize).reverse(); // 新しい配信を先頭に
   const sum = (key) => streams.reduce((a, s) => a + (s[key] || 0), 0);
 
   // 今月（ローカル時刻基準）の配信合計時間
@@ -89,6 +92,17 @@ function computeStreamStats({ rows, sessions, viewerMetrics = [], gapMinutes = 9
 
     },
     streams,
+    comparisons: [7, 30].map(days => ({ days, current: periodSummary(streams.filter(s => Date.parse(s.start) >= nowMs - days * 86400000)), previous: periodSummary(streams.filter(s => Date.parse(s.start) >= nowMs - days * 2 * 86400000 && Date.parse(s.start) < nowMs - days * 86400000)) })),
   };
 }
-module.exports = { computeStreamStats };
+function periodSummary(streams) {
+  const tracked = streams.filter(s => s.received), paid = streams.filter(s => s.earnings);
+  const sum = key => tracked.length ? tracked.reduce((total, s) => total + s.received[key], 0) : null;
+  const receivedDurationMs = tracked.reduce((total, s) => total + s.received.durationMs, 0);
+  return { streams: streams.length, trackedStreams: tracked.length, earningStreams: paid.length,
+    durationMs: streams.reduce((total, s) => total + s.durationMs, 0), receivedDurationMs,
+    gifts: sum('gifts'), coins: sum('coins'), unknownCoinGifts: sum('unknownCoinGifts'), likes: sum('likes'), comments: sum('comments'), follows: sum('follows'), shares: sum('shares'), visits: sum('visits'),
+    earnings: paid.length ? paid.reduce((total, s) => total + s.earnings.amount, 0) : null,
+    coinsPerHour: receivedDurationMs ? Math.round(sum('coins') / (receivedDurationMs / 3600000)) : null };
+}
+module.exports = { computeStreamStats, periodSummary };

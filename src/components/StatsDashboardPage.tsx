@@ -1,480 +1,85 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import StreamRecordingPanel from "./StreamRecordingPanel";
-import { useUnsavedChanges } from '../UnsavedChanges';
-import MinecraftBlockIcon from "./MinecraftBlockIcon";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import StreamRecordingPanel from './StreamRecordingPanel';
+import { useUnsavedChanges, useUnsavedGuard } from '../UnsavedChanges';
+import './StreamAnalytics.css';
 
-type NameCount = { name: string; count: number };
-type StreamStat = {
-  id: string; title?: string; recorded?: boolean; active?: boolean; source?: string; segments?: { startedAt: string; endedAt: string | null }[]; viewerSamples?: number;
-  start: string; end: string; durationMs: number; events: number;
-  gift: number; like: number; share: number; follow: number; member: number; other: number;
-  succeeded: number; failed: number;
-  diamonds?: number; maxViewers?: number; avgViewers?: number;
-  uniqueSenders: number; topCommands: NameCount[]; topSenders: NameCount[];
-};
-type StreamStats = {
-  gapMinutes: number;
-  overall: { streams: number; events: number; gift: number; like: number; share: number; follow: number; member: number; other: number; succeeded: number; failed: number; diamonds?: number };
-  monthly?: { month: string; streams: number; totalDurationMs: number; diamonds: number };
-  streams: StreamStat[];
-};
-type HistoryRow = { source?: string; at: string; type: string; sender: string; commandFile: string; count: number; ok: boolean };
+import type { Stream, Stats } from '../types/streamStats';
+const number = (value: number | null | undefined) => value == null ? '未取得' : value.toLocaleString('ja-JP');
+const duration = (ms: number) => Math.floor(ms / 3600000) + '時間' + Math.floor(ms / 60000) % 60 + '分';
+const date = (iso: string) => new Date(iso).toLocaleString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const coins = (r: { coins: number | null; unknownCoinGifts: number | null } | null) => r ? number(r.coins) + (r.unknownCoinGifts ? '＋未取得分' : '') : '未取得';
+function Tile({ label, value }: { label: string; value: React.ReactNode }) { return <div className="analytics-tile"><span>{label}</span><strong>{value}</strong></div>; }
 
-const card = "rounded-2xl border border-gray-700 bg-gray-900/70 p-5";
-const SESSION_GAP_MINUTES = 90;
-const TIMELINE_BUCKETS = 5;
-const CHART_X = [25, 80, 135, 190, 250];
-const CHART_TOP = 15;
-const CHART_BOTTOM = 132;
-
-const EVENT_ICON: Record<string, string> = {
-  gift: "🎁", like: "♥", share: "🔗", follow: "➕", member: "👋",
-};
-const EVENT_LABEL: Record<string, string> = {
-  gift: "ギフト", like: "いいね", share: "シェア", follow: "フォロー", member: "訪問", other: "その他",
-};
-
-function fmtDuration(ms: number): string {
-  const min = Math.round(ms / 60000);
-  if (min < 60) return `${min}分`;
-  const h = Math.floor(min / 60);
-  return `${h}時間${min % 60}分`;
-}
-function fmtRange(startIso: string, endIso: string): string {
-  const s = new Date(startIso), e = new Date(endIso);
-  const d = s.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" });
-  const t = (x: Date) => x.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
-  return `${d} ${t(s)}〜${t(e)}`;
-}
-function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
-function successRate(succeeded: number, total: number): string {
-  if (total <= 0) return "—";
-  return `${Math.round((succeeded / total) * 100)}%`;
-}
-
-function StatTile({ label, value, tone }: { label: string; value: React.ReactNode; tone?: string }) {
-  return (
-    <div className="rounded-xl bg-gray-950 p-3 text-center">
-      <div className="text-[11px] text-gray-500">{label}</div>
-      <div className={`text-xl font-black ${tone || "text-gray-100"}`}>{value}</div>
-    </div>
-  );
+function EarningsEditor({ stream, onSaved }: { stream: Stream; onSaved: () => Promise<void> }) {
+  const initial = stream.earnings ? String(stream.earnings.amount) : '';
+  const [value, setValue] = useState(initial), [saved, setSaved] = useState(initial);
+  const [busy, setBusy] = useState(false), [notice, setNotice] = useState('');
+  const running = useRef(false);
+  useUnsavedChanges(value !== saved, busy);
+  const save = async () => {
+    if (running.current) return;
+    const amount = value.trim() ? Number(value) : null;
+    if (amount !== null && (!Number.isFinite(amount) || amount < 0 || amount > 1e9 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001)) { setNotice('0以上の金額を小数2桁までで入力してください。'); return; }
+    running.current = true; setBusy(true); setNotice('');
+    try { await window.mygamepack.operationsEarningsSave(stream.id, amount); setSaved(value); setNotice('受取額を保存しました。'); await onSaved(); }
+    catch (e) { setNotice('保存できませんでした: ' + (e instanceof Error ? e.message : String(e))); }
+    finally { running.current = false; setBusy(false); }
+  };
+  return <section className="analytics-earnings"><div><h3>実際の受取額（任意）</h3><p>TikTokで確認したこの配信の受取額を円で入力。コインからの自動換算は行いません。空欄で保存すると未入力に戻せます。</p></div>
+    <label>受取額（円）<input type="number" min="0" max="1000000000" step="0.01" value={value} onChange={e => setValue(e.target.value)} disabled={busy} placeholder="未入力" /></label>
+    <button type="button" onClick={save} disabled={busy}>{busy ? '保存中…' : '受取額を保存'}</button><p role="status">{notice}</p></section>;
 }
 
 export default function StatsDashboardPage() {
-  const api = (window as any).mygamepack;
-  const [data, setData] = useState<StreamStats>({
-    gapMinutes: SESSION_GAP_MINUTES,
-    overall: { streams: 0, events: 0, gift: 0, like: 0, share: 0, follow: 0, member: 0, other: 0, succeeded: 0, failed: 0 },
-    streams: [],
-  });
-  const [history, setHistory] = useState<HistoryRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<"dashboard" | "list" | "detail">("dashboard");
-  const [detailId, setDetailId] = useState<string>('');
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [error, setError] = useState("");
-  const [exportBusy, setExportBusy] = useState(false);
-  const [exportNotice, setExportNotice] = useState('');
-  const exportRunning = useRef(false);
-  useUnsavedChanges(false, exportBusy);
-  const exportStats = async (streamId?: string) => {
-    if (exportRunning.current) return;
-    exportRunning.current = true; setExportBusy(true); setExportNotice('');
-    try { const result = await window.mygamepack.operationsStatsExport(streamId); if (result.ok) setExportNotice(result.streams + '配信をMarkdownに保存しました: ' + result.path); }
-    catch (e) { setExportNotice('書き出せませんでした: ' + String((e as Error).message || e)); }
-    finally { exportRunning.current = false; setExportBusy(false); }
-  };
-
+  const [data, setData] = useState<Stats>({ streams: [] });
+  const [view, setView] = useState<'history' | 'compare'>('history');
+  const [selectedId, setSelectedId] = useState('');
+  const [days, setDays] = useState(7), [error, setError] = useState(''), [notice, setNotice] = useState('');
+  const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false);
+  const guard = useUnsavedGuard();
+  const detailPanel = useRef<HTMLElement>(null);
+  const mounted = useRef(false), refreshing = useRef(false), exporting = useRef(false);
+  useUnsavedChanges(false, busy);
   const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [stats, rows] = await Promise.all([
-        api.operationsStreamStats(SESSION_GAP_MINUTES),
-        api.operationsHistory ? api.operationsHistory() : Promise.resolve([]),
-      ]);
-      setData(stats);
-      setHistory(Array.isArray(rows) ? rows.filter((row: HistoryRow) => row.source !== "test") : []);
-      setError("");
-    } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
-    finally { setLoading(false); }
-  }, [api]);
-
-  useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(refresh, 5000);
-    return () => window.clearInterval(timer);
-  }, [refresh]);
-
-  const o = data.overall;
-  const latest = data.streams[0];
-  const totalKinds = Math.max(1, o.gift + o.like + o.share + o.follow + o.member + o.other);
-  const success = successRate(o.succeeded, o.succeeded + o.failed);
-
-  // 直近ストリーム区間に属する実イベント（新しい順→古い順に並べ替え）
-  const latestRows = useMemo<Array<HistoryRow & { t: number }>>(() => {
-    if (!latest) return [];
-    const startT = Date.parse(latest.start) || 0;
-    const endT = Date.parse(latest.end) || Date.now();
-    return history
-      .map((r) => ({ ...r, t: Date.parse(r.at) || 0 }))
-      .filter((r) => r.t >= startT && (latest.recorded && !latest.active ? r.t < endT : r.t <= endT))
-      .sort((a, b) => a.t - b.t);
-  }, [history, latest]);
-
-  const timelinePoints = useMemo(() => {
-    if (!latest || latestRows.length === 0) return [] as Array<{ key: string; pct: number; icon: string; tone: string; title: string }>;
-    const startT = Date.parse(latest.start) || 0;
-    const endT = Date.parse(latest.end) || startT + 1;
-    const span = Math.max(1, endT - startT);
-    return latestRows.slice(-40).map((r, index) => ({
-      key: `${r.at}-${index}`,
-      pct: Math.min(100, Math.max(0, ((r.t - startT) / span) * 100)),
-      icon: EVENT_ICON[r.type] || "⚡",
-      tone: r.type === "gift" ? "gift" : r.type === "like" ? "like" : "other",
-      title: `${EVENT_ICON[r.type] || "⚡"} ${EVENT_LABEL[r.type] || r.type} / ${r.sender} / ${fmtTime(r.at)}`,
-    }));
-  }, [latest, latestRows]);
-
-  const timelineLabels = useMemo(() => {
-    if (!latest) return [] as string[];
-    const startT = Date.parse(latest.start) || 0;
-    const endT = Date.parse(latest.end) || startT;
-    const span = endT - startT;
-    return Array.from({ length: TIMELINE_BUCKETS }, (_, index) => {
-      const t = new Date(startT + (span * index) / (TIMELINE_BUCKETS - 1));
-      return t.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
-    });
-  }, [latest]);
-
-  const chartPoints = useMemo(() => {
-    if (!latest) return { gift: "", like: "" };
-    const startT = Date.parse(latest.start) || 0;
-    const endT = Date.parse(latest.end) || startT + 1;
-    const span = Math.max(1, endT - startT);
-    const bucketMs = span / CHART_X.length;
-    const giftBuckets = new Array(CHART_X.length).fill(0);
-    const likeBuckets = new Array(CHART_X.length).fill(0);
-    for (const r of latestRows) {
-      const idx = Math.min(CHART_X.length - 1, Math.floor((r.t - startT) / bucketMs));
-      const amount = Number(r.count || 1);
-      if (r.type === "gift") giftBuckets[idx] += amount;
-      else if (r.type === "like") likeBuckets[idx] += amount;
-    }
-    const maxValue = Math.max(1, ...giftBuckets, ...likeBuckets);
-    const toPoints = (values: number[]) =>
-      values.map((v, i) => `${CHART_X[i]},${Math.round(CHART_BOTTOM - (v / maxValue) * (CHART_BOTTOM - CHART_TOP))}`).join(" ");
-    return { gift: toPoints(giftBuckets), like: toPoints(likeBuckets) };
-  }, [latest, latestRows]);
-
-  const recentEvents = useMemo(() => history.slice(0, 8), [history]);
-
-  const highlights = useMemo(() => {
-    return [...history]
-      .sort((a, b) => Number(b.count || 1) - Number(a.count || 1))
-      .slice(0, 3);
-  }, [history]);
-
-  return (
-    <div className="stats-page stats-design-page page-surface max-w-none">
-      <StreamRecordingPanel />
-      {exportNotice && <p role="status">{exportNotice}</p>}
-      {error ? <p role="alert">集計できませんでした: {error}</p> : null}
-      <section className="stats-summary-panel">
-        <div className="stats-heading-row">
-          <div style={{ position: "relative" }}>
-            <h1
-              onClick={() => setMenuOpen((v) => !v)}
-              style={{ cursor: "pointer", userSelect: "none" }}
-              title="クリックでメニューを開く"
-            >
-              配信統計{view === "list" ? "（配信集計）" : view === "detail" ? "（配信詳細）" : "ダッシュボード"} <span style={{ fontSize: 14, opacity: 0.7 }}>▾</span>
-            </h1>
-            <p>TikTokの配信ごとに自動集計。時間は接続を観測した区間の合計です。過去の記録には手動・推定が含まれます。内訳はコマンド要求回数で、実際のギフト数・いいね数・収益ではありません。テスト発火は除外します。</p>
-            {menuOpen && (
-              <div
-                style={{
-                  position: "absolute", top: "100%", left: 0, zIndex: 30, marginTop: 6,
-                  background: "#0b1524", border: "1px solid rgba(39,216,255,0.4)", borderRadius: 12,
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.6)", overflow: "hidden", minWidth: 220,
-                }}
-              >
-                {[
-                  { key: "dashboard", label: "📊 配信統計ダッシュボード" },
-                  { key: "list", label: "📅 配信集計を見る" },
-                ].map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => { setView(item.key as "dashboard" | "list"); setMenuOpen(false); }}
-                    style={{
-                      display: "block", width: "100%", textAlign: "left", padding: "10px 14px",
-                      fontSize: 13, fontWeight: 700, color: "#d5e6f7",
-                      background: view === item.key ? "rgba(39,216,255,0.12)" : "transparent",
-                      border: "none", cursor: "pointer",
-                    }}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div className="stats-summary-tile stats-summary-tile--green" style={{ minWidth: 150 }}>
-              <span>🕒</span><small>今月の記録時間</small>
-              <b>{data.monthly ? fmtDuration(data.monthly.totalDurationMs) : "0分"}</b>
-            </div>
-            <button disabled={exportBusy} onClick={() => void exportStats()}>MDファイルで書き出す</button>
-            <button onClick={() => refresh()}>↻ 更新</button>
-          </div>
-        </div>
-        <div className="stats-summary-grid">
-          {[
-            ["▣","配信数",o.streams,"blue"],
-            ["⌁","コマンド履歴",o.events,"violet"],
-            ["🎁","ギフト発コマンド",o.gift,"pink"],
-            ["♥","いいね発コマンド",o.like,"pink"],
-            ["!","失敗した履歴",o.failed,"violet"],
-            ["✓","成功率",success,"green"],
-          ].map(([icon,label,value,tone]) => (
-            <div className={`stats-summary-tile stats-summary-tile--${tone}`} key={String(label)}>
-              <span>{icon}</span><small>{label}</small><b>{value}</b>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ══ 配信集計リスト ══ */}
-      {view === "list" && (
-        <section className="stats-analytics-card" style={{ padding: 18 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <h2 style={{ margin: 0 }}>配信集計 <small style={{ color: "#77899f" }}>（直近30日・{data.streams.length}配信）</small></h2>
-            <button type="button" onClick={() => setView("dashboard")} style={{ fontSize: 12 }}>← ダッシュボードへ戻る</button>
-          </div>
-          {data.streams.length === 0 ? (
-            <p className="stats-no-data">まだ配信データがありません。</p>
-          ) : (
-            <div className="stats-table" style={{ fontSize: 13 }}>
-              <p style={{ fontWeight: 800, color: "#8ba0b8" }}>
-                <span style={{ minWidth: 170 }}>日付（クリックで詳細）</span>
-                <b>記録時間</b>
-                <em>時間（累計）</em>
-                <strong>コマンド履歴</strong>
-              </p>
-              {data.streams.map((s, index) => {
-                // 累計は古い配信からの積み上げ（streams は新しい順なので後ろから足す）
-                const cumulative = data.streams.slice(index).reduce((a, x) => a + x.durationMs, 0);
-                return (
-                  <p key={s.id || s.start}>
-                    <button
-                      type="button"
-                      onClick={() => { setDetailId(s.id); setView("detail"); }}
-                      style={{
-                        background: "none", border: "none", cursor: "pointer", padding: 0,
-                        color: "#3fd5ff", fontWeight: 800, textDecoration: "underline", fontSize: 13, minWidth: 170, textAlign: "left",
-                      }}
-                    >
-                      {fmtRange(s.start, s.end)}
-                    </button>
-                    <b>{fmtDuration(s.durationMs)}</b>
-                    <em>{fmtDuration(cumulative)}</em>
-                    <strong>{s.events}件</strong>
-                  </p>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* ══ 配信別詳細 ══ */}
-      {view === "detail" && (() => {
-        const s = data.streams.find(row => row.id === detailId);
-        if (!s) return <section className="stats-empty">配信データが見つかりません。<button type="button" onClick={() => setView("list")}>一覧へ戻る</button></section>;
-        const detailRows = history
-          .map((r) => ({ ...r, t: Date.parse(r.at) || 0 }))
-          .filter((r) => r.t >= (Date.parse(s.start) || 0) && (s.recorded && !s.active ? r.t < (Date.parse(s.end) || 0) : r.t <= (Date.parse(s.end) || 0)));
-        const kinds = Math.max(1, s.gift + s.like + s.share + s.follow + s.member + s.other);
-        return (
-          <>
-            <section className="stats-session-panel">
-              <div className="stats-session-title">
-                <span>配信詳細</span>
-                <h2>{fmtRange(s.start, s.end)}</h2><small>{s.source === "automatic" ? "自動記録" : s.recorded ? "過去の手動記録" : "過去の推定記録"}</small><button disabled={exportBusy} onClick={() => void exportStats(s.id)}>この配信をMDで保存</button>
-                <em>{fmtDuration(s.durationMs)}</em>
-                <small>
-                  <button type="button" onClick={() => setView("list")} style={{ fontSize: 11 }}>← 配信集計へ戻る</button>
-                </small>
-              </div>
-              <div className="stats-session-metrics">
-                {[
-                  ["🕒",s.recorded ? "観測した記録時間" : "推定配信時間",fmtDuration(s.durationMs),""],
-                  ["♟","視聴者数（イベント参加）",s.uniqueSenders,"人"],
-                  ["📈","最高同接",s.viewerSamples ? s.maxViewers : "未取得",s.viewerSamples ? "人" : ""],
-                  ["📊","平均同接",s.viewerSamples ? s.avgViewers : "未取得",s.viewerSamples ? "人" : ""],
-                  ["🎁","ギフト発コマンド",s.gift,""],
-                  ["♥","いいね発コマンド",s.like,""],
-                  ["⌁","コマンド履歴",s.events,"件"],
-                  ["✓","成功率",successRate(s.succeeded, s.succeeded + s.failed),""],
-                ].map(([icon,label,value,suffix]) => (
-                  <div key={String(label)}><span>{icon}</span><small>{label}</small><b>{value}{suffix}</b></div>
-                ))}
-              </div>
-            </section>
-            <div className="stats-analytics-grid">
-              <section className="stats-analytics-card">
-                <h2>コマンド要求の内訳</h2>
-                <div className="stats-stack">
-                  <span style={{width:`${(s.gift/kinds)*100}%`}} />
-                  <i style={{width:`${(s.like/kinds)*100}%`}} />
-                  <b style={{width:`${((s.share+s.follow+s.member+s.other)/kinds)*100}%`}} />
-                </div>
-                {[["ギフト",s.gift,"pink"],["いいね",s.like,"violet"],["シェア",s.share,"green"],["フォロー",s.follow,"amber"],["訪問",s.member,"amber"],["その他",s.other,"blue"]].map(([label,value,tone]) => (
-                  <p key={String(label)}><span className={`dot dot--${tone}`} />{label}<b>{value}</b><em>{Math.round((Number(value)/kinds)*100)}%</em></p>
-                ))}
-                <footer>合計 <b>{s.gift+s.like+s.share+s.follow+s.member+s.other}</b> 回 / 履歴 {s.events}件</footer>
-              </section>
-              <section className="stats-analytics-card stats-top-card">
-                <h2>参加者上位（コマンド回数）</h2>
-                {s.topSenders.length ? (
-                  s.topSenders.slice(0,3).map((sender,index) => <p className="stats-ranker" key={sender.name}><span>{index+1}</span><b>{sender.name}</b><em>×{sender.count}</em></p>)
-                ) : <p className="stats-no-data">データなし</p>}
-                <h2>人気コマンド</h2>
-                {s.topCommands.length ? (
-                  s.topCommands.slice(0,3).map((c,index) => <p className="stats-ranker" key={c.name}><span>{index+1}</span><b>{c.name}</b><em>×{c.count}</em></p>)
-                ) : <p className="stats-no-data">データなし</p>}
-              </section>
-              <section className="stats-analytics-card" style={{ gridColumn: "span 2" }}>
-                <h2>この配信のイベント（直近20件）</h2>
-                <div className="stats-table">
-                  {detailRows.length === 0 ? <p className="stats-no-data">データなし</p> : detailRows.slice(-20).reverse().map((row, index) => (
-                    <p key={`${row.at}-${index}`}>
-                      <time>{fmtTime(row.at)}</time>
-                      <span>{EVENT_ICON[row.type] || "⚡"} {EVENT_LABEL[row.type] || row.type}</span>
-                      <b>{row.commandFile}</b>
-                      <em>{row.sender}</em>
-                      <strong>×{row.count}</strong>
-                    </p>
-                  ))}
-                </div>
-              </section>
-            </div>
-          </>
-        );
-      })()}
-
-      {view === "dashboard" && (loading && !latest ? <section className="stats-empty">集計中…</section> : !latest ? (
-        <section className="stats-empty">まだ配信記録がありません。ダッシュボードからTikTokへ接続すると、自動で記録を開始します。</section>
-      ) : (
-        <>
-          <section className="stats-session-panel">
-            <div className="stats-session-title"><span>配信 #1</span><h2>{fmtRange(latest.start, latest.end)}</h2><em>{latest.recorded ? latest.active ? "記録中" : "観測終了" : "過去の記録（推定）"}</em><small>{latest.recorded ? "記録時間" : "推定配信時間"} {fmtDuration(latest.durationMs)} / コマンドに参加した人 {latest.uniqueSenders}人</small></div>
-            <div className="stats-session-metrics">
-              {[
-                ["♟","コマンド参加者",latest.uniqueSenders,"人"],
-                ["🎁","ギフト発コマンド",latest.gift,""],
-                ["♥","いいね発コマンド",latest.like,""],
-                ["⚡","その他のコマンド",latest.other,""],
-              ].map(([icon,label,value,suffix]) => <div key={String(label)}><span>{icon}</span><small>{label}</small><b>{value}{suffix}</b></div>)}
-            </div>
-            <div className="stats-timeline">
-              <div>
-                {timelinePoints.map((p) => (
-                  <i
-                    key={p.key}
-                    style={{ left: `${p.pct}%` }}
-                    className={`stats-timeline-dot--${p.tone}`}
-                    title={p.title}
-                  />
-                ))}
-              </div>
-              {timelineLabels.map((label, index) => <small key={`${label}-${index}`}>{label}</small>)}
-            </div>
-          </section>
-
-          <div className="stats-analytics-grid">
-            <section className="stats-analytics-card">
-              <h2>コマンド要求の内訳 ⓘ</h2>
-              <div className="stats-stack">
-                <span style={{width:`${(o.gift/totalKinds)*100}%`}} />
-                <i style={{width:`${(o.like/totalKinds)*100}%`}} />
-                <b style={{width:`${((o.share+o.follow+o.member+o.other)/totalKinds)*100}%`}} />
-              </div>
-              {[["ギフト",o.gift,"pink"],["いいね",o.like,"violet"],["シェア",o.share,"green"],["訪問",o.member,"amber"]].map(([label,value,tone]) => (
-                <p key={String(label)}><span className={`dot dot--${tone}`} />{label}<b>{value}</b><em>{Math.round((Number(value)/totalKinds)*100)}.0%</em></p>
-              ))}
-              <footer>合計 <b>{o.gift+o.like+o.share+o.follow+o.member+o.other}</b> 回 / 履歴 {o.events}件</footer>
-            </section>
-
-            <section className="stats-analytics-card stats-line-card">
-              <h2>ギフト＆いいね発コマンドの推移</h2>
-              <div className="stats-chart-legend"><span>━ ギフト</span><i>━ いいね</i></div>
-              <svg viewBox="0 0 260 150" role="img" aria-label="ギフトといいねの推移">
-                <g className="grid"><path d="M25 15V132H250M25 44H250M25 73H250M25 102H250M80 15V132M135 15V132M190 15V132" /></g>
-                <polyline className="gift" points={chartPoints.gift} />
-                <polyline className="like" points={chartPoints.like} />
-              </svg>
-            </section>
-
-            <section className="stats-analytics-card stats-gauge-card">
-              <h2>成功率 ⓘ</h2>
-              <div className="stats-gauge" style={{"--rate": success === "—" ? "0" : success.replace("%","")} as React.CSSProperties}><span>{success}</span></div>
-              <div><p><b className="ok">成功</b><strong>{o.succeeded}</strong></p><p><b className="ng">失敗</b><strong>{o.failed}</strong></p></div>
-            </section>
-
-            <section className="stats-analytics-card stats-top-card">
-              <h2>最多コマンド</h2>
-              {latest.topCommands[0] ? (
-                <div className="stats-top-gift"><span><MinecraftBlockIcon /></span><div><b>{latest.topCommands[0].name}</b><small>{latest.topCommands[0].count} 回</small></div></div>
-              ) : (
-                <p className="stats-no-data">データなし</p>
-              )}
-              <h2>参加者上位（コマンド回数）</h2>
-              {latest.topSenders.length ? (
-                latest.topSenders.slice(0,3).map((sender,index) => <p className="stats-ranker" key={sender.name}><span>{index+1}</span><b>{sender.name}</b><em>{sender.count} 回</em></p>)
-              ) : (
-                <p className="stats-no-data">データなし</p>
-              )}
-            </section>
-          </div>
-
-          <div className="stats-bottom-grid">
-            <section>
-              <h2>直近イベント</h2>
-              <div className="stats-table">
-                {recentEvents.length === 0 ? (
-                  <p className="stats-no-data">データなし</p>
-                ) : recentEvents.map((row, index) => (
-                  <p key={`${row.at}-${index}`}>
-                    <time>{fmtTime(row.at)}</time>
-                    <span>{EVENT_ICON[row.type] || "⚡"} {EVENT_LABEL[row.type] || row.type}</span>
-                    <b>{row.commandFile}</b>
-                    <em>{row.sender}</em>
-                    <strong>{row.count}</strong>
-                  </p>
-                ))}
-              </div>
-            </section>
-            <section>
-              <h2>盛り上がりポイント <small>（回数上位イベント）</small></h2>
-              {highlights.length === 0 ? (
-                <p className="stats-no-data">データなし</p>
-              ) : highlights.map((row, index) => (
-                <div className="stats-highlight" key={`${row.at}-${index}`}>
-                  <span>{EVENT_ICON[row.type] || "⚡"}</span>
-                  <div>
-                    <b>{EVENT_LABEL[row.type] || row.type}発生</b>
-                    <small>{fmtTime(row.at)}　{row.sender} さんから {row.commandFile}（×{row.count}）</small>
-                  </div>
-                </div>
-              ))}
-            </section>
-          </div>
-        </>
-      ))}
-    </div>
-  );
+    if (refreshing.current) return;
+    refreshing.current = true;
+    try { const result = await window.mygamepack.operationsStreamStats(90); if (mounted.current) { setData(result); setError(''); } }
+    catch (e) { if (mounted.current) setError(e instanceof Error ? e.message : String(e)); }
+    finally { refreshing.current = false; if (mounted.current) setLoading(false); }
+  }, []);
+  useEffect(() => { mounted.current = true; void refresh(); const timer = window.setInterval(refresh, 5000); return () => { mounted.current = false; window.clearInterval(timer); }; }, [refresh]);
+  const exportStats = async (id?: string) => {
+    if (exporting.current) return;
+    exporting.current = true; setBusy(true); setNotice('');
+    try { const result = await window.mygamepack.operationsStatsExport(id); if (result.ok) setNotice(result.streams + '配信をMDで保存しました: ' + result.path); }
+    catch (e) { setNotice('書き出せませんでした: ' + (e instanceof Error ? e.message : String(e))); }
+    finally { exporting.current = false; setBusy(false); }
+  };
+  const selected = data.streams.find(s => s.id === selectedId) || data.streams[0];
+  const comparison = data.comparisons?.find(c => c.days === days);
+  const chartStreams = useMemo(() => data.streams.filter(s => s.received).slice(0, 14).reverse(), [data.streams]);
+  const chartMax = Math.max(1, ...chartStreams.map(s => s.received?.coins || 0));
+  return <div className="page-surface stream-analytics">
+    <header className="analytics-header"><div><span className="analytics-eyebrow">LIVE JOURNAL</span><h1>配信統計</h1><p>1回の配信を振り返る。続けた変化を見つける。</p></div><div className="analytics-actions"><button type="button" onClick={() => void refresh()} disabled={loading}>↻ 更新</button><button type="button" className="analytics-primary" onClick={() => void exportStats()} disabled={busy || !data.streams.length}>全履歴をMDで保存</button></div></header>
+    <StreamRecordingPanel />
+    {error && <p role="alert" className="analytics-alert">統計を読み込めませんでした: {error}</p>}
+    {notice && <p role="status">{notice}</p>}
+    <nav className="analytics-tabs" aria-label="統計の表示"><button type="button" aria-pressed={view === 'history'} onClick={() => { if (view === 'history' || guard.confirmDiscard()) setView('history'); }}>配信ごとの履歴 <span>{data.streams.length}</span></button><button type="button" aria-pressed={view === 'compare'} onClick={() => { if (view === 'compare' || guard.confirmDiscard()) setView('compare'); }}>7日・30日で比較</button></nav>
+    {!data.streams.length ? <section className="analytics-panel"><h2>{loading ? '読み込み中…' : 'まだ配信の記録がありません'}</h2><p>Bridgeを起動してTikTok LIVEに接続すると、自動で1配信ずつ記録します。</p></section> : view === 'history' ? <>
+      <section className="analytics-panel analytics-history"><h2>過去の配信もここから選べます</h2><p>受信数は接続中に取得した値です。旧バージョンで未記録の数字は「未取得」と表示します。</p><div className="analytics-table-wrap"><table><thead><tr><th>配信開始（観測）</th><th>接続時間</th><th>ギフト個数</th><th>コイン相当</th><th>いいね数</th><th>受取額（円）</th><th>詳細</th></tr></thead><tbody>{data.streams.map(s => <tr key={s.id} className={selected?.id === s.id ? 'is-selected' : ''}><th scope="row">{date(s.start)}{s.active && <span className="analytics-live">記録中</span>}{s.source !== 'automatic' && <small>過去の{s.source === 'manual' ? '手動' : '推定'}記録</small>}</th><td>{duration(s.durationMs)}</td><td>{number(s.received?.gifts)}</td><td>{coins(s.received)}</td><td>{number(s.received?.likes)}</td><td>{s.earnings ? number(s.earnings.amount) : '未入力'}</td><td><button type="button" aria-label={date(s.start) + 'の配信詳細'} aria-pressed={selected?.id === s.id} onClick={() => { if (selected?.id === s.id || guard.confirmDiscard()) { setSelectedId(s.id); window.requestAnimationFrame(() => detailPanel.current?.scrollIntoView({ behavior: "smooth", block: "start" })); } }}>見る</button></td></tr>)}</tbody></table></div></section>
+      {selected && <section ref={detailPanel} className="analytics-panel analytics-detail"><header className="analytics-header"><div><span className="analytics-eyebrow">SELECTED LIVE</span><h2>{date(selected.start)} の配信</h2><p>{selected.active ? '接続を観測中' : date(selected.end) + ' まで観測'} · {duration(selected.durationMs)}</p><small>配信ID: {selected.roomId || '未取得'}</small></div><button type="button" onClick={() => void exportStats(selected.id)} disabled={busy}>この配信をMDで保存</button></header>
+        {!selected.received && <p className="analytics-alert">この配信は受信数を記録する前のデータです。コマンド回数からギフト数や売上を推測して埋めることはできません。</p>}
+        <div className="analytics-tiles"><Tile label="受信ギフト（個）" value={number(selected.received?.gifts)} /><Tile label="TikTokコイン相当" value={coins(selected.received)} /><Tile label="受信いいね" value={number(selected.received?.likes)} /><Tile label="コメント" value={number(selected.received?.comments)} /><Tile label="フォロー通知" value={number(selected.received?.follows)} /><Tile label="シェア通知" value={number(selected.received?.shares)} /><Tile label="訪問通知" value={number(selected.received?.visits)} /><Tile label="最高同時視聴者" value={selected.viewerSamples ? number(selected.maxViewers) : '未取得'} /></div>
+        <p className="analytics-note">コイン相当は受信ギフトの単価 × 個数です。実際の受取額とは異なります。フォロー・シェア・訪問は受信した通知の回数で、純増人数ではありません。</p>
+        {selected.received && <><p className="analytics-note">受信集計の開始: {date(selected.received.startedAt)} · 集計対象の接続時間: {duration(selected.received.durationMs)}</p><h3>受け取ったギフト</h3><div className="analytics-table-wrap"><table><thead><tr><th>ギフト</th><th>1個のコイン数</th><th>個数</th><th>コイン相当</th></tr></thead><tbody>{selected.received.giftBreakdown.map((gift, index) => <tr key={gift.id + ':' + index}><th scope="row">{gift.name}</th><td>{number(gift.coinValue)}</td><td>{number(gift.count)}</td><td>{gift.coinValue == null ? '未取得' : number(gift.coins)}</td></tr>)}</tbody></table>{!selected.received.giftBreakdown.length && <p>この配信で受信したギフトはまだありません。</p>}</div></>}
+        <EarningsEditor key={selected.id} stream={selected} onSaved={refresh} />
+        <details className="analytics-diagnostics"><summary>コマンドの動作記録を見る（売上集計とは別）</summary><p>要求履歴 {number(selected.events)}件 · 成功 {number(selected.succeeded)}件 · 失敗 {number(selected.failed)}件。コマンド履歴は直近30日の保持上限内のみです。</p>{selected.topCommands.map(c => <p key={c.name}>{c.name}：{number(c.count)}回</p>)}</details>
+      </section>}
+    </> : <section className="analytics-panel"><header className="analytics-header"><div><h2>続けた変化を比較</h2><p>配信の開始日で期間に振り分けます。今回の期間には記録中の配信も含みます。</p></div><label>比較期間 <select value={days} onChange={e => setDays(Number(e.target.value))}><option value={7}>直近7日 vs その前の7日</option><option value={30}>直近30日 vs その前の30日</option></select></label></header>
+      {comparison ? <><p className="analytics-note">受信数あり: 今回 {comparison.current.trackedStreams}/{comparison.current.streams}配信 · 前回 {comparison.previous.trackedStreams}/{comparison.previous.streams}配信。未取得の配信は受信数の合計に含めません。受取額は入力済みの今回 {comparison.current.earningStreams}配信・前回 {comparison.previous.earningStreams}配信の合計です。</p><div className="analytics-table-wrap"><table><thead><tr><th>指標</th><th>直近{days}日</th><th>その前の{days}日</th><th>差分</th></tr></thead><tbody>{([
+        ['配信数', 'streams'], ['ギフト個数', 'gifts'], ['コイン相当（単価取得分）', 'coins'], ['いいね数', 'likes'], ['コメント数', 'comments'], ['フォロー通知', 'follows'], ['シェア通知', 'shares'], ['訪問通知', 'visits'], ['受取額（円・入力分）', 'earnings'], ['1時間あたりコイン相当', 'coinsPerHour'],
+      ] as const).map(([label, key]) => { const a = comparison.current[key], b = comparison.previous[key]; return <tr key={key}><th scope="row">{label}</th><td>{number(a)}</td><td>{number(b)}</td><td>{a == null || b == null ? '比較不可' : (a - b > 0 ? '+' : '') + number(Math.round((a - b) * 100) / 100)}</td></tr>; })}<tr><th scope="row">接続時間</th><td>{duration(comparison.current.durationMs)}</td><td>{duration(comparison.previous.durationMs)}</td><td>—</td></tr></tbody></table></div>{Boolean(comparison.current.unknownCoinGifts || comparison.previous.unknownCoinGifts) && <p className="analytics-alert">単価を取得できなかったギフトがあります。コイン相当は取得できた分の小計です。</p>}</> : <p>比較データを読み込んでいます。</p>}
+      <h3>配信ごとのコイン相当（受信記録のある最新14配信）</h3><div className="analytics-bars" role="img" aria-label="配信ごとのコイン相当。正確な値は各行に表示しています。">{chartStreams.map(s => <div className="analytics-bar-row" key={s.id}><span>{date(s.start)}</span><div><i style={{ width: ((s.received?.coins || 0) / chartMax * 100) + '%' }} /></div><b>{coins(s.received)}</b></div>)}{!chartStreams.length && <p>次回の配信から、ここに推移を表示します。</p>}</div>
+    </section>}
+  </div>;
 }

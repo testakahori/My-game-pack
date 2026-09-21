@@ -50,23 +50,24 @@ async function test(name,fn) { if(process.argv.includes('--meteor-only')&&!name.
     return {ice,before,trappedHealth,edgeFrozen,escapedHealth,afterEscape:bot.health,iceRemains:true};
   });
   await test('meteor shower aims fifty giant boulders, damages players and leaves rubble',async()=>{
-    const x=-4201;await prepare(x);await cmd('fill '+(x-32)+' 57 -32 '+(x+32)+' 63 32 stone');
+    const x=-6201;await prepare(x);await cmd('fill '+(x-32)+' 57 -32 '+(x+32)+' 63 32 stone');
     await cmd('effect give GiftTester fire_resistance 1000 0 true');const healthBefore=bot.health;
     const fallingType=bot.registry.entitiesByName.falling_block.id;
     await cmd('time set day');
-    let diagonal=false, shallow=false;const previous=new Map();const trajectory=[];const velocities=()=>{for(const entity of Object.values(bot.entities))if(entity.name==='falling_block'){const last=previous.get(entity.id);if(last){const delta=entity.position.minus(last);if(delta.y<-.5&&Math.hypot(delta.x,delta.z)>.2){diagonal=true;if(Math.hypot(delta.x,delta.z)>Math.abs(delta.y)*1.6)shallow=true;if(trajectory.length<5)trajectory.push({...delta});}}previous.set(entity.id,entity.position.clone());}};const motionTimer=setInterval(velocities,25);
+    let diagonal=false, shallow=false, maxMoving=0;const previous=new Map();const trajectory=[];const velocities=()=>{let moving=0;for(const entity of Object.values(bot.entities))if(entity.name==='falling_block'){const last=previous.get(entity.id);if(last){const delta=entity.position.minus(last);if(delta.y<-.5&&Math.hypot(delta.x,delta.z)>.2){diagonal=true;moving++;if(Math.hypot(delta.x,delta.z)>Math.abs(delta.y)*1.6)shallow=true;if(trajectory.length<5)trajectory.push({...delta});}}previous.set(entity.id,entity.position.clone());}maxMoving=Math.max(maxMoving,moving);};const motionTimer=setInterval(velocities,25);
     bot.physicsEnabled=false;await gift('meteorshower');await sleep(1200);
     const nightTime=await cmd('time query daytime');assert.match(nightTime,/18000/);
     const assembled=Object.values(bot.entities).filter(e=>e.name==='falling_block');
-    assert.ok(assembled.length>=109,'A complete giant boulder must be visible');
+    assert.ok(assembled.length>=218,'Two complete giant boulders must be visible');
     await idle();await sleep(1000);bot.physicsEnabled=true;clearInterval(motionTimer);
     const endTime=await cmd('time query daytime');assert.match(endTime,/1000/);
     assert.equal(fs.existsSync(path.join(root,'douma-meteor-night.properties')),false,'Night recovery marker is cleared');
     const falling=spawns.filter(e=>e.type==='falling_block').length;const materials={};for(const e of meteorStates)if(e.type===fallingType){const name=bot.registry.blocksByStateId[e.state]?.name;materials[name]=(materials[name]||0)+1;}
     let excavated=0;for(let dx=-30;dx<=30;dx++)for(let dz=-30;dz<=30;dz++)if(block(x+dx,61,dz)==='air')excavated++;
     console.log('METEORS',JSON.stringify({falling,materials,diagonal,trajectory,particles,explosions,excavated}));
-    assert.equal(falling,5950);for(const material of ['magma_block','bedrock','deepslate','gold_block','obsidian'])assert.equal(materials[material],1190);
-    assert.ok(diagonal);assert.ok(shallow,"Horizontal travel must exceed descent by 1.6x");assert.ok(particles>300);assert.equal(explosions,25);assert.ok(excavated>150);assert.ok(bot.health<healthBefore,'Stationary survival player must be hit');const remnants={};for(let dx=-30;dx<=30;dx++)for(let dz=-30;dz<=30;dz++)for(let y=55;y<=65;y++){const n=block(x+dx,y,dz);if(['bedrock','deepslate','gold_block','obsidian','magma_block'].includes(n))remnants[n]=(remnants[n]||0)+1;}for(const n of ['bedrock','deepslate','gold_block','obsidian','magma_block'])assert.ok(remnants[n]>0,'Missing remnants: '+n);return {falling,materials,diagonal,shallow,nightTime,endTime,trajectory,particles,explosions,excavated,healthBefore,healthAfter:bot.health,remnants};
+    assert.ok(maxMoving>=218,"Paired boulders and fragments must fly concurrently: "+maxMoving);
+    assert.equal(falling,7950);for(const material of ['magma_block','bedrock','deepslate','gold_block','obsidian'])assert.equal(materials[material],1590);
+    assert.ok(diagonal);assert.ok(shallow,"Horizontal travel must exceed descent by 1.6x");assert.ok(particles>300);assert.equal(explosions,25);assert.ok(excavated>150);assert.ok(bot.health<healthBefore,'Stationary survival player must be hit');const remnants={};for(let dx=-30;dx<=30;dx++)for(let dz=-30;dz<=30;dz++)for(let y=55;y<=65;y++){const n=block(x+dx,y,dz);if(['bedrock','deepslate','gold_block','obsidian','magma_block'].includes(n))remnants[n]=(remnants[n]||0)+1;}for(const n of ['bedrock','deepslate','gold_block','obsidian','magma_block'])assert.ok(remnants[n]>0,'Missing remnants: '+n);return {falling,materials,diagonal,shallow,maxMoving,nightTime,endTime,trajectory,particles,explosions,excavated,healthBefore,healthAfter:bot.health,remnants};
   });
   await test('cataclysm deep crater receives falling lava',async()=>{
     const x=-1201; await prepare(x,true); await cmd('effect give GiftTester resistance 1000 255 true');await cmd('effect give GiftTester fire_resistance 1000 0 true');
@@ -74,7 +75,7 @@ async function test(name,fn) { if(process.argv.includes('--meteor-only')&&!name.
     await gift('cataclysm');await sleep(4200); const below=block(x,20); console.log('CRATER',JSON.stringify({below,position:bot.entity.position}));
     assert.ok(['air','lava'].includes(below),'Expected deep excavated centre: '+below);
     await wait(()=>block(x,76)==='lava'&&block(x,25)==='lava',35000); const lavaDepth=block(x,25);await idle();bot.off('physicsTick',sample);
-    const counts=spawns.reduce((a,e)=>(a[e.type]=(a[e.type]||0)+1,a),{}); assert.ok(low<=20,'Player should fall deeply: '+low); assert.equal(lavaDepth,'lava');assert.equal(counts.tnt,100);assert.equal(counts.zombified_piglin,50);assert.equal(counts.wither,1);assert.equal(counts.falling_block,5950);
+    const counts=spawns.reduce((a,e)=>(a[e.type]=(a[e.type]||0)+1,a),{}); assert.ok(low<=20,'Player should fall deeply: '+low); assert.equal(lavaDepth,'lava');assert.equal(counts.tnt,100);assert.equal(counts.zombified_piglin,50);assert.equal(counts.wither,1);assert.equal(counts.falling_block,7950);
     return {lowestY:low,depth:64-low,lavaAtY25:lavaDepth,counts};
   });
   await test('flood carries more marine life only after fast water arrives',async()=>{

@@ -21,7 +21,8 @@ type Props = {
   defaultCommandsDirHint?: string;
 };
 
-type CmdFile = { name: string; title: string };
+type CmdFile = { name: string; title: string; category?: string; description?: string };
+const commandCategory = (raw = "") => { const key = raw.split("|")[0].trim(); return key === "お助け" ? "お助け系" : key === "妨害" ? "妨害系" : key || "その他"; };
 type SaveMsg = { type: "ok" | "error"; text: string };
 
 function clampRepeat(v: number) {
@@ -39,6 +40,15 @@ const MappingEditor: React.FC<Props> = (props) => {
   const [commandFile, setCommandFile]     = useState<string>("");
   const [selectedTxtName, setSelectedTxtName] = useState<string>("");
   const [cmdFiles, setCmdFiles]           = useState<CmdFile[]>([]);
+  const [commandCategoryFilter, setCommandCategoryFilter] = useState("");
+  const [commandQuery, setCommandQuery] = useState("");
+  const commandGroups = useMemo(() => {
+    const groups = new Map<string, CmdFile[]>();
+    for (const file of cmdFiles) { const category = commandCategory(file.category); groups.set(category, [...(groups.get(category) || []), file]); }
+    return [...groups].sort(([a], [b]) => a.localeCompare(b, "ja"));
+  }, [cmdFiles]);
+  const visibleCommandGroups = useMemo(() => commandGroups.map(([category, files]) => ({ category, files: files.filter(file => (!commandCategoryFilter || category === commandCategoryFilter) && `${file.title} ${file.name} ${file.description || ""}`.toLowerCase().includes(commandQuery.trim().toLowerCase())) })).filter(group => group.files.length), [commandGroups, commandCategoryFilter, commandQuery]);
+  const selectedCommandVisible = visibleCommandGroups.some(group => group.files.some(file => file.name === selectedTxtName));
   const [listQuery, setListQuery]         = useState<string>("");
   const [giftImageMap, setGiftImageMap]   = useState<Record<string, string>>({});
   const [giftDiamondMap, setGiftDiamondMap] = useState<Record<string, number>>({});
@@ -81,12 +91,12 @@ const MappingEditor: React.FC<Props> = (props) => {
   const loadCmdFiles = () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const api: any = (window as any).mygamepack;
-    if (!api?.bridgeCommandsList) {
+    if (!api?.bridgeCommandsReadMeta) {
       setCmdMsg({ type: "error", text: "コマンド一覧APIが見つかりません。" });
       return;
     }
     setCmdMsg(null);
-    api.bridgeCommandsList()
+    api.bridgeCommandsReadMeta()
       .then((list: CmdFile[]) => {
         setCmdFiles(list);
         setCmdMsg({ type: "ok", text: `${list.length}件のコマンドを読み込みました。` });
@@ -196,6 +206,13 @@ const MappingEditor: React.FC<Props> = (props) => {
 
           <div className="gift-command-stage">
             <label>実行するコマンド</label>
+            <div className="gift-command-filters">
+              <select aria-label="コマンドのカテゴリ" value={commandCategoryFilter} onChange={e => setCommandCategoryFilter(e.target.value)}>
+                <option value="">すべてのカテゴリ</option>
+                {commandGroups.map(([category, files]) => <option key={category} value={category}>{category}（{files.length}）</option>)}
+              </select>
+              <input aria-label="コマンド検索" placeholder="名前・効果で検索" value={commandQuery} onChange={e => setCommandQuery(e.target.value)} />
+            </div>
             <div className="gift-command-controls">
               <span className="gift-command-icon"><MinecraftCommandIcon command={commandFile || selectedTxtName} /></span>
               <select
@@ -207,9 +224,10 @@ const MappingEditor: React.FC<Props> = (props) => {
                 <option value="">
                   {cmdFiles.length === 0 ? "コマンド設定でTXTを作成してください" : "選択してください"}
                 </option>
-                {cmdFiles.map((x) => (
-                  <option key={x.name} value={x.name}>{x.title || x.name}</option>
-                ))}
+                {selectedTxtName && !selectedCommandVisible && <optgroup label="現在の設定"><option value={selectedTxtName}>{titleMap[selectedTxtName] || selectedTxtName}</option></optgroup>}
+                {visibleCommandGroups.map(group => <optgroup key={group.category} label={group.category}>
+                  {group.files.map(file => <option key={file.name} value={file.name}>{file.title || file.name}</option>)}
+                </optgroup>)}
               </select>
               <div className="gift-repeat-control">
                 <label htmlFor="gift-repeat">回数（1〜100）</label>
@@ -226,6 +244,7 @@ const MappingEditor: React.FC<Props> = (props) => {
                 <button type="button" disabled={saving} onClick={() => setRepeat((value) => clampRepeat(value + 1))}>＋</button>
               </div>
             </div>
+            {!visibleCommandGroups.length && cmdFiles.length > 0 && <p role="status">一致するコマンドがありません。検索条件を変えてください。</p>}
             <small>
               参照: <code>{commandsDirHint}/{commandFile || "—"}</code>
             </small>

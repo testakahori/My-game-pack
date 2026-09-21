@@ -130,6 +130,7 @@ contextBridge.exposeInMainWorld("mygamepack", {
   presetsSave: (name) => ipcRenderer.invoke("presets:save", name),
   presetsLoad: (name) => ipcRenderer.invoke("presets:load", name),
   operationsStats: () => ipcRenderer.invoke("operations:stats"),
+  operationsEarningsSave: (id, amount) => ipcRenderer.invoke("operations:earnings:save", id, amount),
   operationsStreamStats: (gapMinutes) => ipcRenderer.invoke("operations:streamStats", gapMinutes),
   updaterStatus: () => ipcRenderer.invoke("updater:status"),
   updaterCheck: () => ipcRenderer.invoke("updater:check"),
