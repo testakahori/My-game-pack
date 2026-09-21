@@ -326,3 +326,27 @@ test("画像編集のギフト保存IPC: 読み直した設定を保持し、競
   assert.throws(() => app.invoke('config:giftMapping:save', { ...request, expected: current.mappings }), /未承認/);
   assert.equal(fs.readFileSync(app.configPath, 'utf8'), before);
 });
+
+test("ギフトテンプレートIPC: 確認後に割り当てのみ適用し、自動バックアップから戻せる", async t => {
+  let templateFile;
+  const app = loadApp(t, undefined, undefined, { showOpenDialog: async () => ({ canceled: false, filePaths: [templateFile] }) });
+  const dir = path.join(app.root, 'bridge', 'commands', 'minecraft');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'heal.txt'), '# TITLE: 回復！');
+  templateFile = path.join(app.root, 'gift-template.json');
+  fs.writeFileSync(templateFile, JSON.stringify({ format: 'mygamepack-gift-template', version: 1, name: '回復セット', mappings: [{ giftId: '5655', name: 'バラ', commandFile: 'heal.txt', repeat: 2 }], tiktokUsername: 'must-not-import' }));
+  const before = JSON.parse(fs.readFileSync(app.configPath, 'utf8'));
+  before.options = { ...before.options, commandsDir: dir };
+  fs.writeFileSync(app.configPath, JSON.stringify(before));
+  const opened = await app.invoke('giftTemplate:open');
+  assert.deepEqual(JSON.parse(fs.readFileSync(app.configPath, 'utf8')), before);
+  assert.equal(opened.preview.mappings[0].title, '回復！');
+  assert.equal(app.invoke('giftTemplate:apply', opened.preview.token).ok, true);
+  const after = JSON.parse(fs.readFileSync(app.configPath, 'utf8'));
+  assert.equal(after.tiktokUsername, before.tiktokUsername);
+  assert.equal(after.mappings[0].repeat, 2);
+  const backups = await app.invoke('settings:backups:list');
+  assert.equal(backups.length, 1);
+  await app.invoke('settings:backups:restore', backups[0].id);
+  assert.deepEqual(JSON.parse(fs.readFileSync(app.configPath, 'utf8')), before);
+});

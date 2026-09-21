@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppTab, GiftMapping, CommandSet } from "../types";
 import Header from "./Header";
+import GiftTemplateToolbar from "./GiftTemplateToolbar";
 import MappingEditor from "./MappingEditor";
 import CommandSetManager from "./CommandSetManager";
 import GiftsGridSection from "./GiftsGridSection";
@@ -74,6 +75,8 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
   const mappingsRef = useRef<GiftMapping[]>([]);
   const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
   const [saveError, setSaveError] = useState("");
+  const [editorRevision, setEditorRevision] = useState(0);
+  const resetEditor = () => { setPickedGiftId(undefined); setPickedGiftName(undefined); setPickedGiftImage(undefined); setPickedGiftDiamonds(undefined); setEditorRevision(n => n + 1); };
 
   // config.minecraft.json に保存できた時だけ画面へ反映する。
   // Bridge は fs.watch でホットリロードするため、保存は即反映される。
@@ -218,7 +221,7 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
             </aside>
           </div>
 
-          <MappingEditor
+          <MappingEditor key={editorRevision}
             mappings={mappings}
             commandSets={commandSets}
             commandsDirKey="minecraft"
@@ -243,6 +246,7 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
     return null;
   }, [
     activeTab,
+    editorRevision,
     mappings,
     commandSets,
     pickedGiftId,
@@ -258,6 +262,9 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
     <div className="gift-settings-shell page-surface flex flex-col min-h-full">
       {saveError && <p role="alert" className="gift-catalog-error">{saveError}</p>}
       <Header activeTab={activeTab} setActiveTab={tab => { if (tab !== activeTab && confirmDiscard()) { if (tab === AppTab.IMAGE_EDITOR && onOpenImageEditor) onOpenImageEditor(); else setActiveTab(tab); } }} />
+      {activeTab === AppTab.MAPPINGS && <GiftTemplateToolbar ready={hydratedRef.current} count={mappings.length} onResetEditor={resetEditor} onApplied={rows => {
+        const next = configToGiftMappings({ mappings: rows }); mappingsRef.current = next; setMappings(next); setSaveError(''); resetEditor();
+      }} />}
       <div className="flex-1 p-6">{tabContent}</div>
     </div>
   );

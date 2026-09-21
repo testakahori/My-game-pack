@@ -366,6 +366,16 @@ ipcMain.handle("config:giftMapping:save", (_event, request) => {
   return { ok: true, mappings: next.mappings };
 });
 
+const { createGiftTemplates } = require("./gift_templates.cjs");
+const giftTemplates = createGiftTemplates({
+  dialog, appVersion: () => app.getVersion(), writeConfig: writeBridgeConfig,
+  context: () => { const configPath = getConfigPath(); ensureConfigExists(configPath); return { configPath, commands: readCommandMetadata() }; },
+});
+ipcMain.handle("giftTemplate:save", () => giftTemplates.save());
+ipcMain.handle("giftTemplate:open", () => giftTemplates.open());
+ipcMain.handle("giftTemplate:apply", (_event, token) => giftTemplates.apply(token));
+ipcMain.handle("giftTemplate:cancel", (_event, token) => giftTemplates.cancel(token));
+
 ipcMain.handle("config:path", async () => {
   return getConfigPath();
 });
@@ -2568,7 +2578,7 @@ ipcMain.handle("bridge:commands:list", async () => {
 // --------------------
 // IPC: bridge/commands/minecraft/ の TITLE + CATEGORY + 説明文 メタ情報一覧
 // --------------------
-ipcMain.handle("bridge:commands:readMeta", async () => {
+function readCommandMetadata() {
   const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
   if (!fs.existsSync(dir)) return [];
   const files = fs.readdirSync(dir).filter((f) => f.endsWith(".txt") && !f.startsWith("_")).sort();
@@ -2588,7 +2598,8 @@ ipcMain.handle("bridge:commands:readMeta", async () => {
     } catch {}
     return { name, title, category, description };
   });
-});
+}
+ipcMain.handle("bridge:commands:readMeta", () => readCommandMetadata());
 
 // --------------------
 // IPC: bridge/commands/minecraft/ にTXTを書き込む
