@@ -28,6 +28,7 @@ export type GiftsReadResult = {
 };
 
 export type GiftAssignment = { giftId: string | number; name?: string; commandFile?: string; repeat?: number };
+export type GiftTemplatePreview = { token: string; name: string; appVersion: string; currentCount: number; missingCommands: string[]; mappings: Array<{ giftId: string; name: string; commandFile: string; repeat: number; title: string }> };
 export type GiftMappingSaveRequest = { giftId: string; name: string; commandFile: string; repeat: number; expected: GiftAssignment[] };
 
 export type BridgeConfig = {
@@ -63,6 +64,10 @@ declare global {
       // --------------------
       // config
       // --------------------
+      giftTemplateSave: () => Promise<{ canceled: true } | { canceled: false; path?: string; name: string; count: number }>;
+      giftTemplateOpen: () => Promise<{ canceled: true } | { canceled: false; preview: GiftTemplatePreview }>;
+      giftTemplateApply: (token: string) => Promise<{ ok: true; mappings: GiftAssignment[] }>;
+      giftTemplateCancel: (token: string) => Promise<void>;
       configRead: () => Promise<BridgeConfig>;
       configGiftMappingSave: (request: GiftMappingSaveRequest) => Promise<{ ok: true; mappings: GiftAssignment[] }>;
       configMappingsWrite?: (mappings: BridgeConfig["mappings"]) => Promise<{ ok: true }>;

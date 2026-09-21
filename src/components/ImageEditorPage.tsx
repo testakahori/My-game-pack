@@ -146,6 +146,7 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
   const selectedIndex = design.cards.findIndex(c => c.id === selected);
   const card = design.cards[selectedIndex];
   const updateCard = (value: Partial<PanelCard>) => patch({ cards: design.cards.map(c => c.id === selected ? { ...c, ...value } : c) });
+  const removeCard = (id: string) => { patch({ cards: design.cards.filter(c => c.id !== id) }); if (selected === id) setSelected(null); };
   const moveCard = (fromId: string, to: number) => {
     const from = design.cards.findIndex(c => c.id === fromId);
     if (from < 0 || to < 0 || to >= design.cards.length || from === to) return;
@@ -186,7 +187,7 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
           <div className="panel-inspector-heading"><div><b>{selectedIndex + 1}. {card.giftName}</b><small>文字・色・コマンドを編集</small></div><div className="panel-inline-actions">
             <button className="studio-icon-button" aria-label="カードを前へ移動" disabled={selectedIndex <= 0} onClick={() => moveCard(card.id, selectedIndex - 1)}><i className="fa-solid fa-arrow-left" /></button>
             <button className="studio-icon-button" aria-label="カードを後ろへ移動" disabled={selectedIndex === design.cards.length - 1} onClick={() => moveCard(card.id, selectedIndex + 1)}><i className="fa-solid fa-arrow-right" /></button>
-            <button className="studio-quiet" onClick={() => { patch({ cards: design.cards.filter(c => c.id !== card.id) }); setSelected(null); }}><i className="fa-regular fa-trash-can" />削除</button>
+            <button className="studio-quiet" onClick={() => removeCard(card.id)}><i className="fa-regular fa-trash-can" />削除</button>
           </div></div>
           <div className="panel-command-link"><small>ゲーム内の設定</small><b>{assignment?.commandFile ? (assignedCommand?.title || assignment.commandFile) + ' ×' + (assignment.repeat || 1) : 'コマンド未登録'}</b><button className="studio-quiet" onClick={() => setCommandGift(card)}><i className="fa-solid fa-link" />コマンド設定</button></div>
           <p className="panel-hint">以下は画像の表示だけを変更します。</p>
@@ -261,11 +262,11 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
             <div className={'panel-scene is-' + preview + ' position-' + position}>
               <div className="panel-canvas-wrap" style={{ aspectRatio: layout.width + '/' + layout.height }}>
                 <canvas ref={canvasRef} aria-label="ギフト案内画像のプレビュー" />
-                {design.cards.slice(0, layout.slots).map((c, i) => <button key={c.id} className={'panel-card-hit' + (selected === c.id ? ' is-selected' : '')} aria-label={(i + 1) + '番 ' + c.giftName + 'の表示を編集'} aria-pressed={selected === c.id} onClick={() => { setSelected(c.id); setControls('card'); }} style={{
+                {design.cards.slice(0, layout.slots).map((c, i) => <div key={c.id} className="panel-card-target" style={{
                   left: (layout.padding + i % design.columns * (layout.cardWidth + layout.gap)) / layout.width * 100 + '%',
                   top: (layout.headingHeight + layout.padding + Math.floor(i / design.columns) * (layout.cardHeight + layout.gap)) / layout.height * 100 + '%',
                   width: layout.cardWidth / layout.width * 100 + '%', height: layout.cardHeight / layout.height * 100 + '%',
-                }} />)}
+                }}><button className={'panel-card-hit' + (selected === c.id ? ' is-selected' : '')} aria-label={(i + 1) + '番 ' + c.giftName + 'の表示を編集'} aria-pressed={selected === c.id} onClick={() => { setSelected(c.id); setControls('card'); }} /><button className="panel-card-remove" aria-label={(i + 1) + '番 ' + c.giftName + 'を画像から外す'} title="画像から外す" disabled={exporting} onClick={() => removeCard(c.id)}>×</button></div>)}
                 {!design.cards.length && <div className="panel-empty"><i className="fa-solid fa-layer-group" /><h3>あなたの配信に、ひと目でわかる案内を。</h3><p>テンプレートを選んで、ギフトを追加しましょう。</p><button className="studio-primary" disabled={!mappedCards.length || loading} onClick={addMapped}>設定済みギフトをまとめて追加</button><small>または下の一覧から1つずつ選べます</small></div>}
               </div>
               {preview !== 'image' && <div className="panel-game-placeholder"><i className="fa-solid fa-video" /><span>ゲーム映像・カメラのスペース</span><small>{preview === 'vertical' ? '9 : 16' : '16 : 9'}</small></div>}

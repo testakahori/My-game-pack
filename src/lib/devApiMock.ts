@@ -332,6 +332,22 @@ if (import.meta.env.DEV && !win.mygamepack) {
       }
       return structuredClone(bridgeConfig);
     },
+    giftTemplateSave: async () => {
+      if (!bridgeConfig.mappings.length) throw new Error("保存するギフト設定がありません。");
+      const mappings = bridgeConfig.mappings.map((row: any) => ({ giftId: String(row.giftId), name: row.name || String(row.giftId), commandFile: row.commandFile, repeat: row.repeat ?? 1 }));
+      const name = 'ギフト設定';
+      const data = { format: 'mygamepack-gift-template', version: 1, name, appVersion: pkg.version, createdAt: new Date().toISOString(), mappings };
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+      const a = document.createElement('a'); a.href = url; a.download = name + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return { canceled: false, name, count: mappings.length };
+    },
+    giftTemplateOpen: async () => {
+      // Native file handling and strict import validation are covered in Electron.
+      // Browser previews must never pretend to have read/applied a local file.
+      throw new Error("テンプレートのファイル読込はデスクトップ版で確認してください。");
+    },
+    giftTemplateApply: async () => { throw new Error("先にデスクトップ版でテンプレートを読み込んでください。"); },
+    giftTemplateCancel: async () => {},
     configGiftMappingSave: async (request: any) => {
       const matches = bridgeConfig.mappings.filter((row: any) => String(row.giftId) === request.giftId);
       if (JSON.stringify(matches) !== JSON.stringify(request.expected)) throw new Error("このギフトの設定が別の操作で変更されました。閉じて開き直してください。");

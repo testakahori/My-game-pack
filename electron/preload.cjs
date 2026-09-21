@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld("mygamepack", {
   // config read/write
   // --------------------
   configRead: () => ipcRenderer.invoke("config:read"),
+  giftTemplateSave: () => ipcRenderer.invoke("giftTemplate:save"),
+  giftTemplateOpen: () => ipcRenderer.invoke("giftTemplate:open"),
+  giftTemplateApply: (token) => ipcRenderer.invoke("giftTemplate:apply", token),
+  giftTemplateCancel: (token) => ipcRenderer.invoke("giftTemplate:cancel", token),
   configGiftMappingSave: (request) => ipcRenderer.invoke("config:giftMapping:save", request),
   configMappingsWrite: (mappings) => ipcRenderer.invoke("config:mappings:write", mappings),
 
