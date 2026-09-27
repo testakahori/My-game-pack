@@ -16,6 +16,11 @@ function normalizeUsername(u) {
 }
 
 contextBridge.exposeInMainWorld("mygamepack", {
+  gamesList: () => ipcRenderer.invoke('games:list'),
+  gamesActivate: (id) => ipcRenderer.invoke('games:activate', id),
+  gamesInstall: () => ipcRenderer.invoke('games:install'),
+  gamesRecover: () => ipcRenderer.invoke('games:recover'),
+  gamesClientFolder: () => ipcRenderer.invoke('games:clientFolder'),
   windowMinimize: () => ipcRenderer.send("window:minimize"),
   windowMaximizeToggle: () => ipcRenderer.send("window:maximizeToggle"),
   windowClose: () => ipcRenderer.send("window:close"),

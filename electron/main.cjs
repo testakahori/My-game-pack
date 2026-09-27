@@ -20,6 +20,50 @@ const { saveGiftPanelPng } = require("./image_export.cjs");
 const { EULA_URL, inspectSetup, inspectForgeClient, launchForgeInstaller, prepareServerEnvironment } = require("./initial_setup.cjs");
 const { migrateRetiredCommands } = require("./command_migration.cjs");
 const { exportStreamStatsMarkdown } = require("./stats_export.cjs");
+const { createGameProfiles } = require('./game_profiles.cjs');
+let gameProfileBusy = false;
+const gameProfiles = createGameProfiles({
+  storage: () => path.join(app.getPath('userData'), 'game-profiles', crypto.createHash('sha256').update(path.resolve(getServerRoot())).digest('hex').slice(0, 16)),
+  serverRoot: () => getServerRoot(),
+  clientRoot: () => readAppConfig().minecraftGameFolder || path.join(app.getPath('appData'), '.minecraft'),
+  configPath: () => getConfigPath(),
+  bridgeJar: () => {
+    const dir = app.isPackaged ? path.join(getServerTemplatePath(), 'mods') : path.resolve(__dirname, '..', 'BridgeMod', 'build', 'libs');
+    const jars = fs.existsSync(dir) ? fs.readdirSync(dir).filter(n => /^bridgemod-[0-9.]+\.jar$/.test(n)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true })) : [];
+    if (!jars.length) throw new Error('BridgeMODのjarがありません。開発版のビルドまたは配布ファイルを確認してください');
+    return path.join(dir, jars[0]);
+  },
+  ensureStopped: async () => {
+    assertMapIdle();
+    if (initialSetupRunning || serverStarting || serverStopping || bridgeProcRef || bridgeRestartTimer || (await getServerProcessStatus()).running) throw new Error('サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください');
+    if ((await getMinecraftProcessStatus(true)).running) throw new Error('Minecraftとランチャーを終了してから切り替えてください');
+  },
+});
+function assertGameProfileIdle() {
+  if (gameProfileBusy || gameProfiles.list().recoveryRequired) throw new Error('ゲームの切替中、または切替の復旧が必要です。ホームのゲーム選択を確認してください');
+}
+async function gameProfileOperation(action) {
+  if (gameProfileBusy) throw new Error('ゲームの操作が進行中です');
+  gameProfileBusy = true;
+  try { return await action(); } finally { gameProfileBusy = false; }
+}
+ipcMain.handle('games:list', () => gameProfiles.list());
+ipcMain.handle('games:activate', (_event, id) => gameProfileOperation(() => gameProfiles.activate(id)));
+ipcMain.handle('games:recover', () => gameProfileOperation(() => gameProfiles.recover()));
+ipcMain.handle('games:install', () => gameProfileOperation(async () => {
+  const selected = await dialog.showOpenDialog({ title: 'ゲームパックを登録', properties: ['openDirectory'] });
+  if (selected.canceled) return { canceled: true };
+  return gameProfiles.install(selected.filePaths[0]);
+}));
+ipcMain.handle('games:clientFolder', () => gameProfileOperation(async () => {
+  if (gameProfiles.list().recoveryRequired) throw new Error('切替を復旧してから保存先を変更してください');
+  const selected = await dialog.showOpenDialog({ title: 'Minecraftのゲームフォルダ', properties: ['openDirectory'] });
+  if (selected.canceled) return { canceled: true };
+  const dir = selected.filePaths[0];
+  if (!fs.existsSync(path.join(dir, 'versions')) && !fs.existsSync(path.join(dir, 'options.txt'))) throw new Error('Minecraftのゲームフォルダを選んでください（modsフォルダの1つ上）');
+  writeAppConfig({ minecraftGameFolder: dir });
+  return gameProfiles.list();
+}));
 const eulerCredentials = require('./euler_credentials.cjs').createEulerCredentials({
   filePath: () => path.join(app.getPath('userData'), 'euler-credentials.json'), safeStorage,
 });
@@ -33,7 +77,7 @@ const settingsBackups = createSettingsBackups({
     backups: path.join(app.getPath("userData"), "settings-backups", crypto.createHash("sha256").update(path.resolve(getConfigPath())).digest("hex").slice(0, 16)),
   }),
   version: () => app.getVersion(), readTts: () => readTtsSettings(),
-  isRunning: () => Boolean(bridgeProcRef || bridgeRestartTimer || mapOperationBusy || serverStarting),
+  isRunning: () => Boolean(bridgeProcRef || bridgeRestartTimer || mapOperationBusy || serverStarting || gameProfileBusy || gameProfiles.list().recoveryRequired),
 });
 
 const isDev = process.env.ELECTRON_DEV === "1";
@@ -120,9 +164,9 @@ function ensureConfigExists(configPath) {
     options: {
       giftCooldownMs: 300,
       maxCommandsPerGift: 200,
-      commandTransport: "douma_mod",
-      doumaModHost: "127.0.0.1",
-      doumaModPort: 25576,
+      commandTransport: "bridge_mod",
+      bridgeModHost: "127.0.0.1",
+      bridgeModPort: 25576,
       maxLikeCatchUpPerEvent: 5,
       logUnknownGifts: true,
     },
@@ -188,7 +232,7 @@ function createWindow() {
     },
   });
   win.on("close", event => {
-    if (!initialSetupRunning && !mapOperationBusy && !serverStarting && !serverStopping) return;
+    if (!initialSetupRunning && !mapOperationBusy && !serverStarting && !serverStopping && !gameProfileBusy) return;
     event.preventDefault();
     void dialog.showMessageBox(win, { type: "info", title: "保存・準備中です",
       message: "ワールドと設定を準備しています。保存とサーバー停止が終わるまで、このアプリを開いたままお待ちください。" });
@@ -332,6 +376,8 @@ ipcMain.handle("config:read", async () => {
 const { updateGiftMapping } = require("./gift_mapping.cjs");
 
 function writeBridgeConfig(nextConfig) {
+  assertGameProfileIdle();
+  if ((nextConfig?.gameProfile || 'common') !== gameProfiles.list().active) throw new Error('ゲームが切り替わっています。設定画面を開き直してください');
   const validation = validateBridgeConfig(nextConfig);
   if (!validation.ok) throw new Error(`設定エラー:\n${validation.errors.join("\n")}`);
   const configPath = getConfigPath();
@@ -387,14 +433,14 @@ ipcMain.handle("config:path", async () => {
 
 ipcMain.handle("settings:backups:list", () => settingsBackups.list());
 ipcMain.handle("settings:backups:create", () => settingsBackups.create("manual"));
-ipcMain.handle("settings:backups:restore", (_event, id) => settingsBackups.restore(id));
+ipcMain.handle("settings:backups:restore", (_event, id) => { assertGameProfileIdle(); return settingsBackups.restore(id); });
 let preflightTask = null;
 ipcMain.handle("preflight:run", () => {
   if (!preflightTask) preflightTask = runPreflight({
     configPath: getConfigPath(), serverRoot: getServerRoot(),
     commandsDir: path.join(getBridgeBatDir(), "commands", "minecraft"),
     giftsPath: getGiftsMinPath(), giftsMetaPath: getGiftsMetaPath(),
-    modStatus: async () => { try { return { ...(await requestDouma("GET", "/douma/status")), online: true }; } catch { return { online: false }; } },
+    modStatus: async () => { try { return { ...(await requestBridgeMod("GET", "/bridge/status")), online: true }; } catch { return { online: false }; } },
     bridgeStatus: () => {
       let runtime = {};
       try { runtime = JSON.parse(fs.readFileSync(path.join(getBridgeBatDir(), "runtime-status.json"), "utf8")); } catch {}
@@ -429,6 +475,7 @@ ipcMain.handle("updater:check", async () => {
   return updateState;
 });
 ipcMain.handle("updater:install", () => {
+  assertGameProfileIdle();
   if (updateState.state === "ready") autoUpdater.quitAndInstall(true, true);
   return { ok: updateState.state === "ready" };
 });
@@ -1067,40 +1114,19 @@ async function writeBridgeSyncMarker(dst, signature, stats) {
   await fs.promises.writeFile(path.join(dst, BRIDGE_SYNC_MARKER), JSON.stringify(marker, null, 2), "utf8");
 }
 
-// アプリ更新・セットアップ時に doumacmd Mod jar をサーバーの mods/ へ最新版で揃える。
+// アプリ更新・セットアップ時に bridgemod Mod jar をサーバーの mods/ へ最新版で揃える。
 // 旧実装はテンプレートの「ルート」から jar を探していたため、ルートに残置された
-// 旧版 jar（doumacmd-1.1.1.jar 等）を配布して mods/ の最新版を消す逆向きの動作をしていた。
+// 旧版 jar（bridgemod-1.1.1.jar 等）を配布して mods/ の最新版を消す逆向きの動作をしていた。
 // 正しい供給元はテンプレートの mods/ 配下。
-function refreshDoumaModJar(serverFolder) {
-  try {
-    const srcMods = path.join(getServerTemplatePath(), "mods");
-    if (!fs.existsSync(srcMods)) return;
-
-    const jars = fs.readdirSync(srcMods).filter((f) => /^doumacmd-.*\.jar$/i.test(f));
-    if (jars.length === 0) return;
-
-    // 旧フローの残骸掃除：serverFolder ルートに doumacmd jar が残っていると
-    // setup.bat が mods/ の最新版を削除して旧版を移動してしまうため、必ず撤去する
-    try {
-      for (const stray of fs.readdirSync(serverFolder).filter((f) => /^doumacmd-.*\.jar$/i.test(f))) {
-        fs.unlinkSync(path.join(serverFolder, stray));
-        console.log(`[main] stale doumacmd jar removed from server root: ${stray}`);
-      }
-    } catch { /* ルートを読めなくても mods 差し替えは続行 */ }
-
-    const modsDir = path.join(serverFolder, "mods");
-    fs.mkdirSync(modsDir, { recursive: true });
-
-    for (const old of fs.readdirSync(modsDir).filter((f) => /^doumacmd-.*\.jar$/i.test(f))) {
-      if (!jars.includes(old)) fs.unlinkSync(path.join(modsDir, old));
-    }
-    for (const j of jars) {
-      fs.copyFileSync(path.join(srcMods, j), path.join(modsDir, j));
-    }
-    console.log(`[main] doumacmd mod jar refreshed in ${modsDir}: ${jars.join(", ")}`);
-  } catch (e) {
-    console.error("[main] refreshDoumaModJar failed:", e?.message || e);
+async function refreshBridgeModJar(serverFolder) {
+  const srcMods = path.join(getServerTemplatePath(), "mods");
+  const jars = fs.existsSync(srcMods) ? fs.readdirSync(srcMods).filter(n => /^bridgemod-.*\.jar$/i.test(n)) : [];
+  if (!jars.length) return;
+  if (serverProcRef || (await isServerPortOpen())) {
+    throw new Error("BridgeMODを入れ替える前にMinecraftサーバーを停止してください");
   }
+  jars.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+  require("./bridge_mod_migration.cjs").replaceCommonMod(path.join(srcMods, jars[0]), serverFolder);
 }
 
 function scheduleBridgeSync() {
@@ -1139,7 +1165,7 @@ async function ensureBridgeExtracted() {
   setBridgeSyncState({ state: "running", phase: "copying", error: "", stats: null });
   const result = await copyBridgeDifferential(src, dst, { preserveUserFiles: true });
   await ensureBridgeRuntimeReady(dst, result.stats);
-  refreshDoumaModJar(cfg.serverFolder);
+  await refreshBridgeModJar(cfg.serverFolder);
   await writeBridgeSyncMarker(dst, await getBridgeRuntimeSignature(dst), result.stats);
   writeAppConfig({ bridgeVersion: currentVersion });
   setBridgeSyncState({ state: "done", phase: "complete", error: "", stats: result.stats });
@@ -1181,7 +1207,7 @@ ipcMain.handle("bridge:extractTo", async (_event, targetFolder) => {
   }
 
   // 過去バージョンでセットアップされたフォルダを再利用しても mod jar を最新に揃える
-  refreshDoumaModJar(targetFolder);
+  await refreshBridgeModJar(targetFolder);
 
   return { ok: true, dst, stats: result.stats };
 });
@@ -1260,6 +1286,7 @@ function pipeServerStream(stream, prefix) {
 }
 
 async function startServer(resumeAfterMap = false) {
+  assertGameProfileIdle();
   if (!resumeAfterMap) assertMapIdle();
   if (serverStarting || serverStopping) throw new Error("サーバーを起動・停止中です。完了までお待ちください。");
   serverStarting = true;
@@ -1279,6 +1306,7 @@ async function startServer(resumeAfterMap = false) {
   }
 
   await mapSaves.recover();
+  require('./bridge_mod_migration.cjs').retireLegacyEnvironment(dir);
   // MAPは「保存する」を押した時だけ作成。旧autoBackup設定が残っていても自動保存しない。
 
   // 黒い別窓は開かず、出力をアプリ内（ダッシュボードのForgeログ）へ取り込む。
@@ -1364,9 +1392,9 @@ async function getServerProcessStatus() {
   let modReady = false;
   try {
     const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8"));
-    const host = String(cfg.options?.doumaModHost || "127.0.0.1").toLowerCase();
+    const host = String(cfg.options?.bridgeModHost || cfg.options?.doumaModHost || "127.0.0.1").toLowerCase();
     if (["127.0.0.1", "localhost", "::1"].includes(host)) {
-      const status = await requestDouma("GET", "/douma/status");
+      const status = await requestBridgeMod("GET", "/bridge/status");
       modReady = status.ok === true && Number.isFinite(status.tps) && typeof status.player?.online === "boolean";
     }
   } catch { /* ポートは開いている。Modが準備中なら再起動せず案内する。 */ }
@@ -1404,7 +1432,7 @@ ipcMain.handle('euler:openPortal', () => shell.openExternal('https://www.eulerst
 // ランチャーはゲーム起動と同時に自動で閉じる設定が既定のため、ゲーム本体
 // （javaw.exe）も検知対象に含める。
 const MINECRAFT_PROC_NAMES = new Set(["minecraftlauncher.exe", "minecraft.exe", "javaw.exe"]);
-ipcMain.handle("minecraft:status", async () => {
+async function getMinecraftProcessStatus(strict = false) {
   if (process.platform !== "win32") return { running: false, processes: [] };
   const csv = await new Promise((resolve) => {
     let out = "";
@@ -1421,13 +1449,15 @@ ipcMain.handle("minecraft:status", async () => {
     p.on("error", finish);
     setTimeout(() => { try { p.kill(); } catch { /* ignore */ } finish(); }, 4000);
   });
+  if (strict && !String(csv).trim()) throw new Error('Minecraftの停止状態を確認できません。切替を中止しました');
   const found = new Set();
   for (const line of String(csv).split("\n")) {
     const name = (line.split('","')[0] || "").replace(/^"/, "").trim().toLowerCase();
-    if (MINECRAFT_PROC_NAMES.has(name)) found.add(name);
+    if (MINECRAFT_PROC_NAMES.has(name) || (strict && name === 'java.exe')) found.add(name);
   }
   return { running: found.size > 0, processes: [...found] };
-});
+}
+ipcMain.handle("minecraft:status", () => getMinecraftProcessStatus());
 
 // --------------------
 // IPC: Bridge 起動（同梱 node 優先、なければ PATH の node）
@@ -1447,6 +1477,7 @@ function killBridgeByCommandLine() {
 }
 
 async function launchBridge() {
+  assertGameProfileIdle();
   const dir = getBridgeBatDir();
   const indexJs = getBridgeEntryPoint(dir);
   if (!fs.existsSync(indexJs)) throw new Error(`Bridge entry not found: ${indexJs}`);
@@ -1532,12 +1563,12 @@ ipcMain.handle("bridge:processStatus", () => {
 
 ipcMain.handle("bridge:logs", () => ({ ok: true, lines: [...bridgeLogBuffer] }));
 
-function requestDouma(method, requestPath, body, configOverride) {
+function requestBridgeMod(method, requestPath, body, configOverride) {
   return new Promise((resolve, reject) => {
     let cfg = configOverride || {};
     if (!configOverride) try { cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch {}
-    const host = cfg.options?.doumaModHost || "127.0.0.1";
-    const port = Number(cfg.options?.doumaModPort || 25576);
+    const host = cfg.options?.bridgeModHost || cfg.options?.doumaModHost || "127.0.0.1";
+    const port = Number(cfg.options?.bridgeModPort || cfg.options?.doumaModPort || 25576);
     const data = body ? Buffer.from(JSON.stringify(body)) : null;
     const req = http.request({ host, port, path: requestPath, method, timeout: 1500,
       headers: data ? { "Content-Type": "application/json", "Content-Length": data.length } : {} },
@@ -1646,21 +1677,21 @@ function readViewerMetrics() {
 }
 
 ipcMain.handle("mod:status", async () => {
-  try { return { online: true, ...(await requestDouma("GET", "/douma/status")) }; }
+  try { return { online: true, ...(await requestBridgeMod("GET", "/bridge/status")) }; }
   catch (e) { return { online: false, error: e.message }; }
 });
-async function fireDoumaEventMaybeRoulette(payload, bridgeCfg, commandsDir) {
-  const send = (method, route, body) => requestDouma(method, route, body, bridgeCfg);
-  const animateTestRoulette = createRouletteRunner({ sendFrame: (commands, listenerName) => send("POST", "/douma/exec", { listenerName, commands }) });
+async function fireBridgeEventMaybeRoulette(payload, bridgeCfg, commandsDir) {
+  const send = (method, route, body) => requestBridgeMod(method, route, body, bridgeCfg);
+  const animateTestRoulette = createRouletteRunner({ sendFrame: (commands, listenerName) => send("POST", "/bridge/exec", { listenerName, commands }) });
   if (payload.key !== "roulette") {
-    await send("POST", "/douma/event", payload);
+    await send("POST", "/bridge/event", payload);
     return { key: payload.key, count: payload.count, roulette: false };
   }
   if (bridgeCfg?.roulette?.enabled !== true) {
     throw new Error("ルーレットが無効です。イベント設定②で有効にして保存してください。");
   }
   const round = prepareRoulette(bridgeCfg.roulette, commandsDir);
-  const winner = await animateTestRoulette(round, payload.listenerName, item => send("POST", "/douma/event", {
+  const winner = await animateTestRoulette(round, payload.listenerName, item => send("POST", "/bridge/event", {
     ...payload, key: item.commandFile.replace(/\.txt$/i, ""), count: item.repeat, announce: false,
   }));
   return { key: winner.commandFile.replace(/\.txt$/i, ""), count: winner.repeat, roulette: true, label: winner.label };
@@ -1694,8 +1725,8 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
       let outcome = { key: payload.key, count: step.count };
       let result;
       try {
-        outcome = await fireDoumaEventMaybeRoulette(payload, step.roulette ? { ...bridgeCfg, roulette: step.roulette } : bridgeCfg, commandsDir);
-        if (step.extras?.length) await requestDouma("POST", "/douma/exec", { listenerName: plan.sender, commands: step.extras }, bridgeCfg);
+        outcome = await fireBridgeEventMaybeRoulette(payload, step.roulette ? { ...bridgeCfg, roulette: step.roulette } : bridgeCfg, commandsDir);
+        if (step.extras?.length) await requestBridgeMod("POST", "/bridge/exec", { listenerName: plan.sender, commands: step.extras }, bridgeCfg);
         result = { ok: true, message: step.label + " → " + outcome.key + ".txt × " + outcome.count + " をModへ送信済み" };
       } catch (error) { result = { ok: false, message: error.message }; }
       const row = { at: new Date().toISOString(), source: "test", type: step.type, sender: plan.sender,
@@ -1729,27 +1760,27 @@ ipcMain.handle("image:saveGiftPanel", (_event, value) => saveGiftPanelPng(dialog
 // OP自動付与とゲームルール適用が毎回「スキップ」されていた真因）。
 // 同一サーバープロセスで一度タイムアウトしたら記録し、以降の呼び出しは1回の確認だけで
 // 即諦める（一括起動で gamerules→OP付与 と連続150秒ずつ待って計5分固まる事故の防止）。
-let doumaWaitTimedOutFor = null;
-async function waitForDoumaMod(timeoutMs = 150000, intervalMs = 3000) {
+let bridgeModWaitTimedOutFor = null;
+async function waitForBridgeMod(timeoutMs = 150000, intervalMs = 3000) {
   const quickCheck = async () => {
-    try { await requestDouma("GET", "/douma/status"); return true; }
+    try { await requestBridgeMod("GET", "/bridge/status"); return true; }
     catch { return false; }
   };
-  if (await quickCheck()) { doumaWaitTimedOutFor = null; return true; }
-  if (serverProcRef && doumaWaitTimedOutFor === serverProcRef) return false;
-  appendServerLog("[SERVER] Mod（DoumaCmdMod）のHTTP応答を待っています。ワールド読み込み完了（Done表示）までお待ちください…");
+  if (await quickCheck()) { bridgeModWaitTimedOutFor = null; return true; }
+  if (serverProcRef && bridgeModWaitTimedOutFor === serverProcRef) return false;
+  appendServerLog("[SERVER] Mod（BridgeMod）のHTTP応答を待っています。ワールド読み込み完了（Done表示）までお待ちください…");
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     if (Date.now() >= deadline || !serverProcRef) {
       if (serverProcRef) {
-        doumaWaitTimedOutFor = serverProcRef;
-        appendServerLog("[SERVER] Modの応答待ちがタイムアウトしました（HTTP:25576）。mods/ の doumacmd jar 配置とサーバーログを確認してください。");
+        bridgeModWaitTimedOutFor = serverProcRef;
+        appendServerLog("[SERVER] Modの応答待ちがタイムアウトしました（HTTP:25576）。mods/ の bridgemod jar 配置とサーバーログを確認してください。");
       }
       return false;
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
     if (await quickCheck()) {
-      doumaWaitTimedOutFor = null;
+      bridgeModWaitTimedOutFor = null;
       appendServerLog("[SERVER] Mod（HTTP:25576）と接続できました。");
       return true;
     }
@@ -1787,8 +1818,8 @@ ipcMain.handle("minecraft:grantOp", async () => {
   fs.writeFileSync(path.join(dir, "_op.txt"), `# TITLE: OP付与\nop ${name}\n`, "utf8");
   try {
     // サーバー起動直後ならワールド読み込み完了（Mod HTTP 開通）まで待ってから送る
-    if (serverProcRef) await waitForDoumaMod();
-    await requestDouma("POST", "/douma/event", {
+    if (serverProcRef) await waitForBridgeMod();
+    await requestBridgeMod("POST", "/bridge/event", {
       type: "other", key: "_op", count: 1, listenerName: "system", announce: false,
     });
   } catch (e) {
@@ -1801,7 +1832,7 @@ ipcMain.handle("minecraft:grantOp", async () => {
       if (!serverProcRef) {
         throw new Error("Minecraftサーバーが起動しておらず、過去のログイン記録も無いため付与できません。一度サーバーに接続（ログイン）してから再度お試しください。");
       }
-      throw new Error("Minecraftサーバーは起動中ですが、Mod（DoumaCmdMod）に接続できません。ワールドの読み込み完了（コンソールに Done 表示）を待ってから再度お試しください。");
+      throw new Error("Minecraftサーバーは起動中ですが、Mod（BridgeMod）に接続できません。ワールドの読み込み完了（コンソールに Done 表示）を待ってから再度お試しください。");
     }
     throw e;
   }
@@ -1864,6 +1895,7 @@ async function stopMapServer() {
   await assertMapServerStopped();
 }
 async function runMapOperation(action) {
+  assertGameProfileIdle();
   assertMapIdle();
   if (initialSetupRunning || serverStarting || serverStopping) throw new Error('サーバーの準備・停止が終わるまでお待ちください。');
   mapOperationBusy = true;
@@ -1964,6 +1996,7 @@ function getMinecraftLauncherCandidates() {
 }
 
 ipcMain.handle("minecraft:launch", async () => {
+  assertGameProfileIdle();
   const candidates = getMinecraftLauncherCandidates();
   const found = candidates.find((p) => fs.existsSync(p));
   if (found) {
@@ -2077,6 +2110,7 @@ let initialSetupRunning = false;
 let initialSetupState = { state: "idle", message: "" };
 ipcMain.handle("server:setup:status", () => initialSetupState);
 async function setupServerAtPath(folderPath) {
+  assertGameProfileIdle();
   assertMapIdle();
   if (!folderPath || typeof folderPath !== "string") throw new Error("folderPath is required");
   if (initialSetupRunning) throw new Error("環境構築が進行中です。完了までお待ちください。");
@@ -2125,73 +2159,15 @@ ipcMain.handle("server:rconpassword:read", async () => {
 // --------------------
 // IPC: ゲームルール一括適用（RCON）
 // --------------------
+// Environment is owned by BridgeMOD; this legacy IPC now verifies it only.
 ipcMain.handle("server:gamerules:apply", async () => {
-  // ゲームルールは DoumaCmdMod 経由（/douma/event, key=_gamerules）で適用する。
-  // 旧実装は rcon-client を require せずに new Rcon(...) しており常に ReferenceError で失敗していた
-  // （UI側は「サーバー未起動のためスキップ」と誤表示していた）。Mod経路に一本化して事故を無くす。
-  try {
-    // 一括起動直後はワールド読み込み中で Mod がまだ待ち受けていないため、開通まで待つ
-    if (serverProcRef) await waitForDoumaMod();
-    await requestDouma("POST", "/douma/event", {
-      type: "other",
-      key: "_gamerules",
-      count: 1,
-      listenerName: "system",
-      announce: false,
-    });
-    return { ok: true, transport: "douma_mod" };
-  } catch (e) {
-    throw new Error(`ゲームルール適用に失敗しました（サーバー/Mod が未起動の可能性）: ${e?.message || e}`);
-  }
+  if (serverProcRef) await waitForBridgeMod();
+  const status = await requestBridgeMod("GET", "/bridge/status");
+  if (status.environmentFixed !== true) throw new Error("固定環境に対応したBridgeMODが必要です");
+  return { ok: true, transport: "bridge_mod" };
 });
-
-// --------------------
-// IPC: 暗視データパック展開（現在ワールドに配置）
-// --------------------
-ipcMain.handle("server:datapack:deployNightVision", async () => {
-  const propsPath = path.join(getServerRoot(), "server.properties");
-  if (!fs.existsSync(propsPath)) throw new Error("server.properties が見つかりません");
-
-  const content = fs.readFileSync(propsPath, "utf-8");
-  const match = content.match(/^level-name=(.+)$/m);
-  if (!match) throw new Error("server.properties に level-name が見つかりません");
-  const levelName = match[1].trim();
-
-  const dpRoot = path.join(getServerRoot(), levelName, "datapacks", "NightVision_Pack");
-  fs.mkdirSync(path.join(dpRoot, "data", "minecraft", "tags", "functions"), { recursive: true });
-  fs.mkdirSync(path.join(dpRoot, "data", "nv_pack", "functions"), { recursive: true });
-
-  fs.writeFileSync(
-    path.join(dpRoot, "pack.mcmeta"),
-    JSON.stringify({ pack: { pack_format: 15, description: "Persistent night vision + event timers" } }, null, 2)
-  );
-  fs.writeFileSync(
-    path.join(dpRoot, "data", "minecraft", "tags", "functions", "tick.json"),
-    JSON.stringify({ values: ["nv_pack:tick"] })
-  );
-  fs.writeFileSync(
-    path.join(dpRoot, "data", "minecraft", "tags", "functions", "load.json"),
-    JSON.stringify({ values: ["nv_pack:load"] })
-  );
-  fs.writeFileSync(
-    path.join(dpRoot, "data", "nv_pack", "functions", "load.mcfunction"),
-    "scoreboard objectives add douma_storm dummy\n"
-  );
-  // douma_storm タイマー: storm.txt が #storm に tick 数をセットすると、ここで毎tick減算し
-  // 0 になった瞬間に weather clear を実行する。doWeatherCycle=false のワールドでは
-  // /weather の duration が進まず雷雨が永続するため、datapack 側で解除する。
-  fs.writeFileSync(
-    path.join(dpRoot, "data", "nv_pack", "functions", "tick.mcfunction"),
-    [
-      "execute as @a at @s if entity @s[gamemode=!spectator] run effect give @s minecraft:night_vision 60 0 true",
-      "execute if score #storm douma_storm matches 1.. run scoreboard players remove #storm douma_storm 1",
-      "execute if score #storm douma_storm matches 0 run weather clear",
-      "execute if score #storm douma_storm matches 0 run scoreboard players set #storm douma_storm -1",
-    ].join("\n") + "\n"
-  );
-
-  return { ok: true, world: levelName };
-});
+// No new datapack is written. Old packs are retired only while the server is stopped.
+ipcMain.handle("server:datapack:deployNightVision", () => ({ ok: true, managedBy: "BridgeMOD" }));
 
 // --------------------
 // IPC: Forgeインストーラーを同梱Javaで直接起動
@@ -2415,6 +2391,7 @@ ipcMain.handle("gv:settings:write", async (_event, v) => {
 ipcMain.handle("app:config:read", async () => readPublicAppConfig());
 
 ipcMain.handle("app:config:write", async (_event, data) => {
+  assertGameProfileIdle();
   if (data && ('serverFolder' in data || 'world' in data)) { assertMapIdle(); if (serverStarting) throw new Error('サーバーの起動中は保存先を変更できません。'); }
   if (typeof data !== "object" || data === null) throw new Error("data must be an object");
   if (Object.hasOwn(data, "autoBackupOnServerStart") && data.autoBackupOnServerStart !== readAppConfig().autoBackupOnServerStart && fs.existsSync(getConfigPath())) settingsBackups.create("automatic");
@@ -2509,6 +2486,7 @@ async function copyRecursiveAsync(src, dst, onFileCopied) {
 }
 
 ipcMain.handle("server:copyTemplate", async (_event, targetFolder) => {
+  assertGameProfileIdle();
   if (!targetFolder || typeof targetFolder !== "string") throw new Error("targetFolder is required");
 
   const template = getServerTemplatePath();
@@ -2533,8 +2511,8 @@ ipcMain.handle("server:copyTemplate", async (_event, targetFolder) => {
       await copyRecursiveAsync(commandsSrc, commandsDst, onFileCopied);
     }
     // copyRecursiveAsync は既存ファイルを上書きしないため、再利用フォルダには
-    // 旧版の doumacmd jar が残り得る。ここで最新版に揃える（ルートの残骸も撤去）。
-    refreshDoumaModJar(targetFolder);
+    // 旧版の bridgemod jar が残り得る。ここで最新版に揃える（ルートの残骸も撤去）。
+    await refreshBridgeModJar(targetFolder);
     copyTemplateState = { ...copyTemplateState, state: "done" };
   } catch (err) {
     copyTemplateState = { ...copyTemplateState, state: "error", error: String(err?.message || err) };
@@ -2595,6 +2573,8 @@ ipcMain.handle("bridge:commands:readMeta", () => readCommandMetadata());
 // IPC: bridge/commands/minecraft/ にTXTを書き込む
 // --------------------
 ipcMain.handle("bridge:commands:write", async (_event, { filename, content }) => {
+  assertGameProfileIdle();
+  if (/^game_(umetate|run)_/.test(filename || '')) throw new Error('ゲームパックのコマンドはパックを再登録して更新してください');
   if (!filename || typeof filename !== "string" || !filename.endsWith(".txt")) {
     throw new Error("Invalid filename: must be a .txt file");
   }
@@ -2670,10 +2650,10 @@ ipcMain.handle("setup:inspectEnvironment", async () => {
   } catch { /* javaがPATHに無ければ未検出のまま */ }
 
   const modsDir = path.join(dir, "mods");
-  let doumaModJar = "";
+  let bridgeModJar = "";
   try {
     if (fs.existsSync(modsDir)) {
-      doumaModJar = fs.readdirSync(modsDir).find((f) => /^doumacmd-.*\.jar$/i.test(f)) || "";
+      bridgeModJar = fs.readdirSync(modsDir).find((f) => /^bridgemod-.*\.jar$/i.test(f)) || "";
     }
   } catch { /* ignore */ }
 
@@ -2690,7 +2670,7 @@ ipcMain.handle("setup:inspectEnvironment", async () => {
     minecraft: { detected: Boolean(minecraftVersion), version: minecraftVersion || "未検出" },
     java: { detected: Boolean(javaVersion), version: javaVersion || "未検出（PATHにjavaがありません）" },
     bridge: { detected: true, version: app.getVersion() },
-    doumaMod: { detected: Boolean(doumaModJar), version: doumaModJar || "未検出" },
+    bridgeMod: { detected: Boolean(bridgeModJar), version: bridgeModJar || "未検出" },
     tiktokApi: {
       detected: tiktokApiFresh,
       version: tiktokApiAgeMs === null

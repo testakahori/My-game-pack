@@ -17,9 +17,9 @@ async function waitFor(fn, ms = 15000) {
   while (Date.now() < end) { if (await fn()) return; await sleep(100); }
   throw Error('Timed out waiting for condition');
 }
-async function status() { return (await fetch('http://127.0.0.1:25578/douma/status')).json(); }
+async function status() { return (await fetch('http://127.0.0.1:25578/bridge/status')).json(); }
 async function gift(key, count = 1) {
-  const response = await fetch('http://127.0.0.1:25578/douma/event', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'gift', key, count, listenerName: 'QA', announce: false }) });
+  const response = await fetch('http://127.0.0.1:25578/bridge/event', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'gift', key, count, listenerName: 'QA', announce: false }) });
   assert.equal(response.status, 202);
   await sleep(200);
 }

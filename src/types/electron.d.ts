@@ -98,7 +98,7 @@ declare global {
         minecraft: { detected: boolean; version: string };
         java: { detected: boolean; version: string };
         bridge: { detected: boolean; version: string };
-        doumaMod: { detected: boolean; version: string };
+        bridgeMod: { detected: boolean; version: string };
         tiktokApi: { detected: boolean; version: string };
       }>;
 

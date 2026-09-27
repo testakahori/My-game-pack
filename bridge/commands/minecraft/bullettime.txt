@@ -5,4 +5,4 @@
 # SOUND: block.beacon.activate
 # PARTICLE: minecraft:end_rod
 // 四方八方のランダム方向から240発の矢が飛び交い、敵味方を問わず当たる
-execute as @p at @s run doumaeffect bullettime {Count}
+execute as @p at @s run bridgeeffect bullettime {Count}

@@ -1,5 +1,5 @@
 {
-  "name": "doumacmd-integration-tests",
+  "name": "bridgemod-integration-tests",
   "private": true,
   "scripts": {
     "test": "node gift-effects.cjs"

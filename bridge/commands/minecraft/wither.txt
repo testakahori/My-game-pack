@@ -7,5 +7,5 @@
 execute at @p if block ~ ~3 ~ air run summon minecraft:wither ~ ~3 ~ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
 execute at @p unless block ~ ~3 ~ air run summon minecraft:wither ~ ~ ~ {Tags:["gift_spawn_new"],NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
 effect give @e[tag=gift_spawn_new,limit=1] minecraft:slow_falling 3 1 true
-execute as @p at @s run doumaeffect witherhunt 1
+execute as @p at @s run bridgeeffect witherhunt 1
 tag @e[tag=gift_spawn_new] remove gift_spawn_new

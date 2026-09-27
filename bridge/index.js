@@ -35,10 +35,10 @@ const { FeatureEngine, parseWeightedList, chooseWeighted } = require("./feature_
 const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras } = require("./event_rules.cjs");
 const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter } = require("./tiktok_events.cjs");
 let runtimeProtection = { enabled: false };
-let doumaWebSocket = null;
-let doumaWebSocketStopping = false;
+let bridgeModWebSocket = null;
+let bridgeModWebSocketStopping = false;
 // Mod からのプッシュ通知（death など）を main() 側で購読するためのフック
-let onDoumaWsMessage = null;
+let onBridgeModWsMessage = null;
 
 function updateRuntimeStatus(patch) {
   const statusPath = path.join(__dirname, "runtime-status.json");
@@ -49,18 +49,18 @@ function updateRuntimeStatus(patch) {
   } catch {}
 }
 
-function connectDoumaWebSocket({ host, port }) {
+function connectBridgeModWebSocket({ host, port }) {
   if (typeof WebSocket !== "function") return;
   const wsUrl = `ws://${host}:${Number(port) + 1}`;
   try {
     const socket = new WebSocket(wsUrl);
-    doumaWebSocket = socket;
-    socket.addEventListener("open", () => console.log(`[DoumaWS] Connected: ${wsUrl}`));
+    bridgeModWebSocket = socket;
+    socket.addEventListener("open", () => console.log(`[BridgeWS] Connected: ${wsUrl}`));
     socket.addEventListener("message", event => {
       try {
         const status = JSON.parse(String(event.data));
         if (status.type === "death") {
-          try { onDoumaWsMessage?.(status); } catch {}
+          try { onBridgeModWsMessage?.(status); } catch {}
           return;
         }
         if (status.type !== "ack") {
@@ -69,12 +69,12 @@ function connectDoumaWebSocket({ host, port }) {
       } catch {}
     });
     socket.addEventListener("close", () => {
-      if (doumaWebSocket === socket) doumaWebSocket = null;
-      if (!doumaWebSocketStopping) setTimeout(() => connectDoumaWebSocket({ host, port }), 2000);
+      if (bridgeModWebSocket === socket) bridgeModWebSocket = null;
+      if (!bridgeModWebSocketStopping) setTimeout(() => connectBridgeModWebSocket({ host, port }), 2000);
     });
     socket.addEventListener("error", () => {});
   } catch {
-    if (!doumaWebSocketStopping) setTimeout(() => connectDoumaWebSocket({ host, port }), 2000);
+    if (!bridgeModWebSocketStopping) setTimeout(() => connectBridgeModWebSocket({ host, port }), 2000);
   }
 }
 
@@ -645,15 +645,15 @@ async function execCommandsToMinecraftRcon({
   }
 }
 
-function commandFileToDoumaKey(commandFile) {
+function commandFileToBridgeKey(commandFile) {
   const file = ensureTxt(commandFile);
   return path.basename(file, ".txt");
 }
 
-function sendDoumaModEvent({ host, port, type, commandFile, count, listenerName, announce }) {
+function sendBridgeModEvent({ host, port, type, commandFile, count, listenerName, announce }) {
   const payload = JSON.stringify({
     type,
-    key: commandFileToDoumaKey(commandFile),
+    key: commandFileToBridgeKey(commandFile),
     count: clampInt(count, 1, 100, 1),
     listenerName: String(listenerName || "viewer"),
     announce: announce !== false,
@@ -668,7 +668,7 @@ function sendDoumaModEvent({ host, port, type, commandFile, count, listenerName,
     const req = http.request({
       hostname: host,
       port,
-      path: "/douma/event",
+      path: "/bridge/event",
       method: "POST",
       timeout: 1500,
       headers: {
@@ -683,12 +683,12 @@ function sendDoumaModEvent({ host, port, type, commandFile, count, listenerName,
         if (res.statusCode >= 200 && res.statusCode < 300) {
           resolve(body);
         } else {
-          reject(new Error(`DoumaMod HTTP ${res.statusCode}: ${body}`));
+          reject(new Error(`BridgeMod HTTP ${res.statusCode}: ${body}`));
         }
       });
     });
 
-    req.on("timeout", () => req.destroy(new Error("DoumaMod HTTP timeout")));
+    req.on("timeout", () => req.destroy(new Error("BridgeMod HTTP timeout")));
     req.on("error", reject);
     req.write(payload);
     req.end();
@@ -701,16 +701,16 @@ function sanitizeMcId(value, fallback) {
   return v || fallback;
 }
 
-// 生コマンド配列を Mod の /douma/exec へ送る（ルーレット演出フレームなど、
+// 生コマンド配列を Mod の /bridge/exec へ送る（ルーレット演出フレームなど、
 // Bridge 側で setTimeout によるタイミング制御をしたいとき用。Mod v1.2.0 以降）。
 // 注意: Mod 側パーサーの都合で commands はペイロードの末尾に置くこと。
-function sendDoumaExec({ host, port }, commands, listenerName = "system") {
+function sendBridgeExec({ host, port }, commands, listenerName = "system") {
   const payload = JSON.stringify({ listenerName, commands });
   return new Promise((resolve, reject) => {
     const req = http.request({
       hostname: host,
       port,
-      path: "/douma/exec",
+      path: "/bridge/exec",
       method: "POST",
       timeout: 1500,
       headers: {
@@ -721,10 +721,10 @@ function sendDoumaExec({ host, port }, commands, listenerName = "system") {
       res.resume();
       res.on("end", () => {
         if (res.statusCode >= 200 && res.statusCode < 300) resolve();
-        else reject(new Error(`DoumaMod exec HTTP ${res.statusCode}`));
+        else reject(new Error(`BridgeMod exec HTTP ${res.statusCode}`));
       });
     });
-    req.on("timeout", () => req.destroy(new Error("DoumaMod exec timeout")));
+    req.on("timeout", () => req.destroy(new Error("BridgeMod exec timeout")));
     req.on("error", reject);
     req.write(payload);
     req.end();
@@ -755,14 +755,14 @@ function appendOperationsHistoryLine(historyPath, row) {
   } catch { /* ignore */ }
 }
 
-async function enqueueDoumaModEvent(doumaMod, event, opts = {}) {
+async function enqueueBridgeModEvent(bridgeMod, event, opts = {}) {
   // ギフトは落とさない：429(キュー満杯)や一時的な接続断は指数バックオフでリトライ。
   // リトライ待ちは rconQueue を直列で塞ぐが、Mod側が詰まっている間に
   // さらに送り込まないバックプレッシャとして機能する。
   const maxRetries = Number(opts.retries ?? (event.type === "gift" ? 5 : 1));
   for (let attempt = 0; ; attempt++) {
     try {
-      await sendDoumaModEvent({ ...doumaMod, ...event });
+      await sendBridgeModEvent({ ...bridgeMod, ...event });
       // event.type はMod側のキュー振り分け用（gift/like以外は全部"other"に丸められる）。
       // 統計での内訳表示のため、share/follow/member等の実種別は historyType に別枠で持たせる。
       appendOperationsHistoryLine(path.join(__dirname, "operations-history.json"), {
@@ -774,13 +774,13 @@ async function enqueueDoumaModEvent(doumaMod, event, opts = {}) {
         ...(Number(event.diamond) > 0 ? { diamond: Number(event.diamond) } : {}),
       });
       if (attempt > 0) {
-        console.log(`[DoumaMod] Send ok after retry x${attempt} (${event.type}:${event.commandFile})`);
+        console.log(`[BridgeMod] Send ok after retry x${attempt} (${event.type}:${event.commandFile})`);
       }
       return;
     } catch (e) {
       if (attempt >= maxRetries) {
         console.error(
-          `[DoumaMod] Send failed (${event.type}:${event.commandFile}) after ${attempt + 1} attempts:`,
+          `[BridgeMod] Send failed (${event.type}:${event.commandFile}) after ${attempt + 1} attempts:`,
           e?.message || e
         );
         return;
@@ -957,14 +957,15 @@ async function main() {
   const maxLikeCatchUpPerEvent = clampInt(options.maxLikeCatchUpPerEvent ?? 5, 1, 100, 5);
   const rconQueueWarnSize = clampInt(options.rconQueueWarnSize ?? 20, 1, 10000, 20);
   const commandTransport = String(options.commandTransport || "rcon").toLowerCase().trim();
-  const useDoumaModTransport = targetType === "minecraft" && (
-    commandTransport === "douma_mod" ||
-    commandTransport === "doumamod" ||
+  const useBridgeModTransport = targetType === "minecraft" && (
+    commandTransport === "bridge_mod" ||
+    commandTransport === "douma_mod" || commandTransport === "doumamod" ||
+    commandTransport === "bridgemod" ||
     commandTransport === "mod" ||
     commandTransport === "http"
   );
-  const doumaModHost = String(options.doumaModHost || "127.0.0.1").trim();
-  const doumaModPort = Number(options.doumaModPort || 25576);
+  const bridgeModHost = String(options.bridgeModHost || options.doumaModHost || "127.0.0.1").trim();
+  const bridgeModPort = Number(options.bridgeModPort || options.doumaModPort || 25576);
   const logUnknownGifts = !!options.logUnknownGifts;
   const mutedUsers = new Set((Array.isArray(options.mutedUsers) ? options.mutedUsers : [])
     .map(v => String(v).trim().toLowerCase()).filter(Boolean));
@@ -1010,16 +1011,16 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
   // Target validate
   let mc = null;
-  let doumaMod = null;
+  let bridgeMod = null;
   let dtd = null;
 
   if (targetType === "minecraft") {
-    if (useDoumaModTransport) {
-      if (!Number.isFinite(doumaModPort) || doumaModPort <= 0) {
-        console.error("[ERROR] options.doumaModPort is invalid.");
+    if (useBridgeModTransport) {
+      if (!Number.isFinite(bridgeModPort) || bridgeModPort <= 0) {
+        console.error("[ERROR] options.bridgeModPort is invalid.");
         process.exit(1);
       }
-      doumaMod = { host: doumaModHost, port: doumaModPort };
+      bridgeMod = { host: bridgeModHost, port: bridgeModPort };
     } else {
       // 互換: config.rcon が直下でもOK
       const r = target.rcon || config.rcon || {};
@@ -1044,7 +1045,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       console.log(`[Bridge] RCON password source: ${pwFromEnvOrFile ? "env/file" : "config"}`);
     }
 
-    if (!mc && !doumaMod) {
+    if (!mc && !bridgeMod) {
       console.error("[ERROR] Minecraft command transport is not configured.");
       process.exit(1);
     }
@@ -1130,7 +1131,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   console.log(`[Bridge] TikTok Username: @${tiktokUsername}`);
   console.log(`[Bridge] Target: ${targetType}`);
   if (mc) console.log(`[Bridge] RCON: ${mc.rconHost}:${mc.rconPort}`);
-  if (doumaMod) console.log(`[Bridge] DoumaMod HTTP: ${doumaMod.host}:${doumaMod.port}`);
+  if (bridgeMod) console.log(`[Bridge] BridgeMod HTTP: ${bridgeMod.host}:${bridgeMod.port}`);
   if (dtd) console.log(`[Bridge] Telnet: ${dtd.host}:${dtd.port} playerId=${dtd.playerId}`);
   console.log(`[Bridge] Mappings: ${mappingById.size} items`);
   console.log(`[Bridge] CommandsDir: ${commandsDirName}/`);
@@ -1265,14 +1266,14 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // ルーレット（イベント設定②）
   // --------------------
   const animateRoulette = createRouletteRunner({
-    sendFrame: (commands, listenerName) => sendDoumaExec(doumaMod, commands, listenerName),
+    sendFrame: (commands, listenerName) => sendBridgeExec(bridgeMod, commands, listenerName),
   });
   function runRoulette(rl, triggerName, historyType) {
-    if (!doumaMod) return false;
+    if (!bridgeMod) return false;
     try {
       const round = prepareRoulette(rl, commandsDirAbs);
       animateRoulette(round, triggerName, winner => {
-        enqueueRcon("roulette:" + winner.commandFile, () => enqueueDoumaModEvent(doumaMod, {
+        enqueueRcon("roulette:" + winner.commandFile, () => enqueueBridgeModEvent(bridgeMod, {
           type: "other", historyType: historyType || "roulette",
           commandFile: winner.commandFile, count: winner.repeat,
           listenerName: triggerName || "roulette", announce: false,
@@ -1286,19 +1287,19 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   }
 
   // Mod への発火を一元化：commandFile が roulette（仮想コマンド）ならルーレットに差し替える
-  function dispatchDoumaEvent(label, event, opts = {}) {
+  function dispatchBridgeEvent(label, event, opts = {}) {
     if (
       rouletteCfg?.enabled &&
-      commandFileToDoumaKey(event.commandFile) === "roulette" &&
+      commandFileToBridgeKey(event.commandFile) === "roulette" &&
       runRoulette(rouletteCfg, event.listenerName, event.historyType || "roulette")
     ) {
       return;
     }
-    enqueueRcon(label, () => enqueueDoumaModEvent(doumaMod, event), opts);
+    enqueueRcon(label, () => enqueueBridgeModEvent(bridgeMod, event), opts);
   }
 
   // デスルーレット：Mod からの death 通知（WS）で発動
-  onDoumaWsMessage = (status) => {
+  onBridgeModWsMessage = (status) => {
     if (status?.type !== "death") return;
     const rl = deathRouletteCfg;
     if (!rl || rl.enabled !== true) return;
@@ -1312,13 +1313,13 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
   const featureEngine = new FeatureEngine(options.gameplay || {}, feature => {
     if (!feature?.commandFile) return;
-    if (!doumaMod) {
-      console.warn(`[Feature] ${feature.type} skipped: DoumaMod transport is required`);
+    if (!bridgeMod) {
+      console.warn(`[Feature] ${feature.type} skipped: BridgeMod transport is required`);
       return;
     }
     const listenerName = feature.type === "combo"
       ? (featureEngine.topGifter() || feature.sender) : feature.sender;
-    dispatchDoumaEvent(`feature:${feature.type}`, {
+    dispatchBridgeEvent(`feature:${feature.type}`, {
       type: "other", historyType: feature.type || "other", commandFile: feature.commandFile,
       count: clampInt(feature.count, 1, 100, 1),
       listenerName: listenerName || "viewer", announce: true,
@@ -1412,14 +1413,14 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     updateRuntimeStatus({
       tiktok: { state: "retrying", username: tiktokUsername, error: reason, at: new Date().toISOString() },
     });
-    if (doumaWebSocketStopping || tiktokReconnectTimer) return;
+    if (bridgeModWebSocketStopping || tiktokReconnectTimer) return;
     tiktokReconnectTimer = setTimeout(() => {
       tiktokReconnectTimer = null;
-      if (!doumaWebSocketStopping) void ensureTikTokConnected();
+      if (!bridgeModWebSocketStopping) void ensureTikTokConnected();
     }, 5000);
   });
 
-  if (doumaMod) connectDoumaWebSocket(doumaMod);
+  if (bridgeMod) connectBridgeModWebSocket(bridgeMod);
   // 接続待ちの間にも全イベントリスナーと終了処理を先に登録する。
   // 接続成功直後のコメントを取りこぼさず、配信前でもSIGINTで正常終了できる。
   void ensureTikTokConnected();
@@ -1477,9 +1478,9 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         if (delta <= 0) return;
         const unmappedRepeat = delta * clampInt(unmappedGiftEvent.repeat ?? 1, 1, 100, 1);
         const unmappedMap = { commandFile: ensureTxt(unmappedGiftEvent.commandFile), name: `unmapped:${giftId}` };
-        if (doumaMod) {
-          console.log(`[Gift] (unmapped) -> DoumaMod file=${unmappedGiftEvent.commandFile} repeat=${unmappedRepeat}`);
-          dispatchDoumaEvent(`unmapped:${giftId}`, {
+        if (bridgeMod) {
+          console.log(`[Gift] (unmapped) -> BridgeMod file=${unmappedGiftEvent.commandFile} repeat=${unmappedRepeat}`);
+          dispatchBridgeEvent(`unmapped:${giftId}`, {
             type: "gift",
             commandFile: unmappedGiftEvent.commandFile,
             count: unmappedRepeat,
@@ -1565,11 +1566,11 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     if (times <= 0) return; // 連打終了通知は追加ギフトではない（送信時の最小1への丸めも避ける）。
     times = featureEngine.recordGift({ giftId, sender, commandFile: mapping.commandFile, count: times });
 
-    if (doumaMod) {
+    if (bridgeMod) {
       console.log(
-        `[Gift] id=${giftId} name="${mapping.name}" from=${sender}${repeatText} -> DoumaMod file=${mapping.commandFile} count=${times}`
+        `[Gift] id=${giftId} name="${mapping.name}" from=${sender}${repeatText} -> BridgeMod file=${mapping.commandFile} count=${times}`
       );
-      dispatchDoumaEvent(`gift:${giftId}`, {
+      dispatchBridgeEvent(`gift:${giftId}`, {
         type: "gift",
         commandFile: mapping.commandFile,
         count: times,
@@ -1672,7 +1673,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
     // コメントギフト（イベント設定②）：設定した文字列を含むコメントでコマンド発動。
     // TTS の有効/無効とは独立して動く。
-    if (commentGiftsCfg?.enabled && doumaMod) {
+    if (commentGiftsCfg?.enabled && bridgeMod) {
       for (const rule of matchingCommentRules(commentGiftsCfg, text)) {
         const match = String(rule.match || "").trim();
         if (!match || !rule.commandFile || !text.includes(match)) continue;
@@ -1684,7 +1685,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
         const repeat = clampInt(rule.repeat ?? 1, 1, 100, 1);
         console.log(`[CommentGift] "${match}" from=${sender} -> ${rule.commandFile} x${repeat}`);
-        dispatchDoumaEvent(`comment:${rule.commandFile}`, {
+        dispatchBridgeEvent(`comment:${rule.commandFile}`, {
           type: "other",
           historyType: "comment",
           commandFile: rule.commandFile,
@@ -1695,7 +1696,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
         if (rule.sound || rule.particle) {
           const extras = commentExtras(rule);
-          sendDoumaExec(doumaMod, extras, sender).catch(() => {});
+          sendBridgeExec(bridgeMod, extras, sender).catch(() => {});
         }
       }
     }
@@ -1740,7 +1741,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // --------------------
   // 全ルールが同じ前回/今回の累計を使う。ルールを配信中に変更しても過去分を発火しない。
 
-  // DoumaModモードのいいねはミニバッチ化：短時間の連続発火を1イベントに圧縮して
+  // BridgeModモードのいいねはミニバッチ化：短時間の連続発火を1イベントに圧縮して
   // HTTP送信とMod側キューの消費を抑える（ギフトを圧迫させない）
   const LIKE_BATCH_MS = clampInt(options.likeBatchWindowMs ?? 1200, 100, 10000, 1200);
   const likeBatch = new Map(); // commandFile -> { count, sender, announce }
@@ -1756,8 +1757,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     likeBatch.set(commandFile, entry);
     setTimeout(() => {
       likeBatch.delete(commandFile);
-      console.log(`[Like] batched -> DoumaMod file=${commandFile} count=${entry.count}`);
-      dispatchDoumaEvent(`like:${commandFile}`, {
+      console.log(`[Like] batched -> BridgeMod file=${commandFile} count=${entry.count}`);
+      dispatchBridgeEvent(`like:${commandFile}`, {
         type: "like",
         commandFile,
         count: entry.count,
@@ -1789,10 +1790,10 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       const sender = getStableSender(data);
       const evRepeat = clampInt(ev.repeat ?? 1, 1, 100, 1);
 
-      if (doumaMod) {
+      if (bridgeMod) {
         const count = triggersToRun * evRepeat;
         console.log(
-          `[Like] total=${total} threshold=${thresh} newTriggers=${newTriggers} run=${triggersToRun} skipped=${skippedTriggers} repeat=${evRepeat} -> DoumaMod file=${ev.commandFile} count=${count}`
+          `[Like] total=${total} threshold=${thresh} newTriggers=${newTriggers} run=${triggersToRun} skipped=${skippedTriggers} repeat=${evRepeat} -> BridgeMod file=${ev.commandFile} count=${count}`
         );
         if (count > 0) {
           queueLikeEventBatched(ev.commandFile, count, sender, announceEnabled && thresh >= 100);
@@ -1851,9 +1852,9 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const mapping = { commandFile: ensureTxt(shareEvent.commandFile), name: "シェア" };
     const sender = getStableSender(data);
     const shareRepeat = clampInt(shareEvent.repeat ?? 1, 1, 100, 1);
-    if (doumaMod) {
-      console.log(`[Share] from=${sender} -> DoumaMod repeat=${shareRepeat} file=${shareEvent.commandFile}`);
-      dispatchDoumaEvent("share", {
+    if (bridgeMod) {
+      console.log(`[Share] from=${sender} -> BridgeMod repeat=${shareRepeat} file=${shareEvent.commandFile}`);
+      dispatchBridgeEvent("share", {
         type: "other",
         historyType: "share",
         commandFile: shareEvent.commandFile,
@@ -1906,9 +1907,9 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     if (!enabledCommand(followEvent)) return;
     const mapping = { commandFile: ensureTxt(followEvent.commandFile), name: "フォロー" };
     const followRepeat = clampInt(followEvent.repeat ?? 1, 1, 100, 1);
-    if (doumaMod) {
-      console.log(`[Follow] from=${sender} -> DoumaMod repeat=${followRepeat} file=${followEvent.commandFile}`);
-      dispatchDoumaEvent("follow", {
+    if (bridgeMod) {
+      console.log(`[Follow] from=${sender} -> BridgeMod repeat=${followRepeat} file=${followEvent.commandFile}`);
+      dispatchBridgeEvent("follow", {
         type: "other",
         historyType: "follow",
         commandFile: followEvent.commandFile,
@@ -1961,9 +1962,9 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const mapping = { commandFile: ensureTxt(memberEvent.commandFile), name: "訪問" };
     const sender = getStableSender(data);
     const memberRepeat = clampInt(memberEvent.repeat ?? 1, 1, 100, 1);
-    if (doumaMod) {
-      console.log(`[Member] join=${sender} -> DoumaMod repeat=${memberRepeat} file=${memberEvent.commandFile}`);
-      dispatchDoumaEvent("member", {
+    if (bridgeMod) {
+      console.log(`[Member] join=${sender} -> BridgeMod repeat=${memberRepeat} file=${memberEvent.commandFile}`);
+      dispatchBridgeEvent("member", {
         type: "other",
         historyType: "member",
         commandFile: memberEvent.commandFile,
@@ -2000,9 +2001,9 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     clearInterval(audienceTimer);
     clearInterval(recordingTimer);
     console.log("\n[Bridge] Stopping...");
-    doumaWebSocketStopping = true;
+    bridgeModWebSocketStopping = true;
     if (tiktokReconnectTimer) clearTimeout(tiktokReconnectTimer);
-    try { doumaWebSocket?.close(); } catch {}
+    try { bridgeModWebSocket?.close(); } catch {}
     try {
       tiktok.disconnect();
     } catch {}
@@ -2028,9 +2029,9 @@ module.exports = {
   dedupeKeyFromGift,
   isDuplicateEvent,
   clampInt,
-  sendDoumaModEvent,
-  enqueueDoumaModEvent,
-  commandFileToDoumaKey,
+  sendBridgeModEvent,
+  enqueueBridgeModEvent,
+  commandFileToBridgeKey,
   computeStreakDelta,
   normalizeTtsConfig,
 };

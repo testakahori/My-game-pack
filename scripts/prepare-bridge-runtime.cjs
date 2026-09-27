@@ -100,9 +100,9 @@ const cleanConfig = {
   options: {
     giftCooldownMs: 300,
     maxCommandsPerGift: 200,
-    commandTransport: "douma_mod",
-    doumaModHost: "127.0.0.1",
-    doumaModPort: 25576,
+    commandTransport: "bridge_mod",
+    bridgeModHost: "127.0.0.1",
+    bridgeModPort: 25576,
     maxLikeCatchUpPerEvent: 5,
     logUnknownGifts: true,
   },

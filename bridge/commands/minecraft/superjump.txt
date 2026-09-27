@@ -5,4 +5,4 @@
 # SOUND: entity.firework_rocket.launch
 # PARTICLE: minecraft:firework
 // 即座に32ブロック跳び上がる。空中でも個数分の高さを加算し、10個で320ブロック
-execute as @p at @s run doumaeffect superjump {Count}
+execute as @p at @s run bridgeeffect superjump {Count}

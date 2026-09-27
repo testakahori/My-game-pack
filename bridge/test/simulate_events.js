@@ -2,7 +2,7 @@
 // オフライン検証：
 //  1. コマンドtxtパーサー
 //  2. ギフト重複排除キー
-//  3. DoumaMod送信リトライ（フェイクサーバーで429→429→202を再現）
+//  3. BridgeMod送信リトライ（フェイクサーバーで429→429→202を再現）
 //  4. commands/minecraft/*.txt の健全性（未実装プレースホルダ・視線依存座標の残留チェック）
 //
 // 実行: node test/simulate_events.js
@@ -63,7 +63,7 @@ async function main() {
     assert.strictEqual(bridge.isDuplicateEvent(k2), false); // 連打の進行は通す
   });
 
-  await ok("DoumaMod送信: 429キュー満杯でもリトライして届く（ギフト不落）", async () => {
+  await ok("BridgeMod送信: 429キュー満杯でもリトライして届く（ギフト不落）", async () => {
     let requests = 0;
     let lastBody = null;
     const server = http.createServer((req, res) => {
@@ -86,7 +86,7 @@ async function main() {
     const port = server.address().port;
 
     const t0 = Date.now();
-    await bridge.enqueueDoumaModEvent(
+    await bridge.enqueueBridgeModEvent(
       { host: "127.0.0.1", port },
       { type: "gift", commandFile: "zombie.txt", count: 3, listenerName: "tester", announce: true }
     );
@@ -168,10 +168,10 @@ async function main() {
 
   await ok("config schema: 誤設定を具体的に検出", () => {
     const bad = validateBridgeConfig({ tiktokUsername: "", mappings: [{ giftId: "", commandFile: "" }],
-      options: { doumaModPort: 99999 } });
+      options: { bridgeModPort: 99999 } });
     assert.strictEqual(bad.ok, false);
     assert.ok(bad.errors.some(x => x.includes("tiktokUsername")));
-    assert.ok(bad.errors.some(x => x.includes("doumaModPort")));
+    assert.ok(bad.errors.some(x => x.includes("bridgeModPort")));
   });
 
   await ok("TTS設定: 不正値を安全な範囲へ正規化", () => {

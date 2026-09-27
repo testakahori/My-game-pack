@@ -1,4 +1,4 @@
-package jp.douma.doumacmd;
+package jp.douma.bridgemod;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
@@ -138,9 +138,13 @@ final class GiftEffects {
     }
     void stop() { meteorNights.keySet().forEach(GiftEffects::meteorDay); meteorNights.clear(); saveMeteorNights(); saveWeather(); jobs.clear(); meteorFlights.forEach(m -> m.blocks.forEach(FallingBlockEntity::discard)); meteorFlights.clear(); jumps.clear(); blizzards.clear(); icePrisons.clear(); heavyPlayers.clear(); witherHunts.clear(); weatherEnds.clear(); }
     int pendingJobs() { return jobs.size() + meteorFlights.size(); }
+    boolean hasNightOverride() { return !meteorNights.isEmpty() || !meteorFlights.isEmpty(); }
+    boolean hasWeatherOverride(ServerLevel level) {
+        return weatherEnds.containsKey(level.dimension().location().toString());
+    }
     int failures() { return failures; }
     String lastError() { return lastError; }
-    private void fail(Exception e) { failures++; lastError = e.toString(); System.err.println("[Douma effects] " + lastError); }
+    private void fail(Exception e) { failures++; lastError = e.toString(); System.err.println("[Bridge effects] " + lastError); }
     private Job job(int total, int interval, int perTick, IntConsumer action) {
         Job next = new Job(total, interval, perTick, ticks, action);
         jobs.add(next);

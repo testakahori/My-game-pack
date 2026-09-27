@@ -38,4 +38,4 @@ jobs:
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
       - run: bash ./gradlew build --no-daemon --max-workers=2
-        working-directory: DoumaCmdMod
+        working-directory: BridgeMod

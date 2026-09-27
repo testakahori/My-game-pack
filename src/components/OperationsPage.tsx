@@ -342,7 +342,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
             <span className="ops-panel-icon ops-panel-icon--cyan">❄</span>
             <div>
               <h2>接続状況</h2>
-              <p>2秒ごとに /douma/status を確認</p>
+              <p>2秒ごとに /bridge/status を確認</p>
             </div>
           </div>
 

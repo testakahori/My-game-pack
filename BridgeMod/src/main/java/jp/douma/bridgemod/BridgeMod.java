@@ -1,4 +1,4 @@
-package jp.douma.doumacmd;
+package jp.douma.bridgemod;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
@@ -37,9 +37,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-@Mod(DoumaCmdMod.MODID)
-public class DoumaCmdMod {
-    public static final String MODID = "doumacmd";
+@Mod(BridgeMod.MODID)
+public class BridgeMod {
+    public static final String MODID = "bridgemod";
 
     // count 上限（安全）
     private static final int MAX_COUNT = 100;
@@ -68,9 +68,10 @@ public class DoumaCmdMod {
     private long protectedSkips = 0;
     private long playerDeaths = 0;
     private final GiftEffects giftEffects = new GiftEffects();
+    private final FixedEnvironment environment = new FixedEnvironment();
     private GiftEffects.Protection currentEffectProtection;
 
-    public DoumaCmdMod() {
+    public BridgeMod() {
         MinecraftForge.EVENT_BUS.register(this);
     }
 
@@ -83,6 +84,7 @@ public class DoumaCmdMod {
     public void onServerStarted(ServerStartedEvent event) {
         activeServer = event.getServer();
         giftEffects.load(activeServer);
+        environment.apply(activeServer, giftEffects);
         startBridgeHttpServer(event.getServer());
         startWebSocketServer();
     }
@@ -120,6 +122,7 @@ public class DoumaCmdMod {
         budget -= processQueue(activeServer, otherQueue, budget);
         processQueue(activeServer, likeQueue, budget + LIKE_RESERVED_COMMANDS_PER_TICK);
         giftEffects.tick(activeServer);
+        environment.apply(activeServer, giftEffects);
         if (++statusBroadcastTicks >= 20) {
             statusBroadcastTicks = 0;
             broadcastWebSocket(buildStatusJson());
@@ -127,7 +130,7 @@ public class DoumaCmdMod {
     }
 
     private void register(CommandDispatcher<CommandSourceStack> d) {
-        d.register(Commands.literal("doumaeffect").requires(src -> src.hasPermission(2))
+        d.register(Commands.literal("bridgeeffect").requires(src -> src.hasPermission(2))
             .then(Commands.argument("effect", StringArgumentType.word())
                 .suggests((ctx, b) -> { GiftEffects.KEYS.forEach(b::suggest); return b.buildFuture(); })
                 .then(Commands.argument("count", IntegerArgumentType.integer(1, MAX_COUNT))
@@ -142,7 +145,7 @@ public class DoumaCmdMod {
         };
 
         d.register(
-            Commands.literal("douma")
+            Commands.literal("bridge")
                 .requires(src -> src.hasPermission(0)) // 誰でもOK。OP限定なら 2
                 .then(Commands.argument("key", StringArgumentType.word())
                     .suggests(keySuggest)
@@ -170,18 +173,18 @@ public class DoumaCmdMod {
         try {
             file = resolveCommandFile(server, event.key);
         } catch (RuntimeException e) {
-            source.sendFailure(Component.literal("[Douma] " + e.getMessage()));
+            source.sendFailure(Component.literal("[Bridge] " + e.getMessage()));
             return 0;
         }
         if (file == null) {
             source.sendFailure(Component.literal(
-                "[Douma] file not found: bridge/commands/minecraft/" + event.key + ".txt"
+                "[Bridge] file not found: bridge/commands/minecraft/" + event.key + ".txt"
             ));
             return 0;
         }
 
         if (!enqueueBridgeEvent(event)) {
-            source.sendFailure(Component.literal("[Douma] queue is full, try again later"));
+            source.sendFailure(Component.literal("[Bridge] queue is full, try again later"));
             return 0;
         }
         return 1;
@@ -193,19 +196,19 @@ public class DoumaCmdMod {
         int port = getBridgePort();
         try {
             bridgeServer = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 32);
-            bridgeServer.createContext("/douma/event", exchange -> handleBridgeEvent(server, exchange));
-            bridgeServer.createContext("/douma/exec", exchange -> handleBridgeExec(server, exchange));
-            bridgeServer.createContext("/douma/status", this::handleBridgeStatus);
+            bridgeServer.createContext("/bridge/event", exchange -> handleBridgeEvent(server, exchange));
+            bridgeServer.createContext("/bridge/exec", exchange -> handleBridgeExec(server, exchange));
+            bridgeServer.createContext("/bridge/status", this::handleBridgeStatus);
             bridgeServer.setExecutor(Executors.newSingleThreadExecutor(r -> {
-                Thread t = new Thread(r, "DoumaCmdMod-BridgeHttp");
+                Thread t = new Thread(r, "BridgeMod-BridgeHttp");
                 t.setDaemon(true);
                 return t;
             }));
             bridgeServer.start();
-            System.out.println("[Douma] Bridge HTTP listening on 127.0.0.1:" + port);
+            System.out.println("[Bridge] Bridge HTTP listening on 127.0.0.1:" + port);
         } catch (IOException e) {
             bridgeServer = null;
-            System.out.println("[Douma] Bridge HTTP start failed: " + e.getMessage());
+            System.out.println("[Bridge] Bridge HTTP start failed: " + e.getMessage());
         }
     }
 
@@ -213,12 +216,13 @@ public class DoumaCmdMod {
         if (bridgeServer == null) return;
         bridgeServer.stop(1);
         bridgeServer = null;
-        System.out.println("[Douma] Bridge HTTP stopped");
+        System.out.println("[Bridge] Bridge HTTP stopped");
     }
 
     private int getBridgePort() {
-        String fromProp = System.getProperty("doumacmd.bridgePort");
-        String fromEnv = System.getenv("DOUMA_BRIDGE_PORT");
+        String fromProp = System.getProperty("bridgemod.bridgePort");
+        String fromEnv = System.getenv("BRIDGE_MOD_PORT");
+        if (fromEnv == null || fromEnv.isBlank()) fromEnv = System.getenv("DOUMA_BRIDGE_PORT");
         String raw = (fromProp != null && !fromProp.isBlank()) ? fromProp : fromEnv;
         try {
             int port = Integer.parseInt(raw);
@@ -235,7 +239,7 @@ public class DoumaCmdMod {
         }
 
         String path = exchange.getRequestURI().getPath();
-        if (!"/douma/event".equals(path)) {
+        if (!"/bridge/event".equals(path)) {
             sendHttp(exchange, 404, "{\"ok\":false,\"error\":\"not_found\"}");
             return;
         }
@@ -343,7 +347,7 @@ public class DoumaCmdMod {
         double z = player == null ? 0 : player.getZ();
         double tickMs = activeServer == null ? 0 : activeServer.getAverageTickTime();
         double tps = tickMs <= 0 ? 20.0 : Math.min(20.0, 1000.0 / tickMs);
-        return "{\"ok\":true,\"gift\":" + gift + ",\"like\":" + like + ",\"other\":" + other
+        return "{\"ok\":true,\"mod\":\"bridgemod\",\"environmentFixed\":true,\"gift\":" + gift + ",\"like\":" + like + ",\"other\":" + other
             + ",\"executed\":" + executedCommands + ",\"failed\":" + failedCommands
             + ",\"effectsPending\":" + giftEffects.pendingJobs() + ",\"effectsFailed\":" + giftEffects.failures()
             + ",\"effectsError\":\"" + jsonEscape(giftEffects.lastError()) + "\""
@@ -363,15 +367,15 @@ public class DoumaCmdMod {
                 while (webSocketServer != null && !webSocketServer.isClosed()) {
                     try {
                         Socket socket = webSocketServer.accept();
-                        Thread client = new Thread(() -> handleWebSocketClient(socket), "DoumaCmdMod-WebSocketClient");
+                        Thread client = new Thread(() -> handleWebSocketClient(socket), "BridgeMod-WebSocketClient");
                         client.setDaemon(true); client.start();
                     } catch (IOException ignored) {}
                 }
-            }, "DoumaCmdMod-WebSocket");
+            }, "BridgeMod-WebSocket");
             accept.setDaemon(true); accept.start();
-            System.out.println("[Douma] WebSocket listening on 127.0.0.1:" + (getBridgePort() + 1));
+            System.out.println("[Bridge] WebSocket listening on 127.0.0.1:" + (getBridgePort() + 1));
         } catch (IOException e) {
-            System.out.println("[Douma] WebSocket start failed: " + e.getMessage());
+            System.out.println("[Bridge] WebSocket start failed: " + e.getMessage());
         }
     }
 
@@ -521,7 +525,7 @@ public class DoumaCmdMod {
      * 実行したコマンド数を返す。event.remaining / event.announced を更新する。
      */
     private int executeEventSlice(MinecraftServer server, BridgeEvent event, int commandBudget) {
-        // /douma/exec の生コマンド：演出フレームなので失敗は統計に計上しない
+        // /bridge/exec の生コマンド：演出フレームなので失敗は統計に計上しない
         if (event.inlineCommands != null) {
             CommandSourceStack silentInline = server.createCommandSourceStack().withPermission(4).withSuppressedOutput();
             int usedInline = 0;
@@ -539,13 +543,13 @@ public class DoumaCmdMod {
         try {
             file = resolveCommandFile(server, event.key);
         } catch (RuntimeException e) {
-            System.out.println("[Douma] " + e.getMessage());
+            System.out.println("[Bridge] " + e.getMessage());
             recordFailure(event.key + ": " + e.getMessage());
             event.remaining = 0;
             return 0;
         }
         if (file == null) {
-            System.out.println("[Douma] file not found: bridge/commands/minecraft/" + event.key + ".txt");
+            System.out.println("[Bridge] file not found: bridge/commands/minecraft/" + event.key + ".txt");
             recordFailure(event.key + ": file not found");
             event.remaining = 0;
             return 0;
@@ -555,7 +559,7 @@ public class DoumaCmdMod {
         try {
             parsed = parseFile(file);
         } catch (Exception e) {
-            System.out.println("[Douma] read failed (" + event.key + "): " + e.getMessage());
+            System.out.println("[Bridge] read failed (" + event.key + "): " + e.getMessage());
             recordFailure(event.key + ": " + e.getMessage());
             event.remaining = 0;
             return 0;
@@ -568,7 +572,7 @@ public class DoumaCmdMod {
         if (event.protectionEnabled && isDestructive(parsed, event)
                 && isPlayerInsideProtection(server, event)) {
             protectedSkips++;
-            System.out.println("[Douma] protected area: skipped destructive event " + event.key);
+            System.out.println("[Bridge] protected area: skipped destructive event " + event.key);
             event.remaining = 0;
             return 0;
         }
@@ -577,7 +581,7 @@ public class DoumaCmdMod {
         int used = 0;
 
         // アナウンスはイベント全体で1回だけ（分割実行でも重複しない）
-        if (event.announce && !event.announced) {
+        if (event.announce && !event.announced && !"game".equals(parsed.meta.get("DISPLAY_OWNER"))) {
             String title = parsed.meta.getOrDefault("TITLE", event.key);
             String subtitleRaw = parsed.meta.getOrDefault("SUBTITLE", "{ListenerName}");
             String subtitleText = subtitleRaw.replace("{ListenerName}", event.listenerName);
@@ -626,7 +630,7 @@ public class DoumaCmdMod {
         // 分割実行用の状態（tickスレッドのみが更新。enqueue時の合流は未着手イベントに限る）
         int remaining;
         boolean announced;
-        // /douma/exec 用：ファイルではなく生コマンド配列を実行する（null ならファイル実行）
+        // /bridge/exec 用：ファイルではなく生コマンド配列を実行する（null ならファイル実行）
         List<String> inlineCommands;
 
         BridgeEvent(String type, String key, int count, String listenerName, boolean announce) {

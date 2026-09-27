@@ -1,5 +1,18 @@
 # HANDOFF04 — v1.0.21 以降（2026-07-17 〜 2026-09-21）の作業記録
 
+## 2026-09-27：BridgeMOD・ゲーム切替（開発版、アプリ更新保留）
+
+- ブランチ：`feat/bridge-mod-game-profiles`。アプリのversionは1.0.43のまま。リリース公開・インストール・実サーバーへの配置は行わない（ユーザーの更新依頼待ち）。
+- `DoumaCmdMod/`を`BridgeMod/`へ移し、modIdは`bridgemod`、コマンドは`/bridge <key> <count>`、内部大技は`bridgeeffect`。HTTPも`/bridge/*`。旧DOUMAMODは同時導入しない。
+- 固定環境はBridgeMODの`FixedEnvironment`が維持。暗視・keepInventory・昼・晴れの設定スイッチは作らない。共通イベントによる一時的な夜／悪天候は維持する。
+- ゲーム選択はサーバーとMinecraftのMODフォルダをセットで切替。現在のMODは退避、失敗時巻戻し、途中終了時は復旧必須。ゲーム別にギフト・イベント設定を保存。MAPは触らない。
+- UmetateMOD・RunMODはユーザーによれば未作成。架空の本体やAPIは実装していない。完成したjarと`game.json`を登録する仕組みのみ用意。詳細：`docs/BridgeMODとゲーム切替.md`。
+- 検証：型チェック、Viteビルド、Bridgeシミュレーション14件、Appテスト144件、BridgeMODのForge用jar生成成功。Electron画面操作から検証用の両MODフォルダをBridgeMODのみに切替できること、未導入ゲームが実行されないことも確認。
+- Minecraft実行検証：専用サーバーで新HTTP `/bridge/status` と `environmentFixed=true`、旧HTTPが404になることを確認。その後、PCのネイティブメモリ／ページング領域不足でJavaが終了。512MB・SerialGCでも不足が再発し、実ゲーム内のゾンビ発動・暗視再付与・一時演出と固定ルールの併用確認は未完了。成功扱いにしない。不要なアプリをユーザーが終了するなど、メモリに余裕ができてから専用サーバーで再検証する。
+- JavaビルドはWindowsの証明書ストアを使用し、Gradleと子Javaのメモリ上限を512MB・CPU数2に制限すると成功した。証明書検証やNorton保護を無効にしない。
+
+---
+
 HANDOFF03.md の最終記録（v1.0.21 / 自動更新404修正）以降に行われ、HANDOFF03 に
 書かれていない変更をすべてまとめる。対象は PR #2〜#25、リリース v1.0.25〜v1.0.43。
 

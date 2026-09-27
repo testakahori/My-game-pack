@@ -1,4 +1,4 @@
-package jp.douma.doumacmd;
+package jp.douma.bridgemod;
 
 /** Vanilla airborne vertical drag/gravity. Solve for height, never scale raw velocity by gift count. */
 final class JumpPhysics {

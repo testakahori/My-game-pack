@@ -1,0 +1,14 @@
+.game-selector { margin: 18px 24px; padding: 20px 24px; border: 1px solid #2c485e; border-radius: 16px; background: #111f2e; color: #e8f1fa; }
+.game-selector-main { display: flex; align-items: end; gap: 16px; flex-wrap: wrap; }
+.game-selector label { display: grid; gap: 10px; flex: 1; min-width: 230px; }
+.game-selector select { width: 100%; min-height: 42px; padding: 8px 12px; border: 1px solid #40576c; border-radius: 8px; background: #091522; color: #edf6ff; }
+.game-selector button { padding: 10px 16px; min-height: 42px; background: #1c3043; color: #deeffb; border: 1px solid #40576c; border-radius: 8px; }
+.game-selector button.game-selector-apply { background: #087c92; border-color: #259caf; color: #fff; }
+.game-selector button:disabled { opacity: .5; cursor: not-allowed; }
+.game-selector p { margin: 12px 0 0; color: #b7c9dc; font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.game-selector small { display: block; margin-top: 10px; color: #9db4ca; }
+.game-selector details { margin-top: 14px; font-size: 13px; }
+.game-selector summary { cursor: pointer; color: #7ddbed; }
+.game-selector-tools { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.game-selector .game-selector-error { color: #ffb6b6; }
+@media (max-width: 700px) { .game-selector { margin: 12px; padding: 16px; } .game-selector-main > button { width: 100%; } }

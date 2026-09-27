@@ -120,7 +120,7 @@ test('Euler IPC: 保存キーをBRIDGE・配信確認・ギフト取得へ渡し
 
 test("テキストコピー: コマンド・ギフトID・日本語をネイティブへ渡し、不正入力は拒否する", async t => {
   const app = loadApp(t);
-  for (const text of ["/douma zombie 1", "5655", "日本語「バラ」🌹"]) {
+  for (const text of ["/bridge zombie 1", "5655", "日本語「バラ」🌹"]) {
     assert.equal((await app.invoke("clipboard:writeText", text)).ok, true);
     assert.equal(app.copiedTexts.at(-1), text);
   }
@@ -202,7 +202,7 @@ test("イベントIPC: 条件確認は未送信、全種別の実送信はテス
   const rule = { commandFile: "qa.txt", enabled: true, repeat: 1 };
   Object.assign(cfg, { shareEvent: rule, followEvent: rule, memberEvent: rule, unmappedGiftEvent: rule,
     likeEvents: [{ ...rule, threshold: 10 }], commentGifts: { enabled: true, rules: [{ ...rule, match: "確認" }] } });
-  cfg.options.doumaModPort = server.address().port;
+  cfg.options.bridgeModPort = server.address().port;
   fs.writeFileSync(app.configPath, JSON.stringify(cfg));
   const dir = path.join(app.root, "bridge", "commands", "minecraft"); fs.mkdirSync(dir, { recursive: true });
   for (const file of ["qa.txt", "fail.txt"]) fs.writeFileSync(path.join(dir, file), "say test");
@@ -462,7 +462,7 @@ async function runningServerFixture(t, modResponse = { ok: true, tps: 20, player
   fs.mkdirSync(path.join(app.root, 'world'));
   fs.writeFileSync(path.join(app.root, 'world', 'level.dat'), 'world stays unchanged');
   const cfg = JSON.parse(fs.readFileSync(app.configPath));
-  cfg.options.doumaModHost = '127.0.0.1'; cfg.options.doumaModPort = mod.address().port;
+  cfg.options.bridgeModHost = '127.0.0.1'; cfg.options.bridgeModPort = mod.address().port;
   fs.writeFileSync(app.configPath, JSON.stringify(cfg));
   return app;
 }

@@ -6,4 +6,4 @@
 # PARTICLE: minecraft:flame
 # DESTRUCTIVE: true
 // 上空から100発のメテオが次々と落下・爆発する
-execute as @p at @s run doumaeffect meteor {Count}
+execute as @p at @s run bridgeeffect meteor {Count}

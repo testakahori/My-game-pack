@@ -6,4 +6,4 @@
 # PARTICLE: minecraft:cloud
 # DESTRUCTIVE: true
 // 雷20連発の暴風雨。天候固定中も3分後に雨が止まる
-execute as @p at @s run doumaeffect storm {Count}
+execute as @p at @s run bridgeeffect storm {Count}

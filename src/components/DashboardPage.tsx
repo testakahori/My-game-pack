@@ -832,7 +832,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
     ["TIKTOK LIVE STUDIO でライブ接続", "接続済みなら「一括起動」へ進めます", "manual"],
     ["Forgeサーバー起動", "Forge 1.20.1 が起動するまで待つ", stepForge],
     ["Minecraft起動", "ランチャーを開いてサーバーに接続", gameRunning ? "done" : "pending"],
-    ["BRIDGE起動", "TikTok → RCON 接続・ルール自動適用", stepBridge],
+    ["BRIDGE起動", "TikTok → BridgeMOD 接続", stepBridge],
     ["配布ワールド選択", `${draft || "haihu_world/sakura"} を適用`, levelName ? "done" : "pending"],
     ["MAP保存・動作設定", "監視・テスト・バックアップ確認", "done"],
     ["TIKTOK LIVE 配信開始", "配信開始ボタンはLive Studio側で押します", "pending"],
