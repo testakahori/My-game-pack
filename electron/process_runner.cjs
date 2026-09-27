@@ -1,9 +1,10 @@
 const { spawn } = require("child_process");
+const { redactSecrets } = require('../bridge/tiktok_connection.cjs');
 
 // 起動失敗と応答のない子プロセスも必ず呼び出し元へ返す。
-function runProc(cmd, args, cwd, { timeoutMs = 120000 } = {}) {
+function runProc(cmd, args, cwd, { timeoutMs = 120000, env = process.env } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd, windowsHide: true });
+    const child = spawn(cmd, args, { cwd, windowsHide: true, env });
     let out = "";
     let err = "";
     const timer = setTimeout(() => {
@@ -18,6 +19,8 @@ function runProc(cmd, args, cwd, { timeoutMs = 120000 } = {}) {
     });
     child.once("close", (code) => {
       clearTimeout(timer);
+      out = redactSecrets(out, env.SIGN_API_KEY);
+      err = redactSecrets(err, env.SIGN_API_KEY);
       if (code === 0) resolve({ out });
       else {
         const failure = err.split(/\r?\n/).find(line => line.startsWith("FAILED:"));

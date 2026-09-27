@@ -5,6 +5,8 @@
 TikTok LIVE の配信と Minecraft を連動させるためのアプリです。
 視聴者がギフトを送ったり、いいね・シェア・フォロー・訪問をすると、Minecraft の中でコマンドが自動で実行されます。
 
+Euler Streamのキーを使う場合は、[APIキーの設定手順](docs/EulerStreamのAPIキー設定.md)を参照してください。
+
 ---
 
 ## 目次

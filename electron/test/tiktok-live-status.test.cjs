@@ -32,3 +32,17 @@ test('live status: empty or invalid IDs do not start a network request', async (
   assert.equal((await check('')).state, 'empty');
   for (const value of ['https://tiktok.com/@user', '--argument', 'x'.repeat(25)]) assert.equal((await check(value)).state, 'error');
 });
+
+test('live status: APIキー変更前の進行中リクエストで新しい結果を上書きしない', async () => {
+  const resolvers = [];
+  const check = createLiveStatusChecker({ query: () => new Promise(resolve => resolvers.push(resolve)) });
+  const old = check('streamer');
+  check.clearCache();
+  const current = check('streamer');
+  resolvers[1]({ live: true });
+  assert.equal((await current).state, 'live');
+  resolvers[0]({ live: false });
+  assert.equal((await old).state, 'offline');
+  assert.equal((await check('streamer')).state, 'live');
+  assert.equal(resolvers.length, 2);
+});

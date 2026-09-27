@@ -1,5 +1,5 @@
 // electron/main.cjs
-const { app, BrowserWindow, ipcMain, session, net, shell, clipboard, nativeImage, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, session, net, shell, clipboard, nativeImage, dialog, safeStorage } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
@@ -20,6 +20,10 @@ const { saveGiftPanelPng } = require("./image_export.cjs");
 const { EULA_URL, inspectSetup, inspectForgeClient, launchForgeInstaller, prepareServerEnvironment } = require("./initial_setup.cjs");
 const { migrateRetiredCommands } = require("./command_migration.cjs");
 const { exportStreamStatsMarkdown } = require("./stats_export.cjs");
+const eulerCredentials = require('./euler_credentials.cjs').createEulerCredentials({
+  filePath: () => path.join(app.getPath('userData'), 'euler-credentials.json'), safeStorage,
+});
+let bridgeEulerRevision = null;
 const streamSessions = createStreamSessions(() => path.join(getBridgeBatDir(), "stream-sessions.json"));
 const settingsBackups = createSettingsBackups({
   paths: () => ({
@@ -1374,11 +1378,25 @@ const checkTikTokLive = require("./tiktok_live_status.cjs").createLiveStatusChec
   query: async username => {
     await ensureNodeRuntimeAvailable();
     const tool = getGvToolPath("live_status.cjs");
-    const result = await runProc(getNodeCommand(), [tool, username], path.dirname(tool), { timeoutMs: 20000 });
+    const { env } = eulerCredentials.runtime();
+    const result = await runProc(getNodeCommand(), [tool, username], path.dirname(tool), { timeoutMs: 20000, env });
     return JSON.parse(result.out.trim());
   },
 });
 ipcMain.handle("tiktok:liveStatus", (_event, username) => checkTikTokLive(username));
+const eulerStatus = () => eulerCredentials.status(bridgeEulerRevision, Boolean(bridgeProcRef));
+ipcMain.handle('euler:status', eulerStatus);
+ipcMain.handle('euler:save', (_event, key) => {
+  eulerCredentials.save(key);
+  checkTikTokLive.clearCache();
+  return eulerStatus();
+});
+ipcMain.handle('euler:clear', () => {
+  eulerCredentials.clear();
+  checkTikTokLive.clearCache();
+  return eulerStatus();
+});
+ipcMain.handle('euler:openPortal', () => shell.openExternal('https://www.eulerstream.com/dashboard'));
 
 // --------------------
 // IPC: Minecraft ランチャー/ゲーム本体の稼働検知（Gameノード表示用）
@@ -1439,10 +1457,12 @@ async function launchBridge() {
   bridgeStopRequested = false;
   bridgeRestartPolicy.start();
   const spawnOnce = () => {
+    const { env, revision } = eulerCredentials.runtime();
     appendBridgeLog(`[BRIDGE] 起動します: ${indexJs}`);
     const child = spawn(nodeCmd, [indexJs, "--config", path.join(dir, "config.minecraft.json")], {
-      cwd: dir, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"],
+      cwd: dir, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"], env,
     });
+    bridgeEulerRevision = revision;
     bridgeProcRef = child;
     bridgePid = child.pid;
     appendBridgeLog(`[BRIDGE] PID ${bridgePid} で起動しました`);
@@ -1454,7 +1474,10 @@ async function launchBridge() {
       if (!bridgeStopRequested && bridgeRestartPolicy.shouldRestart()) {
         const backoffMs = bridgeRestartPolicy.nextDelayMs ? bridgeRestartPolicy.nextDelayMs() : 2000;
         appendBridgeLog(`[BRIDGE] ${Math.round(backoffMs / 1000)}秒後に自動再起動します`);
-        bridgeRestartTimer = setTimeout(spawnOnce, backoffMs);
+        bridgeRestartTimer = setTimeout(() => {
+          bridgeRestartTimer = null;
+          try { spawnOnce(); } catch (error) { appendBridgeLog(`[BRIDGE] ${error.message}`); }
+        }, backoffMs);
       } else if (bridgeRestartPolicy.exhausted && bridgeRestartPolicy.exhausted()) {
         appendBridgeLog("[BRIDGE] 自動再起動の上限に達しました。設定を確認して手動で再起動してください。");
       }
@@ -2298,7 +2321,8 @@ async function performGiftUpdate(user) {
   // 失敗時に既存データを壊さないよう、取得・HTML生成が完了してから置き換える。
   const staging = fs.mkdtempSync(path.join(dir, ".update-"));
   try {
-    await runProc(nodeCmd, [fetchTool, user, "--out", staging], dir, { timeoutMs: 60000 });
+    const { env } = eulerCredentials.runtime();
+    await runProc(nodeCmd, [fetchTool, user, "--out", staging], dir, { timeoutMs: 60000, env });
     await runProc(nodeCmd, [htmlTool, "--in", path.join(staging, "gifts.min.json"), "--out", staging], dir, { timeoutMs: 15000 });
     const gifts = JSON.parse(fs.readFileSync(path.join(staging, "gifts.min.json"), "utf8"));
     const meta = JSON.parse(fs.readFileSync(path.join(staging, "gifts.meta.json"), "utf8"));

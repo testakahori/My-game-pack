@@ -27,6 +27,7 @@ const http = require("http");
 const os = require("os");
 const { execFile } = require("child_process");
 const { TikTokLiveConnection } = require("tiktok-live-connector");
+const { connectionOptions, redactSecrets, retryDelay } = require('./tiktok_connection.cjs');
 const { Rcon } = require("rcon-client");
 const { validateBridgeConfig } = require("./config_schema");
 const { prepareRoulette, createRouletteRunner } = require("./roulette.cjs");
@@ -44,7 +45,7 @@ function updateRuntimeStatus(patch) {
   let current = {};
   try { current = JSON.parse(fs.readFileSync(statusPath, "utf8")); } catch {}
   try {
-    fs.writeFileSync(statusPath, JSON.stringify({ ...current, ...patch }, null, 2), "utf8");
+    fs.writeFileSync(statusPath, redactSecrets(JSON.stringify({ ...current, ...patch }, null, 2)), "utf8");
   } catch {}
 }
 
@@ -145,9 +146,10 @@ function scheduleRconDisconnect() {
     stream.write(`[${new Date().toISOString()}]${prefix} ${text}\n`);
   };
 
-  console.log   = (...a) => { origLog(...a);   writeLine("",        a); };
-  console.error = (...a) => { origError(...a); writeLine(" [ERROR]", a); };
-  console.warn  = (...a) => { origWarn(...a);  writeLine(" [WARN]",  a); };
+  const safeArgs = args => args.map(value => redactSecrets(typeof value === 'string' ? value : require('node:util').inspect(value)));
+  console.log   = (...a) => { const safe = safeArgs(a); origLog(...safe);   writeLine("", safe); };
+  console.error = (...a) => { const safe = safeArgs(a); origError(...safe); writeLine(" [ERROR]", safe); };
+  console.warn  = (...a) => { const safe = safeArgs(a); origWarn(...safe);  writeLine(" [WARN]", safe); };
 
   process.on("exit", () => {
     stream.write(`=== Bridge Log Ended: ${new Date().toISOString()} ===\n`);
@@ -1200,7 +1202,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   }
 
   // 初回接続・再接続時の過去コメント再送を止め、ライブ中に届いたイベントだけ処理する。
-  const tiktok = new TikTokLiveConnection(tiktokUsername, { processInitialData: false });
+  const tiktok = new TikTokLiveConnection(tiktokUsername, connectionOptions(process.env));
   const likeCounter = createLikeCounter();
   let connectedAt = 0;
   let tiktokConnectLoop = null;
@@ -1374,7 +1376,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         });
         return;
       } catch (e) {
-        const message = String(e?.message || e);
+        const message = redactSecrets(e?.message || e);
         console.error("[TikTok] Connect failed:", message);
         updateRuntimeStatus({
           tiktok: { state: "retrying", username: tiktokUsername, error: message, at: new Date().toISOString() },
@@ -1382,8 +1384,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         // オフライン配信を5秒ごとに叩くとTikTok側のレート制限を招きやすい。
         // その他の一時障害も指数バックオフし、最大60秒で再試行する。
         failureCount += 1;
-        const offline = /isn't online|not online|offline/i.test(message);
-        const retryMs = offline ? 30000 : Math.min(60000, 5000 * (2 ** Math.min(failureCount - 1, 4)));
+        const retryMs = retryDelay(e, failureCount);
         console.log(`[TikTok] Retry in ${Math.round(retryMs / 1000)} seconds...`);
         await sleep(retryMs);
       }

@@ -65,7 +65,8 @@
       "assets/icon.ico",
       "bridge/stream_sessions.cjs",
       "bridge/audience_stats.cjs",
-      "bridge/tiktok_events.cjs"
+      "bridge/tiktok_events.cjs",
+      "bridge/tiktok_connection.cjs"
     ],
     "extraResources": [
       {

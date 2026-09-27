@@ -15,7 +15,7 @@
   "dependencies": {
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "tiktok-live-connector": "^2.4.3"
+    "tiktok-live-connector": "2.5.0"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",

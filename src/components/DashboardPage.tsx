@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AppPage } from "../types";
 import PreflightPanel from "./PreflightPanel";
+import EulerApiKeySettings from './EulerApiKeySettings';
 import { useUnsavedChanges } from "../UnsavedChanges";
 import type { GiftMapping } from "../types";
 
@@ -938,6 +939,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
             <i className={idApproved && !applyBusy ? "is-applied" : "is-idle"}>●</i>
           </button>
 
+          <EulerApiKeySettings bridgeRunning={bridgeProcess.running === true} bridgePid={bridgeProcess.pid} />
           <label style={{ marginTop: 14 }}>マイクラID（OP自動付与）</label>
           <div className="cockpit-account-row">
             <b>⛏</b>
