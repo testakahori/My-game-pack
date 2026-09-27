@@ -39,3 +39,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - run: bash ./gradlew build --no-daemon --max-workers=2
         working-directory: BridgeMod
+      - run: bash ../BridgeMod/gradlew build --no-daemon --max-workers=2
+        working-directory: DisplayMod
+      - run: node scripts/test-display-contract.cjs

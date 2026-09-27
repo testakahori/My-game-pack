@@ -19,12 +19,15 @@ test("公開テンプレート: ワールド・プレイヤー・パスワード
   fs.writeFileSync(path.join(source, "mods", "unselected-game.jar"), "another game");
   const currentMod = path.join(root, "bridgemod-1.3.0.jar");
   fs.writeFileSync(currentMod, "current");
+  const displayMod = path.join(root, "displaymod-1.0.0.jar"); fs.writeFileSync(displayMod, "display");
   assert.throws(() => prepareServerTemplate(source, target, path.join(root, "missing.jar")), /Build the current/);
   assert.equal(fs.existsSync(target), false);
-  prepareServerTemplate(source, target, currentMod);
+  assert.throws(() => prepareServerTemplate(source, target, currentMod, path.join(root, 'missing-display.jar')), /DisplayMod/);
+  assert.equal(fs.existsSync(target), false);
+  prepareServerTemplate(source, target, currentMod, displayMod);
   assert.equal(fs.readFileSync(path.join(target, "mods", "bridgemod-1.3.0.jar"), "utf8"), "current");
   assert.equal(fs.existsSync(path.join(target, "mods", "bridgemod-1.2.0.jar")), false);
-  assert.deepEqual(fs.readdirSync(path.join(target, "mods")).filter(n => n.endsWith('.jar')), ['bridgemod-1.3.0.jar']);
+  assert.deepEqual(fs.readdirSync(path.join(target, "mods")).filter(n => n.endsWith('.jar')).sort(), ['bridgemod-1.3.0.jar', 'displaymod-1.0.0.jar']);
   for (const name of ["world", "bridge", "logs", "RCON_password.txt", "server.properties", "usercache.json", "ops.json"]) assert.equal(fs.existsSync(path.join(target, name)), false, name);
   assert.equal(fs.existsSync(path.join(target, "mods", "fixture")), true);
   assert.throws(() => prepareServerTemplate(source, target), /already exists/);

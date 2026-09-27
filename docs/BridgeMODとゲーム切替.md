@@ -28,9 +28,11 @@
 
 | 選択 | 両方のmodsフォルダに配置するもの | 選べるコマンド |
 |---|---|---|
-| 共通コマンドのみ | BridgeMOD | 共通コマンド |
-| 埋め立て | BridgeMOD＋UmetateMOD | 共通＋登録された埋め立てのコマンド |
-| ラン | BridgeMOD＋RunMOD | 共通＋登録されたランのコマンド |
+| 共通コマンドのみ | BridgeMOD＋DisplayMOD | 共通コマンド |
+| 埋め立て | BridgeMOD＋DisplayMOD＋UmetateMOD | 共通＋登録された埋め立てのコマンド |
+| ラン | BridgeMOD＋DisplayMOD＋RunMOD | 共通＋登録されたランのコマンド |
+
+DisplayMODは独立した任意の表示MOD。通常配布には同梱するが、なくてもゲームは続行する。APIと表示タイミングは[DisplayMOD連携ガイド](DisplayMOD連携ガイド.md)を参照。
 
 UmetateMOD・RunMODの本体はまだ存在しないため、初期状態は「未導入」。ゲームパックを登録するまで切り替えられない。実ゲームのAPI・コマンドは未確定であり、架空の呼び出し仕様を製品へ組み込んではいない。
 
@@ -67,12 +69,13 @@ UmetateMOD・RunMODの本体はまだ存在しないため、初期状態は「�
 | key | 小文字英数字・アンダースコアの一意な識別子 |
 | title | ギフト設定で表示する日本語名 |
 | command | ゲームMODが実装したMinecraftコマンド1行。先頭の`/`は省略可 |
+| commonDisplay | 任意のboolean。即時イベントでBridgeMODから共通表示を出す場合のみtrue。省略・falseはゲーム側が実開始時に表示 |
 
-commandには既存の`{Count}`・`{ListenerName}`を使用できる。キーは`game_umetate_<key>.txt`等に分離する。BridgeMODはゲーム側に渡す前の共通タイトルを出さない。ゲームMODが実際にイベントを開始するときに表示MOD・任意のOBSMODを呼ぶ部分は、各MODが完成した段階で接続・検証する。
+commandには既存の`{Count}`・`{ListenerName}`を使用できる。キーは`game_umetate_<key>.txt`等に分離する。既定ではBridgeMODはゲーム側に渡す前の共通タイトルを出さない。DisplayMODの独立APIを用意済み。ゲームMODが実際に開始するときの呼び出しは、各ゲームMODの完成時に接続・検証する。OBSMODは今後の実装。
 
 この登録形式はMinecraftコマンドを入口に使うためのもの。Java APIでの連携が必要になった場合は、実ゲームMODの仕様を確認して追加する。ゲームMOD内の待機列・処理上限・実開始通知の実装まで自動的に完成するものではない。
 
-ゲームMODに追加の必須ライブラリMODがある場合は「2つのjarだけ」では起動できない。現在の配布形式はBridgeMODとゲームMODだけで起動できる構成を対象とする。
+ゲームMODに追加の必須ライブラリMODがある場合は別途対応が必要。現在の配布形式はBridgeMOD・任意のDisplayMOD・ゲームMODの構成を対象とする。
 
 ## 検証と公開
 

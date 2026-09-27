@@ -1,0 +1,8 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="All Rights Reserved"
+[[mods]]
+modId="displayprobe"
+version="1.0.0"
+displayName="Display integration probe (TEST ONLY)"
+displayTest="IGNORE_SERVER_VERSION"

@@ -23,16 +23,18 @@ function retireLegacyEnvironment(serverRoot) {
   fs.renameSync(pack, path.join(backup, 'NightVision_Pack'));
 }
 
-function replaceCommonMod(source, serverRoot) {
+function replaceCommonMod(source, serverRoot, modId = 'bridgemod') {
+  if (!['bridgemod', 'displaymod'].includes(modId)) throw new Error('共通MOD IDが不正です');
   const bytes = fs.readFileSync(source);
   const { jarModIds } = require('./game_profiles.cjs');
-  if (!jarModIds(bytes).includes('bridgemod')) throw new Error('BridgeMODのjarを確認できません');
+  if (!jarModIds(bytes).includes(modId)) throw new Error(`${modId}のjarを確認できません`);
   const mods = path.join(serverRoot, 'mods'); fs.mkdirSync(mods, { recursive: true });
   const name = path.basename(source), destination = path.join(mods, name);
   const backup = path.join(serverRoot, '.mygamepack-retired-mods', crypto.randomUUID());
   const moved = [];
   try {
-    for (const dir of [serverRoot, mods]) for (const old of fs.readdirSync(dir).filter(n => /^(doumacmd|bridgemod)-.*\.jar$/i.test(n))) {
+    const pattern = modId === 'bridgemod' ? /^(doumacmd|bridgemod)-.*\.jar$/i : /^displaymod-.*\.jar$/i;
+    for (const dir of [serverRoot, mods]) for (const old of fs.readdirSync(dir).filter(n => pattern.test(n))) {
       const file = path.join(dir, old);
       if (path.resolve(file) === path.resolve(source)) continue;
       const slot = path.join(backup, dir === mods ? 'mods' : 'root'); fs.mkdirSync(slot, { recursive: true });

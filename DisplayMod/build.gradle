@@ -1,0 +1,37 @@
+plugins {
+    id 'java'
+    id 'net.minecraftforge.gradle' version '6.0.47'
+}
+
+version = mod_version
+group = 'jp.douma.displaymod'
+base { archivesName = 'displaymod' }
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+minecraft {
+    mappings channel: 'official', version: '1.20.1'
+    copyIdeResources = true
+}
+dependencies { minecraft 'net.minecraftforge:forge:1.20.1-47.4.16' }
+tasks.named('processResources', ProcessResources).configure {
+    inputs.property 'mod_version', mod_version
+    filesMatching('META-INF/mods.toml') { expand mod_version: mod_version }
+}
+tasks.named('jar', Jar).configure { finalizedBy 'reobfJar' }
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+
+// Explicit opt-in test fixture. Never included by build, jar or application packaging.
+sourceSets {
+    integrationProbe {
+        java.srcDirs = ['src/integrationProbe/java', '../examples/display-integration']
+        resources.srcDirs = ['src/integrationProbe/resources']
+        compileClasspath += sourceSets.main.compileClasspath
+    }
+}
+tasks.register('integrationProbeJar', Jar) {
+    dependsOn 'integrationProbeClasses'
+    from sourceSets.integrationProbe.output
+    archiveFileName = 'display-probe.jar'
+    destinationDirectory = layout.buildDirectory.dir('qa')
+    finalizedBy 'reobfIntegrationProbeJar'
+}
+reobf { integrationProbeJar {} }

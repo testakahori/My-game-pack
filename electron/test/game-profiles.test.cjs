@@ -139,3 +139,38 @@ test('BridgeMOD同期はDOUMAMODを削除せず退避し、他のMODを保持す
 });
 
 module.exports = { jar };
+
+test('表示MODを独立jarで両側に配置し、共通表示あり／なしをゲームコマンドごとに保存する', async t => {
+  let display;
+  const x = fixture(t, { displayJar: () => display });
+  display = path.join(x.root, 'displaymod-1.0.0.jar'); fs.writeFileSync(display, jar('displaymod'));
+  const folder = x.pack('umetate'), file = path.join(folder, 'game.json'), manifest = JSON.parse(fs.readFileSync(file));
+  manifest.commands.push({ key: 'instant', title: '即時イベント', command: 'umetate instant {Count}', commonDisplay: true });
+  fs.writeFileSync(file, JSON.stringify(manifest)); await x.api.install(folder);
+  const status = await x.api.activate('umetate'); assert.equal(status.displayBundled, true); assert.equal(status.applied, true);
+  for (const dir of [x.server, x.client]) assert.deepEqual(fs.readdirSync(path.join(dir, 'mods')).sort(), ['bridgemod-1.3.4.jar', 'displaymod-1.0.0.jar', 'umetate.jar']);
+  const commands = path.join(x.server, 'bridge/commands/minecraft');
+  assert.match(fs.readFileSync(path.join(commands, 'game_umetate_fill.txt'), 'utf8'), /DISPLAY_OWNER: game/);
+  assert.match(fs.readFileSync(path.join(commands, 'game_umetate_instant.txt'), 'utf8'), /DISPLAY_OWNER: bridge/);
+  manifest.commands[0].commonDisplay = 'false'; fs.writeFileSync(file, JSON.stringify(manifest));
+  await assert.rejects(x.api.install(folder), /commonDisplay/);
+});
+
+test('表示MOD未同梱でも切替でき、不正な表示jarは片側も変更する前に拒否する', async t => {
+  let display;
+  const x = fixture(t, { displayJar: () => display });
+  await x.api.activate('common'); assert.equal(x.api.list().displayBundled, false);
+  const before = fs.readFileSync(x.config, 'utf8');
+  display = path.join(x.root, 'displaymod-1.0.0.jar'); fs.writeFileSync(display, jar('wrongmod'));
+  await assert.rejects(x.api.activate('common'), /DisplayMOD/);
+  assert.equal(fs.readFileSync(x.config, 'utf8'), before);
+  for (const dir of [x.server, x.client]) assert.deepEqual(fs.readdirSync(path.join(dir, 'mods')), ['bridgemod-1.3.4.jar']);
+});
+
+test('表示MOD更新はBridgeMOD・ゲームMODを保持し、以前の表示jarを退避する', t => {
+  const x = fixture(t); replaceCommonMod(x.bridge, x.server);
+  fs.writeFileSync(path.join(x.server, 'mods/displaymod-0.9.0.jar'), jar('displaymod'));
+  const display = path.join(x.root, 'displaymod-1.0.0.jar'); fs.writeFileSync(display, jar('displaymod'));
+  replaceCommonMod(display, x.server, 'displaymod');
+  assert.deepEqual(fs.readdirSync(path.join(x.server, 'mods')).sort(), ['bridgemod-1.3.4.jar', 'displaymod-1.0.0.jar', 'other.jar']);
+});

@@ -348,6 +348,7 @@ public class BridgeMod {
         double tickMs = activeServer == null ? 0 : activeServer.getAverageTickTime();
         double tps = tickMs <= 0 ? 20.0 : Math.min(20.0, 1000.0 / tickMs);
         return "{\"ok\":true,\"mod\":\"bridgemod\",\"environmentFixed\":true,\"gift\":" + gift + ",\"like\":" + like + ",\"other\":" + other
+            + ",\"displayAvailable\":" + DisplayLink.available()
             + ",\"executed\":" + executedCommands + ",\"failed\":" + failedCommands
             + ",\"effectsPending\":" + giftEffects.pendingJobs() + ",\"effectsFailed\":" + giftEffects.failures()
             + ",\"effectsError\":\"" + jsonEscape(giftEffects.lastError()) + "\""
@@ -477,8 +478,10 @@ public class BridgeMod {
             // 連打圧縮：同じkeyの末尾いいねに合流（先頭=実行中のイベントには触らない）
             BridgeEvent last = likeQueue.peekLast();
             if (likeQueue.size() >= 2 && last != null && last.key.equals(event.key)
+                    && last.announce == event.announce && last.listenerName.equals(event.listenerName)
                     && last.remaining + event.remaining <= MAX_COUNT) {
                 last.remaining += event.remaining;
+                last.count += event.remaining;
                 return true;
             }
             // 満杯なら一番古いいいねを捨てて新しいものを受け入れる（いいねは損失許容）
@@ -580,40 +583,31 @@ public class BridgeMod {
         CommandSourceStack silent = server.createCommandSourceStack().withPermission(4).withSuppressedOutput();
         int used = 0;
 
-        // アナウンスはイベント全体で1回だけ（分割実行でも重複しない）
-        if (event.announce && !event.announced && !"game".equals(parsed.meta.get("DISPLAY_OWNER"))) {
-            String title = parsed.meta.getOrDefault("TITLE", event.key);
-            String subtitleRaw = parsed.meta.getOrDefault("SUBTITLE", "{ListenerName}");
-            String subtitleText = subtitleRaw.replace("{ListenerName}", event.listenerName);
-
-            String titleJson    = "{\"text\":\"" + mcJsonStringEscape(title, 60) + "\",\"color\":\"yellow\",\"bold\":true}";
-            String subtitleJson = "{\"text\":\"" + mcJsonStringEscape(subtitleText, 60) + "\",\"color\":\"green\"}";
-
-            // 飾りコマンド（title/playsound/particle）はプレイヤー不在時などに result 0 を
-            // 返すのが常態のため、失敗統計には計上しない（統計汚染の主因だった）
-            performSilent(server, silent, "title @a times 10 70 10", false);
-            performSilent(server, silent, "title @a title "    + titleJson, false);
-            performSilent(server, silent, "title @a subtitle " + subtitleJson, false);
-            String sound = parsed.meta.getOrDefault("SOUND", "entity.experience_orb.pickup");
-            String particle = parsed.meta.getOrDefault("PARTICLE", "minecraft:happy_villager");
-            performSilent(server, silent, "playsound " + sound + " master @a ~ ~ ~ 0.8 1", false);
-            performSilent(server, silent, "execute at @a run particle " + particle + " ~ ~1 ~ 0.6 0.8 0.6 0.05 18 force", false);
-            event.announced = true;
-            used += 5;
-        }
-
         // Native effects receive the full count once; normal command files retain repeat semantics.
         while (event.remaining > 0 && (used == 0 || used + parsed.commands.size() <= commandBudget)) {
             int count = "aggregate".equals(parsed.meta.get("COUNT_MODE")) ? event.remaining : 1;
             currentEffectProtection = new GiftEffects.Protection(event.protectionEnabled,
                 event.protectX1, event.protectX2, event.protectZ1, event.protectZ2);
+            boolean started = false;
             try {
                 for (String raw : parsed.commands) {
                     String cmd = applyPlaceholdersMinecraft(raw, event.listenerName).replace("{Count}", Integer.toString(count));
-                    performSilent(server, silent, cmd);
+                    started |= performSilent(server, silent, cmd);
                     used++;
                 }
             } finally { currentEffectProtection = null; }
+            // Notify only when a command actually ran, once across all tick slices.
+            // Game-owned queues call DisplayMOD themselves when their real event starts.
+            if (started && DisplayLink.shouldAnnounce(event.announce, event.announced, parsed.meta.get("DISPLAY_OWNER"))) {
+                event.announced = true;
+                DisplayLink.show(server, Map.of(
+                    "title", parsed.meta.getOrDefault("TITLE", event.key),
+                    "subtitle", parsed.meta.getOrDefault("SUBTITLE", "{ListenerName}"),
+                    "listenerName", event.listenerName, "count", event.count,
+                    "sound", parsed.meta.getOrDefault("SOUND", "entity.experience_orb.pickup"),
+                    "particle", parsed.meta.getOrDefault("PARTICLE", "minecraft:happy_villager")));
+                used++; // Reserve work for the optional notification, not another gameplay command.
+            }
             event.remaining -= count;
         }
         return used;
@@ -622,7 +616,7 @@ public class BridgeMod {
     private static class BridgeEvent {
         final String type;
         final String key;
-        final int count;
+        int count;
         final String listenerName;
         final boolean announce;
         final boolean protectionEnabled;

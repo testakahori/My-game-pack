@@ -27,6 +27,11 @@ const gameProfiles = createGameProfiles({
   serverRoot: () => getServerRoot(),
   clientRoot: () => readAppConfig().minecraftGameFolder || path.join(app.getPath('appData'), '.minecraft'),
   configPath: () => getConfigPath(),
+  displayJar: () => {
+    const dir = app.isPackaged ? path.join(getServerTemplatePath(), 'mods') : path.resolve(__dirname, '..', 'DisplayMod', 'build', 'libs');
+    const jars = fs.existsSync(dir) ? fs.readdirSync(dir).filter(n => /^displaymod-[0-9.]+\.jar$/.test(n)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true })) : [];
+    return jars.length ? path.join(dir, jars[0]) : null;
+  },
   bridgeJar: () => {
     const dir = app.isPackaged ? path.join(getServerTemplatePath(), 'mods') : path.resolve(__dirname, '..', 'BridgeMod', 'build', 'libs');
     const jars = fs.existsSync(dir) ? fs.readdirSync(dir).filter(n => /^bridgemod-[0-9.]+\.jar$/.test(n)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true })) : [];
@@ -1127,6 +1132,8 @@ async function refreshBridgeModJar(serverFolder) {
   }
   jars.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
   require("./bridge_mod_migration.cjs").replaceCommonMod(path.join(srcMods, jars[0]), serverFolder);
+  const display = fs.readdirSync(srcMods).filter(n => /^displaymod-[0-9.]+\.jar$/i.test(n)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0];
+  if (display) require("./bridge_mod_migration.cjs").replaceCommonMod(path.join(srcMods, display), serverFolder, 'displaymod');
 }
 
 function scheduleBridgeSync() {

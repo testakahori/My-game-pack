@@ -53,7 +53,8 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
   for (const file of ["fetch_gifts.cjs", "gifts_to_html.cjs", "live_status.cjs"]) fs.writeFileSync(path.join(tools, file), "");
   const context = vm.createContext({
     require: requireMock, __dirname: path.join(root, "electron"), console,
-    process, Buffer, URL, AbortSignal, fetch, setTimeout, clearTimeout, setInterval, clearInterval,
+    process: Object.assign(Object.create(process), { resourcesPath: path.join(root, 'resources') }),
+    Buffer, URL, AbortSignal, fetch, setTimeout, clearTimeout, setInterval, clearInterval,
   });
   vm.runInContext(fs.readFileSync(mainPath, "utf8"), context, { filename: mainPath });
   return { root, configPath, notifications, copiedTexts, invoke: (name, ...args) => handlers.get(name)({}, ...args),
