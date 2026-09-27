@@ -1,0 +1,16 @@
+.euler-settings { margin-top: 16px; padding: 12px; border: 1px solid #2c4561; border-radius: 10px; background: #102035; color: #dce9f7; font-size: 12px; }
+.euler-settings summary { cursor: pointer; font-weight: 700; line-height: 1.6; }
+.euler-settings summary span { color: #7ddbd6; font-size: 11px; margin-left: 4px; }
+.euler-settings p { font-size: 12px; line-height: 1.65; margin: 10px 0; }
+.euler-settings small { display: block; color: #a8bbce; line-height: 1.65; }
+.euler-settings label { display: block; margin: 12px 0 6px; }
+.euler-input { display: flex; gap: 6px; }
+.euler-settings .euler-input input { flex: 1; width: 0; min-width: 0; color: #eaf4ff; background: #071424; border: 1px solid #405976; border-radius: 6px; padding: 9px; font-size: 12px; }
+.euler-settings button { border: 1px solid #426688; border-radius: 6px; background: #193a56; color: #eaf4ff; padding: 7px 10px; cursor: pointer; font-size: 12px; }
+.euler-settings button:disabled { opacity: .5; cursor: default; }
+.euler-settings button:focus-visible, .euler-settings input:focus-visible, .euler-settings summary:focus-visible { outline: 2px solid #6ee7ef; outline-offset: 3px; }
+.euler-settings .euler-link { background: transparent; padding: 3px 0; border: 0; color: #7ddbd6; text-decoration: underline; }
+.euler-actions { display: flex; gap: 8px; margin: 10px 0; }
+.euler-settings [role=alert] { color: #ffb6b6; }
+.euler-settings [role=status] { color: #9aebcf; }
+.euler-restart { margin-top: 12px; border-top: 1px solid #405976; padding-top: 2px; }

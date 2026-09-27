@@ -29,6 +29,10 @@ contextBridge.exposeInMainWorld("mygamepack", {
   // --------------------
   configRead: () => ipcRenderer.invoke("config:read"),
   tiktokLiveStatus: (username) => ipcRenderer.invoke("tiktok:liveStatus", username),
+  eulerStatus: () => ipcRenderer.invoke('euler:status'),
+  eulerSave: (key) => ipcRenderer.invoke('euler:save', key),
+  eulerClear: () => ipcRenderer.invoke('euler:clear'),
+  eulerOpenPortal: () => ipcRenderer.invoke('euler:openPortal'),
   giftTemplateSave: () => ipcRenderer.invoke("giftTemplate:save"),
   giftTemplateOpen: () => ipcRenderer.invoke("giftTemplate:open"),
   giftTemplateApply: (token) => ipcRenderer.invoke("giftTemplate:apply", token),

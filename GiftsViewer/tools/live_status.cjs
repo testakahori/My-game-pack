@@ -1,8 +1,9 @@
 "use strict";
 const { TikTokLiveConnection, IsLiveRouteConfig } = require("tiktok-live-connector");
 const { configureSystemCertificates } = require("./fetch_gifts.cjs");
+const { connectionOptions } = require('../../bridge/tiktok_connection.cjs');
 
-async function fetchLiveStatus(username, createConnection = id => new TikTokLiveConnection(id, {})) {
+async function fetchLiveStatus(username, createConnection = id => new TikTokLiveConnection(id, connectionOptions())) {
   const connection = createConnection(username);
   // ライブの有無だけを読み取る。WebSocket接続やイベント実行は行わない。
   const live = await connection.fetchIsLive();
@@ -12,7 +13,7 @@ async function fetchLiveStatus(username, createConnection = id => new TikTokLive
 
 if (require.main === module) {
   configureSystemCertificates();
-  IsLiveRouteConfig.skipFetchRoomIdFromEulerRoute = true;
+  IsLiveRouteConfig.skipFetchRoomIdFromEulerRoute = !process.env.SIGN_API_KEY;
   fetchLiveStatus(process.argv[2]).then(result => {
     console.log(JSON.stringify(result));
   }).catch(() => {

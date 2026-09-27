@@ -1,5 +1,6 @@
 // src/types/electron.d.ts
 export {};
+export type EulerSettingsStatus = { configured: boolean; storageAvailable: boolean; restartRequired: boolean; error?: string };
 export type MapSave = { id: string; name: string; createdAt: string; level: string; reason: string; bytes: number; files: number };
 export type MapOperationResult = { ok: boolean; saved?: MapSave; loaded?: MapSave; restarted?: boolean; restartError?: string };
 export type StreamSession = { id: string; title: string; startedAt: string; endedAt: string | null };
@@ -77,6 +78,10 @@ declare global {
       giftTemplateApply: (token: string) => Promise<{ ok: true; mappings: GiftAssignment[] }>;
       giftTemplateCancel: (token: string) => Promise<void>;
       configRead: () => Promise<BridgeConfig>;
+      eulerStatus: () => Promise<EulerSettingsStatus>;
+      eulerSave: (key: string) => Promise<EulerSettingsStatus>;
+      eulerClear: () => Promise<EulerSettingsStatus>;
+      eulerOpenPortal: () => Promise<void>;
       configGiftMappingSave: (request: GiftMappingSaveRequest) => Promise<{ ok: true; mappings: GiftAssignment[] }>;
       configMappingsWrite?: (mappings: BridgeConfig["mappings"]) => Promise<{ ok: true }>;
       configWrite: (cfg: BridgeConfig) => Promise<{ ok: true }>;

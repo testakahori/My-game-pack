@@ -3,6 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const { TikTokLiveConnection } = require("tiktok-live-connector");
+const { connectionOptions, redactSecrets } = require('../../bridge/tiktok_connection.cjs');
 
 function normalizeUniqueId(id) {
   return String(id || "").trim().replace(/^@/, "");
@@ -55,7 +56,7 @@ function formatFetchError(error) {
     return "通信先の証明書を確認できませんでした。Windowsの日時や、ネットワーク・保護ソフトの通知を確認してください。保存済みのギフト一覧はそのまま使えます。";
   }
   const message = details.find(item => typeof item.message === "string" && item.message.trim())?.message;
-  return message ? message.split(/[\r\n]/)[0].replace(/https?:\/\/\S+/g, "通信先").slice(0, 240)
+  return message ? redactSecrets(message).split(/[\r\n]/)[0].replace(/https?:\/\/\S+/g, "通信先").slice(0, 240)
     : "ギフト一覧を取得できませんでした。TikTok IDと通信状態を確認して、もう一度お試しください。";
 }
 
@@ -95,15 +96,12 @@ async function main() {
 
   configureSystemCertificates();
   const connection = new TikTokLiveConnection(uniqueId, {
+    ...connectionOptions(),
     enableExtendedGiftInfo: true,
     // ギフト名などを日本語で取得する（デフォルトは en）
-    webClientParams: {
-      app_language: "ja-JP",
-      browser_language: "ja-JP",
-      webcast_language: "ja-JP",
-    },
-    webClientHeaders: {
-      "Accept-Language": "ja-JP,ja;q=0.9",
+    webClientOptions: {
+      searchParams: { app_language: "ja-JP", browser_language: "ja-JP", webcast_language: "ja-JP" },
+      headers: { "Accept-Language": "ja-JP,ja;q=0.9" },
     },
   });
 

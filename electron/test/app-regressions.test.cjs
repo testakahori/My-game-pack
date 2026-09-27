@@ -14,7 +14,7 @@ test("子プロセス: 成功・起動失敗・非ゼロ終了・タイムアウ
   await assert.rejects(runProc(process.execPath, ["-e", "setInterval(()=>{},1000)"], os.tmpdir(), { timeoutMs: 200 }), /完了しませんでした/);
 });
 
-function loadApp(t, run = async () => { throw new Error("unexpected process"); }, updater = {}, dialog = {}) {
+function loadApp(t, run = async () => { throw new Error("unexpected process"); }, updater = {}, dialog = {}, safeStorage) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mygamepack-regression-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const handlers = new Map();
@@ -33,7 +33,7 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
       return { ...real, spawn: (...args) => serverSpawn ? serverSpawn(...args) : real.spawn(...args) };
     }
     if (name === "electron") return {
-      app, dialog, ipcMain: { handle: (name, fn) => handlers.set(name, fn), on() {} },
+      app, dialog, safeStorage, ipcMain: { handle: (name, fn) => handlers.set(name, fn), on() {} },
       clipboard: { writeText: text => copiedTexts.push(text) },
       BrowserWindow: { getFocusedWindow: () => null, getAllWindows: () => [{ webContents: { send: (...args) => notifications.push(args) } }] },
     };
@@ -50,7 +50,7 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
   fs.writeFileSync(configPath, JSON.stringify(config));
   const tools = path.join(root, "GiftsViewer", "tools");
   fs.mkdirSync(tools, { recursive: true });
-  for (const file of ["fetch_gifts.cjs", "gifts_to_html.cjs"]) fs.writeFileSync(path.join(tools, file), "");
+  for (const file of ["fetch_gifts.cjs", "gifts_to_html.cjs", "live_status.cjs"]) fs.writeFileSync(path.join(tools, file), "");
   const context = vm.createContext({
     require: requireMock, __dirname: path.join(root, "electron"), console,
     process, Buffer, URL, AbortSignal, fetch, setTimeout, clearTimeout, setInterval, clearInterval,
@@ -68,6 +68,55 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
     shortenServerWait: () => vm.runInContext('const originalWait = waitChildExit; waitChildExit = child => originalWait(child, 30);', context),
   };
 }
+
+test('Euler IPC: 保存キーをBRIDGE・配信確認・ギフト取得へ渡し、削除とバックアップ分離を保つ', async t => {
+  const calls = [];
+  const safeStorage = { isEncryptionAvailable: () => true,
+    encryptString: value => Buffer.from([...value].reverse().join('')),
+    decryptString: value => [...value.toString()].reverse().join('') };
+  const app = loadApp(t, async (_cmd, args, _cwd, options) => {
+    calls.push({ tool: path.basename(args[0]), env: options.env });
+    if (args[0].endsWith('live_status.cjs')) return { out: '{"live":true}' };
+    const out = args[args.indexOf('--out') + 1];
+    if (args[0].endsWith('fetch_gifts.cjs')) {
+      fs.writeFileSync(path.join(out, 'gifts.full.json'), '[]');
+      fs.writeFileSync(path.join(out, 'gifts.min.json'), '[{"id":5655,"name":"バラ","diamond_count":1}]');
+      fs.writeFileSync(path.join(out, 'gifts.meta.json'), JSON.stringify({ username: args[1], count: 1 }));
+    } else fs.writeFileSync(path.join(out, 'gifts.html'), 'ok');
+    return { out: '' };
+  }, undefined, undefined, safeStorage);
+  fs.writeFileSync(path.join(app.root, 'bridge', 'index.js'), '');
+  const { EventEmitter } = require('node:events');
+  let spawnedEnv;
+  app.mockServerSpawn((_cmd, args, options) => {
+    assert.ok(!args.some(arg => arg.includes('fixture-euler')));
+    spawnedEnv = options.env;
+    const child = new EventEmitter();
+    Object.assign(child, { pid: 12345, stdout: new EventEmitter(), stderr: new EventEmitter(), connected: true, exitCode: null, signalCode: null,
+      send: () => setImmediate(() => { child.exitCode = 0; child.emit('exit', 0); }) });
+    return child;
+  });
+  app.invoke('euler:save', 'fixture-euler-one');
+  await app.invoke('bridge:launch');
+  assert.equal(spawnedEnv.SIGN_API_KEY, 'fixture-euler-one');
+  assert.equal(app.invoke('euler:status').restartRequired, false);
+  await app.invoke('tiktok:liveStatus', 'fixture');
+  await app.invoke('gifts:update', 'fixture');
+  for (const tool of ['live_status.cjs', 'fetch_gifts.cjs']) assert.equal(calls.find(call => call.tool === tool).env.SIGN_API_KEY, 'fixture-euler-one');
+  app.invoke('euler:save', 'fixture-euler-two');
+  assert.equal(app.invoke('euler:status').restartRequired, true);
+  await app.invoke('tiktok:liveStatus', 'fixture');
+  assert.equal(calls.at(-1).env.SIGN_API_KEY, 'fixture-euler-two', 'key change invalidates the cached live result');
+  await app.invoke('bridge:stop');
+  const backup = await app.invoke('settings:backups:create');
+  app.invoke('euler:clear');
+  await app.invoke('settings:backups:restore', backup.id);
+  assert.equal(app.invoke('euler:status').configured, false, 'restoring settings does not restore a secret');
+  await app.invoke('bridge:launch');
+  assert.equal(spawnedEnv.SIGN_API_KEY, undefined);
+  await app.invoke('bridge:stop');
+  assert.doesNotMatch(fs.readFileSync(app.configPath, 'utf8'), /fixture-euler/);
+});
 
 test("テキストコピー: コマンド・ギフトID・日本語をネイティブへ渡し、不正入力は拒否する", async t => {
   const app = loadApp(t);

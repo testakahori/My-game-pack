@@ -318,6 +318,10 @@ if (import.meta.env.DEV && !win.mygamepack) {
     },
     serverGamerulesApply: ok,
     serverDatapackDeployNightVision: ok,
+    eulerStatus: async () => ({ configured: false, storageAvailable: false, restartRequired: false, error: 'APIキーの保存はインストール版アプリで利用できます。' }),
+    eulerSave: async () => { throw new Error('インストール版アプリで設定してください。'); },
+    eulerClear: async () => ({ configured: false, storageAvailable: false, restartRequired: false }),
+    eulerOpenPortal: async () => { window.open('https://www.eulerstream.com/dashboard', '_blank', 'noopener,noreferrer'); },
     configRead: async () => {
       // Explicit visual QA fixture; never enabled in packaged Electron or written to a server.
       if (new URLSearchParams(window.location.search).get("demo") === "panels" && !bridgeConfig.mappings.length) {
