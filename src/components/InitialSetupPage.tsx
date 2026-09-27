@@ -191,7 +191,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
     minecraft: { detected: boolean; version: string };
     java: { detected: boolean; version: string };
     bridge: { detected: boolean; version: string };
-    doumaMod: { detected: boolean; version: string };
+    bridgeMod: { detected: boolean; version: string };
     tiktokApi: { detected: boolean; version: string };
   } | null>(null);
 
@@ -506,7 +506,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
                 ["Minecraft", envInfo.minecraft],
                 ["Java", envInfo.java],
                 ["Bridge", envInfo.bridge],
-                ["DoumaMod", envInfo.doumaMod],
+                ["BridgeMod", envInfo.bridgeMod],
                 ["TikTok API", envInfo.tiktokApi],
               ].map(([label, info], index) => (
                 <div className="setup-env-row-v2" key={label as string}>

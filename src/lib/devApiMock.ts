@@ -498,7 +498,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
       minecraft: { detected: true, version: "開発モード: 未実測" },
       java: { detected: true, version: "開発モード: 未実測" },
       bridge: { detected: true, version: String((pkg as { version?: string }).version || "0.0.0") },
-      doumaMod: { detected: true, version: "開発モード: 未実測" },
+      bridgeMod: { detected: true, version: "開発モード: 未実測" },
       tiktokApi: { detected: false, version: "開発モード: 未実測" },
     }),
   };

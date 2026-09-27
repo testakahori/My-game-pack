@@ -5,4 +5,4 @@
 # SOUND: event.raid.horn
 # PARTICLE: minecraft:soul
 // ゾンビ・ハスク・ドラウンド・村人ゾンビを各50体、合計200体召喚
-execute as @p at @s run doumaeffect zombiewave {Count}
+execute as @p at @s run bridgeeffect zombiewave {Count}

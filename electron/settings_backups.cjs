@@ -27,7 +27,7 @@ function createSettingsBackups(deps) {
     const config = read(p.config);
     const { rcon: _rcon, ...bridge } = config;
     bridge.options = { ...(bridge.options || {}) };
-    for (const key of ["commandsDir", "doumaModHost", "doumaModPort", "commandTransport"]) delete bridge.options[key];
+    for (const key of ["commandsDir", "bridgeModHost", "bridgeModPort", "doumaModHost", "doumaModPort", "commandTransport"]) delete bridge.options[key];
     const app = fs.existsSync(p.app) ? read(p.app) : {};
     const preferences = Object.fromEntries(PREFS.map(key => [key, app[key] !== false]));
     const commands = {};
@@ -95,8 +95,9 @@ function createSettingsBackups(deps) {
     const snapshot = load(id);
     const p = paths();
     const current = read(p.config);
+    if ((current.gameProfile || 'common') !== (snapshot.payload.bridge.gameProfile || 'common')) throw new Error('このバックアップのゲームを選択してから復元してください');
     const config = { ...snapshot.payload.bridge, rcon: current.rcon, options: { ...snapshot.payload.bridge.options } };
-    for (const key of ["commandsDir", "doumaModHost", "doumaModPort", "commandTransport"]) {
+    for (const key of ["commandsDir", "bridgeModHost", "bridgeModPort", "doumaModHost", "doumaModPort", "commandTransport"]) {
       if (Object.hasOwn(current.options || {}, key)) config.options[key] = current.options[key];
     }
     const currentApp = fs.existsSync(p.app) ? read(p.app) : {};

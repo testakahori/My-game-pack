@@ -14,7 +14,7 @@ function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mygamepack-safety-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const p = { config: path.join(root, "bridge/config.json"), app: path.join(root, "app.json"), tts: path.join(root, "tts.json"), bridgeTts: path.join(root, "bridge/tts.json"), commands: path.join(root, "bridge/commands"), backups: path.join(root, "backups") };
-  const cfg = { tiktokUsername: "akahoridouma", mappings: [{ giftId: "5655", commandFile: "rose.txt", repeat: 1 }], rcon: { password: "live-secret", port: 25575 }, options: { commandTransport: "douma_mod", commandsDir: p.commands, doumaModPort: 25576, giftCooldownMs: 300 } };
+  const cfg = { tiktokUsername: "akahoridouma", mappings: [{ giftId: "5655", commandFile: "rose.txt", repeat: 1 }], rcon: { password: "live-secret", port: 25575 }, options: { commandTransport: "bridge_mod", commandsDir: p.commands, bridgeModPort: 25576, giftCooldownMs: 300 } };
   write(p.config, cfg); write(p.app, { authToken: "private-login", serverFolder: root, setupComplete: true, autoBackupOnServerStart: true });
   write(p.tts, { engine: "voicevox", enabled: true, speakerId: 2 }); write(p.bridgeTts, read(p.tts));
   atomicWrite(path.join(p.commands, "rose.txt"), "say original");

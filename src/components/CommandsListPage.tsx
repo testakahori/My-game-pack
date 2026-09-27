@@ -1,7 +1,7 @@
 // src/components/CommandsListPage.tsx
-// 現在使用できる /douma コマンドのチートシート。
+// 現在使用できる /bridge コマンドのチートシート。
 // bridge/commands/minecraft/*.txt のメタ情報（TITLE/CATEGORY/説明）を一覧表示し、
-// カードクリックでチャット欄に貼り付けられる「/douma <コマンド名> 1」をコピーする。
+// カードクリックでチャット欄に貼り付けられる「/bridge <コマンド名> 1」をコピーする。
 import React from "react";
 import { copyText } from "../lib/clipboard";
 
@@ -34,7 +34,7 @@ const CATEGORY_ORDER: { key: string; icon: string; note: string }[] = [
 ];
 
 function chatCommandOf(meta: CommandMeta): string {
-  return `/douma ${meta.name.replace(/\.txt$/i, "")} 1`;
+  return `/bridge ${meta.name.replace(/\.txt$/i, "")} 1`;
 }
 
 const CommandsListPage: React.FC = () => {
@@ -113,7 +113,7 @@ const CommandsListPage: React.FC = () => {
       <header className="gift-catalog-v2__header">
         <div>
           <h1>コマンド一覧</h1>
-          <p>Minecraft チャットで使える /douma コマンドのチートシート</p>
+          <p>Minecraft チャットで使える /bridge コマンドのチートシート</p>
         </div>
         <span>MyGamePack Manager</span>
       </header>
@@ -122,10 +122,10 @@ const CommandsListPage: React.FC = () => {
       <section className="cmd-usage-banner">
         <div className="cmd-usage-banner__icon">💬</div>
         <div>
-          <b>チャット欄に「/douma zombie 1」のように入力してください</b>
+          <b>チャット欄に「/bridge zombie 1」のように入力してください</b>
           <p>
-            形式は <code>/douma コマンド名 回数</code> です（例: <code>/douma zombie 1</code> でゾンビ1回召喚、
-            <code>/douma tnt 3</code> でTNTを3回）。
+            形式は <code>/bridge コマンド名 回数</code> です（例: <code>/bridge zombie 1</code> でゾンビ1回召喚、
+            <code>/bridge tnt 3</code> でTNTを3回）。
             下のコマンドをクリックすると出現コマンドがコピーされるので、Minecraftのチャット欄（Tキー → Ctrl+V）にそのまま貼り付けできます。
           </p>
         </div>

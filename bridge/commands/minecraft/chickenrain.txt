@@ -5,4 +5,4 @@
 # SOUND: entity.chicken.ambient
 # PARTICLE: minecraft:poof
 // 上空からニワトリ200匹が降ってくる
-execute as @p at @s run doumaeffect chickenrain {Count}
+execute as @p at @s run bridgeeffect chickenrain {Count}

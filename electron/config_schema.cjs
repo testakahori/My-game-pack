@@ -15,6 +15,7 @@ function validateBridgeConfig(config) {
     ["options.maxCommandsPerGift", options.maxCommandsPerGift, 1, 10000],
     ["options.maxLikeCatchUpPerEvent", options.maxLikeCatchUpPerEvent, 1, 100],
     ["options.likeBatchWindowMs", options.likeBatchWindowMs, 100, 10000],
+    ["options.bridgeModPort", options.bridgeModPort, 1, 65535],
     ["options.doumaModPort", options.doumaModPort, 1, 65535],
   ]) {
     if (value != null && (!Number.isFinite(Number(value)) || Number(value) < min || Number(value) > max)) {

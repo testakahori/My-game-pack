@@ -38,7 +38,7 @@ test('本番ハンドラー: いいね・ギフト・コメント・フォロー
   fs.writeFileSync(path.join(dir,'tts-settings.json'),JSON.stringify({enabled:false}));
   const config={tiktokUsername:'fixture',mappings:[{giftId:'5655',name:'バラ',commandFile:'zombie.txt',repeat:1}],
     likeEvents:[{enabled:true,threshold:100,commandFile:'cod.txt',repeat:1}],
-    options:{commandsDir:'commands',commandTransport:'douma_mod',doumaModHost:'127.0.0.1',doumaModPort:server.address().port,likeBatchWindowMs:100}};
+    options:{commandsDir:'commands',commandTransport:'bridge_mod',bridgeModHost:'127.0.0.1',bridgeModPort:server.address().port,likeBatchWindowMs:100}};
   const configPath=path.join(dir,'config.json');fs.writeFileSync(configPath,JSON.stringify(config));
   let connection,connections=0;
   class FixtureConnection extends TikTokLiveConnection {

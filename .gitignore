@@ -32,9 +32,12 @@ bridge/runtime-status.json
 bridge/presets/
 
 # Minecraft Mod build outputs (source in src/ is kept)
-DoumaCmdMod/build/
-DoumaCmdMod/.gradle/
-DoumaCmdMod/bin/
+BridgeMod/build/
+BridgeMod/.gradle/
+BridgeMod/bin/
+DisplayMod/build/
+DisplayMod/.gradle/
+DisplayMod/bin/
 
 # Gift data (runtime data, not source)
 tiktok_gifts/data/

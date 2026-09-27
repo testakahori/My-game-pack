@@ -1,5 +1,34 @@
 # HANDOFF04 — v1.0.21 以降（2026-07-17 〜 2026-09-21）の作業記録
 
+## 2026-09-28：DisplayMODの独立・任意連携（アプリ更新保留）
+
+- ブランチ：`feat/standalone-display-mod`。前回のBridgeMOD移行・ゲーム切替の変更を含む。ユーザーからコミット・プッシュ・PR・マージまで依頼あり。アプリのバージョン変更、公開リリース、インストール済みアプリ・本番MODフォルダへの反映は依頼待ち。
+- `DisplayMod/`を追加し、単独jar `displaymod-1.0.0.jar`を生成。共通タイトル・サブタイトル・通知音・通知粒子の処理をBridgeMODから分離した。Mob召喚・名前付与・イベント本体の物理演出と固定環境はBridgeMODに残る。
+- `DisplayApi.show(Object server, Map<String, ?> payload)`はBridgeMOD不要の独立API。BridgeMODの`DisplayLink`、ゲーム向けの`examples/display-integration/OptionalDisplay.java`は表示MOD未導入・API不一致・例外をスキップし、ゲームを止めない。クライアントへの独自通信チャネルも必須にしない。
+- 共通イベントは最初にコマンドが成功したtickで1回表示。`announce:false`、`DISPLAY_OWNER: game/none`、実行失敗時は共通表示を出さない。ゲームパックの各コマンドに`commonDisplay:true`を指定した場合のみゲーム入口でも共通表示を出す。省略はゲーム側の実開始時表示。
+- 表示テキストは文字列として送信し、コマンドに埋め込まない。送信者名・個数の置換、長さ制限、通知音・粒子IDの検証あり。全プレイヤーへ標準タイトルを送り、次の表示で上書きする仕様。表示MOD自体に待機列は持たせない。
+- アプリのMOD切替と新規配布資材はBridgeMOD＋DisplayMOD＋選択ゲーム。表示MODが未同梱でも切替・ゲーム実行は可能。表示MOD更新時は旧jarを退避し、BridgeMOD・ゲームMODを保持する。
+- 連携ガイド：`docs/DisplayMOD連携ガイド.md`。UmetateMOD・RunMODはまだ未作成、OBSMODはそうてんもんさん側の今後の実装。今回のゲーム側検証には製品に同梱しない独立テストMOD `displayprobe`を使用。
+- 検証成功：型チェック、Viteビルド、BridgeMOD・DisplayMODのForge jar生成、App 147件、BRIDGE 14件、表示API契約4条件×24項目。Electron画面から両方の検証用modsフォルダへ共通MOD2本を配置し、表示も目視確認。
+- Minecraft 1.20.1 / Forge 47.3.0の隔離サーバー＋テスト用クライアントで17項目成功。即時表示のパケット受信、送信者名・個数、待機中の非表示／実開始時のみ表示、100回分のtick分割でも1回の表示、表示MODなしでもイベント実行、BridgeMODなしでも独立APIを利用できることを確認。Minecraft実画面の目視テストとは区別する。
+- 前回メモリ不足で残っていた固定環境・暗視の解除後再付与・コマンド発動・一時的な暴風雨／流星群の夜・停止後の昼復帰も確認できた。本番ワールドは使わず、専用サーバーは保存停止済み。
+- 再検証：`node scripts/test-display-contract.cjs`、通常の`npm run verify`、各MODのGradle build。テストMODはDisplayModで`../BridgeMod/gradlew integrationProbeJar`を明示実行した時だけ`build/qa`に生成し、製品jar・配布テンプレートには含めない。
+
+---
+
+## 2026-09-27：BridgeMOD・ゲーム切替（開発版、アプリ更新保留）
+
+- ブランチ：`feat/bridge-mod-game-profiles`。アプリのversionは1.0.43のまま。リリース公開・インストール・実サーバーへの配置は行わない（ユーザーの更新依頼待ち）。
+- `DoumaCmdMod/`を`BridgeMod/`へ移し、modIdは`bridgemod`、コマンドは`/bridge <key> <count>`、内部大技は`bridgeeffect`。HTTPも`/bridge/*`。旧DOUMAMODは同時導入しない。
+- 固定環境はBridgeMODの`FixedEnvironment`が維持。暗視・keepInventory・昼・晴れの設定スイッチは作らない。共通イベントによる一時的な夜／悪天候は維持する。
+- ゲーム選択はサーバーとMinecraftのMODフォルダをセットで切替。現在のMODは退避、失敗時巻戻し、途中終了時は復旧必須。ゲーム別にギフト・イベント設定を保存。MAPは触らない。
+- UmetateMOD・RunMODはユーザーによれば未作成。架空の本体やAPIは実装していない。完成したjarと`game.json`を登録する仕組みのみ用意。詳細：`docs/BridgeMODとゲーム切替.md`。
+- 検証：型チェック、Viteビルド、Bridgeシミュレーション14件、Appテスト144件、BridgeMODのForge用jar生成成功。Electron画面操作から検証用の両MODフォルダをBridgeMODのみに切替できること、未導入ゲームが実行されないことも確認。
+- Minecraft実行検証：専用サーバーで新HTTP `/bridge/status` と `environmentFixed=true`、旧HTTPが404になることを確認。その後、PCのネイティブメモリ／ページング領域不足でJavaが終了。512MB・SerialGCでも不足が再発し、実ゲーム内のゾンビ発動・暗視再付与・一時演出と固定ルールの併用確認は未完了。成功扱いにしない。不要なアプリをユーザーが終了するなど、メモリに余裕ができてから専用サーバーで再検証する。
+- JavaビルドはWindowsの証明書ストアを使用し、Gradleと子Javaのメモリ上限を512MB・CPU数2に制限すると成功した。証明書検証やNorton保護を無効にしない。
+
+---
+
 HANDOFF03.md の最終記録（v1.0.21 / 自動更新404修正）以降に行われ、HANDOFF03 に
 書かれていない変更をすべてまとめる。対象は PR #2〜#25、リリース v1.0.25〜v1.0.43。
 

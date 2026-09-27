@@ -15,6 +15,7 @@ import OperationsPage from "./components/OperationsPage";
 import StatsDashboardPage from "./components/StatsDashboardPage";
 import MinecraftBlockIcon from "./components/MinecraftBlockIcon";
 import LoginPage from "./components/LoginPage";
+import GameSelector from './components/GameSelector';
 import { UnsavedChangesProvider, useUnsavedGuard } from "./UnsavedChanges";
 
 const PAGE_TITLE: Partial<Record<AppPage, string>> = {
@@ -184,6 +185,7 @@ const App: React.FC = () => {
 
           {hasChanges && <div className="unsaved-banner" role="status">未保存の変更があります。保存してから画面を移動してください。</div>}
           <main key={settingsRevision} ref={contentRef} className="app-content flex-1 overflow-y-auto">
+          {setupComplete && [AppPage.DASHBOARD, AppPage.GIFTS, AppPage.COMMANDS].includes(activePage) && <GameSelector onChanged={() => setSettingsRevision(value => value + 1)} />}
           {activePage === AppPage.DASHBOARD && (
             <div className="page-pad p-6">
               <DashboardPage onNavigate={navigateTo} />

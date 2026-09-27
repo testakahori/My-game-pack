@@ -1,0 +1,28 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="All Rights Reserved"
+
+[[mods]]
+modId="displaymod"
+version="${mod_version}"
+displayName="DisplayMOD（共通表示）"
+authors="Douma"
+displayTest="IGNORE_SERVER_VERSION"
+description='''
+Optional event titles, subtitles, notification sounds and particles.
+Callable independently from BridgeMOD or any game MOD. No BridgeMOD dependency.
+'''
+
+[[dependencies.displaymod]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.displaymod]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1]"
+ordering="NONE"
+side="BOTH"

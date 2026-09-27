@@ -14,14 +14,20 @@ test("公開テンプレート: ワールド・プレイヤー・パスワード
     fs.mkdirSync(path.join(source, name)); fs.writeFileSync(path.join(source, name, "fixture"), "data");
   }
   for (const name of ["forge-1.20.1-47.3.0-installer.jar", "run.bat", "run.sh", "setup.bat", "user_jvm_args.txt", "RCON_password.txt", "server.properties", "usercache.json", "ops.json"]) fs.writeFileSync(path.join(source, name), "data");
-  fs.writeFileSync(path.join(source, "mods", "doumacmd-1.2.0.jar"), "old");
-  const currentMod = path.join(root, "doumacmd-1.3.0.jar");
+  fs.writeFileSync(path.join(source, "mods", "bridgemod-1.2.0.jar"), "old");
+  fs.writeFileSync(path.join(source, "mods", "doumacmd-1.3.4.jar"), "retired");
+  fs.writeFileSync(path.join(source, "mods", "unselected-game.jar"), "another game");
+  const currentMod = path.join(root, "bridgemod-1.3.0.jar");
   fs.writeFileSync(currentMod, "current");
+  const displayMod = path.join(root, "displaymod-1.0.0.jar"); fs.writeFileSync(displayMod, "display");
   assert.throws(() => prepareServerTemplate(source, target, path.join(root, "missing.jar")), /Build the current/);
   assert.equal(fs.existsSync(target), false);
-  prepareServerTemplate(source, target, currentMod);
-  assert.equal(fs.readFileSync(path.join(target, "mods", "doumacmd-1.3.0.jar"), "utf8"), "current");
-  assert.equal(fs.existsSync(path.join(target, "mods", "doumacmd-1.2.0.jar")), false);
+  assert.throws(() => prepareServerTemplate(source, target, currentMod, path.join(root, 'missing-display.jar')), /DisplayMod/);
+  assert.equal(fs.existsSync(target), false);
+  prepareServerTemplate(source, target, currentMod, displayMod);
+  assert.equal(fs.readFileSync(path.join(target, "mods", "bridgemod-1.3.0.jar"), "utf8"), "current");
+  assert.equal(fs.existsSync(path.join(target, "mods", "bridgemod-1.2.0.jar")), false);
+  assert.deepEqual(fs.readdirSync(path.join(target, "mods")).filter(n => n.endsWith('.jar')).sort(), ['bridgemod-1.3.0.jar', 'displaymod-1.0.0.jar']);
   for (const name of ["world", "bridge", "logs", "RCON_password.txt", "server.properties", "usercache.json", "ops.json"]) assert.equal(fs.existsSync(path.join(target, name)), false, name);
   assert.equal(fs.existsSync(path.join(target, "mods", "fixture")), true);
   assert.throws(() => prepareServerTemplate(source, target), /already exists/);

@@ -1,0 +1,26 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="All Rights Reserved"
+
+[[mods]]
+modId="bridgemod"
+version="${mod_version}"
+displayName="BridgeMOD"
+authors="Douma"
+description='''
+Common events, gift queues and fixed streaming environment. Use /bridge <key> <count>.
+'''
+
+[[dependencies.bridgemod]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.bridgemod]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1]"
+ordering="NONE"
+side="BOTH"
