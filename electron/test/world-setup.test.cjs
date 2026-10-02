@@ -103,6 +103,7 @@ test("生成プロセス: Done後にstopを送り、終了と保存を待って�
     assert.equal(options.windowsHide, true);
     assert.equal(options.cwd, root);
     assert.ok(args.includes("-Xmx1536M"));
+    assert.ok(args.includes("@libraries/net/minecraftforge/forge/1.20.1-47.4.10/win_args.txt"));
     const child = new EventEmitter();
     child.stdout = new PassThrough(); child.stderr = new PassThrough();
     child.stdin = new Writable({ write(chunk, _encoding, callback) {

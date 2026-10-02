@@ -724,7 +724,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
       <section className="setup-flow-panel-v2">
         <div className="setup-flow-copy-v2">
           <span>ⓘ</span>
-          <p>① Forgeの準備 → ② <b>環境構築</b> → 完了確認の順に進みます。<br />完了後はMinecraftランチャーで「1.20.1-forge-47.3.0」を選び、ダッシュボードからサーバーを起動できます。</p>
+          <p>① Forgeの準備 → ② <b>環境構築</b> → 完了確認の順に進みます。<br />完了後はMinecraftランチャーで「1.20.1-forge-47.4.10」を選び、ダッシュボードからサーバーを起動できます。</p>
         </div>
         <FlowBlocks />
       </section>

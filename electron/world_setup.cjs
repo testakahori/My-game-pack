@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const net = require("node:net");
+const { FORGE_DIR } = require("./forge_version.cjs");
 const { spawn } = require("node:child_process");
 
 const INCOMPLETE = ".world-setup-incomplete.json";
@@ -53,7 +54,7 @@ function generateInitialWorld(root, destination, {
     let ready = false, stopping = false, failure, tail = "", stopTimer;
     const child = spawnProcess(path.join(root, "jdk-21.0.4+7", "bin", "java.exe"), [
       "@user_jvm_args.txt", "-Xms512M", "-Xmx1536M",
-      "@libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt", "nogui",
+      `@${FORGE_DIR}/win_args.txt`, "nogui",
     ], { cwd: root, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
     const stop = () => {
       if (stopping) return;

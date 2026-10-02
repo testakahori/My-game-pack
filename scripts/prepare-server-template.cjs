@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { FORGE_VERSION } = require("../electron/forge_version.cjs");
 
 // 実行済みサーバーを丸ごと配布しない。初回構築に必要な資材だけを許可する。
 function prepareServerTemplate(source, destination, modJar, displayJar) {
@@ -7,7 +8,7 @@ function prepareServerTemplate(source, destination, modJar, displayJar) {
   if (modJar && (!fs.existsSync(modJar) || !fs.statSync(modJar).isFile())) throw new Error(`Build the current BridgeMod first: ${modJar}`);
   if (displayJar && (!fs.existsSync(displayJar) || !fs.statSync(displayJar).isFile())) throw new Error(`Build the current DisplayMod first: ${displayJar}`);
   const directories = ["jdk-21.0.4+7", "libraries", "mods", "GiftStream_Pack"];
-  const files = ["forge-1.20.1-47.3.0-installer.jar", "run.bat", "run.sh", "setup.bat", "user_jvm_args.txt"];
+  const files = [`forge-${FORGE_VERSION}-installer.jar`, "run.bat", "run.sh", "setup.bat", "user_jvm_args.txt"];
   for (const name of [...directories, ...files]) {
     const src = path.join(source, name);
     if (!fs.existsSync(src)) throw new Error(`Server build resource missing: ${name}`);
@@ -15,6 +16,11 @@ function prepareServerTemplate(source, destination, modJar, displayJar) {
   fs.mkdirSync(destination, { recursive: true });
   for (const name of [...directories, ...files]) {
     fs.cpSync(path.join(source, name), path.join(destination, name), { recursive: true, filter: src => !/\.(log|bak)$/i.test(src) });
+  }
+  // A retained 47.3.x launcher must not silently start the old Forge after an upgrade.
+  for (const name of ["run.bat", "run.sh", "setup.bat"]) {
+    const file = path.join(destination, name);
+    fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace(/1\.20\.1-47\.\d+\.\d+/g, FORGE_VERSION));
   }
   if (modJar) {
     const mods = path.join(destination, "mods");
