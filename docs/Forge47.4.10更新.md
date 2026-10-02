@@ -35,3 +35,10 @@ npm run verify: 型チェック、Bridge 14件、App 148件、Viteビルドが�
 公式配布: https://files.minecraftforge.net/net/minecraftforge/forge/index_1.20.1.html
 変更履歴: https://maven.minecraftforge.net/net/minecraftforge/forge/1.20.1-47.4.10/forge-1.20.1-47.4.10-changelog.txt
 インストーラーSHA-1: 66bfea9963bfa60d88bab6b2750e74a958392715
+# 2026年10月3日追記：環境構築の起動設定を揃える
+
+既存フォルダーでは、47.4.10のライブラリが配置されても古いrun.batが残る場合がありました。環境構築では実際の起動設定も確認し、47.4.10へ揃えてからワールドを準備します。
+
+変更するrun.bat・run.sh・setup.batは、保存先内の `forge-launcher-backups` に退避します。インストーラーを再実行する場合も事前に退避します。Javaの指定やその他の起動オプション、日本語コメントの文字コードは保持します。独自形式でForgeの起動先を判別できないrun.batは、上書きせずエラーを表示します。
+
+アプリ本体のリリース・インストール更新は引き続き保留しています。

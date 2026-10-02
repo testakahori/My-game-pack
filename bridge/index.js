@@ -31,6 +31,7 @@ const { connectionOptions, redactSecrets, retryDelay } = require('./tiktok_conne
 const { Rcon } = require("rcon-client");
 const { validateBridgeConfig } = require("./config_schema");
 const { prepareRoulette, createRouletteRunner } = require("./roulette.cjs");
+const { createModEventDelivery, createLikeBatcher } = require("./mod_event_delivery.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted } = require("./feature_engine");
 const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras } = require("./event_rules.cjs");
 const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter } = require("./tiktok_events.cjs");
@@ -650,9 +651,10 @@ function commandFileToBridgeKey(commandFile) {
   return path.basename(file, ".txt");
 }
 
-function sendBridgeModEvent({ host, port, type, commandFile, count, listenerName, announce }) {
+function sendBridgeModEvent({ host, port, type, commandFile, count, listenerName, announce, eventId }) {
   const payload = JSON.stringify({
     type,
+    ...(eventId ? { eventId } : {}),
     key: commandFileToBridgeKey(commandFile),
     count: clampInt(count, 1, 100, 1),
     listenerName: String(listenerName || "viewer"),
@@ -755,16 +757,11 @@ function appendOperationsHistoryLine(historyPath, row) {
   } catch { /* ignore */ }
 }
 
-async function enqueueBridgeModEvent(bridgeMod, event, opts = {}) {
-  // ギフトは落とさない：429(キュー満杯)や一時的な接続断は指数バックオフでリトライ。
-  // リトライ待ちは rconQueue を直列で塞ぐが、Mod側が詰まっている間に
-  // さらに送り込まないバックプレッシャとして機能する。
-  const maxRetries = Number(opts.retries ?? (event.type === "gift" ? 5 : 1));
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await sendBridgeModEvent({ ...bridgeMod, ...event });
-      // event.type はMod側のキュー振り分け用（gift/like以外は全部"other"に丸められる）。
-      // 統計での内訳表示のため、share/follow/member等の実種別は historyType に別枠で持たせる。
+function bridgeEventDelivery(bridgeMod, opts = {}) {
+  return createModEventDelivery({
+    send: event => sendBridgeModEvent({ ...bridgeMod, ...event }),
+    maxRetries: opts.retries ?? Infinity,
+    delivered: event => {
       appendOperationsHistoryLine(path.join(__dirname, "operations-history.json"), {
         at: new Date().toISOString(), type: event.historyType || event.type || "other",
         sender: event.listenerName || "viewer", commandFile: ensureTxt(event.commandFile),
@@ -773,21 +770,16 @@ async function enqueueBridgeModEvent(bridgeMod, event, opts = {}) {
         ...(event.giftId ? { giftId: String(event.giftId) } : {}),
         ...(Number(event.diamond) > 0 ? { diamond: Number(event.diamond) } : {}),
       });
-      if (attempt > 0) {
-        console.log(`[BridgeMod] Send ok after retry x${attempt} (${event.type}:${event.commandFile})`);
-      }
-      return;
-    } catch (e) {
-      if (attempt >= maxRetries) {
-        console.error(
-          `[BridgeMod] Send failed (${event.type}:${event.commandFile}) after ${attempt + 1} attempts:`,
-          e?.message || e
-        );
-        return;
-      }
-      await sleep(Math.min(3000, 250 * Math.pow(2, attempt)));
-    }
-  }
+    },
+    retry: (event, error, attempt) => {
+      if (attempt === 1 || attempt % 20 === 0) console.warn(
+        "[BridgeMod] Waiting to retry", event.type, event.commandFile, "attempt=" + attempt, error?.message || error);
+    },
+  });
+}
+
+async function enqueueBridgeModEvent(bridgeMod, event, opts = {}) {
+  return bridgeEventDelivery(bridgeMod, opts).enqueue(event);
 }
 
 // 7DTD Telnet: 1回の接続でまとめて送る（高速・安定）
@@ -1220,6 +1212,12 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   }, 60000);
   if (typeof stateCleanupTimer.unref === "function") stateCleanupTimer.unref();
 
+  // Independent FIFO senders: retrying likes cannot block gift delivery.
+  const modDelivery = bridgeMod ? bridgeEventDelivery(bridgeMod) : null;
+  const enqueueMod = event => modDelivery.enqueue(event).catch(error => {
+    console.error("[BridgeMod] Invalid event:", error?.message || error);
+  });
+
   // RCON/Telnet 実行を直列化しつつ、ギフトをいいねの backlog より優先する。
   // 並列接続による gift_stream:bridge ストレージの上書きを防ぐため、実行自体は常に1本。
   const rconQueue = [];
@@ -1273,11 +1271,11 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     try {
       const round = prepareRoulette(rl, commandsDirAbs);
       animateRoulette(round, triggerName, winner => {
-        enqueueRcon("roulette:" + winner.commandFile, () => enqueueBridgeModEvent(bridgeMod, {
+        enqueueMod({
           type: "other", historyType: historyType || "roulette",
           commandFile: winner.commandFile, count: winner.repeat,
           listenerName: triggerName || "roulette", announce: false,
-        }), { priority: 8 });
+        });
       }).catch(error => console.error("[Roulette] 演出・発火に失敗:", error.message));
     } catch (error) {
       console.error("[Roulette]", error.message);
@@ -1295,7 +1293,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     ) {
       return;
     }
-    enqueueRcon(label, () => enqueueBridgeModEvent(bridgeMod, event), opts);
+    enqueueMod(event);
   }
 
   // デスルーレット：Mod からの death 通知（WS）で発動
@@ -1744,29 +1742,10 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // BridgeModモードのいいねはミニバッチ化：短時間の連続発火を1イベントに圧縮して
   // HTTP送信とMod側キューの消費を抑える（ギフトを圧迫させない）
   const LIKE_BATCH_MS = clampInt(options.likeBatchWindowMs ?? 1200, 100, 10000, 1200);
-  const likeBatch = new Map(); // commandFile -> { count, sender, announce }
-  function queueLikeEventBatched(commandFile, count, sender, announce) {
-    const cur = likeBatch.get(commandFile);
-    if (cur) {
-      cur.count = Math.min(100, cur.count + count);
-      cur.sender = sender;
-      cur.announce = cur.announce || announce;
-      return;
-    }
-    const entry = { count: Math.min(100, count), sender, announce };
-    likeBatch.set(commandFile, entry);
-    setTimeout(() => {
-      likeBatch.delete(commandFile);
-      console.log(`[Like] batched -> BridgeMod file=${commandFile} count=${entry.count}`);
-      dispatchBridgeEvent(`like:${commandFile}`, {
-        type: "like",
-        commandFile,
-        count: entry.count,
-        listenerName: entry.sender,
-        announce: entry.announce,
-      }, { priority: 0 });
-    }, LIKE_BATCH_MS);
-  }
+  const queueLikeEventBatched = createLikeBatcher({
+    windowMs: LIKE_BATCH_MS, schedule: setTimeout,
+    dispatch: event => dispatchBridgeEvent("like:" + event.commandFile, event),
+  });
 
   tiktok.on("like", async (data) => {
     data = normalizeTikTokEvent(data, 'like');
@@ -1783,7 +1762,10 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       if (ev.enabled === false || !ev.commandFile || !ev.threshold) continue;
       const thresh = clampInt(ev.threshold, 1, 1000000, 10);
       const lastMultiple = Math.floor(previousTotal / thresh);
-      const { newTriggers, triggersToRun, skippedTriggers } = likeRuleProgress(ev, total, lastMultiple, maxLikeCatchUpPerEvent);
+      const ruleProgress = likeRuleProgress(ev, total, lastMultiple, maxLikeCatchUpPerEvent);
+      const { newTriggers } = ruleProgress;
+      const triggersToRun = bridgeMod ? newTriggers : ruleProgress.triggersToRun;
+      const skippedTriggers = newTriggers - triggersToRun;
       if (newTriggers <= 0) continue;
 
       const mapping = { commandFile: ensureTxt(ev.commandFile), name: ev.label || `${thresh}いいね` };

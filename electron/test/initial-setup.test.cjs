@@ -24,7 +24,7 @@ function fixture(t) {
   };
   write("jdk-21.0.4+7/bin/java.exe");
   write("jdk-21.0.4+7/bin/javaw.exe");
-  write("run.bat");
+  write("run.bat", `@echo off\r\njava @user_jvm_args.txt @libraries/net/minecraftforge/forge/${FORGE_VERSION}/win_args.txt nogui\r\n`);
   write("user_jvm_args.txt", "");
   write(`forge-${FORGE_VERSION}-installer.jar`);
   write(`libraries/net/minecraftforge/forge/${FORGE_VERSION}/win_args.txt`, "-p libraries/test/dependency.jar\n");
@@ -122,7 +122,7 @@ test("依存ファイル不足: インストーラーの終了を待ち、失敗
 test("完了判定: 空のlibrariesやrun.batだけでは完了しない", async t => {
   const f = fixture(t);
   f.write("server.properties", "enable-rcon=false\n");
-  f.write("run.bat");
+  f.write("run.bat", `java @libraries/net/minecraftforge/forge/${FORGE_VERSION}/win_args.txt nogui`);
   assert.equal(inspectSetup(f.dir).complete, false);
   assert.ok(inspectSetup(f.dir).missing.includes("RCON接続設定"));
   await prepareServerEnvironment(f.dir, { eulaAccepted: true });
@@ -150,4 +150,76 @@ test("Forge更新: 旧版が併存してもrun.batが選んだ版を検出する
   assert.equal(detectServerForgeVersion(f.dir), "1.20.1-47.3.0");
   f.write("run.bat", "java @libraries/net/minecraftforge/forge/1.20.1-47.4.99/win_args.txt nogui");
   assert.equal(detectServerForgeVersion(f.dir), "");
+});
+
+test("既存フォルダー: 旧起動設定を退避して新版へ揃えてからワールドを準備する", async t => {
+  const f = fixture(t);
+  const oldRun = '@echo off\r\n"custom-java.exe" @user_jvm_args.txt @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt nogui %*\r\n';
+  f.write("run.bat", oldRun);
+  f.write("run.sh", "java @libraries/net/minecraftforge/forge/1.20.1-47.3.0/unix_args.txt\n");
+  f.write("setup.bat", "java -jar forge-1.20.1-47.3.0-installer.jar --installServer\r\n");
+  assert.ok(inspectSetup(f.dir).missing.includes("Forgeサーバーの起動設定"));
+  await prepareServerEnvironment(f.dir, { eulaAccepted: true, generateWorld: async (_root, destination) => {
+    assert.equal(require("../forge_version.cjs").detectServerForgeVersion(f.dir), FORGE_VERSION);
+    fs.mkdirSync(destination, { recursive: true });
+    fs.writeFileSync(path.join(destination, "level.dat"), "saved");
+  } });
+  assert.equal(f.read("run.bat"), oldRun.replaceAll("47.3.0", "47.4.10"));
+  assert.match(f.read("run.sh"), /47\.4\.10/);
+  assert.match(f.read("setup.bat"), /47\.4\.10-installer/);
+  const backups = path.join(f.dir, "forge-launcher-backups");
+  const saved = fs.readdirSync(backups);
+  assert.equal(saved.length, 1);
+  assert.equal(fs.readFileSync(path.join(backups, saved[0], "run.bat"), "utf8"), oldRun);
+  await prepareServerEnvironment(f.dir);
+  assert.deepEqual(fs.readdirSync(backups), saved, "再実行で同じバックアップを増やさない");
+  assert.equal(inspectSetup(f.dir).complete, true);
+});
+
+test("Forge再構築: インストーラーが起動ファイルを書いても以前のJava指定を保持する", async t => {
+  const f = fixture(t);
+  const original = '"chosen-java.exe" @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt nogui %*\r\n';
+  f.write("run.bat", original);
+  fs.unlinkSync(path.join(f.dir, "libraries/test/dependency.jar"));
+  await prepareServerEnvironment(f.dir, { eulaAccepted: true, runInstaller: async () => {
+    f.write("run.bat", `java @libraries/net/minecraftforge/forge/${FORGE_VERSION}/win_args.txt %*\r\npause\r\n`);
+    f.write("libraries/test/dependency.jar");
+  } });
+  assert.equal(f.read("run.bat"), original.replaceAll("47.3.0", "47.4.10"));
+});
+
+test("不明な独自起動ファイルは上書きせず環境構築を止める", async t => {
+  const f = fixture(t);
+  f.write("run.bat", "call custom-server.bat\r\n");
+  await assert.rejects(prepareServerEnvironment(f.dir, { eulaAccepted: true }), /既存ファイルは変更せず/);
+  assert.equal(f.read("run.bat"), "call custom-server.bat\r\n");
+  assert.equal(fs.existsSync(path.join(f.dir, "server.properties")), false);
+  assert.equal(fs.existsSync(path.join(f.dir, "haihu_world")), false);
+});
+
+test("Forge再構築: インストーラー自身が新版に揃えた場合も旧ファイルを退避する", async t => {
+  const f = fixture(t);
+  const original = 'java @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt nogui\r\n';
+  f.write("run.bat", original);
+  fs.unlinkSync(path.join(f.dir, "libraries/test/dependency.jar"));
+  await prepareServerEnvironment(f.dir, { eulaAccepted: true, runInstaller: async () => {
+    f.write("run.bat", original.replaceAll("47.3.0", "47.4.10"));
+    f.write("libraries/test/dependency.jar");
+  } });
+  const backups = path.join(f.dir, "forge-launcher-backups");
+  assert.equal(fs.readFileSync(path.join(backups, fs.readdirSync(backups)[0], "run.bat"), "utf8"), original);
+});
+
+test("Forge再構築: ダウンロード途中で失敗しても以前の起動設定は退避済み", async t => {
+  const f = fixture(t);
+  const original = 'java @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt nogui\r\n';
+  f.write("run.bat", original);
+  fs.unlinkSync(path.join(f.dir, "libraries/test/dependency.jar"));
+  await assert.rejects(prepareServerEnvironment(f.dir, { eulaAccepted: true, runInstaller: async () => {
+    f.write("run.bat", original.replaceAll("47.3.0", "47.4.10"));
+    throw Error("download interrupted");
+  } }), /準備に失敗/);
+  const backups = path.join(f.dir, "forge-launcher-backups");
+  assert.equal(fs.readFileSync(path.join(backups, fs.readdirSync(backups)[0], "run.bat"), "utf8"), original);
+  assert.equal(inspectSetup(f.dir).complete, false);
 });
