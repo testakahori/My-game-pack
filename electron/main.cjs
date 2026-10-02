@@ -2638,14 +2638,8 @@ ipcMain.handle("setup:inspectEnvironment", async () => {
   let forgeVersion = "";
   let minecraftVersion = "";
   try {
-    const forgeLibDir = path.join(dir, "libraries", "net", "minecraftforge", "forge");
-    if (fs.existsSync(forgeLibDir)) {
-      const versionDirs = fs.readdirSync(forgeLibDir, { withFileTypes: true }).filter((e) => e.isDirectory());
-      if (versionDirs.length > 0) {
-        forgeVersion = versionDirs[0].name; // 例: "1.20.1-47.3.0"
-        minecraftVersion = forgeVersion.split("-")[0] || "";
-      }
-    }
+    forgeVersion = require("./forge_version.cjs").detectServerForgeVersion(dir);
+    minecraftVersion = forgeVersion.split("-")[0] || "";
   } catch { /* 検出できなければ未検出のまま */ }
 
   let javaVersion = "";

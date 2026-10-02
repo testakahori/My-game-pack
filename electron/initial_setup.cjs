@@ -6,9 +6,8 @@ const { runProc } = require("./process_runner.cjs");
 const { atomicWrite } = require("./settings_backups.cjs");
 const { ensureManagedWorld, worldReady, assertSetupPortsAvailable } = require("./world_setup.cjs");
 
-const FORGE_VERSION = "1.20.1-47.3.0";
+const { FORGE_VERSION, FORGE_CLIENT_ID, FORGE_DIR } = require("./forge_version.cjs");
 const JAVA_DIR = "jdk-21.0.4+7";
-const FORGE_DIR = `libraries/net/minecraftforge/forge/${FORGE_VERSION}`;
 const EULA_URL = "https://www.minecraft.net/eula";
 // Windowsで信頼済みのCAを使う。HTTPSの証明書検証自体は有効のまま。
 const JAVA_TLS_ARGS = process.platform === "win32"
@@ -57,7 +56,7 @@ function inspectSetup(root) {
 }
 
 function inspectForgeClient(minecraftDir) {
-  const id = "1.20.1-forge-47.3.0";
+  const id = FORGE_CLIENT_ID;
   let profile = {};
   try { profile = JSON.parse(read(path.join(minecraftDir, "versions", id, `${id}.json`))); } catch {}
   const installed = profile.id === id && Array.isArray(profile.libraries)

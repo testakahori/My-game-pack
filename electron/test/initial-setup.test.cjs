@@ -133,9 +133,21 @@ test("完了判定: 空のlibrariesやrun.batだけでは完了しない", async
 test("Forgeクライアント: インストーラー起動と導入完了を区別する", t => {
   const f = fixture(t);
   assert.equal(inspectForgeClient(f.dir).installed, false);
-  const id = "1.20.1-forge-47.3.0";
+  const id = "1.20.1-forge-47.4.10";
   f.write(`versions/${id}/${id}.json`, JSON.stringify({ id, libraries: [{ name: `net.minecraftforge:fmlloader:${FORGE_VERSION}` }] }));
   assert.equal(inspectForgeClient(f.dir).installed, true);
   f.write(`versions/${id}/${id}.json`, "broken");
   assert.equal(inspectForgeClient(f.dir).installed, false);
+});
+
+test("Forge更新: 旧版が併存してもrun.batが選んだ版を検出する", t => {
+  const f = fixture(t);
+  const { detectServerForgeVersion } = require("../forge_version.cjs");
+  f.write("libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt", "old");
+  f.write("run.bat", "rem java @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt\njava @libraries/net/minecraftforge/forge/1.20.1-47.4.10/win_args.txt nogui");
+  assert.equal(detectServerForgeVersion(f.dir), "1.20.1-47.4.10");
+  f.write("run.bat", "java @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt nogui");
+  assert.equal(detectServerForgeVersion(f.dir), "1.20.1-47.3.0");
+  f.write("run.bat", "java @libraries/net/minecraftforge/forge/1.20.1-47.4.99/win_args.txt nogui");
+  assert.equal(detectServerForgeVersion(f.dir), "");
 });
