@@ -14,6 +14,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
@@ -56,6 +57,10 @@ public class BridgeMod {
     private final Deque<BridgeEvent> giftQueue = new ArrayDeque<>();
     private final Deque<BridgeEvent> likeQueue = new ArrayDeque<>();
     private final Deque<BridgeEvent> otherQueue = new ArrayDeque<>();
+    private final Set<String> pendingEventIds = new HashSet<>();
+    private final LinkedHashSet<String> completedEventIds = new LinkedHashSet<>();
+    private static final int COMPLETED_EVENT_ID_LIMIT = 4096;
+    private final LikeCodLimiter likeCod = new LikeCodLimiter();
 
     private HttpServer bridgeServer;
     private MinecraftServer activeServer;
@@ -99,8 +104,14 @@ public class BridgeMod {
             giftQueue.clear();
             likeQueue.clear();
             otherQueue.clear();
+            pendingEventIds.clear();
+            completedEventIds.clear();
         }
+        likeCod.reset();
     }
+
+    @SubscribeEvent
+    public void onEntityJoin(EntityJoinLevelEvent event) { likeCod.joined(event); }
 
     // プレイヤー死亡の検知（デスルーレット用）。累計死亡数を WS で Bridge へ通知する。
     @SubscribeEvent
@@ -116,11 +127,12 @@ public class BridgeMod {
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END || activeServer == null) return;
 
-        // ギフト最優先。ただし、いいね用に最低予算を予約して飢餓を防ぐ
+        likeCod.tick();
+        // Gift work is independent. Likes cannot borrow unused gift budget and cause a burst.
         int budget = MAX_COMMANDS_PER_TICK - LIKE_RESERVED_COMMANDS_PER_TICK;
         budget -= processQueue(activeServer, giftQueue, budget);
         budget -= processQueue(activeServer, otherQueue, budget);
-        processQueue(activeServer, likeQueue, budget + LIKE_RESERVED_COMMANDS_PER_TICK);
+        processQueue(activeServer, likeQueue, LIKE_RESERVED_COMMANDS_PER_TICK);
         giftEffects.tick(activeServer);
         environment.apply(activeServer, giftEffects);
         if (++statusBroadcastTicks >= 20) {
@@ -349,6 +361,8 @@ public class BridgeMod {
         double tps = tickMs <= 0 ? 20.0 : Math.min(20.0, 1000.0 / tickMs);
         return "{\"ok\":true,\"mod\":\"bridgemod\",\"environmentFixed\":true,\"gift\":" + gift + ",\"like\":" + like + ",\"other\":" + other
             + ",\"displayAvailable\":" + DisplayLink.available()
+            + ",\"likeCodActive\":" + likeCod.activeCount() + ",\"likeCodLimit\":" + LikeCodLimiter.MAX_ACTIVE
+            + ",\"likeCodSpawned\":" + likeCod.spawned()
             + ",\"executed\":" + executedCommands + ",\"failed\":" + failedCommands
             + ",\"effectsPending\":" + giftEffects.pendingJobs() + ",\"effectsFailed\":" + giftEffects.failures()
             + ",\"effectsError\":\"" + jsonEscape(giftEffects.lastError()) + "\""
@@ -467,33 +481,14 @@ public class BridgeMod {
     }
 
     private synchronized boolean enqueueBridgeEvent(BridgeEvent event) {
-        if ("gift".equals(event.type)) {
-            // ギフトはギフトキューが満杯のときだけ拒否（いいねの滞留に影響されない）
-            if (giftQueue.size() >= MAX_GIFT_QUEUE) return false;
-            giftQueue.addLast(event);
-            return true;
-        }
-
-        if ("like".equals(event.type)) {
-            // 連打圧縮：同じkeyの末尾いいねに合流（先頭=実行中のイベントには触らない）
-            BridgeEvent last = likeQueue.peekLast();
-            if (likeQueue.size() >= 2 && last != null && last.key.equals(event.key)
-                    && last.announce == event.announce && last.listenerName.equals(event.listenerName)
-                    && last.remaining + event.remaining <= MAX_COUNT) {
-                last.remaining += event.remaining;
-                last.count += event.remaining;
-                return true;
-            }
-            // 満杯なら一番古いいいねを捨てて新しいものを受け入れる（いいねは損失許容）
-            if (likeQueue.size() >= MAX_LIKE_QUEUE) {
-                likeQueue.pollFirst();
-            }
-            likeQueue.addLast(event);
-            return true;
-        }
-
-        if (otherQueue.size() >= MAX_OTHER_QUEUE) return false;
-        otherQueue.addLast(event);
+        // An HTTP response can be lost after acceptance. Retrying the same ID must not run it twice.
+        if (!event.eventId.isEmpty() && (pendingEventIds.contains(event.eventId) || completedEventIds.contains(event.eventId))) return true;
+        Deque<BridgeEvent> queue = "gift".equals(event.type) ? giftQueue : "like".equals(event.type) ? likeQueue : otherQueue;
+        int limit = queue == giftQueue ? MAX_GIFT_QUEUE : queue == likeQueue ? MAX_LIKE_QUEUE : MAX_OTHER_QUEUE;
+        // Backpressure: the sender retains the head until accepted. Never discard an older event.
+        if (queue.size() >= limit) return false;
+        queue.addLast(event);
+        if (!event.eventId.isEmpty()) pendingEventIds.add(event.eventId);
         return true;
     }
 
@@ -515,6 +510,13 @@ public class BridgeMod {
             if (event.remaining <= 0) {
                 synchronized (this) {
                     queue.pollFirst();
+                    if (!event.eventId.isEmpty()) {
+                        pendingEventIds.remove(event.eventId);
+                        completedEventIds.add(event.eventId);
+                        if (completedEventIds.size() > COMPLETED_EVENT_ID_LIMIT) {
+                            Iterator<String> ids = completedEventIds.iterator(); ids.next(); ids.remove();
+                        }
+                    }
                 }
             } else {
                 break; // 予算切れ：次tickで続きから
@@ -528,6 +530,8 @@ public class BridgeMod {
      * 実行したコマンド数を返す。event.remaining / event.announced を更新する。
      */
     private int executeEventSlice(MinecraftServer server, BridgeEvent event, int commandBudget) {
+        boolean pacedCod = "like".equals(event.type) && "cod".equals(event.key);
+        if (pacedCod && !likeCod.canSpawn(server)) return 0;
         // /bridge/exec の生コマンド：演出フレームなので失敗は統計に計上しない
         if (event.inlineCommands != null) {
             CommandSourceStack silentInline = server.createCommandSourceStack().withPermission(4).withSuppressedOutput();
@@ -560,7 +564,8 @@ public class BridgeMod {
 
         ParsedFile parsed;
         try {
-            parsed = parseFile(file);
+            if (event.parsed == null) event.parsed = parseFile(file);
+            parsed = event.parsed;
         } catch (Exception e) {
             System.out.println("[Bridge] read failed (" + event.key + "): " + e.getMessage());
             recordFailure(event.key + ": " + e.getMessage());
@@ -585,17 +590,19 @@ public class BridgeMod {
 
         // Native effects receive the full count once; normal command files retain repeat semantics.
         while (event.remaining > 0 && (used == 0 || used + parsed.commands.size() <= commandBudget)) {
+            if (pacedCod && !likeCod.canSpawn(server)) break;
             int count = "aggregate".equals(parsed.meta.get("COUNT_MODE")) ? event.remaining : 1;
             currentEffectProtection = new GiftEffects.Protection(event.protectionEnabled,
                 event.protectX1, event.protectX2, event.protectZ1, event.protectZ2);
             boolean started = false;
+            if (pacedCod) likeCod.begin();
             try {
                 for (String raw : parsed.commands) {
                     String cmd = applyPlaceholdersMinecraft(raw, event.listenerName).replace("{Count}", Integer.toString(count));
                     started |= performSilent(server, silent, cmd);
                     used++;
                 }
-            } finally { currentEffectProtection = null; }
+            } finally { currentEffectProtection = null; if (pacedCod) likeCod.end(); }
             // Notify only when a command actually ran, once across all tick slices.
             // Game-owned queues call DisplayMOD themselves when their real event starts.
             if (started && DisplayLink.shouldAnnounce(event.announce, event.announced, parsed.meta.get("DISPLAY_OWNER"))) {
@@ -621,11 +628,13 @@ public class BridgeMod {
         final boolean announce;
         final boolean protectionEnabled;
         final double protectX1, protectX2, protectZ1, protectZ2;
-        // 分割実行用の状態（tickスレッドのみが更新。enqueue時の合流は未着手イベントに限る）
-        int remaining;
+        // Only the server tick changes progress; HTTP requests never merge into an executing event.
+        volatile int remaining;
         boolean announced;
         // /bridge/exec 用：ファイルではなく生コマンド配列を実行する（null ならファイル実行）
         List<String> inlineCommands;
+        ParsedFile parsed;
+        String eventId = "";
 
         BridgeEvent(String type, String key, int count, String listenerName, boolean announce) {
             this(type, key, count, listenerName, announce, false, 0, 0, 0, 0);
@@ -666,8 +675,10 @@ public class BridgeMod {
             double x2 = jsonDouble(json, "protectX2", 0);
             double z1 = jsonDouble(json, "protectZ1", 0);
             double z2 = jsonDouble(json, "protectZ2", 0);
-            return new BridgeEvent(type, key, count, listenerName, announce,
+            BridgeEvent event = new BridgeEvent(type, key, count, listenerName, announce,
                 protectionEnabled, x1, x2, z1, z2);
+            event.eventId = jsonString(json, "eventId", "");
+            return event.eventId.length() <= 128 ? event : null;
         }
 
         private static String normalizeType(String type) {
@@ -758,7 +769,11 @@ public class BridgeMod {
         String v = commandLine == null ? "" : commandLine.trim();
         if (v.startsWith("/")) v = v.substring(1).trim();
         v = v.toLowerCase(Locale.ROOT);
-        return v.startsWith("execute if ") || v.startsWith("execute unless ");
+        // Also recognize "execute at @p if/unless ... run ..." used by the spawn files.
+        // Search only the execute prefix, not a word inside a say command or JSON payload.
+        int run = v.indexOf(" run ");
+        String prefix = run < 0 ? v : v.substring(0, run);
+        return v.startsWith("execute ") && prefix.matches(".*\\b(if|unless)\\s+.*");
     }
 
     private synchronized void recordFailure(String message) {

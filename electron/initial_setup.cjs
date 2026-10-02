@@ -6,7 +6,8 @@ const { runProc } = require("./process_runner.cjs");
 const { atomicWrite } = require("./settings_backups.cjs");
 const { ensureManagedWorld, worldReady, assertSetupPortsAvailable } = require("./world_setup.cjs");
 
-const { FORGE_VERSION, FORGE_CLIENT_ID, FORGE_DIR } = require("./forge_version.cjs");
+const { FORGE_VERSION, FORGE_CLIENT_ID, FORGE_DIR, detectServerForgeVersion } = require("./forge_version.cjs");
+const { captureServerLaunchers, backupServerLaunchers, synchronizeServerLaunchers } = require("./forge_launchers.cjs");
 const JAVA_DIR = "jdk-21.0.4+7";
 const EULA_URL = "https://www.minecraft.net/eula";
 // Windowsで信頼済みのCAを使う。HTTPSの証明書検証自体は有効のまま。
@@ -49,6 +50,7 @@ function inspectSetup(root) {
   const props = readProperties(read(path.join(root, "server.properties")));
   if (readProperties(read(path.join(root, "eula.txt"))).eula !== "true") missing.push("Minecraft利用規約への同意");
   if (missingServerFiles(root).length) missing.push("Java・Forgeサーバーの必要ファイル");
+  if (detectServerForgeVersion(root) !== FORGE_VERSION) missing.push("Forgeサーバーの起動設定");
   if (!isFile(path.join(root, "server.properties"))) missing.push("サーバー設定");
   if (props["enable-rcon"] !== "true" || !props["rcon.password"] || !Number(props["rcon.port"])) missing.push("RCON接続設定");
   if (!worldReady(root, props["level-name"] || "world")) missing.push("配信ワールドの生成・保存");
@@ -87,14 +89,20 @@ async function prepareServerEnvironment(root, { eulaAccepted = false, runInstall
   const beforeProps = readProperties(read(path.join(root, "server.properties")));
   const ports = [Number(beforeProps["server-port"] || 25565), Number(beforeProps["rcon.port"] || 25575), 25576, 25577];
   await ensureStopped(ports);
+  const originalLaunchers = captureServerLaunchers(root);
   onProgress("Java・Forgeサーバーの必要ファイルを確認しています…");
+  let launcherBackup = "";
   if (missingServerFiles(root).length) {
     const jar = path.join(root, `forge-${FORGE_VERSION}-installer.jar`);
     if (!isFile(jar)) throw new Error("Forgeインストーラーが見つかりません。環境構築をもう一度実行してください。");
+    // The installer can overwrite launchers even if it later fails downloading a library.
+    launcherBackup = backupServerLaunchers(root, originalLaunchers);
     try { await runInstaller(java, [...JAVA_TLS_ARGS, "-jar", jar, "--installServer"], root, { timeoutMs: 300000 }); }
     catch { throw new Error("Forgeサーバーの準備に失敗しました。通信状態を確認して再試行してください。詳細は保存先のForgeインストールログで確認できます。"); }
     if (missingServerFiles(root).length) throw new Error("Forgeサーバーの必要ファイルが不足しています。環境構築をもう一度実行してください。");
   }
+  const launchers = synchronizeServerLaunchers(root, originalLaunchers, launcherBackup);
+  if (launchers.backupDir) onProgress("以前の起動設定を退避し、Forgeサーバーの起動先を揃えました。");
   const propsFile = path.join(root, "server.properties");
   const text = read(propsFile);
   const props = readProperties(text);

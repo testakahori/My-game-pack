@@ -137,4 +137,15 @@ test('本番ハンドラー: いいね・ギフト・コメント・フォロー
   const received=JSON.parse(fs.readFileSync(path.join(dir,'stream-audience.json'),'utf8')).streams[0];
   assert.deepEqual([received.gifts,received.coins,received.unknownCoinGifts,received.likes,received.comments,received.follows,received.shares,received.visits], [7,12,3,300,2,2,2,2]);
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir,'stream-sessions.json'),'utf8'))[0].id,received.id);
+  // A single connector message and one batching window may both exceed the old 5/100 limits.
+  config.likeEvents[0] = { enabled:true, threshold:100, commandFile:'cod.txt', repeat:1 };
+  config.mappings[0].repeat=1; await save();
+  const burstStart=requests.length;
+  await emit('WebcastLikeMessage',{count:15000,total:'15300'});
+  await emit('WebcastLikeMessage',{count:700,total:'16000'});
+  await emit('WebcastGiftMessage',{giftId:'5655',gift:{name:'バラ'},repeatCount:1,repeatEnd:1});
+  await until(()=>requests.length===burstStart+3,'157 cod requests split into 100 + 57 plus gift');
+  assert.deepEqual(requests.slice(burstStart).filter(x=>x.type==='like').map(x=>x.count),[100,57]);
+  assert.equal(requests.slice(burstStart).filter(x=>x.type==='gift').length,1);
+  assert.ok(requests.slice(burstStart).every(x=>typeof x.eventId==='string' && x.eventId.length>0));
 });
