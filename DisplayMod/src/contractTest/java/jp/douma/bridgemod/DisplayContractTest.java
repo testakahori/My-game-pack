@@ -18,6 +18,13 @@ public final class DisplayContractTest {
         check(display.title().equals("ゾンビ襲来"));
         check(display.subtitle().equals("赤堀堂馬さん ×3"));
         check(display.count() == 3);
+        check(display.fadeInTicks() == 10 && display.stayTicks() == 70 && display.fadeOutTicks() == 10);
+        var timed = DisplayRequest.from(Map.of("title", "開始", "senderName", "Aさん", "fadeInTicks", 0, "stayTicks", 120, "fadeOutTicks", 20));
+        check(timed.stayTicks() == 120 && timed.fadeInTicks() == 0 && timed.fadeOutTicks() == 20 && timed.listenerName().equals("Aさん"));
+        check(new DisplayRequest("old", "", "A", 1, "", "").stayTicks() == 70);
+        for (Object invalid : new Object[]{-1, 1.5, "20", Double.NaN, 1201}) rejects(Map.of("title", "test", "stayTicks", invalid));
+        rejects(Map.of("title", "test", "stayTicks", 1200, "fadeInTicks", 1, "fadeOutTicks", 0));
+        rejects(Map.of("title", "test", "listenerName", "A", "senderName", "B"));
         var literal = DisplayRequest.from(Map.of("title", "\"} run op @a", "listenerName", "{Count}", "count", 2,
             "sound", "x master @a", "particle", "minecraft:flame\nkill @a"));
         check(literal.title().equals("\"} run op @a"));

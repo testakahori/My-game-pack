@@ -6,10 +6,53 @@ import java.util.function.Supplier;
 
 /** Server-thread handoff. ACCEPTED transfers ownership; WAIT leaves the event in Bridge's queue. */
 public final class GameEvents {
-    public static final int WAIT = 0, ACCEPTED = 1;
+    public static final int WAIT = 0, ACCEPTED = 1, DISCARDED = 2;
     private static final Map<String, Function<Map<String, Object>, Integer>> RECEIVERS = new HashMap<>();
     private static final Map<String, Supplier<Map<String, Object>>> STATUS = new HashMap<>();
     private static Function<Map<String, Object>, Integer> commonEffects;
+    private record Session(String id, boolean active) {}
+    private static final Map<String, Session> SESSIONS = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Call in the game MOD's start/reset handler, before accepting requests for the new round. */
+    public static String beginSession(String gameId) { return changeSession(gameId, true); }
+    /** Invalidate old requests on game end/reset; pause and player death must not call this. */
+    public static void endSession(String gameId) { changeSession(gameId, false); }
+    private static String changeSession(String gameId, boolean active) {
+        if (!RECEIVERS.containsKey(gameId)) throw new IllegalArgumentException("Game MOD is not registered: " + gameId);
+        String id = UUID.randomUUID().toString();
+        SESSIONS.put(gameId, new Session(id, active)); return id;
+    }
+    public static String sessionId(String gameId) {
+        Session session = SESSIONS.get(gameId); return session == null ? "" : session.id;
+    }
+    /** Game-owned opt-in check. Return DISCARDED for stale/missing IDs, never WAIT. */
+    public static boolean isCurrentSession(String gameId, Object sessionId) {
+        Session session = SESSIONS.get(gameId);
+        return session != null && session.active && session.id.equals(sessionId);
+    }
+    public static Map<String, Object> sessions() {
+        Map<String, Object> snapshot = new TreeMap<>();
+        SESSIONS.forEach((id, session) -> snapshot.put(id, Map.of("sessionId", session.id, "active", session.active)));
+        return Collections.unmodifiableMap(snapshot);
+    }
+    /** Server shutdown invalidates every previous round, including delayed external retries. */
+    public static void clearSessions() { SESSIONS.clear(); }
+    public static Map<String, Object> arguments(Object value) {
+        if (value == null) return Map.of();
+        if (!(value instanceof Map<?, ?> input) || input.size() > 32) throw new IllegalArgumentException("args must be an object with at most 32 fields");
+        Map<String, Object> copy = new LinkedHashMap<>(); int textLength = 0;
+        for (var entry : input.entrySet()) {
+            if (!(entry.getKey() instanceof String key) || !key.matches("[A-Za-z][A-Za-z0-9_]{0,63}") || Set.of("constructor", "prototype").contains(key))
+                throw new IllegalArgumentException("Invalid args key");
+            Object item = entry.getValue();
+            if (item instanceof String text) {
+                textLength += text.length();
+                if (text.length() > 1024 || textLength > 8192) throw new IllegalArgumentException("args text is too long");
+            } else if (!(item instanceof Boolean) && !(item instanceof Number number && Double.isFinite(number.doubleValue())))
+                throw new IllegalArgumentException("args values must be strings, finite numbers or booleans");
+            copy.put(key, item);
+        }
+        return Collections.unmodifiableMap(copy);
+    }
     private GameEvents() {}
     public static void register(String id, Function<Map<String, Object>, Integer> receiver,
                                 Supplier<Map<String, Object>> status) {
@@ -24,8 +67,10 @@ public final class GameEvents {
             throw new IllegalArgumentException("A stable requestId is required for each game request");
         var receiver = RECEIVERS.get(id);
         if (receiver == null) throw new IllegalStateException("Game MOD is not loaded: " + id);
-        int result = receiver.apply(Collections.unmodifiableMap(new HashMap<>(event)));
-        if (result != WAIT && result != ACCEPTED) throw new IllegalStateException("Invalid game handoff result");
+        Map<String, Object> copy = new HashMap<>(event);
+        copy.put("args", arguments(event.get("args")));
+        int result = receiver.apply(Collections.unmodifiableMap(copy));
+        if (result != WAIT && result != ACCEPTED && result != DISCARDED) throw new IllegalStateException("Invalid game handoff result");
         return result;
     }
     public static Map<String, Object> status() {

@@ -542,3 +542,40 @@ test('更新確認のPromise失敗もエラー状態へ戻り、再試行で復�
  assert.equal((await app.invoke('updater:check')).state,'error');
  fail=false;assert.equal((await app.invoke('updater:check')).state,'current');
 });
+
+
+test('Minecraft保存先IPC: 読み取り・候補選択・手動選択を通してMODやMAPを変更しない', async t => {
+  let picked;
+  const app = loadApp(t, undefined, undefined, { showOpenDialog: async () => picked || { canceled: true } });
+  const standard = path.join(app.root, '.minecraft');
+  const custom = path.join(app.root, 'Minecraft-配信');
+  const manual = path.join(app.root, 'Minecraft-手動');
+  for (const folder of [standard, custom, manual]) fs.mkdirSync(path.join(folder, 'mods'), { recursive: true });
+  fs.writeFileSync(path.join(custom, 'mods', 'keep.jar'), 'existing-mod');
+  fs.mkdirSync(path.join(custom, 'saves'));
+  fs.writeFileSync(path.join(custom, 'saves', 'keep.dat'), 'existing-world');
+  const launcherFile = path.join(standard, 'launcher_profiles.json');
+  const launcherText = JSON.stringify({ profiles: { game: { name: '配信', gameDir: custom, lastVersionId: '1.20.1-forge-47.4.10' } } });
+  fs.writeFileSync(launcherFile, launcherText);
+  const configBefore = JSON.stringify(await app.invoke('app:config:read'));
+  const discovery = await app.invoke('games:clientFolders');
+  assert.equal(discovery.candidates.find(c => c.path === custom).recommended, true);
+  assert.equal(JSON.stringify(await app.invoke('app:config:read')), configBefore, '検索だけで保存先を変えない');
+  const selected = await app.invoke('games:selectClientFolder', custom);
+  assert.equal(selected.clientMods, path.join(custom, 'mods'));
+  assert.equal(selected.applied, false);
+  assert.equal((await app.invoke('app:config:read')).minecraftGameFolder, custom);
+  assert.equal((await app.invoke('games:clientFolders')).candidates.find(c => c.current).path, custom);
+  assert.equal(fs.readFileSync(path.join(custom, 'mods', 'keep.jar'), 'utf8'), 'existing-mod');
+  assert.equal(fs.readFileSync(path.join(custom, 'saves', 'keep.dat'), 'utf8'), 'existing-world');
+  assert.equal(fs.readFileSync(launcherFile, 'utf8'), launcherText);
+  assert.equal((await app.invoke('games:clientFolder')).canceled, true);
+  assert.equal((await app.invoke('games:list')).clientMods, path.join(custom, 'mods'));
+  await assert.rejects(app.invoke('games:selectClientFolder', manual), /候補を再検索/);
+  picked = { canceled: false, filePaths: [manual] };
+  assert.equal((await app.invoke('games:clientFolder')).clientMods, path.join(manual, 'mods'));
+  const invalid = path.join(app.root, 'gone');
+  fs.writeFileSync(launcherFile, JSON.stringify({ profiles: { gone: { gameDir: invalid } } }));
+  await assert.rejects(app.invoke('games:selectClientFolder', invalid), /フォルダーがありません/);
+  assert.equal((await app.invoke('games:list')).clientMods, path.join(manual, 'mods'), '失敗時は設定を維持する');
+});

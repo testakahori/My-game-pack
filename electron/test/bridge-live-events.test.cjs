@@ -148,4 +148,21 @@ test('本番ハンドラー: いいね・ギフト・コメント・フォロー
   assert.deepEqual(requests.slice(burstStart).filter(x=>x.type==='like').map(x=>x.count),[100,57]);
   assert.equal(requests.slice(burstStart).filter(x=>x.type==='gift').length,1);
   assert.ok(requests.slice(burstStart).every(x=>typeof x.requestId==='string' && x.requestId.length>0 && x.requestId===x.eventId));
+  fs.writeFileSync(path.join(dir,'commands','tower.txt'),'# TITLE: Tower\n# GAME_MOD: gameprobe\n# GAME_KEY: AquaTower\nsay game\n');
+  config.likeEvents[0]={enabled:true,threshold:100,commandFile:'tower.txt',repeat:2};
+  config.mappings[0]={giftId:'5655',name:'バラ',commandFile:'tower.txt',repeat:1}; await save();
+  vm.runInNewContext("bridgeGameSessions = { gameprobe: { sessionId: 'round-1' } };", context);
+  const gameStart=requests.length;
+  await emit('WebcastLikeMessage',{count:300,total:'16300'});
+  vm.runInNewContext("bridgeGameSessions = { gameprobe: { sessionId: 'round-2' } };", context);
+  await emit('WebcastLikeMessage',{count:100,total:'16400'});
+  // The existing first-streak baseline intentionally contributes one gift; the next packet adds 150.
+  await emit('WebcastGiftMessage',{giftId:'5655',gift:{name:'バラ'},repeatCount:1});
+  await emit('WebcastGiftMessage',{giftId:'5655',gift:{name:'バラ'},repeatCount:151,repeatEnd:1});
+  await until(()=>requests.length===gameStart+6,'game requests preserve each threshold and count 150');
+  const gameRows=requests.slice(gameStart);
+  assert.deepEqual(gameRows.filter(x=>x.type==='like').map(x=>[x.count,x.gameSessionId]),[[2,'round-1'],[2,'round-1'],[2,'round-1'],[2,'round-2']]);
+  assert.deepEqual(gameRows.filter(x=>x.type==='gift').map(x=>x.count),[1,150]);
+  assert.ok(gameRows.every(x=>x.key==='tower'&&x.listenerName==='赤堀堂馬'));
+  assert.equal(new Set(gameRows.map(x=>x.requestId)).size,6);
 });

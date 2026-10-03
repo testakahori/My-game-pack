@@ -1,0 +1,78 @@
+const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
+const mineflayer = require('mineflayer'), { Rcon } = require('rcon-client');
+const root = process.env.GIFT_QA_SERVER;
+if (!root || JSON.parse(fs.readFileSync(path.join(root, 'gift-qa-marker.json'))).purpose !== 'disposable-gift-effects-test') throw Error('Disposable server required');
+const props = fs.readFileSync(path.join(root, 'server.properties'), 'utf8');
+for (const setting of ['server-ip=127.0.0.1','server-port=25587','rcon.port=25588']) if (!props.includes(setting)) throw Error('QA ports required');
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const status = async () => (await fetch('http://127.0.0.1:25578/bridge/status')).json();
+async function wait(fn, ms=20000) { const end=Date.now()+ms; while(Date.now()<end){if(await fn())return;await sleep(75);}throw Error('Timed out'); }
+let rcon,bot; const packets=[], result={checks:[]};
+const pass = text => {result.checks.push(text); console.log('PASS '+text);};
+const noDisplay = process.env.GIFT_QA_NO_DISPLAY === '1';
+const cmd = command => rcon.send(command);
+async function send(event, code=202) {
+  const response=await fetch('http://127.0.0.1:25578/bridge/event',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'gift',key:'qa_game',count:1,listenerName:'Aさん',...event})});
+  assert.equal(response.status,code,await response.text());
+}
+(async()=>{
+  fs.writeFileSync(path.join(root,'bridge/commands/minecraft/qa_game.txt'),'# GAME_MOD: gameprobe\n# GAME_KEY: AquaTower\n# TITLE: MUST-NOT-SHOW-AT-RECEIPT\n');
+  rcon=await Rcon.connect({host:'127.0.0.1',port:25588,password:props.match(/^rcon.password=(.*)$/m)[1].trim(),timeout:15000});
+  bot=mineflayer.createBot({host:'127.0.0.1',port:25587,username:'GameTester',auth:'offline',version:'1.20.1',viewDistance:'tiny'});
+  bot.on('error',e=>console.error(e.message));
+  bot._client.on('packet',(data,meta)=>{if(/title/.test(meta.name))packets.push({name:meta.name,data});});
+  await new Promise((resolve,reject)=>{bot.once('spawn',resolve);bot.once('kicked',reject);});
+  await cmd('gamemode creative GameTester'); await cmd('gameprobe pause');
+  let session=(await status()).gameSessions.gameprobe.sessionId;
+  const first={requestId:'1001',gameSessionId:session,count:150,args:{strength:7,color:'red'}};
+  await send(first);await send(first);await send({...first,requestId:'1002',count:2,listenerName:'Bさん'});
+  await wait(async()=>{const s=(await status()).games.gameprobe;return s.waiting===2&&s.duplicates===1;});
+  assert.equal(packets.filter(p=>p.name==='set_title_text').length,0);
+  pass('同じ1001の再送は1回登録、別番号1002は別要求。待機中は表示しない');
+  await cmd('gameprobe resume'); await wait(async()=>(await status()).games.gameprobe.started.length===2);
+  let started=(await status()).games.gameprobe.started;
+  assert.deepEqual(started.map(e=>[e.requestId,e.count,e.listenerName]),[['1001',150,'Aさん'],['1002',2,'Bさん']]);
+  assert.deepEqual(started[0].args,{strength:7,color:'red'});
+  assert.equal(started[0].shown,!noDisplay);
+  pass('count=150を分割せずゲームへ渡し、名前と追加引数を要求ごとに保持');
+  if(!noDisplay){
+    const titles=packets.filter(p=>p.name==='set_title_text'); assert.equal(titles.length,2);
+    assert.ok(titles.every(p=>JSON.stringify(p.data).includes('GAME-START')));
+    const times=packets.filter(p=>p.name==='set_title_time');
+    assert.equal(times.length,2); assert.ok(times.every(p=>p.data.fadeIn===0&&p.data.stay===120&&p.data.fadeOut===20),JSON.stringify(times));
+    pass('実開始時に各1回表示し、0/120/20 tickの指定時間を実クライアントが受信');
+  } else {assert.equal(packets.length,0);pass('DisplayMODなしでも表示だけ省略しゲームは続行');}
+  await send(first); await wait(async()=>(await status()).games.gameprobe.duplicates===2);
+  assert.equal((await status()).games.gameprobe.started.length,2); pass('実行完了後の同じ要求番号も二重実行しない');
+  await cmd('gameprobe block');
+  for(const type of ['gift','like','other']) await send({type,requestId:'old-'+type,gameSessionId:session});
+  await wait(async()=>{const s=await status();return s.gift===1&&s.like===1&&s.other===1;});
+  await cmd('gameprobe reset');await cmd('gameprobe unblock');
+  await wait(async()=>(await status()).discardedGameRequests>=3);
+  assert.equal((await status()).games.gameprobe.started.length,2);
+  pass('gift/like/other各待ち列に残ったリセット前の要求をゲーム側で失効できる');
+  const current=(await status()).gameSessions.gameprobe.sessionId; assert.notEqual(current,session);
+  await send({requestId:'late-app-retry',gameSessionId:session});
+  await send({requestId:'new-round',gameSessionId:current,args:{count:999,listenerName:'argument-only'}});
+  await wait(async()=>(await status()).games.gameprobe.started.length===3);
+  started=(await status()).games.gameprobe.started;
+  assert.equal(started[2].requestId,'new-round');assert.equal(started[2].count,1);assert.equal(started[2].listenerName,'Aさん');
+  pass('アプリ側の遅延再送も旧番号を維持して拒否、新しいゲームの要求だけ実行');
+  await cmd('gameprobe pause');await send({requestId:'paused',gameSessionId:current});
+  await wait(async()=>(await status()).games.gameprobe.waiting===1);
+  assert.equal((await status()).gameSessions.gameprobe.sessionId,current);
+  await cmd('gameprobe resume');await wait(async()=>(await status()).games.gameprobe.started.length===4);
+  pass('一時停止はゲーム番号と待ち列を保持、再開後に実行');
+  await cmd('gameprobe end');await send({requestId:'ended',gameSessionId:current});
+  await wait(async()=>(await status()).discardedGameRequests>=5);
+  assert.equal((await status()).games.gameprobe.started.length,4);
+  pass('ゲーム終了後の要求はWAITで再送させず破棄を通知');
+  for(const count of [0,1.5,'10',100001]) await send({count},400);
+  await send({args:{nested:{count:1}}},400);
+  pass('不正な個数・入れ子引数を黙って丸めずHTTP 400で拒否');
+  await send({key:'zombie',requestId:'common-same',listenerName:'CommonTwice',announce:false});
+  await send({key:'zombie',requestId:'common-same',listenerName:'CommonTwice',announce:false});
+  await wait(async()=>{const output=await cmd('execute as @e[type=minecraft:zombie] run data get entity @s CustomName');return(output.match(/CommonTwice/g)||[]).length===2;});
+  pass('共通ゾンビは同じ要求番号でも届いた2件を2回実行');
+  const final=await status();assert.equal(final.failed,0,final.lastError);result.ok=true;result.status=final;
+})().catch(error=>{result.error=error.stack;console.error(error);process.exitCode=1;}).finally(()=>{fs.writeFileSync(path.join(root,noDisplay?'game-integration-no-display-results.json':'game-integration-results.json'),JSON.stringify(result,null,2));bot?.quit();rcon?.end();});

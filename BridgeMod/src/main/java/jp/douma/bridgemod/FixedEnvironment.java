@@ -13,6 +13,10 @@ final class FixedEnvironment {
         for (ServerLevel level : server.getAllLevels()) {
             GameRules rules = level.getGameRules();
             rules.getRule(GameRules.RULE_KEEPINVENTORY).set(true, server);
+            rules.getRule(GameRules.RULE_SENDCOMMANDFEEDBACK).set(false, server);
+            rules.getRule(GameRules.RULE_COMMANDBLOCKOUTPUT).set(false, server);
+            // Keep animals and fish enabled even when loading an older world that disabled all spawns.
+            rules.getRule(GameRules.RULE_DOMOBSPAWNING).set(true, server);
             rules.getRule(GameRules.RULE_DAYLIGHT).set(false, server);
             rules.getRule(GameRules.RULE_WEATHER_CYCLE).set(false, server);
             if (!effects.hasNightOverride()) {

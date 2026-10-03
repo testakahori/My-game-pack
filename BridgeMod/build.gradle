@@ -205,3 +205,20 @@ publishing {
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8' // Use the UTF-8 charset for Java compilation
 }
+
+// Opt-in server integration fixture, excluded from normal build and product packaging.
+sourceSets {
+    integrationProbe {
+        java.srcDirs = ['src/integrationProbe/java']
+        resources.srcDirs = ['src/integrationProbe/resources']
+        compileClasspath += sourceSets.main.compileClasspath + sourceSets.main.output
+    }
+}
+tasks.register('environmentProbeJar', Jar) {
+    dependsOn 'integrationProbeClasses'
+    from sourceSets.integrationProbe.output
+    archiveFileName = 'environment-probe.jar'
+    destinationDirectory = layout.buildDirectory.dir('qa')
+    finalizedBy 'reobfEnvironmentProbeJar'
+}
+reobf { environmentProbeJar {} }

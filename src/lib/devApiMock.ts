@@ -183,7 +183,37 @@ if (import.meta.env.DEV && !win.mygamepack) {
     }],
   };
 
+  // Folder fixtures are only used by the browser preview. Native discovery runs in Electron.
+  const previewMinecraftFolders = [
+    { path: 'C:\\Users\\Demo\\AppData\\Roaming\\.minecraft', sources: ['標準の保存先'], profiles: [{ name: 'forge', version: '1.20.1-forge-47.4.10' }], exists: true, selectable: true, recommended: true },
+    { path: 'D:\\Minecraft\\配信用の採掘', sources: ['ランチャーの起動構成'], profiles: [{ name: '採掘の配信', version: '1.20.1-forge-47.4.10' }], exists: true, selectable: true, recommended: true },
+    { path: 'D:\\Minecraft\\以前のワールド', sources: ['ランチャーの起動構成'], profiles: [{ name: '以前の構成', version: 'fabric-loader-0.16.10-1.21' }], exists: false, selectable: false, recommended: false, reason: 'フォルダーがありません。ランチャーの保存先を確認してください。' },
+  ];
+  let previewClientFolder = previewMinecraftFolders[0].path;
+  let previewActiveGame = 'common';
+  let previewModsApplied = false;
+  const previewGameStatus = () => ({ active: previewActiveGame, applied: previewModsApplied, displayBundled: true, recoveryRequired: false,
+    serverMods: appConfig.serverFolder + '\\mods', clientMods: previewClientFolder + '\\mods', games: [
+      { id: 'common', name: 'サバイバル', modName: 'BridgeMOD', installed: true },
+      { id: 'umetate', name: '埋め立て', modName: 'UmetateMOD', installed: false },
+      { id: 'run', name: 'RUN', modName: 'RunMOD', installed: false },
+      { id: 'saikutu', name: '採掘', modName: 'SaikutuMOD', installed: true },
+    ] });
   win.mygamepack = {
+    gamesList: async () => previewGameStatus(),
+    gamesClientFolders: async () => ({ candidates: previewMinecraftFolders.map(folder => ({ ...folder, modsPath: folder.path + '\\mods', current: folder.path === previewClientFolder })), warnings: [] }),
+    gamesSelectClientFolder: async (folder: string) => {
+      if (!previewMinecraftFolders.some(candidate => candidate.path === folder && candidate.selectable)) throw new Error('候補を再検索してください。');
+      previewClientFolder = folder; previewModsApplied = false; return previewGameStatus();
+    },
+    gamesActivate: async (id: string) => {
+      if (!previewGameStatus().games.some(game => game.id === id && game.installed)) throw new Error('ゲームパックを登録してください。');
+      previewActiveGame = id; previewModsApplied = true; return previewGameStatus();
+    },
+    gamesRecover: async () => previewGameStatus(),
+    gamesInstall: async () => { throw new Error('ゲームパックの登録はアプリで利用できます。'); },
+    gamesClientFolder: async () => { throw new Error('手動のフォルダー選択はアプリで利用できます。'); },
+
     clipboardWriteText: async (text: string) => {
       await navigator.clipboard.writeText(text);
       return { ok: true };

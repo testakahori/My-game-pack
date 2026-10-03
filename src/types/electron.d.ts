@@ -1,5 +1,16 @@
 // src/types/electron.d.ts
 export {};
+export type GameStatus = {
+  saikutuMigrationNeeded?: boolean; active: string; applied: boolean; displayBundled: boolean;
+  serverMods: string; clientMods: string; recoveryRequired: boolean;
+  games: { id: string; name: string; modName: string; installed: boolean }[];
+};
+export type MinecraftLocationCandidate = {
+  path: string; modsPath: string; sources: string[]; profiles: { name: string; version: string }[];
+  exists: boolean; selectable: boolean; reason?: string; current: boolean; recommended: boolean;
+};
+export type MinecraftLocationDiscovery = { candidates: MinecraftLocationCandidate[]; warnings: string[] };
+
 export type EulerSettingsStatus = { configured: boolean; storageAvailable: boolean; restartRequired: boolean; error?: string };
 export type MapSave = { id: string; name: string; createdAt: string; level: string; reason: string; bytes: number; files: number };
 export type MapOperationResult = { ok: boolean; saved?: MapSave; loaded?: MapSave; restarted?: boolean; restartError?: string };
@@ -49,6 +60,14 @@ export type BridgeConfig = {
 declare global {
   interface Window {
     mygamepack: {
+      gamesList: () => Promise<GameStatus>;
+      gamesActivate: (id: string) => Promise<GameStatus>;
+      gamesInstall: () => Promise<GameStatus | { canceled: true }>;
+      gamesRecover: () => Promise<GameStatus>;
+      gamesClientFolder: () => Promise<GameStatus | { canceled: true }>;
+      gamesClientFolders: () => Promise<MinecraftLocationDiscovery>;
+      gamesSelectClientFolder: (folder: string) => Promise<GameStatus>;
+
       bridgeCommandsReadMeta: () => Promise<Array<{ name: string; title: string; category: string; description?: string }>>;
       bridgeCommandsList: () => Promise<Array<{ name: string; title: string }>>;
       testEvent: (event: { type: string; preview?: boolean; listenerName?: string; commandFile?: string; giftId?: string; count?: number; previousLikes?: number; likeCount?: number; deaths?: number; followCount?: number; comment?: string; pollOption?: string }) => Promise<{ ok: boolean; message: string; preview?: boolean; notes?: string[]; steps?: Array<{ label: string; commandFile: string; count: number }>; fired?: Array<{ ok: boolean; message: string }> }>;

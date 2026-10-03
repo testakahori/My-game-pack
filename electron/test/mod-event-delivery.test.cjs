@@ -45,3 +45,47 @@ test('いいねのまとめ送りは回数・送信者・コマンド順序を�
     ['cod.txt', 150, 'A', true], ['zombie.txt', 1, 'A', true], ['cod.txt', 1, 'B', true], ['cod.txt', 1, 'A', false],
   ]);
 });
+
+
+test('ゲーム要求は150個でも1件のまま、再送中も元のゲーム番号・引数・名前を保持する', async () => {
+  const { captureGameEvent } = require('../../bridge/mod_event_delivery.cjs');
+  let sessions = { gamemod: { sessionId: 'round-1' } };
+  const args = { strength: 7, color: 'red' }, attempts = [], accepted = [];
+  let release, blocked;
+  const waiting = new Promise(resolve => { blocked = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  let retry = true;
+  const delivery = createModEventDelivery({
+    prepare: event => captureGameEvent(event, 'gamemod', sessions),
+    send: async event => { attempts.push(event); if (retry) { retry = false; throw Error('429'); } accepted.push(event); },
+    sleep: async () => { blocked(); await gate; },
+  });
+  const first = delivery.enqueue({ type: 'gift', commandFile: 'tower.txt', count: 150, listenerName: 'A', args });
+  await waiting;
+  args.color = 'blue'; sessions = { gamemod: { sessionId: 'round-2' } };
+  const second = delivery.enqueue({ type: 'gift', commandFile: 'tower.txt', count: 2, listenerName: 'B' });
+  release(); await Promise.all([first, second]);
+  assert.deepEqual(accepted.map(e => [e.count, e.listenerName, e.gameSessionId]), [[150, 'A', 'round-1'], [2, 'B', 'round-2']]);
+  assert.equal(accepted[0].args.color, 'red');
+  assert.equal(attempts[0].requestId, attempts[1].requestId);
+  assert.notEqual(accepted[0].requestId, accepted[1].requestId);
+  await assert.rejects(delivery.enqueue({ count: 100001 }), /Invalid event count/);
+  await assert.rejects(delivery.enqueue({ args: { nested: {} } }), /Invalid game argument/);
+});
+
+test('同じユーザーのゲーム向けいいねも別要求のまま保持し、待機中にゲーム番号を書き換えない', async () => {
+  const { captureGameEvent } = require('../../bridge/mod_event_delivery.cjs');
+  let sessions = { gamemod: { sessionId: 'round-1' } }, flush;
+  const sent = [], jobs = [];
+  const delivery = createModEventDelivery({ send: async event => { sent.push(event); } });
+  const batch = createLikeBatcher({ dispatch: event => jobs.push(delivery.enqueue(event)), windowMs: 100,
+    schedule: fn => { flush = fn; return 1; },
+    prepare: event => captureGameEvent(event, event.commandFile === 'tower.txt' ? 'gamemod' : null, sessions) });
+  batch('tower.txt', 6, 'A', true, 3);
+  sessions = { gamemod: { sessionId: 'round-2' } };
+  batch('tower.txt', 2, 'A', true);
+  batch('cod.txt', 5, 'A', false); batch('cod.txt', 7, 'A', false);
+  flush(); await Promise.all(jobs);
+  assert.equal(new Set(sent.map(e => e.requestId)).size, sent.length);
+  assert.deepEqual(sent.map(e => [e.count, e.gameSessionId]), [[2,'round-1'],[2,'round-1'],[2,'round-1'],[2,'round-2'],[12,undefined]]);
+});

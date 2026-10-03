@@ -12,3 +12,21 @@
 .game-selector-tools { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
 .game-selector .game-selector-error { color: #ffb6b6; }
 @media (max-width: 700px) { .game-selector { margin: 12px; padding: 16px; } .game-selector-main > button { width: 100%; } }
+
+.minecraft-locations { margin-top: 16px; padding-top: 2px; border-top: 1px solid #2c485e; }
+.minecraft-locations fieldset { border: 0; margin: 14px 0 0; padding: 0; min-width: 0; }
+.minecraft-locations legend { margin-bottom: 10px; font-weight: 700; }
+.game-selector label.minecraft-location-option { display: flex; align-items: flex-start; gap: 12px; min-width: 0; margin-bottom: 10px; padding: 14px; border: 1px solid #40576c; border-radius: 10px; background: #0b1826; cursor: pointer; }
+.minecraft-location-option.is-selected { border-color: #55d6e9 !important; background: #10303c !important; }
+.minecraft-location-option.is-unavailable { opacity: .65; cursor: not-allowed !important; }
+.minecraft-location-option input { flex: 0 0 auto; margin: 4px 0 0; width: 18px; height: 18px; accent-color: #51d5e4; }
+.minecraft-location-info { display: grid; gap: 7px; min-width: 0; line-height: 1.6; overflow-wrap: anywhere; }
+.minecraft-location-heading { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 700; }
+.minecraft-location-badge { padding: 2px 8px; border-radius: 12px; background: #293f57; color: #d4e6fb; font-size: 11px; }
+.minecraft-location-badge.is-forge { background: #164c47; color: #adf4d3; }
+.minecraft-location-path { color: #f0f7fc; }
+.minecraft-location-profile { font-size: 12px; color: #afc5d8; }
+.game-selector .minecraft-location-warning { color: #ffd498; }
+.minecraft-location-current { align-self: center; color: #aee9c9; }
+.game-selector :is(button, select, input, summary):focus-visible { outline: 2px solid #77e0ef; outline-offset: 3px; }
+@media (max-width: 700px) { .game-selector-tools > button { flex: 1 1 180px; } }
