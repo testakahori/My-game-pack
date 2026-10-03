@@ -4,7 +4,7 @@
 
 ### 適用範囲
 
-- ブランチ `feat/saikutu-mod`。前回のローカル反映はPR #33でmainへマージ済み（a7ce3216）。今回はその後の変更。
+- PR：[#34](https://github.com/testakahori/My-game-pack/pull/34)。ブランチ `feat/saikutu-mod`。前回のローカル反映はPR #33でmainへマージ済み（a7ce3216）。今回はその後の変更。
 - ソースとビルド成果物を更新。アプリのversionは `1.0.44-local.20261003` のまま。BridgeMODは1.3.6、saikutuMODは1.0.0、DisplayMODは1.0.0。
 - 使用中のアプリ・サーバー・MinecraftのMODは今回入れ替えていない。公開タグ、GitHub Release、更新用インストーラーの配信も行っていない。
 - 開発・コミット対象は正本のGit作業コピー。Dドライブ側には未コミットの既存変更があるためリセットせず、指定されたこのHANDOFF04.mdを更新する。
@@ -53,6 +53,18 @@
 
 ---
 
+
+## 2026-09-26〜27：引継ぎ補足（コマンド分類・Euler Stream・説明資料）
+
+- PR #26でHANDOFF04を作成、PR #27でコマンド分類を「お助け系／妨害系」へ統一。
+- PR #28でTikTok-Live-Connectorを2.4.3から2.5.0へ更新し、アプリにEuler Streamの任意APIキー欄を追加。
+- キーはWindows safeStorageで暗号化し、保存済み値を画面へ戻さない。通常の設定JSON・ギフト設定保存・バックアップ・配布物に含めない。BRIDGE・配信状態確認・ギフト取得へ引き渡す。
+- キーの変更・削除は、BRIDGE稼働中なら再起動で適用。配信確認とギフト取得は次の処理から使用。実発行キーを使ったLIVE接続までは未検証。
+- 詳細：`docs/EulerStreamのAPIキー設定.md`。後続のBridgeMOD／DisplayMOD分離はPR #30、Forge移行は#31、負荷・初期構築は#32、ローカル更新は#33。詳細は各日付の記録参照。
+- D側の説明資料は`Bridgeやりとり`内。DOUMAMOD現状の読みやすいPDF、役割分担・環境設定・移行手順の設計案を保持。
+- `Bridgeやりとり/DisplayMOD_図解資料_20260928`に図解PDF・PowerPoint・PNG・一覧HTML・資料一式ZIPがある。これらは当時の説明資料。最新の採掘分離・標準MOD・requestId仕様は今回の連携ガイドを優先する。
+
+---
 
 ## 2026-10-03：アプリ・MODをローカル更新（公開リリースなし）
 
