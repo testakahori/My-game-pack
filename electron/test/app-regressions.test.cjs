@@ -37,7 +37,7 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
       clipboard: { writeText: text => copiedTexts.push(text) },
       BrowserWindow: { getFocusedWindow: () => null, getAllWindows: () => [{ webContents: { send: (...args) => notifications.push(args) } }] },
     };
-    if (name === "electron-updater") return { autoUpdater: updater };
+    if (name === "electron-updater") throw new Error("Manual distribution must not load an updater");
     if (name === "./process_runner.cjs") return { runProc: run };
     return realRequire(name);
   };
@@ -67,11 +67,6 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
     fs.mkdirSync(path.dirname(fixtureGameState), { recursive: true });
     fs.writeFileSync(fixtureGameState, JSON.stringify({ format: 1, active: 'common', packages: {}, profiles: {}, appliedFormat: 3, appliedRoots: [path.resolve(getServerRoot()), path.resolve(app.getPath('appData'), '.minecraft')] }));`, context);
   return { root, configPath, notifications, copiedTexts, clearGameSelection: () => fs.unlinkSync(context.fixtureGameState), invoke: (name, ...args) => handlers.get(name)({}, ...args),
-    startUpdater: () => {
-      app.isPackaged = true;
-      context.setTimeout = () => {};
-      context.setupAutoUpdater();
-    },
     usePackagedPaths: () => { app.isPackaged = true; },
     mockServerSpawn: fn => { serverSpawn = fn; },
     setServer: child => { context.fixtureChild = child; vm.runInContext('serverProcRef = fixtureChild; serverPid = fixtureChild?.pid || null;', context); },
@@ -140,31 +135,20 @@ test("テキストコピー: コマンド・ギフトID・日本語をネイテ�
   assert.equal(app.copiedTexts.length, 3);
 });
 
-test("自動更新: 検出・進捗・適用準備を保持し、エラー後は再試行できる", async t => {
-  const listeners = new Map();
-  let checks = 0, installs = [];
-  const updater = { on: (event, fn) => listeners.set(event, fn), checkForUpdates: async () => { checks++; }, quitAndInstall: (...args) => installs.push(args) };
-  const app = loadApp(t, undefined, updater);
-  app.startUpdater();
-  assert.equal(updater.allowPrerelease, false);
-  assert.equal(updater.allowDowngrade, false);
-  assert.equal(updater.autoInstallOnAppQuit, false);
-  assert.equal((await app.invoke("updater:install")).ok, false);
-  listeners.get("checking-for-update")();
-  await app.invoke("updater:check");
-  assert.equal(checks, 0);
-  listeners.get("update-available")({ version: "1.0.25" });
-  listeners.get("download-progress")({ percent: 57.4 });
-  assert.equal((await app.invoke("updater:status")).percent, 57);
-  listeners.get("update-downloaded")({ version: "1.0.25" });
-  assert.equal((await app.invoke("updater:check")).state, "ready");
-  assert.equal(checks, 0);
-  assert.equal((await app.invoke("updater:install")).ok, true);
-  assert.deepEqual(installs, [[true, true]]);
-  listeners.get("error")(new Error("通信切断"));
-  assert.equal((await app.invoke("updater:status")).error, "通信切断");
-  await app.invoke("updater:check");
-  assert.equal(checks, 1);
+test("手動配布: 開発版・製品版とも更新確認で通信せず、導入済みバージョンを返す", async t => {
+  const app = loadApp(t);
+  const before = fs.readFileSync(app.configPath, "utf8");
+  for (const packaged of [false, true]) {
+    if (packaged) app.usePackagedPaths();
+    for (const ipc of ["updater:status", "updater:check", "updater:check"]) {
+      const result = await app.invoke(ipc);
+      assert.equal(result.state, "manual");
+      assert.equal(result.version, "test");
+      assert.equal(result.checkedAt, null);
+      assert.equal(result.error, "");
+    }
+  }
+  assert.equal(fs.readFileSync(app.configPath, "utf8"), before);
 });
 
 test("配信統計: 90分以上空いたイベントは別配信に分け、休止時間を加算しない", async t => {
@@ -542,16 +526,17 @@ test('server startup: legacy automatic backup setting never creates a MAP save',
 });
 
 
-test('更新確認のPromise失敗もエラー状態へ戻り、再試行で復旧する',async t=>{
- const listeners=new Map();let fail=true;
- const updater={on:(event,fn)=>listeners.set(event,fn),checkForUpdates:async()=>{
-   listeners.get('checking-for-update')();if(fail)throw new Error('network unavailable');listeners.get('update-not-available')({version:'1.0.43'});
- }};
- const app=loadApp(t,undefined,updater);app.startUpdater();
- assert.equal((await app.invoke('updater:check')).state,'error');
- fail=false;assert.equal((await app.invoke('updater:check')).state,'current');
+test("手動配布: 旧インストールIPCは再起動やプロセス停止を行わない", async t => {
+  const app = loadApp(t);
+  app.usePackagedPaths();
+  app.setServer({ pid: 12345 });
+  const before = fs.readFileSync(app.configPath, "utf8");
+  const result = await app.invoke("updater:install");
+  assert.equal(result.ok, false);
+  assert.equal(result.state, "manual");
+  assert.match(result.message, /配布者/);
+  assert.equal(fs.readFileSync(app.configPath, "utf8"), before);
 });
-
 
 test('Minecraft保存先IPC: 読み取り・候補選択・手動選択を通してMODやMAPを変更しない', async t => {
   let picked;

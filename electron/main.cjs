@@ -8,7 +8,6 @@ const http = require("http");
 const { pathToFileURL } = require("url");
 const { ENGINE_PORTS, checkEngine, getSpeakers, flattenSpeakers, synthesize } = require("./tts.cjs");
 const { validateBridgeConfig } = require("./config_schema.cjs");
-const { autoUpdater } = require("electron-updater");
 const { RestartPolicy } = require("./restart_policy.cjs");
 const { runProc } = require("./process_runner.cjs");
 const { createSettingsBackups, atomicWrite, validCommand } = require("./settings_backups.cjs");
@@ -373,7 +372,6 @@ app.whenReady().then(() => {
   installProdOnlyCsp();
   createWindow();
   scheduleBridgeSync();
-  setupAutoUpdater();
   setTimeout(() => autoUpdateGiftsIfStale().catch(e =>
     console.warn("[gifts:auto-update]", e?.message || e)), 5000);
 
@@ -475,40 +473,14 @@ ipcMain.handle("preflight:run", () => {
   return preflightTask;
 });
 
-let updateState = { state: "idle", version: null, percent: 0, error: "", checkedAt: null };
-function setUpdateState(patch) {
-  updateState = { ...updateState, ...patch, checkedAt: new Date().toISOString() };
+// Compatibility IPCs never contact GitHub or launch an installer. Distribution is manual.
+function manualUpdateStatus() {
+  return { state: "manual", version: app.getVersion(), percent: 0, error: "", checkedAt: null,
+    message: "最新版は配布者から受け取り、インストーラーを実行してください。" };
 }
-function setupAutoUpdater() {
-  if (!app.isPackaged) return;
-  // A local build must use the public stable feed, not a nonexistent "local" release channel.
-  autoUpdater.allowPrerelease = false;
-  autoUpdater.allowDowngrade = false;
-  autoUpdater.autoDownload = true;
-  // Apply only through updater:install, which checks that Minecraft/BRIDGE have stopped.
-  autoUpdater.autoInstallOnAppQuit = false;
-  autoUpdater.on("checking-for-update", () => setUpdateState({ state: "checking", version: null, percent: 0, error: "" }));
-  autoUpdater.on("update-available", info => setUpdateState({ state: "downloading", version: info.version, percent: 0, error: "" }));
-  autoUpdater.on("update-not-available", info => setUpdateState({ state: "current", version: info.version, percent: 100, error: "" }));
-  autoUpdater.on("download-progress", p => setUpdateState({ percent: Math.round(p.percent || 0) }));
-  autoUpdater.on("update-downloaded", info => setUpdateState({ state: "ready", version: info.version, percent: 100, error: "" }));
-  autoUpdater.on("error", error => setUpdateState({ state: "error", version: null, percent: 0, error: error?.message || String(error) }));
-  setTimeout(() => checkAppUpdates(), 8000);
-}
-ipcMain.handle("updater:status", () => updateState);
-async function checkAppUpdates() {
-  if (!app.isPackaged) return { state: "development" };
-  if (["checking", "downloading", "ready"].includes(updateState.state)) return updateState;
-  try { await autoUpdater.checkForUpdates(); }
-  catch (error) { setUpdateState({ state: "error", version: null, percent: 0, error: error?.message || String(error) }); }
-  return updateState;
-}
-ipcMain.handle("updater:check", checkAppUpdates);
-ipcMain.handle("updater:install", () => {
-  assertGameProfileIdle();
-  if (updateState.state === "ready") autoUpdater.quitAndInstall(true, true);
-  return { ok: updateState.state === "ready" };
-});
+ipcMain.handle("updater:status", manualUpdateStatus);
+ipcMain.handle("updater:check", manualUpdateStatus);
+ipcMain.handle("updater:install", () => ({ ok: false, ...manualUpdateStatus() }));
 ipcMain.handle("config:validate", async (_event, value) => validateBridgeConfig(value));
 
 // ✅ preload側の「bridgeRoot / bridgeDir」ズレ事故を防ぐため両方返す

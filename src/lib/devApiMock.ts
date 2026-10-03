@@ -519,9 +519,9 @@ if (import.meta.env.DEV && !win.mygamepack) {
     presetsList: async () => ["配信用"],
     presetsSave: ok,
     presetsLoad: async () => ({ ok: true }),
-    updaterStatus: async () => ({ state: "error", error: "Preview mode" }),
-    updaterCheck: async () => ({ state: "error", error: "Preview mode" }),
-    updaterInstall: ok,
+    updaterStatus: async () => ({ state: "manual", version: pkg.version }),
+    updaterCheck: async () => ({ state: "manual", version: pkg.version }),
+    updaterInstall: async () => ({ ok: false, state: "manual" }),
     bridgeProcessStatus: async () => ({
       running: devBridgeRunning,
       state: devBridgeRunning ? "running" : "stopped",

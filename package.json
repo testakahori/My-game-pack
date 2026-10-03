@@ -1,7 +1,7 @@
 {
   "name": "tiktok-bridge-ui",
   "private": true,
-  "version": "1.0.45",
+  "version": "1.0.46",
   "description": "MyGamePack 用の設定編集UI（TikTok Bridge統合UI）",
   "author": "Douma Akahori",
   "type": "module",
@@ -21,22 +21,21 @@
     "prepare:game-packs": "node scripts/prepare-game-packs.cjs"
   },
   "dependencies": {
-    "electron-updater": "^6.8.9",
+    "@fortawesome/fontawesome-free": "^7.3.1",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "@fortawesome/fontawesome-free": "^7.3.1"
+    "react-dom": "^19.2.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "^24.10.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@types/node": "^24.10.0",
     "@vitejs/plugin-react": "^6.0.5",
     "autoprefixer": "^10.4.24",
     "cross-env": "^7.0.3",
-    "esbuild": "^0.28.1",
     "electron": "43.2.0",
     "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.1",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3",
@@ -49,11 +48,7 @@
     "directories": {
       "output": "release"
     },
-    "publish": {
-      "provider": "github",
-      "owner": "testakahori",
-      "repo": "My-game-pack"
-    },
+    "publish": null,
     "files": [
       "dist/**",
       "electron/**",
