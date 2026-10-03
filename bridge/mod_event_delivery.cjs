@@ -13,7 +13,7 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {},
         const job = lanes[lane][0];
         while (job.remaining > 0) {
           const count = Math.min(100, job.remaining);
-          const chunk = { ...job.event, count, eventId: `${job.id}:${job.part}` };
+          const chunk = { ...job.event, count, requestId: `${job.id}:${job.part}`, eventId: `${job.id}:${job.part}` };
           let attempts = 0;
           for (;;) {
             try { await send(chunk); break; }

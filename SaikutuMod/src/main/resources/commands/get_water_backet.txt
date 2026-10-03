@@ -3,4 +3,4 @@
 # CATEGORY: お助け系
 // 水入りバケツをプレゼント
 
-execute at @a run give @a water_bucket 1
+execute as @a at @s run give @s water_bucket 1

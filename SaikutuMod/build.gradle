@@ -1,0 +1,23 @@
+plugins {
+    id 'java'
+    id 'net.minecraftforge.gradle' version '6.0.47'
+}
+
+version = mod_version
+group = 'jp.douma.saikutumod'
+base { archivesName = 'saikutumod' }
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+minecraft {
+    mappings channel: 'official', version: '1.20.1'
+    copyIdeResources = true
+}
+dependencies {
+    minecraft 'net.minecraftforge:forge:1.20.1-47.4.16'
+    compileOnly files('../BridgeMod/build/classes/java/main')
+}
+tasks.named('processResources', ProcessResources).configure {
+    inputs.property 'mod_version', mod_version
+    filesMatching('META-INF/mods.toml') { expand mod_version: mod_version }
+}
+tasks.named('jar', Jar).configure { finalizedBy 'reobfJar' }
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }

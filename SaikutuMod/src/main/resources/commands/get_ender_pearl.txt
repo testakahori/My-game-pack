@@ -3,4 +3,4 @@
 # CATEGORY: お助け系
 // エンダーパール2個をプレゼント
 
-execute at @a run give @a minecraft:ender_pearl 2
+execute as @a at @s run give @s minecraft:ender_pearl 2

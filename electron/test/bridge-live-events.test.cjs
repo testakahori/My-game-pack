@@ -147,5 +147,5 @@ test('本番ハンドラー: いいね・ギフト・コメント・フォロー
   await until(()=>requests.length===burstStart+3,'157 cod requests split into 100 + 57 plus gift');
   assert.deepEqual(requests.slice(burstStart).filter(x=>x.type==='like').map(x=>x.count),[100,57]);
   assert.equal(requests.slice(burstStart).filter(x=>x.type==='gift').length,1);
-  assert.ok(requests.slice(burstStart).every(x=>typeof x.eventId==='string' && x.eventId.length>0));
+  assert.ok(requests.slice(burstStart).every(x=>typeof x.requestId==='string' && x.requestId.length>0 && x.requestId===x.eventId));
 });

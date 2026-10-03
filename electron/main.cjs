@@ -27,6 +27,10 @@ const gameProfiles = createGameProfiles({
   serverRoot: () => getServerRoot(),
   clientRoot: () => readAppConfig().minecraftGameFolder || path.join(app.getPath('appData'), '.minecraft'),
   configPath: () => getConfigPath(),
+  bundledPackages: () => {
+    const folder = app.isPackaged ? path.join(process.resourcesPath, 'game-packs', 'saikutu') : path.resolve(__dirname, '..', 'build', 'game-packs', 'saikutu');
+    return fs.existsSync(path.join(folder, 'game.json')) ? [{ id: 'saikutu', folder }] : [];
+  },
   displayJar: () => {
     const dir = app.isPackaged ? path.join(getServerTemplatePath(), 'mods') : path.resolve(__dirname, '..', 'DisplayMod', 'build', 'libs');
     const jars = fs.existsSync(dir) ? fs.readdirSync(dir).filter(n => /^displaymod-[0-9.]+\.jar$/.test(n)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true })) : [];
@@ -462,23 +466,29 @@ function setUpdateState(patch) {
 }
 function setupAutoUpdater() {
   if (!app.isPackaged) return;
+  // A local build must use the public stable feed, not a nonexistent "local" release channel.
+  autoUpdater.allowPrerelease = false;
+  autoUpdater.allowDowngrade = false;
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  // Apply only through updater:install, which checks that Minecraft/BRIDGE have stopped.
+  autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.on("checking-for-update", () => setUpdateState({ state: "checking", version: null, percent: 0, error: "" }));
   autoUpdater.on("update-available", info => setUpdateState({ state: "downloading", version: info.version, percent: 0, error: "" }));
   autoUpdater.on("update-not-available", info => setUpdateState({ state: "current", version: info.version, percent: 100, error: "" }));
   autoUpdater.on("download-progress", p => setUpdateState({ percent: Math.round(p.percent || 0) }));
   autoUpdater.on("update-downloaded", info => setUpdateState({ state: "ready", version: info.version, percent: 100, error: "" }));
   autoUpdater.on("error", error => setUpdateState({ state: "error", version: null, percent: 0, error: error?.message || String(error) }));
-  setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 8000);
+  setTimeout(() => checkAppUpdates(), 8000);
 }
 ipcMain.handle("updater:status", () => updateState);
-ipcMain.handle("updater:check", async () => {
+async function checkAppUpdates() {
   if (!app.isPackaged) return { state: "development" };
   if (["checking", "downloading", "ready"].includes(updateState.state)) return updateState;
-  await autoUpdater.checkForUpdates();
+  try { await autoUpdater.checkForUpdates(); }
+  catch (error) { setUpdateState({ state: "error", version: null, percent: 0, error: error?.message || String(error) }); }
   return updateState;
-});
+}
+ipcMain.handle("updater:check", checkAppUpdates);
 ipcMain.handle("updater:install", () => {
   assertGameProfileIdle();
   if (updateState.state === "ready") autoUpdater.quitAndInstall(true, true);
@@ -1037,6 +1047,7 @@ function shouldSkipHeavyDir(entryName, srcSig, dstSig, forceHeavy) {
 
 async function copyBridgeDifferential(src, dst, options = {}) {
   migrateRetiredCommands(dst);
+  require("./saikutu_commands.cjs").retireCommands(dst);
   const forceHeavy = options.forceHeavy === true;
   const preserveUserFiles = options.preserveUserFiles !== false;
   const srcSig = await getBridgeRuntimeSignature(src);
@@ -2581,7 +2592,7 @@ ipcMain.handle("bridge:commands:readMeta", () => readCommandMetadata());
 // --------------------
 ipcMain.handle("bridge:commands:write", async (_event, { filename, content }) => {
   assertGameProfileIdle();
-  if (/^game_(umetate|run)_/.test(filename || '')) throw new Error('ゲームパックのコマンドはパックを再登録して更新してください');
+  if (/^game_(umetate|run|saikutu)_/.test(filename || '')) throw new Error('ゲームパックのコマンドはパックを再登録して更新してください');
   if (!filename || typeof filename !== "string" || !filename.endsWith(".txt")) {
     throw new Error("Invalid filename: must be a .txt file");
   }

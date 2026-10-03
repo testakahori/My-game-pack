@@ -1,6 +1,8 @@
 package jp.douma.bridgemod;
 
 import com.mojang.brigadier.CommandDispatcher;
+import jp.douma.bridgemod.api.GameEvents;
+import jp.douma.bridgemod.api.EnvironmentOverrides;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
@@ -57,9 +59,6 @@ public class BridgeMod {
     private final Deque<BridgeEvent> giftQueue = new ArrayDeque<>();
     private final Deque<BridgeEvent> likeQueue = new ArrayDeque<>();
     private final Deque<BridgeEvent> otherQueue = new ArrayDeque<>();
-    private final Set<String> pendingEventIds = new HashSet<>();
-    private final LinkedHashSet<String> completedEventIds = new LinkedHashSet<>();
-    private static final int COMPLETED_EVENT_ID_LIMIT = 4096;
     private final LikeCodLimiter likeCod = new LikeCodLimiter();
 
     private HttpServer bridgeServer;
@@ -77,6 +76,15 @@ public class BridgeMod {
     private GiftEffects.Protection currentEffectProtection;
 
     public BridgeMod() {
+        GameEvents.registerCommonEffects(data -> {
+            CommandSourceStack source = (CommandSourceStack)data.get("source");
+            String key = String.valueOf(data.get("key"));
+            if ("cancel_jump".equals(key)) { giftEffects.cancelJump(source.getPlayer()); return 1; }
+            try { return giftEffects.start(source, key, ((Number)data.get("count")).intValue(),
+                new GiftEffects.Protection(Boolean.TRUE.equals(data.get("protectionEnabled")),
+                    gameNumber(data,"protectX1"), gameNumber(data,"protectX2"), gameNumber(data,"protectZ1"), gameNumber(data,"protectZ2")));
+            } catch (Exception error) { throw new IllegalStateException(error); }
+        });
         MinecraftForge.EVENT_BUS.register(this);
     }
 
@@ -97,6 +105,7 @@ public class BridgeMod {
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
         giftEffects.stop();
+        EnvironmentOverrides.reset();
         stopBridgeHttpServer();
         stopWebSocketServer();
         activeServer = null;
@@ -104,8 +113,6 @@ public class BridgeMod {
             giftQueue.clear();
             likeQueue.clear();
             otherQueue.clear();
-            pendingEventIds.clear();
-            completedEventIds.clear();
         }
         likeCod.reset();
     }
@@ -360,6 +367,7 @@ public class BridgeMod {
         double tickMs = activeServer == null ? 0 : activeServer.getAverageTickTime();
         double tps = tickMs <= 0 ? 20.0 : Math.min(20.0, 1000.0 / tickMs);
         return "{\"ok\":true,\"mod\":\"bridgemod\",\"environmentFixed\":true,\"gift\":" + gift + ",\"like\":" + like + ",\"other\":" + other
+            + ",\"games\":" + new com.google.gson.Gson().toJson(GameEvents.status())
             + ",\"displayAvailable\":" + DisplayLink.available()
             + ",\"likeCodActive\":" + likeCod.activeCount() + ",\"likeCodLimit\":" + LikeCodLimiter.MAX_ACTIVE
             + ",\"likeCodSpawned\":" + likeCod.spawned()
@@ -481,14 +489,12 @@ public class BridgeMod {
     }
 
     private synchronized boolean enqueueBridgeEvent(BridgeEvent event) {
-        // An HTTP response can be lost after acceptance. Retrying the same ID must not run it twice.
-        if (!event.eventId.isEmpty() && (pendingEventIds.contains(event.eventId) || completedEventIds.contains(event.eventId))) return true;
+        // Common events run as received. A game MOD owns duplicate-request detection.
         Deque<BridgeEvent> queue = "gift".equals(event.type) ? giftQueue : "like".equals(event.type) ? likeQueue : otherQueue;
         int limit = queue == giftQueue ? MAX_GIFT_QUEUE : queue == likeQueue ? MAX_LIKE_QUEUE : MAX_OTHER_QUEUE;
         // Backpressure: the sender retains the head until accepted. Never discard an older event.
         if (queue.size() >= limit) return false;
         queue.addLast(event);
-        if (!event.eventId.isEmpty()) pendingEventIds.add(event.eventId);
         return true;
     }
 
@@ -510,13 +516,6 @@ public class BridgeMod {
             if (event.remaining <= 0) {
                 synchronized (this) {
                     queue.pollFirst();
-                    if (!event.eventId.isEmpty()) {
-                        pendingEventIds.remove(event.eventId);
-                        completedEventIds.add(event.eventId);
-                        if (completedEventIds.size() > COMPLETED_EVENT_ID_LIMIT) {
-                            Iterator<String> ids = completedEventIds.iterator(); ids.next(); ids.remove();
-                        }
-                    }
                 }
             } else {
                 break; // 予算切れ：次tickで続きから
@@ -585,6 +584,22 @@ public class BridgeMod {
             return 0;
         }
 
+        if (parsed.meta.containsKey("GAME_MOD")) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("server",server); data.put("key",parsed.meta.getOrDefault("GAME_KEY",event.key));
+            data.put("count",event.remaining); data.put("type",event.type); data.put("listenerName",event.listenerName);
+            data.put("announce",event.announce); data.put("requestId",event.eventId); data.put("eventId",event.eventId);
+            data.put("protectionEnabled",event.protectionEnabled);
+            data.put("protectX1",event.protectX1); data.put("protectX2",event.protectX2);
+            data.put("protectZ1",event.protectZ1); data.put("protectZ2",event.protectZ2);
+            try {
+                if (GameEvents.offer(parsed.meta.get("GAME_MOD"),data) == GameEvents.WAIT) return 0;
+                executedCommands++; event.remaining = 0; return 1;
+            } catch (Exception error) {
+                recordFailure(event.key + ": " + error.getMessage()); event.remaining = 0; return 1;
+            }
+        }
+
         CommandSourceStack silent = server.createCommandSourceStack().withPermission(4).withSuppressedOutput();
         int used = 0;
 
@@ -594,11 +609,14 @@ public class BridgeMod {
             int count = "aggregate".equals(parsed.meta.get("COUNT_MODE")) ? event.remaining : 1;
             currentEffectProtection = new GiftEffects.Protection(event.protectionEnabled,
                 event.protectX1, event.protectX2, event.protectZ1, event.protectZ2);
+            String commandRequestId = count == event.count ? event.eventId
+                : UUID.nameUUIDFromBytes((event.eventId + ":" + (event.count - event.remaining)).getBytes(StandardCharsets.UTF_8)).toString();
             boolean started = false;
             if (pacedCod) likeCod.begin();
             try {
                 for (String raw : parsed.commands) {
-                    String cmd = applyPlaceholdersMinecraft(raw, event.listenerName).replace("{Count}", Integer.toString(count));
+                    String cmd = applyPlaceholdersMinecraft(raw, event.listenerName).replace("{Count}", Integer.toString(count))
+                        .replace("{RequestId}", commandRequestId);
                     started |= performSilent(server, silent, cmd);
                     used++;
                 }
@@ -620,6 +638,10 @@ public class BridgeMod {
         return used;
     }
 
+    private static double gameNumber(Map<String, Object> data, String key) {
+        return data.get(key) instanceof Number value ? value.doubleValue() : 0;
+    }
+
     private static class BridgeEvent {
         final String type;
         final String key;
@@ -634,7 +656,7 @@ public class BridgeMod {
         // /bridge/exec 用：ファイルではなく生コマンド配列を実行する（null ならファイル実行）
         List<String> inlineCommands;
         ParsedFile parsed;
-        String eventId = "";
+        String eventId = UUID.randomUUID().toString();
 
         BridgeEvent(String type, String key, int count, String listenerName, boolean announce) {
             this(type, key, count, listenerName, announce, false, 0, 0, 0, 0);
@@ -677,8 +699,11 @@ public class BridgeMod {
             double z2 = jsonDouble(json, "protectZ2", 0);
             BridgeEvent event = new BridgeEvent(type, key, count, listenerName, announce,
                 protectionEnabled, x1, x2, z1, z2);
-            event.eventId = jsonString(json, "eventId", "");
-            return event.eventId.length() <= 128 ? event : null;
+            String legacyId = jsonString(json, "eventId", "");
+            String requestId = jsonString(json, "requestId", legacyId);
+            if (!legacyId.isEmpty() && !legacyId.equals(requestId)) return null;
+            if (!requestId.isEmpty()) event.eventId = requestId;
+            return event.eventId.matches("[A-Za-z0-9_.:-]{1,128}") ? event : null;
         }
 
         private static String normalizeType(String type) {
@@ -821,32 +846,12 @@ public class BridgeMod {
             throw new RuntimeException("serverDir=" + serverDir + " | searched up to 4 levels, bridge/commands/minecraft/ not found");
         }
 
-        String fileName = key.toLowerCase(Locale.ROOT).endsWith(".txt") ? key : (key + ".txt");
-        Path p = base.resolve(fileName).normalize();
-
-        // 念のため、base外参照を禁止
-        if (!p.startsWith(base)) return null;
-        if (!Files.exists(p)) return null;
-
-        return p;
+        return CommandRouting.resolve(base, key);
     }
 
     private List<String> listKeys(MinecraftServer server) {
         Path base = findCommandsBase(server);
-        if (base == null) return List.of();
-
-        try {
-            return Files.list(base)
-                .filter(f -> f.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".txt"))
-                .map(f -> {
-                    String n = f.getFileName().toString();
-                    return n.substring(0, n.length() - 4);
-                })
-                .sorted()
-                .collect(Collectors.toList());
-        } catch (IOException e) {
-            return List.of();
-        }
+        return base == null ? List.of() : CommandRouting.keys(base);
     }
 
     // ===== parsing =====

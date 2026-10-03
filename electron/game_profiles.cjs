@@ -4,9 +4,11 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const zlib = require('node:zlib');
 const { atomicWrite } = require('./settings_backups.cjs');
+const saikutu = require('./saikutu_commands.cjs');
 
-const GAMES = [{ id: 'common', name: '共通コマンドのみ', modName: 'BridgeMOD' },
-  { id: 'umetate', name: '埋め立て', modName: 'UmetateMOD' }, { id: 'run', name: 'ラン', modName: 'RunMOD' }];
+const GAMES = [{ id: 'common', name: 'サバイバル', modName: 'BridgeMOD' },
+  { id: 'umetate', name: '埋め立て', modName: 'UmetateMOD' },
+  { id: 'run', name: 'RUN', modName: 'RunMOD' }, { id: 'saikutu', name: '採掘', modName: 'saikutuMOD' }];
 const PROFILE_KEYS = ['mappings', 'likeEvents', 'unmappedGiftEvent', 'shareEvent', 'followEvent', 'memberEvent',
   'roulette', 'deathRoulette', 'commentGifts', 'milestones', 'combos'];
 const hash = data => crypto.createHash('sha256').update(data).digest('hex');
@@ -51,6 +53,7 @@ function inspectPackage(folder) {
   const manifest = JSON.parse(plainFile(path.join(folder, 'game.json'), 1024 * 1024));
   const game = GAMES.find(g => g.id !== 'common' && g.id === manifest.id);
   if (!game || manifest.format !== 1 || !/^[a-z][a-z0-9_]{1,63}$/.test(manifest.modId || '') || ['bridgemod', 'displaymod', 'doumacmd'].includes(manifest.modId)) throw new Error('game.jsonのゲームID・MOD ID・形式を確認してください');
+  if (manifest.bridgeEventApi !== undefined && manifest.bridgeEventApi !== 1) throw new Error('bridgeEventApiは1で指定してください');
   const files = {};
   for (const side of ['server', 'client']) {
     const name = manifest[side + 'Jar'];
@@ -65,16 +68,18 @@ function inspectPackage(folder) {
     if (!/^[a-z][a-z0-9_]{0,49}$/.test(c?.key || '') || seen.has(c.key)) throw new Error('コマンドのkeyが不正・重複しています');
     if (typeof c.title !== 'string' || !c.title.trim() || /[\r\n]/.test(c.title) || c.title.length > 100) throw new Error('コマンドの表示名が不正です');
     if (typeof c.command !== 'string' || !c.command.trim() || /[\r\n]/.test(c.command) || c.command.length > 2000 || /^(?:\/?bridge|\/?douma)\s/i.test(c.command.trim())) throw new Error('ゲームMODへ渡すコマンドは1行で指定してください（Bridgeの再呼び出しは不可）');
+    if (c.destructive !== undefined && typeof c.destructive !== 'boolean') throw new Error('destructiveはtrueかfalseで指定してください');
     if (c.commonDisplay !== undefined && typeof c.commonDisplay !== 'boolean') throw new Error('commonDisplayはtrueかfalseで指定してください');
     seen.add(c.key);
     return { key: c.key, title: c.title, command: c.command.replace(/^\//, ''), category: game.modName,
-      ...(c.commonDisplay === undefined ? {} : { commonDisplay: c.commonDisplay }) };
+      ...(c.commonDisplay === undefined ? {} : { commonDisplay: c.commonDisplay }),
+      ...(c.destructive === undefined ? {} : { destructive: c.destructive }) };
   });
-  const normalized = { format: 1, id: game.id, modId: manifest.modId, serverJar: manifest.serverJar, clientJar: manifest.clientJar, commands };
+  const normalized = { format: 1, ...(manifest.bridgeEventApi === 1 ? { bridgeEventApi: 1 } : {}), id: game.id, modId: manifest.modId, serverJar: manifest.serverJar, clientJar: manifest.clientJar, commands };
   return { manifest: normalized, files, digest: hash(JSON.stringify(normalized) + Object.entries(files).map(([n, b]) => n + hash(b)).sort().join('')) };
 }
 
-function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridgeJar, displayJar = () => null, ensureStopped, beforeStep = () => {} }) {
+function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridgeJar, displayJar = () => null, bundledPackages = () => [], ensureStopped, beforeStep = () => {} }) {
   const root = () => path.resolve(storage());
   const stateFile = () => path.join(root(), 'profiles.json');
   const journalFile = () => path.join(root(), 'pending-switch.json');
@@ -94,8 +99,8 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
   }
   function list() {
     const current = state();
-    return { active: current.active, displayBundled: Boolean(displayJar()), applied: current.appliedFormat === 2 && JSON.stringify(current.appliedRoots) === JSON.stringify([path.resolve(serverRoot()), path.resolve(clientRoot())]), serverMods: path.join(serverRoot(), 'mods'), clientMods: path.join(clientRoot(), 'mods'), recoveryRequired: fs.existsSync(journalFile()),
-      games: GAMES.map(g => ({ ...g, installed: g.id === 'common' || Boolean(current.packages[g.id]), selected: current.active === g.id })) };
+    return { active: current.active, saikutuMigrationNeeded: saikutu.hasLegacy(readJson(configPath(), {})), displayBundled: Boolean(displayJar()), applied: current.appliedFormat === 3 && JSON.stringify(current.appliedRoots) === JSON.stringify([path.resolve(serverRoot()), path.resolve(clientRoot())]), serverMods: path.join(serverRoot(), 'mods'), clientMods: path.join(clientRoot(), 'mods'), recoveryRequired: fs.existsSync(journalFile()),
+      games: GAMES.map(g => ({ ...g, installed: g.id === 'common' || Boolean(current.packages[g.id]) || bundledPackages().some(p => p.id === g.id), selected: current.active === g.id })) };
   }
   async function install(folder) {
     if (fs.existsSync(journalFile())) throw new Error('前回の切替を復旧してから登録してください');
@@ -111,6 +116,10 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
   }
   function packageFor(current, id) {
     const name = current.packages[id];
+    if (!name) {
+      const bundled = bundledPackages().find(p => p.id === id);
+      if (bundled) { const checked = inspectPackage(bundled.folder); if (checked.manifest.id !== id) throw new Error('同梱ゲームパックのIDが不正です'); return checked; }
+    }
     if (!new RegExp('^' + id + '-[a-f0-9]{64}$').test(name || '')) throw new Error('このゲームMODは未導入です。完成したゲームパックを登録してください');
     const checked = inspectPackage(path.join(root(), 'packages', name));
     if (name !== id + '-' + checked.digest) throw new Error('登録済みゲームパックが変更されています。元の配布ファイルから再登録してください');
@@ -130,7 +139,7 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     }
     const commands = path.join(path.dirname(configPath()), 'commands', 'minecraft');
     for (const [name, content] of Object.entries(journal.commandBefore || {})) {
-      if (!/^game_(umetate|run)_[a-z0-9_]+\.txt$/.test(name)) throw new Error('切替記録のコマンド名が不正です');
+      if (!/^game_(umetate|run|saikutu)_[a-z0-9_]+\.txt$/.test(name)) throw new Error('切替記録のコマンド名が不正です');
       const file = path.join(commands, name);
       if (content === null) { if (fs.existsSync(file)) fs.unlinkSync(file); } else atomicWrite(file, content);
     }
@@ -153,6 +162,7 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     const commonName = path.basename(commonPath);
     if (!safeName(commonName) || !commonName.endsWith('.jar')) throw new Error('BridgeMODのjarファイル名が不正です');
     const commonFiles = { [commonName]: commonBytes }, displayPath = displayJar();
+    if (!displayPath) throw new Error('標準装備のDisplayMODがありません。表示MODのビルド済みjarが必要です');
     if (displayPath) {
       const bytes = plainFile(displayPath), name = path.basename(displayPath);
       if (!safeName(name) || !name.endsWith('.jar') || name.toLowerCase() === commonName.toLowerCase() || !jarModIds(bytes).includes('displaymod')) throw new Error('DisplayMODのjarを確認してください');
@@ -160,12 +170,25 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     }
     const before = fs.readFileSync(configPath(), 'utf8'), config = JSON.parse(before);
     const commandDir = path.join(path.dirname(configPath()), 'commands', 'minecraft');
-    const gameFiles = Object.fromEntries((pack?.manifest.commands || []).map(c => [`game_${id}_${c.key}.txt`, `# TITLE: ${c.title}\n# CATEGORY: ${c.category}\n# DISPLAY_OWNER: ${c.commonDisplay === true ? 'bridge' : 'game'}\n${c.command.includes('{Count}') ? '# COUNT_MODE: aggregate\n' : ''}${c.command}\n`]));
-    const oldNames = fs.existsSync(commandDir) ? fs.readdirSync(commandDir).filter(n => /^game_(umetate|run)_[a-z0-9_]+\.txt$/.test(n)) : [];
+    const gameFiles = Object.fromEntries((pack?.manifest.commands || []).map(c => [`game_${id}_${c.key}.txt`, `# TITLE: ${c.title}\n# CATEGORY: ${c.category}\n${c.destructive ? '# DESTRUCTIVE: true\n' : ''}# DISPLAY_OWNER: ${c.commonDisplay === true ? 'bridge' : 'game'}\n${c.command.includes('{Count}') ? '# COUNT_MODE: aggregate\n' : ''}${pack.manifest.bridgeEventApi === 1 ? `# GAME_MOD: ${pack.manifest.modId}\n# GAME_KEY: ${c.key}\n` : ''}${c.command}\n`]));
+    for (const command of pack?.manifest.commands || []) {
+      if (!saikutu.FILES.has(command.key + '.txt') && fs.existsSync(path.join(commandDir, command.key + '.txt')))
+        throw new Error('共通コマンドとゲームコマンドのkeyが重複しています: ' + command.key);
+    }
+    const oldNames = fs.existsSync(commandDir) ? fs.readdirSync(commandDir).filter(n => /^game_(umetate|run|saikutu)_[a-z0-9_]+\.txt$/.test(n)) : [];
     const next = clone(current);
     next.profiles[current.active] = Object.fromEntries(PROFILE_KEYS.filter(k => Object.hasOwn(config, k)).map(k => [k, config[k]]));
+    // Preserve the complete previous profile, and carry its bindings into mining on first selection.
+    for (const [profileId, profile] of Object.entries(next.profiles)) {
+      if (saikutu.hasLegacy(profile)) {
+        next.legacySaikutuProfiles ||= {};
+        next.legacySaikutuProfiles[profileId] = clone(profile);
+        if (!next.profiles.saikutu) next.profiles.saikutu = saikutu.mapLegacy(profile);
+        next.profiles[profileId] = profileId === 'saikutu' ? saikutu.mapLegacy(profile) : saikutu.withoutLegacy(profile);
+      }
+    }
     const destination = id === current.active ? next.profiles[id] : next.profiles[id] || { mappings: [], likeEvents: [] };
-    const available = new Set([...(fs.existsSync(commandDir) ? fs.readdirSync(commandDir).filter(n => n.endsWith('.txt') && !oldNames.includes(n)) : []), ...Object.keys(gameFiles)]);
+    const available = new Set([...(fs.existsSync(commandDir) ? fs.readdirSync(commandDir).filter(n => n.endsWith('.txt') && !oldNames.includes(n) && !saikutu.FILES.has(n)) : []), ...Object.keys(gameFiles)]);
     function checkCommands(value) {
       if (!value || typeof value !== 'object') return;
       for (const [key, item] of Object.entries(value)) {
@@ -199,7 +222,7 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
       for (const name of oldNames) fs.unlinkSync(path.join(commandDir, name));
       for (const [name, text] of Object.entries(gameFiles)) atomicWrite(path.join(commandDir, name), text);
       atomicWrite(configPath(), JSON.stringify(config, null, 2));
-      next.active = id; next.appliedRoots = dirs; next.appliedFormat = 2; writeJson(stateFile(), next);
+      next.active = id; next.appliedRoots = dirs; next.appliedFormat = 3; writeJson(stateFile(), next);
       fs.unlinkSync(journalFile());
       return { ...list(), backupFolders: dirs.map(d => path.join(d, '.mygamepack-mod-switch', operation, 'previous')) };
     } catch (error) {

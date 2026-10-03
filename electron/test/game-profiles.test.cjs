@@ -23,7 +23,8 @@ function fixture(t, extras = {}) {
   fs.mkdirSync(path.join(path.dirname(config), 'commands/minecraft'), { recursive: true });
   for (const name of ['zombie.txt', 'cod.txt']) fs.writeFileSync(path.join(path.dirname(config), 'commands/minecraft', name), 'say test');
   const bridge = path.join(root, 'bridgemod-1.3.4.jar'); fs.writeFileSync(bridge, jar('bridgemod'));
-  const api = createGameProfiles({ storage: () => storage, serverRoot: () => server, clientRoot: () => client, configPath: () => config, bridgeJar: () => bridge, ensureStopped: async () => {}, ...extras });
+  const display = path.join(root, 'displaymod-1.0.0.jar'); fs.writeFileSync(display, jar('displaymod'));
+  const api = createGameProfiles({ storage: () => storage, serverRoot: () => server, clientRoot: () => client, configPath: () => config, bridgeJar: () => bridge, displayJar: () => display, ensureStopped: async () => {}, ...extras });
   function pack(id) {
     const dir = path.join(root, id); fs.mkdirSync(dir); fs.writeFileSync(path.join(dir, id + '.jar'), jar(id + 'mod'));
     fs.writeFileSync(path.join(dir, 'game.json'), JSON.stringify({ format: 1, id, modId: id + 'mod', serverJar: id + '.jar', clientJar: id + '.jar', commands: [{ key: 'fill', title: '専用イベント', command: `${id} fill {Count} {ListenerName}` }] }));
@@ -45,14 +46,14 @@ test('ゲーム未導入・不正jarでは両側のMODと設定を一切切り�
 test('ゲーム選択は両側をBridgeMODと選択ゲームだけにし、旧MODを退避し、設定をゲーム別に戻す', async t => {
   const x = fixture(t); await x.api.install(x.pack('umetate')); await x.api.install(x.pack('run'));
   const result = await x.api.activate('umetate');
-  for (const dir of [x.server, x.client]) assert.deepEqual(fs.readdirSync(path.join(dir, 'mods')).sort(), ['bridgemod-1.3.4.jar', 'umetate.jar']);
+  for (const dir of [x.server, x.client]) assert.deepEqual(fs.readdirSync(path.join(dir, 'mods')).sort(), ['bridgemod-1.3.4.jar', 'displaymod-1.0.0.jar', 'umetate.jar']);
   for (const backup of result.backupFolders) assert.equal(fs.readFileSync(path.join(backup, 'doumacmd-old.jar'), 'utf8'), 'original');
   const command = path.join(x.server, 'bridge/commands/minecraft/game_umetate_fill.txt');
   assert.match(fs.readFileSync(command, 'utf8'), /DISPLAY_OWNER: game/);
   let config = JSON.parse(fs.readFileSync(x.config)); assert.deepEqual(config.mappings, []); assert.equal(config.shareEvent, undefined); assert.equal(config.rcon.password, 'keep-local-secret');
   config.mappings = [{ giftId: 'rose', commandFile: 'game_umetate_fill.txt', repeat: 3 }]; fs.writeFileSync(x.config, JSON.stringify(config));
   await x.api.activate('run'); assert.equal(fs.existsSync(command), false);
-  for (const dir of [x.server, x.client]) assert.deepEqual(fs.readdirSync(path.join(dir, 'mods')).sort(), ['bridgemod-1.3.4.jar', 'run.jar']);
+  for (const dir of [x.server, x.client]) assert.deepEqual(fs.readdirSync(path.join(dir, 'mods')).sort(), ['bridgemod-1.3.4.jar', 'displaymod-1.0.0.jar', 'run.jar']);
   await x.api.activate('umetate'); assert.equal(JSON.parse(fs.readFileSync(x.config)).mappings[0].repeat, 3);
   await x.api.activate('common'); config = JSON.parse(fs.readFileSync(x.config)); assert.equal(config.mappings[0].commandFile, 'zombie.txt'); assert.equal(config.shareEvent.enabled, true);
 });
@@ -156,15 +157,15 @@ test('表示MODを独立jarで両側に配置し、共通表示あり／なし�
   await assert.rejects(x.api.install(folder), /commonDisplay/);
 });
 
-test('表示MOD未同梱でも切替でき、不正な表示jarは片側も変更する前に拒否する', async t => {
+test('標準の表示MODがなければ切替を止め、不正な表示jarも変更前に拒否する', async t => {
   let display;
   const x = fixture(t, { displayJar: () => display });
-  await x.api.activate('common'); assert.equal(x.api.list().displayBundled, false);
+  await assert.rejects(x.api.activate('common'), /DisplayMOD/); assert.equal(x.api.list().displayBundled, false);
   const before = fs.readFileSync(x.config, 'utf8');
   display = path.join(x.root, 'displaymod-1.0.0.jar'); fs.writeFileSync(display, jar('wrongmod'));
   await assert.rejects(x.api.activate('common'), /DisplayMOD/);
   assert.equal(fs.readFileSync(x.config, 'utf8'), before);
-  for (const dir of [x.server, x.client]) assert.deepEqual(fs.readdirSync(path.join(dir, 'mods')), ['bridgemod-1.3.4.jar']);
+  for (const dir of [x.server, x.client]) assert.deepEqual(fs.readdirSync(path.join(dir, 'mods')), ['doumacmd-old.jar', 'other.jar']);
 });
 
 test('表示MOD更新はBridgeMOD・ゲームMODを保持し、以前の表示jarを退避する', t => {
@@ -173,4 +174,42 @@ test('表示MOD更新はBridgeMOD・ゲームMODを保持し、以前の表示ja
   const display = path.join(x.root, 'displaymod-1.0.0.jar'); fs.writeFileSync(display, jar('displaymod'));
   replaceCommonMod(display, x.server, 'displaymod');
   assert.deepEqual(fs.readdirSync(path.join(x.server, 'mods')).sort(), ['bridgemod-1.3.4.jar', 'displaymod-1.0.0.jar', 'other.jar']);
+});
+
+
+test('4種類の選択肢とサバイバルの標準2MODを両方へ適用する', async t => {
+  const x = fixture(t);
+  assert.deepEqual(x.api.list().games.map(g => g.name), ['サバイバル','埋め立て','RUN','採掘']);
+  await x.api.activate('common');
+  for (const dir of [x.server,x.client]) assert.deepEqual(fs.readdirSync(path.join(dir,'mods')).sort(), ['bridgemod-1.3.4.jar','displaymod-1.0.0.jar']);
+});
+test('採掘は同梱パックから選べて既存のギフト・ルーレット設定を引き継ぐ', async t => {
+  let folder;
+  const x = fixture(t, { bundledPackages: () => folder ? [{ id:'saikutu',folder }] : [] });
+  folder = x.pack('saikutu');
+  const file = path.join(folder,'game.json'), manifest = JSON.parse(fs.readFileSync(file));
+  manifest.bridgeEventApi = 1; manifest.commands = [{ key:'otosiana',title:'落とし穴',command:'saikutu otosiana {Count} {ListenerName}' }];
+  fs.writeFileSync(file,JSON.stringify(manifest));
+  const config = JSON.parse(fs.readFileSync(x.config));
+  config.mappings.push({ giftId:'rose',commandFile:'otosiana.txt',repeat:5 });
+  config.roulette = { enabled:true,items:[{commandFile:'otosiana.txt',weight:2},{commandFile:'zombie.txt',weight:1}] };
+  fs.writeFileSync(x.config,JSON.stringify(config));
+  assert.equal(x.api.list().saikutuMigrationNeeded,true);
+  assert.equal(x.api.list().games.find(g=>g.id==='saikutu').installed,true);
+  await x.api.activate('saikutu');
+  const active = JSON.parse(fs.readFileSync(x.config));
+  assert.equal(active.mappings[1].commandFile,'game_saikutu_otosiana.txt'); assert.equal(active.mappings[1].repeat,5);
+  assert.equal(active.roulette.items[0].commandFile,'game_saikutu_otosiana.txt');
+  assert.match(fs.readFileSync(path.join(x.server,'bridge/commands/minecraft/game_saikutu_otosiana.txt'),'utf8'), /GAME_MOD: saikutumod/);
+  for (const dir of [x.server,x.client]) assert.deepEqual(fs.readdirSync(path.join(dir,'mods')).sort(), ['bridgemod-1.3.4.jar','displaymod-1.0.0.jar','saikutu.jar']);
+  await x.api.activate('common');
+  const survival = JSON.parse(fs.readFileSync(x.config)); assert.equal(survival.mappings.length,1); assert.equal(survival.roulette.items.length,1);
+  await x.api.activate('saikutu'); assert.equal(JSON.parse(fs.readFileSync(x.config)).mappings[1].repeat,5);
+  const saved = JSON.parse(fs.readFileSync(path.join(x.storage,'profiles.json'))); assert.equal(saved.legacySaikutuProfiles.common.mappings[1].commandFile,'otosiana.txt');
+});
+test('bridgeコマンド名が共通MODと重なるゲームは変更前に拒否する', async t => {
+  const x = fixture(t), folder = x.pack('run'), file = path.join(folder,'game.json');
+  const manifest = JSON.parse(fs.readFileSync(file)); manifest.commands[0].key = 'zombie'; fs.writeFileSync(file,JSON.stringify(manifest));
+  await x.api.install(folder); await assert.rejects(x.api.activate('run'), /重複.*zombie/);
+  assert.equal(fs.existsSync(path.join(x.server,'mods/other.jar')),true);
 });

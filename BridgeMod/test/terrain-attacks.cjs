@@ -12,7 +12,7 @@ async function wait(fn, ms=45000) { const end=Date.now()+ms; while(Date.now()<en
 const cmd = s => rcon.send(s);
 const block = (x,y,z=0) => bot.blockAt(new Vec3(x,y,z))?.name;
 async function gift(key,count=1) { const r = await fetch('http://127.0.0.1:25578/bridge/event',{ method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'gift',key,count,announce:false}) }); assert.equal(r.status,202); }
-async function idle() { await wait(async()=>{ const s=await status(); return !s.gift&&!s.other&&!s.effectsPending; }); }
+async function idle() { await wait(async()=>{ const s=await status(); return !s.gift&&!s.other&&!s.effectsPending&&!s.games?.saikutumod?.gift&&!s.games?.saikutumod?.other&&!s.games?.saikutumod?.effectsPending; }); }
 async function prepare(cx,deep=false) {
   await idle(); bot.physicsEnabled=false; await cmd('gamemode creative GiftTester'); await cmd('kill @e[type=!minecraft:player]'); await cmd('effect clear GiftTester'); await cmd('tp GiftTester '+(cx+.5)+' 64 0.5'); await sleep(2500);
   await cmd('fill '+(cx-15)+' 64 -15 '+(cx+15)+' 96 15 air');
@@ -21,7 +21,7 @@ async function prepare(cx,deep=false) {
   if(deep) for(const [lo,hi] of [[8,35],[36,62]]) await cmd('fill '+(cx-15)+' '+lo+' -15 '+(cx+15)+' '+hi+' 15 stone');
   await wait(()=>block(cx,63)==='stone'); await cmd('tp GiftTester '+(cx+.5)+' 64 0.5'); await sleep(300);bot.physicsEnabled=true; await wait(async()=>Math.abs(bot.entity.position.y-64)<0.1&&Math.abs((await status()).player.y-64)<0.1); await cmd('attribute GiftTester minecraft:generic.max_health base set 1024'); await cmd('effect give GiftTester instant_health 1 10 true'); await cmd('gamemode survival GiftTester'); await sleep(1000); spawns=[]; meteorStates=[]; particles=0; explosions=0;
 }
-async function test(name,fn) { if(process.argv.includes('--meteor-only')&&!name.startsWith('meteor shower'))return; if(process.argv.includes('--ice-only')&&!name.startsWith('ice attack'))return; if(process.argv.includes('--v135-only')&&!/ice attack|meteor shower|flood carries|wither|gravity|protected area|cataclysm/.test(name))return; if(process.argv.includes('--cataclysm-only')&&!name.startsWith('cataclysm'))return; if(process.argv.includes('--new-effects-only')&&!/meteor shower|flood carries|cataclysm/.test(name))return; console.log('TEST',name); const info=await fn(); result.tests.push({name,passed:true,info}); console.log('PASS',name,JSON.stringify(info)); }
+async function test(name,fn) { if(process.argv.includes('--mining-only')&&!/^(ice attack|flood carries|cataclysm)/.test(name))return; if(process.argv.includes('--meteor-only')&&!name.startsWith('meteor shower'))return; if(process.argv.includes('--ice-only')&&!name.startsWith('ice attack'))return; if(process.argv.includes('--v135-only')&&!/ice attack|meteor shower|flood carries|wither|gravity|protected area|cataclysm/.test(name))return; if(process.argv.includes('--cataclysm-only')&&!name.startsWith('cataclysm'))return; if(process.argv.includes('--new-effects-only')&&!/meteor shower|flood carries|cataclysm/.test(name))return; console.log('TEST',name); const info=await fn(); result.tests.push({name,passed:true,info}); console.log('PASS',name,JSON.stringify(info)); }
 (async()=>{
   await wait(async()=>{ try{return(await status()).ok;}catch{return false;} },120000);
   rcon=await Rcon.connect({host:'127.0.0.1',port:25588,password:properties['rcon.password'],timeout:10000});
@@ -113,5 +113,5 @@ async function test(name,fn) { if(process.argv.includes('--meteor-only')&&!name.
     await prepare(x);await bot.look(0,0,true);await gift('antigravity');start=bot.entity.position.clone();bot.setControlState('forward',true);await sleep(2000);bot.clearControlStates();const slowed=Math.hypot(bot.entity.position.x-start.x,bot.entity.position.z-start.z);
     assert.ok(slowed<normal*.6,'Airborne movement should feel heavy: '+JSON.stringify({normal,slowed}));return {normal,slowed};
   });
-  const s=await status();assert.equal(s.effectsFailed,0,s.effectsError);result.passed=true;
+  const s=await status();assert.equal(s.effectsFailed,0,s.effectsError);if(s.games?.saikutumod){assert.equal(s.games.saikutumod.failed,0);assert.equal(s.games.saikutumod.effectsFailed,0);}result.passed=true;
 })().catch(e=>{result.passed=false;result.error=e.stack;console.error(e);process.exitCode=1;}).finally(async()=>{bot?.quit();if(rcon)await rcon.end();fs.writeFileSync(path.join(process.env.GIFT_QA_OUTPUT||root,'terrain-attacks-results.json'),JSON.stringify(result,null,2));console.log('RESULT',JSON.stringify(result));});

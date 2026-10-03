@@ -3,4 +3,4 @@
 # CATEGORY: お助け系
 // オークの木材10個をプレゼント
 
-execute at @a run give @a minecraft:oak_wood 10
+execute as @a at @s run give @s minecraft:oak_wood 10
