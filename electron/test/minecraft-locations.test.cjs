@@ -6,9 +6,9 @@ const path = require('node:path');
 const { discoverMinecraftLocations: discover, validateMinecraftFolder: validate } = require('../minecraft_locations.cjs');
 
 function fixture(t) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mygamepack-location-')));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'mygamepack-location-')));
   t.after(() => {
-    assert.equal(path.dirname(root), fs.realpathSync(os.tmpdir()));
+    assert.equal(path.dirname(root), fs.realpathSync.native(os.tmpdir()));
     assert.ok(path.basename(root).startsWith('mygamepack-location-'));
     fs.rmSync(root, { recursive: true, force: true });
   });
