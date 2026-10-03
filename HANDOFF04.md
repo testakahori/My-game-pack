@@ -1,10 +1,10 @@
-### 2026-10-03：連携API・固定環境・Minecraft保存先検出／v1.0.44公開準備
+### 2026-10-03：連携API・固定環境・Minecraft保存先検出／v1.0.44公開・導入完了
 
 ### 今回の依頼と版
 
 - ユーザーの新しい依頼により、従来の公開・アプリ更新保留を解除。テスト、PRマージ、正式リリース、手元へのインストールまで実施する。
 - ブランチ：`feat/game-integration-release`。アプリ1.0.44、BridgeMOD1.4.0、DisplayMOD1.1.0、saikutuMOD1.0.1。Minecraft1.20.1／Forge47.4.10／サーバーJava21／MODビルドJava17。
-- 以下は実装・検証記録。公開とインストールの完了記録はこの節の末尾に追記する。
+- 以下に実装・検証・公開・インストールの完了結果を記録する。
 
 ### そうてんもんさんへの確認を受けた実装
 
@@ -38,6 +38,17 @@
 - 固定環境は自然発生の原因・ディメンション別160条件とギフト召喚を検証。大量いいね120件＋ギフト20件でFIFO・送信者名・タラ64匹上限・期限付き整理・自然魚とギフト魚の保持を再確認。
 - 候補画面は開発版を操作して、検出・候補選択・適用・再検索・存在しない場所の無効表示を確認。実PCの読み取り結果も確認。実TikTok配信や相手側ゲーム本体の結合試験ではない。
 - Windows梱包はnpm CLIをNodeから直接実行。NortonやWindowsの保護は変更していない。
+
+### 公開・このPCへの導入完了
+
+- 実装PR [#35](https://github.com/testakahori/My-game-pack/pull/35)をmainへマージ。コミット `61b8054b`。Windows・Linuxのアプリ検証とMODビルドの3チェック成功。Windows CIの短縮パス（8.3表記）によるテスト期待値の不一致は、fixtureをnative realpathへ揃えて解決した。
+- [v1.0.44正式リリース](https://github.com/testakahori/My-game-pack/releases/tag/v1.0.44)を公開。NSIS installer・blockmap・latest.ymlを配信。3ファイルのGitHub側SHA-256とローカルファイルが一致し、公開latest.ymlのHTTP取得とinstallerのSHA-512も確認。
+- このPCのインストール済みアプリを正式版1.0.44へ更新。インストール後のapp.asarは公開用ビルドと一致。既存環境をアプリの「もうすでにセットアップ済みです」で検証し、setupComplete=true、bridgeVersion=1.0.44を確認。
+- インストール版で保存先検出を操作し、標準.minecraft内のForge47.4.10と、不在のFabric起動構成を正しく表示。自動更新の「更新を確認」もエラーなしで1.0.44の最新状態へ戻ることを確認した。
+- 既存デスルーレットが旧get_ender_pearl.txtを参照していたため、操作画面から採掘プロフィールへ引継ぎ。ギフト6件・いいねの割り当てと個数は完全一致。デスルーレットはgame_saikutu_get_ender_pearl.txtへ変換し、内容を保持。
+- 実サーバー・標準Minecraftの両modsはBridgeMOD1.4.0／DisplayMOD1.1.0／saikutuMOD1.0.1の3本。WorldEditはゲーム切替仕様に従い、Minecraft側の .mygamepack-mod-switchへ移動して保持。削除していない。
+- server.properties・読み上げ設定・ログイン情報を保持。MAPと既存MAPセーブ168ファイルのサイズ・更新日時が一致し、新しいMAP保存履歴は作成していない。実TikTokイベントの受信や、本番MAPでのテスト召喚は行っていない。
+- 更新前のアプリ・設定・MODはリポジトリ外へ退避。個別PCのパス・検証ログ・ハッシュはローカルのinstalled-result.json／before-hashes.jsonを参照。これら私用バックアップはGitHubへ公開していない。
 
 ---
 
