@@ -12,7 +12,13 @@
 - 検証：型チェック、Bridge14件、App178件、ゲームAPI契約・サンプルJava、Display API136チェック、Viteビルドが成功。IPCでは未保存時の拒否、残った採掘TXTの除外と保存拒否を検証。ゲーム切替テストでは全種別とgameplayの往復復元を確認。
 - ブラウザー操作：未保存時のTOP案内、サバイバル候補から採掘を除外、採掘の通常／デスルーレットにエンダーパールを保存、サバイバルへ切替後は独立、採掘へ戻して両設定を復元。ギフトと標準4イベントでも採掘候補とTOP以外に選択欄がないことを確認。
 - 埋め立て・RUNの実ゲームMODは未入手。切替機構はfixtureで検証し、実ゲームで動作確認済みとは扱わない。
-- 公開・このPCへの最終導入結果は、完了確認後に追記する。
+- [PR #37](https://github.com/testakahori/My-game-pack/pull/37)をmainへマージ（`052d411`）。Windows・Linux・MODビルドの3チェック成功。
+- [v1.0.45](https://github.com/testakahori/My-game-pack/releases/tag/v1.0.45)を正式公開。installer・blockmap・latest.ymlのGitHub側SHA-256とローカルが一致。latest.yml内のinstaller SHA-512と、公開latest.ymlのHTTP取得も確認。
+- このPCへ正式版1.0.45をインストール（終了コード0）。app.asarは公開ビルドと一致。既存環境を検証しsetupComplete=true・bridgeVersion=1.0.45を確認。
+- 実アプリのTOPで採掘を「保存」し、適用完了を確認。設定ページにはゲーム名だけが表示され、ゲーム選択欄はTOPだけ。通常ルーレット3項目・デスルーレット3項目（エンダーパールを含む）の読み込み成功。
+- ギフト6件・いいね・両ルーレットを保持。configの値変更は未定義だったoptions.gameplayの空オブジェクト初期化のみ。server.properties・両方のMOD内容・haihu_worldの42ファイルのサイズ／更新日時は不変。MAP保存操作は行っていない。
+- 更新確認ログはlatest version: 1.0.45、エラーなし。Minecraft・サーバー・BRIDGEは停止したまま。実TikTokイベントは送受信していない。
+- 更新前の設定と1.0.44の再インストール先をリポジトリ外に保管。ローカルのgame-selection/installed-result.jsonに照合結果を保存。個人設定やバックアップはGitHubへ公開していない。
 
 ---
 
