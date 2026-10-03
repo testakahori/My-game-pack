@@ -21,6 +21,10 @@ const { EULA_URL, inspectSetup, inspectForgeClient, launchForgeInstaller, prepar
 const { migrateRetiredCommands } = require("./command_migration.cjs");
 const { exportStreamStatsMarkdown } = require("./stats_export.cjs");
 const { createGameProfiles } = require('./game_profiles.cjs');
+const { discoverMinecraftLocations, validateMinecraftFolder } = require('./minecraft_locations.cjs');
+function minecraftLocationOptions() {
+  return { appData: app.getPath('appData'), currentFolder: readAppConfig().minecraftGameFolder, serverRoot: getServerRoot() };
+}
 let gameProfileBusy = false;
 const gameProfiles = createGameProfiles({
   storage: () => path.join(app.getPath('userData'), 'game-profiles', crypto.createHash('sha256').update(path.resolve(getServerRoot())).digest('hex').slice(0, 16)),
@@ -64,14 +68,23 @@ ipcMain.handle('games:install', () => gameProfileOperation(async () => {
   if (selected.canceled) return { canceled: true };
   return gameProfiles.install(selected.filePaths[0]);
 }));
+ipcMain.handle('games:clientFolders', () => discoverMinecraftLocations(minecraftLocationOptions()));
+async function saveMinecraftFolder(value, requireCandidate) {
+  const options = minecraftLocationOptions();
+  const { candidates } = await discoverMinecraftLocations(options);
+  const folder = await validateMinecraftFolder(value, { ...options, candidates, requireCandidate });
+  writeAppConfig({ minecraftGameFolder: folder });
+  return gameProfiles.list();
+}
+ipcMain.handle('games:selectClientFolder', (_event, folder) => gameProfileOperation(async () => {
+  if (gameProfiles.list().recoveryRequired) throw new Error('切替を復旧してから保存先を変更してください');
+  return saveMinecraftFolder(folder, true);
+}));
 ipcMain.handle('games:clientFolder', () => gameProfileOperation(async () => {
   if (gameProfiles.list().recoveryRequired) throw new Error('切替を復旧してから保存先を変更してください');
-  const selected = await dialog.showOpenDialog({ title: 'Minecraftのゲームフォルダ', properties: ['openDirectory'] });
+  const selected = await dialog.showOpenDialog({ title: 'Minecraftのゲームフォルダー（modsの1つ上）', properties: ['openDirectory'] });
   if (selected.canceled) return { canceled: true };
-  const dir = selected.filePaths[0];
-  if (!fs.existsSync(path.join(dir, 'versions')) && !fs.existsSync(path.join(dir, 'options.txt'))) throw new Error('Minecraftのゲームフォルダを選んでください（modsフォルダの1つ上）');
-  writeAppConfig({ minecraftGameFolder: dir });
-  return gameProfiles.list();
+  return saveMinecraftFolder(selected.filePaths[0], false);
 }));
 const eulerCredentials = require('./euler_credentials.cjs').createEulerCredentials({
   filePath: () => path.join(app.getPath('userData'), 'euler-credentials.json'), safeStorage,
@@ -1700,16 +1713,27 @@ ipcMain.handle("mod:status", async () => {
 });
 async function fireBridgeEventMaybeRoulette(payload, bridgeCfg, commandsDir) {
   const send = (method, route, body) => requestBridgeMod(method, route, body, bridgeCfg);
+  const fire = async event => {
+    // Test clicks have no upstream queue. Freeze the game round before sending/animating.
+    const names = fs.readdirSync(commandsDir).filter(name => name === event.key + '.txt' || name.startsWith('game_') && name.endsWith('_' + event.key + '.txt'));
+    const direct = names.find(name => name === event.key + '.txt');
+    if (!direct && names.length > 1) throw new Error('ゲームコマンドの名前が重複しています');
+    const file = direct || names[0];
+    const metadata = file ? fs.readFileSync(path.join(commandsDir, file), 'utf8').match(/^\s*#\s*GAME_MOD:\s*([a-z][a-z0-9_]{1,63})\s*$/m) : null;
+    const status = metadata ? await send('GET', '/bridge/status') : null;
+    await send('POST', '/bridge/event', { ...event, requestId: crypto.randomUUID(),
+      ...(metadata ? { gameSessionId: status?.gameSessions?.[metadata[1]]?.sessionId || '' } : {}) });
+  };
   const animateTestRoulette = createRouletteRunner({ sendFrame: (commands, listenerName) => send("POST", "/bridge/exec", { listenerName, commands }) });
   if (payload.key !== "roulette") {
-    await send("POST", "/bridge/event", payload);
+    await fire(payload);
     return { key: payload.key, count: payload.count, roulette: false };
   }
   if (bridgeCfg?.roulette?.enabled !== true) {
     throw new Error("ルーレットが無効です。イベント設定②で有効にして保存してください。");
   }
   const round = prepareRoulette(bridgeCfg.roulette, commandsDir);
-  const winner = await animateTestRoulette(round, payload.listenerName, item => send("POST", "/bridge/event", {
+  const winner = await animateTestRoulette(round, payload.listenerName, item => fire({
     ...payload, key: item.commandFile.replace(/\.txt$/i, ""), count: item.repeat, announce: false,
   }));
   return { key: winner.commandFile.replace(/\.txt$/i, ""), count: winner.repeat, roulette: true, label: winner.label };

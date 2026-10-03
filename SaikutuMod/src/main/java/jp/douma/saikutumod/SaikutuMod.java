@@ -62,7 +62,7 @@ public final class SaikutuMod {
     private int offer(Map<String, Object> data) {
         if (server == null) return GameEvents.WAIT;
         Request request = new Request(data);
-        if (!SCRIPTS.containsKey(request.key) || request.total < 1 || request.total > 100)
+        if (!SCRIPTS.containsKey(request.key) || request.total < 1 || request.total > 100000)
             throw new IllegalArgumentException("Unknown saikutu command or invalid count");
         if (requests.alreadyAccepted(request.requestId, request.fingerprint)) { duplicates++; return GameEvents.ACCEPTED; }
         String type = String.valueOf(data.getOrDefault("type", "other"));
@@ -76,7 +76,7 @@ public final class SaikutuMod {
             .then(Commands.argument("key", StringArgumentType.word())
                 .suggests((ctx, builder) -> { KEYS.forEach(builder::suggest); return builder.buildFuture(); })
                 .executes(ctx -> manual(ctx.getSource(), StringArgumentType.getString(ctx,"key"), 1, null))
-                .then(Commands.argument("count", IntegerArgumentType.integer(1, 100))
+                .then(Commands.argument("count", IntegerArgumentType.integer(1, 100000))
                     .executes(ctx -> manual(ctx.getSource(), StringArgumentType.getString(ctx,"key"), IntegerArgumentType.getInteger(ctx,"count"), null))
                     .then(Commands.argument("listener", StringArgumentType.greedyString())
                         .executes(ctx -> manual(ctx.getSource(), StringArgumentType.getString(ctx,"key"), IntegerArgumentType.getInteger(ctx,"count"), StringArgumentType.getString(ctx,"listener")))))));

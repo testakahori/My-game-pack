@@ -31,7 +31,7 @@ const { connectionOptions, redactSecrets, retryDelay } = require('./tiktok_conne
 const { Rcon } = require("rcon-client");
 const { validateBridgeConfig } = require("./config_schema");
 const { prepareRoulette, createRouletteRunner } = require("./roulette.cjs");
-const { createModEventDelivery, createLikeBatcher } = require("./mod_event_delivery.cjs");
+const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require("./mod_event_delivery.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted } = require("./feature_engine");
 const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras } = require("./event_rules.cjs");
 const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter } = require("./tiktok_events.cjs");
@@ -40,6 +40,7 @@ let bridgeModWebSocket = null;
 let bridgeModWebSocketStopping = false;
 // Mod からのプッシュ通知（death など）を main() 側で購読するためのフック
 let onBridgeModWsMessage = null;
+let bridgeGameSessions = {};
 
 function updateRuntimeStatus(patch) {
   const statusPath = path.join(__dirname, "runtime-status.json");
@@ -65,12 +66,13 @@ function connectBridgeModWebSocket({ host, port }) {
           return;
         }
         if (status.type !== "ack") {
+          if (status.gameSessions && typeof status.gameSessions === "object") bridgeGameSessions = status.gameSessions;
           updateRuntimeStatus({ at: new Date().toISOString(), ...status });
         }
       } catch {}
     });
     socket.addEventListener("close", () => {
-      if (bridgeModWebSocket === socket) bridgeModWebSocket = null;
+      if (bridgeModWebSocket === socket) { bridgeModWebSocket = null; bridgeGameSessions = {}; }
       if (!bridgeModWebSocketStopping) setTimeout(() => connectBridgeModWebSocket({ host, port }), 2000);
     });
     socket.addEventListener("error", () => {});
@@ -651,12 +653,13 @@ function commandFileToBridgeKey(commandFile) {
   return path.basename(file, ".txt");
 }
 
-function sendBridgeModEvent({ host, port, type, commandFile, count, listenerName, announce, requestId, eventId }) {
+function sendBridgeModEvent({ host, port, type, commandFile, count, listenerName, announce, requestId, eventId, gameMod, gameSessionId, args }) {
   const payload = JSON.stringify({
     type,
     ...((requestId || eventId) ? { requestId: requestId || eventId, eventId: requestId || eventId } : {}),
     key: commandFileToBridgeKey(commandFile),
-    count: clampInt(count, 1, 100, 1),
+    count: count ?? 1,
+    ...(gameMod || gameSessionId ? { gameSessionId: gameSessionId || "", args: args || {} } : args ? { args } : {}),
     listenerName: String(listenerName || "viewer"),
     announce: announce !== false,
     protectionEnabled: false,
@@ -760,6 +763,7 @@ function appendOperationsHistoryLine(historyPath, row) {
 function bridgeEventDelivery(bridgeMod, opts = {}) {
   return createModEventDelivery({
     send: event => sendBridgeModEvent({ ...bridgeMod, ...event }),
+    prepare: opts.prepare || (event => event),
     maxRetries: opts.retries ?? Infinity,
     delivered: event => {
       appendOperationsHistoryLine(path.join(__dirname, "operations-history.json"), {
@@ -1213,7 +1217,9 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   if (typeof stateCleanupTimer.unref === "function") stateCleanupTimer.unref();
 
   // Independent FIFO senders: retrying likes cannot block gift delivery.
-  const modDelivery = bridgeMod ? bridgeEventDelivery(bridgeMod) : null;
+  const prepareGameEvent = event => captureGameEvent(event,
+    resolveCommands({ commandFile: ensureTxt(event.commandFile) }).meta?.GAME_MOD, bridgeGameSessions);
+  const modDelivery = bridgeMod ? bridgeEventDelivery(bridgeMod, { prepare: prepareGameEvent }) : null;
   const enqueueMod = event => modDelivery.enqueue(event).catch(error => {
     console.error("[BridgeMod] Invalid event:", error?.message || error);
   });
@@ -1743,7 +1749,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // HTTP送信とMod側キューの消費を抑える（ギフトを圧迫させない）
   const LIKE_BATCH_MS = clampInt(options.likeBatchWindowMs ?? 1200, 100, 10000, 1200);
   const queueLikeEventBatched = createLikeBatcher({
-    windowMs: LIKE_BATCH_MS, schedule: setTimeout,
+    windowMs: LIKE_BATCH_MS, schedule: setTimeout, prepare: prepareGameEvent,
     dispatch: event => dispatchBridgeEvent("like:" + event.commandFile, event),
   });
 
@@ -1778,7 +1784,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
           `[Like] total=${total} threshold=${thresh} newTriggers=${newTriggers} run=${triggersToRun} skipped=${skippedTriggers} repeat=${evRepeat} -> BridgeMod file=${ev.commandFile} count=${count}`
         );
         if (count > 0) {
-          queueLikeEventBatched(ev.commandFile, count, sender, announceEnabled && thresh >= 100);
+          queueLikeEventBatched(ev.commandFile, count, sender, announceEnabled && thresh >= 100, triggersToRun);
         }
         continue;
       }

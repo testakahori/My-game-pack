@@ -2,7 +2,7 @@ const { randomUUID } = require("node:crypto");
 
 // Each lane is FIFO. A full like queue must never hold up a gift's HTTP request.
 function createModEventDelivery({ send, delivered = () => {}, retry = () => {},
-  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), maxRetries = Infinity } = {}) {
+  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), maxRetries = Infinity, prepare = event => event } = {}) {
   const lanes = { gift: [], like: [], other: [] };
   const running = new Set();
   async function drain(lane) {
@@ -12,7 +12,7 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {},
       while (lanes[lane].length) {
         const job = lanes[lane][0];
         while (job.remaining > 0) {
-          const count = Math.min(100, job.remaining);
+          const count = job.event.gameMod ? Math.min(job.event.count, job.remaining) : Math.min(100, job.remaining);
           const chunk = { ...job.event, count, requestId: `${job.id}:${job.part}`, eventId: `${job.id}:${job.part}` };
           let attempts = 0;
           for (;;) {
@@ -28,7 +28,7 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {},
           job.part++;
         }
         lanes[lane].shift();
-        try { delivered(job.event); } catch { /* Recording failure must not affect gameplay delivery. */ }
+        try { delivered({ ...job.event, count: job.total }); } catch { /* Recording failure must not affect gameplay delivery. */ }
         job.resolve();
       }
     } catch (error) {
@@ -42,11 +42,15 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {},
   }
   return {
     enqueue(event) {
+      try { event = prepare({ ...event }); } catch (error) { return Promise.reject(error); }
       const count = Number(event.count ?? 1);
-      if (!Number.isSafeInteger(count) || count < 1) return Promise.reject(new Error("Invalid event count"));
+      if (!Number.isSafeInteger(count) || count < 1 || event.gameMod && count > 100000) return Promise.reject(new Error("Invalid event count"));
+      const repetitions = event.gameMod ? Number(event.repeatRequests ?? 1) : 1;
+      const total = count * repetitions;
+      if (!Number.isSafeInteger(repetitions) || repetitions < 1 || !Number.isSafeInteger(total)) return Promise.reject(new Error("Invalid game request repetitions"));
       const lane = event.type === "gift" ? "gift" : event.type === "like" ? "like" : "other";
       return new Promise((resolve, reject) => {
-        lanes[lane].push({ event: { ...event, count }, remaining: count, part: 0, id: randomUUID(), resolve, reject });
+        lanes[lane].push({ event: { ...event, count }, remaining: total, total, part: 0, id: randomUUID(), resolve, reject });
         void drain(lane);
       });
     },
@@ -55,13 +59,21 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {},
 }
 
 // Coalesce only adjacent identical requests; retain every repetition and sender in order.
-function createLikeBatcher({ dispatch, windowMs, schedule = setTimeout }) {
+function createLikeBatcher({ dispatch, windowMs, schedule = setTimeout, prepare = event => event }) {
   let pending = [], timer = null;
-  return (commandFile, count, sender, announce) => {
+  return (commandFile, count, sender, announce, triggers = 1) => {
+    const event = prepare({ type: "like", commandFile, count, listenerName: sender, announce });
+    if (event.gameMod) {
+      // Keep each threshold crossing as a separate request; freeze its round before any wait.
+      if (!Number.isSafeInteger(triggers) || triggers < 1 || !Number.isSafeInteger(count / triggers)) throw new Error("Invalid game like triggers");
+      // A compact job emits separate HTTP requests/IDs lazily, avoiding a huge synchronous allocation.
+      pending.push({ ...event, count: count / triggers, repeatRequests: triggers });
+    } else {
     const last = pending.at(-1);
-    if (last && last.commandFile === commandFile && last.listenerName === sender && last.announce === announce
+    if (last && !last.gameMod && last.commandFile === commandFile && last.listenerName === sender && last.announce === announce
         && Number.isSafeInteger(last.count + count)) last.count += count;
-    else pending.push({ type: "like", commandFile, count, listenerName: sender, announce });
+    else pending.push(event);
+    }
     if (timer !== null) return;
     timer = schedule(() => {
       const batch = pending;
@@ -71,4 +83,21 @@ function createLikeBatcher({ dispatch, windowMs, schedule = setTimeout }) {
   };
 }
 
-module.exports = { createModEventDelivery, createLikeBatcher };
+// Capture the round at creation, not when the head eventually reaches the network.
+function captureGameEvent(event, gameMod, sessions = {}) {
+  gameMod = event.gameMod || gameMod;
+  if (!gameMod) return event;
+  if (!/^[a-z][a-z0-9_]{1,63}$/.test(gameMod)) throw new Error("Invalid game MOD ID");
+  const args = event.args || {};
+  if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length > 32) throw new Error("Invalid game args");
+  let textLength = 0;
+  for (const [key, value] of Object.entries(args)) {
+    if (!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key) || ['constructor', 'prototype'].includes(key)) throw new Error("Invalid game argument key");
+    if (typeof value === 'string') {
+      textLength += value.length;
+      if (value.length > 1024 || textLength > 8192) throw new Error("Game arguments too long");
+    } else if (typeof value !== 'boolean' && !(typeof value === 'number' && Number.isFinite(value))) throw new Error("Invalid game argument value");
+  }
+  return Object.freeze({ ...event, gameMod, gameSessionId: event.gameSessionId ?? sessions[gameMod]?.sessionId ?? '', args: Object.freeze({ ...args }) });
+}
+module.exports = { createModEventDelivery, createLikeBatcher, captureGameEvent };

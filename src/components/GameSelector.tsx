@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useUnsavedChanges, useUnsavedGuard } from '../UnsavedChanges';
 import './GameSelector.css';
-
-type GameStatus = { saikutuMigrationNeeded?: boolean; active: string; applied: boolean; displayBundled: boolean; serverMods: string; clientMods: string; recoveryRequired: boolean;
-  games: { id: string; name: string; modName: string; installed: boolean }[] };
+import type { GameStatus, MinecraftLocationDiscovery } from '../types/electron';
 
 export default function GameSelector({ onChanged }: { onChanged: () => void }) {
   const [status, setStatus] = useState<GameStatus | null>(null);
@@ -13,21 +11,25 @@ export default function GameSelector({ onChanged }: { onChanged: () => void }) {
   const [message, setMessage] = useState('');
   const { confirmDiscard } = useUnsavedGuard();
   useUnsavedChanges(false, busy);
-  const api = (window as any).mygamepack;
+  const [locations, setLocations] = useState<MinecraftLocationDiscovery | null>(null);
+  const [folder, setFolder] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const api = window.mygamepack;
   useEffect(() => {
     let disposed = false;
     api?.gamesList?.().then((next: GameStatus) => { if (!disposed) { setStatus(next); setSelected(next.active); } })
       .catch((e: Error) => { if (!disposed) setError(e.message); });
     return () => { disposed = true; };
   }, []);
-  async function run(action: () => Promise<any>, changed = false) {
-    if (busy || !confirmDiscard()) return;
+  async function run(action: () => Promise<GameStatus | { canceled: true }>, changed = false, folderChanged = false) {
+    if (busy || scanning || !confirmDiscard()) return;
     setBusy(true); setError(''); setMessage('');
     try {
       const next = await action();
-      if (next.canceled) return;
+      if ('canceled' in next) return;
       setStatus(next); setSelected(next.active);
-      setMessage(changed ? '両方のMODフォルダとゲームの設定を切り替えました。' : '登録内容を更新しました。');
+      setMessage(folderChanged ? '保存先を変更しました。MODを反映するには「このゲームに切り替える」を押してください。' : changed ? '両方のMODフォルダとゲームの設定を切り替えました。' : '登録内容を更新しました。');
+      if (folderChanged) { setLocations(null); setFolder(''); }
       if (changed) { localStorage.removeItem('mc_tiktok_mappings_unified_v1'); onChanged(); }
     } catch (e: any) {
       setError(e?.message || String(e));
@@ -35,30 +37,68 @@ export default function GameSelector({ onChanged }: { onChanged: () => void }) {
     }
     finally { setBusy(false); }
   }
+  async function scanFolders() {
+    if (busy || scanning) return;
+    setScanning(true); setError(''); setMessage('');
+    try {
+      const result = await api.gamesClientFolders();
+      setLocations(result);
+      setFolder(result.candidates.find(candidate => candidate.current && candidate.selectable)?.path || '');
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setScanning(false); }
+  }
+  const chosenFolder = locations?.candidates.find(candidate => candidate.path === folder);
   const game = status?.games.find(g => g.id === selected);
   return <section className="game-selector" aria-label="プレイするゲーム">
     <div className="game-selector-main">
       <label htmlFor="play-game"><strong>どのゲームをプレイしますか？</strong>
-        <select id="play-game" value={selected} disabled={busy || !status || status.recoveryRequired} onChange={e => setSelected(e.target.value)}>
+        <select id="play-game" value={selected} disabled={busy || scanning || !status || status.recoveryRequired} onChange={e => setSelected(e.target.value)}>
           {(status?.games || [{ id: 'common', name: '読み込み中', installed: false }]).map(g => <option key={g.id} value={g.id}>{g.name}{!g.installed ? '（未導入）' : ''}</option>)}
         </select>
       </label>
-      <button type="button" className="game-selector-apply" disabled={busy || !game?.installed || status?.recoveryRequired}
+      <button type="button" className="game-selector-apply" disabled={busy || scanning || !game?.installed || status?.recoveryRequired}
         onClick={() => run(() => api.gamesActivate(selected), true)}>{busy ? '処理中…' : 'このゲームに切り替える'}</button>
     </div>
     <p>{game?.installed ? `使用するMOD：BridgeMOD ＋ DisplayMOD（表示）${selected === 'common' ? '' : ` ＋ ${game.modName}`}` : 'このゲームMODはまだ登録されていません。完成したゲームパックを登録してください。'}</p>
     <p>コマンドはどのゲームでも /bridge コマンド名 回数 で実行できます。</p>
     <p>暗視・アイテムロストなし・昼・晴れは固定です。イベント中のみ時間・天候が一時的に変わります。</p>
+    <p>コマンドの実行通知は非表示です。敵モブの自然発生は停止します。動物・魚の自然発生と、ギフト・コマンドでの召喚は有効です。</p>
     {status && <small>{status.applied ? `適用済み：${status.games.find(g => g.id === status.active)?.name}` : 'この保存先へのMOD切替はまだ行っていません。'} ／ 切替はサーバー・Minecraft・BRIDGEの停止中に行います。</small>}
     {status?.saikutuMigrationNeeded && <p role="status">14種類のコマンドが採掘へ移りました。「採掘」に切り替えると、現在のギフト割り当てを引き継ぎます。</p>}
-    <details><summary>MODの保存先・ゲームパックの登録</summary>
+    <details><summary>Minecraftの保存先を探す・MODの保存先を確認</summary>
       <p>サーバー：{status?.serverMods || '未確認'}<br />Minecraft：{status?.clientMods || '未確認'}</p>
-      <p>現在のMODは削除せず退避します。MAPは変更しません。Minecraftの起動構成で別のゲームフォルダを指定している場合は、その保存先を選んでください。</p>
+      <p>Minecraftを起動せずに、標準の保存先と公式ランチャーの起動構成から探せます。別のランチャーを使う場合や候補にない場合は、手動で指定してください。</p>
       <p>BridgeMODとDisplayMODはすべてのゲームに標準装備されます。サバイバルでは、この2つだけを配置します。</p>
       <div className="game-selector-tools">
-        <button type="button" disabled={busy || !status || status.recoveryRequired} onClick={() => run(() => api.gamesInstall())}>ゲームパックを登録</button>
-        <button type="button" disabled={busy || !status || status.recoveryRequired} onClick={() => run(() => api.gamesClientFolder())}>Minecraftの保存先を選ぶ</button>
+        <button type="button" disabled={busy || scanning || !status || status.recoveryRequired} onClick={() => run(() => api.gamesInstall())}>ゲームパックを登録</button>
+        <button type="button" disabled={busy || scanning || !status || status.recoveryRequired} onClick={scanFolders}>{scanning ? '候補を確認中…' : locations ? '候補を再検索' : 'Minecraftの保存先を自動検出'}</button>
+        <button type="button" disabled={busy || scanning || !status || status.recoveryRequired} onClick={() => run(() => api.gamesClientFolder(), false, true)}>手動で指定</button>
       </div>
+      {scanning && <p role="status">標準保存先とランチャーの起動構成を確認しています…</p>}
+      {locations && <div className="minecraft-locations">
+        <p>普段使う起動構成を確認して、Minecraftの保存先を選んでください。「Forge 1.20.1」は対応する起動構成を確認できた候補です。</p>
+        <fieldset disabled={busy || scanning || status?.recoveryRequired}>
+          <legend>見つかった保存先（{locations.candidates.length}件）</legend>
+          {locations.candidates.map(candidate => <label key={candidate.path} className={['minecraft-location-option', folder === candidate.path ? 'is-selected' : '', !candidate.selectable ? 'is-unavailable' : ''].join(' ')}>
+            <input type="radio" name="minecraft-folder" value={candidate.path} checked={folder === candidate.path} disabled={!candidate.selectable} onChange={() => setFolder(candidate.path)} />
+            <span className="minecraft-location-info">
+              <span className="minecraft-location-heading">{candidate.sources.join(' / ')}{candidate.current && <span className="minecraft-location-badge">現在の保存先</span>}{candidate.recommended && <span className="minecraft-location-badge is-forge">Forge 1.20.1</span>}</span>
+              <span className="minecraft-location-path">{candidate.path}</span>
+              {candidate.profiles.map((profile, index) => <span className="minecraft-location-profile" key={index}>起動構成：{profile.name} ／ {profile.version}</span>)}
+              {!candidate.profiles.length && <span className="minecraft-location-profile">起動構成は確認できませんでした。</span>}
+              {candidate.reason && <span className="minecraft-location-warning">{candidate.reason}</span>}
+            </span>
+          </label>)}
+        </fieldset>
+        {!locations.candidates.some(candidate => candidate.selectable) && <p role="status">使用できる保存先が見つかりませんでした。Minecraft Launcherの起動構成を確認するか、「手動で指定」を使ってください。</p>}
+        {locations.warnings.map(warning => <p key={warning} className="minecraft-location-warning">{warning}</p>)}
+        <p>保存先を選ぶ操作では、MODやMAPは変更しません。MODの配置は「このゲームに切り替える」で行います。</p>
+        <div className="game-selector-tools">
+          <button type="button" className="game-selector-apply" disabled={busy || scanning || !chosenFolder?.selectable || chosenFolder.current || status?.recoveryRequired} onClick={() => run(() => api.gamesSelectClientFolder(folder), false, true)}>この保存先を使う</button>
+          {chosenFolder?.current && <span className="minecraft-location-current">この保存先を使用中です。</span>}
+        </div>
+      </div>}
+      <p>ゲーム切替では現在のMODを削除せず退避します。MAPは変更しません。</p>
     </details>
     {status?.recoveryRequired && <p role="alert">前回の切替が途中で止まっています。<button type="button" disabled={busy} onClick={() => run(() => api.gamesRecover(), true)}>切替前の状態に戻す</button></p>}
     {error && <p role="alert" className="game-selector-error">{error}</p>}

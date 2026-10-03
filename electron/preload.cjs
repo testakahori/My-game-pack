@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld("mygamepack", {
   gamesInstall: () => ipcRenderer.invoke('games:install'),
   gamesRecover: () => ipcRenderer.invoke('games:recover'),
   gamesClientFolder: () => ipcRenderer.invoke('games:clientFolder'),
+  gamesClientFolders: () => ipcRenderer.invoke('games:clientFolders'),
+  gamesSelectClientFolder: (folder) => ipcRenderer.invoke('games:selectClientFolder', folder),
   windowMinimize: () => ipcRenderer.send("window:minimize"),
   windowMaximizeToggle: () => ipcRenderer.send("window:maximizeToggle"),
   windowClose: () => ipcRenderer.send("window:close"),

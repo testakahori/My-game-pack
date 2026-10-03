@@ -46,6 +46,8 @@ public class BridgeMod {
 
     // count 上限（安全）
     private static final int MAX_COUNT = 100;
+    private static final int MAX_GAME_COUNT = 100000;
+    private long discardedGameRequests;
     private static final int MAX_HTTP_BODY_BYTES = 8192;
     // キュー上限は種別ごとに分離：いいねが溜まってもギフトは拒否されない
     private static final int MAX_GIFT_QUEUE = 600;
@@ -104,6 +106,7 @@ public class BridgeMod {
 
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
+        GameEvents.clearSessions(); discardedGameRequests = 0;
         giftEffects.stop();
         EnvironmentOverrides.reset();
         stopBridgeHttpServer();
@@ -168,7 +171,7 @@ public class BridgeMod {
                 .requires(src -> src.hasPermission(0)) // 誰でもOK。OP限定なら 2
                 .then(Commands.argument("key", StringArgumentType.word())
                     .suggests(keySuggest)
-                    .then(Commands.argument("count", IntegerArgumentType.integer(1, MAX_COUNT))
+                    .then(Commands.argument("count", IntegerArgumentType.integer(1, MAX_GAME_COUNT))
                         .executes(ctx -> {
                             String key = StringArgumentType.getString(ctx, "key");
                             int count = IntegerArgumentType.getInteger(ctx, "count");
@@ -202,6 +205,11 @@ public class BridgeMod {
             return 0;
         }
 
+        try {
+            event.parsed = parseFile(file);
+            String gameId = event.parsed.meta.get("GAME_MOD");
+            if (gameId != null) event.gameSessionId = GameEvents.sessionId(gameId);
+        } catch (IOException error) { source.sendFailure(Component.literal("[Bridge] " + error.getMessage())); return 0; }
         if (!enqueueBridgeEvent(event)) {
             source.sendFailure(Component.literal("[Bridge] queue is full, try again later"));
             return 0;
@@ -368,6 +376,8 @@ public class BridgeMod {
         double tps = tickMs <= 0 ? 20.0 : Math.min(20.0, 1000.0 / tickMs);
         return "{\"ok\":true,\"mod\":\"bridgemod\",\"environmentFixed\":true,\"gift\":" + gift + ",\"like\":" + like + ",\"other\":" + other
             + ",\"games\":" + new com.google.gson.Gson().toJson(GameEvents.status())
+            + ",\"gameSessions\":" + new com.google.gson.Gson().toJson(GameEvents.sessions())
+            + ",\"discardedGameRequests\":" + discardedGameRequests
             + ",\"displayAvailable\":" + DisplayLink.available()
             + ",\"likeCodActive\":" + likeCod.activeCount() + ",\"likeCodLimit\":" + LikeCodLimiter.MAX_ACTIVE
             + ",\"likeCodSpawned\":" + likeCod.spawned()
@@ -571,7 +581,7 @@ public class BridgeMod {
             event.remaining = 0;
             return 0;
         }
-        if (parsed.commands.isEmpty()) {
+        if (parsed.commands.isEmpty() && !parsed.meta.containsKey("GAME_MOD")) {
             recordFailure(event.key + ": no commands");
             event.remaining = 0;
             return 0;
@@ -588,12 +598,15 @@ public class BridgeMod {
             Map<String, Object> data = new HashMap<>();
             data.put("server",server); data.put("key",parsed.meta.getOrDefault("GAME_KEY",event.key));
             data.put("count",event.remaining); data.put("type",event.type); data.put("listenerName",event.listenerName);
+            data.put("gameSessionId",event.gameSessionId); data.put("args",event.args);
             data.put("announce",event.announce); data.put("requestId",event.eventId); data.put("eventId",event.eventId);
             data.put("protectionEnabled",event.protectionEnabled);
             data.put("protectX1",event.protectX1); data.put("protectX2",event.protectX2);
             data.put("protectZ1",event.protectZ1); data.put("protectZ2",event.protectZ2);
             try {
-                if (GameEvents.offer(parsed.meta.get("GAME_MOD"),data) == GameEvents.WAIT) return 0;
+                int result = GameEvents.offer(parsed.meta.get("GAME_MOD"),data);
+                if (result == GameEvents.WAIT) return 0;
+                if (result == GameEvents.DISCARDED) { discardedGameRequests++; event.remaining = 0; return 1; }
                 executedCommands++; event.remaining = 0; return 1;
             } catch (Exception error) {
                 recordFailure(event.key + ": " + error.getMessage()); event.remaining = 0; return 1;
@@ -606,7 +619,7 @@ public class BridgeMod {
         // Native effects receive the full count once; normal command files retain repeat semantics.
         while (event.remaining > 0 && (used == 0 || used + parsed.commands.size() <= commandBudget)) {
             if (pacedCod && !likeCod.canSpawn(server)) break;
-            int count = "aggregate".equals(parsed.meta.get("COUNT_MODE")) ? event.remaining : 1;
+            int count = "aggregate".equals(parsed.meta.get("COUNT_MODE")) ? Math.min(MAX_COUNT, event.remaining) : 1;
             currentEffectProtection = new GiftEffects.Protection(event.protectionEnabled,
                 event.protectX1, event.protectX2, event.protectZ1, event.protectZ2);
             String commandRequestId = count == event.count ? event.eventId
@@ -657,6 +670,8 @@ public class BridgeMod {
         List<String> inlineCommands;
         ParsedFile parsed;
         String eventId = UUID.randomUUID().toString();
+        String gameSessionId = "";
+        Map<String, Object> args = Map.of();
 
         BridgeEvent(String type, String key, int count, String listenerName, boolean announce) {
             this(type, key, count, listenerName, announce, false, 0, 0, 0, 0);
@@ -673,7 +688,8 @@ public class BridgeMod {
                     double protectZ1, double protectZ2) {
             this.type = normalizeType(type);
             this.key = sanitizeKey(key);
-            this.count = Math.max(1, Math.min(MAX_COUNT, count));
+            if (count < 1 || count > MAX_GAME_COUNT) throw new IllegalArgumentException("count must be from 1 to " + MAX_GAME_COUNT);
+            this.count = count;
             this.listenerName = listenerName == null || listenerName.isBlank() ? "viewer" : listenerName;
             this.announce = announce;
             this.protectionEnabled = protectionEnabled;
@@ -687,23 +703,49 @@ public class BridgeMod {
 
         static BridgeEvent fromJson(String json) {
             if (json == null || json.isBlank()) return null;
-            String type = jsonString(json, "type", "other");
-            String key = jsonString(json, "key", "");
-            int count = jsonInt(json, "count", 1);
-            String listenerName = jsonString(json, "listenerName", "viewer");
-            boolean announce = jsonBool(json, "announce", true);
-            boolean protectionEnabled = jsonBool(json, "protectionEnabled", false);
-            double x1 = jsonDouble(json, "protectX1", 0);
-            double x2 = jsonDouble(json, "protectX2", 0);
-            double z1 = jsonDouble(json, "protectZ1", 0);
-            double z2 = jsonDouble(json, "protectZ2", 0);
-            BridgeEvent event = new BridgeEvent(type, key, count, listenerName, announce,
-                protectionEnabled, x1, x2, z1, z2);
-            String legacyId = jsonString(json, "eventId", "");
-            String requestId = jsonString(json, "requestId", legacyId);
-            if (!legacyId.isEmpty() && !legacyId.equals(requestId)) return null;
-            if (!requestId.isEmpty()) event.eventId = requestId;
-            return event.eventId.matches("[A-Za-z0-9_.:-]{1,128}") ? event : null;
+            try {
+                var data = com.google.gson.JsonParser.parseString(json).getAsJsonObject();
+                int count = data.has("count") ? data.get("count").getAsBigDecimal().intValueExact() : 1;
+                if (data.has("count") && (!data.get("count").isJsonPrimitive() || !data.getAsJsonPrimitive("count").isNumber())) return null;
+                String key = memberString(data, "key", "");
+                if (!key.matches("[A-Za-z0-9_.-]{1,200}")) return null;
+                BridgeEvent event = new BridgeEvent(memberString(data, "type", "other"), key, count,
+                    memberString(data, "listenerName", memberString(data, "senderName", "viewer")),
+                    memberBoolean(data, "announce", true), memberBoolean(data, "protectionEnabled", false),
+                    memberNumber(data, "protectX1"), memberNumber(data, "protectX2"),
+                    memberNumber(data, "protectZ1"), memberNumber(data, "protectZ2"));
+                String legacyId = memberString(data, "eventId", "");
+                String requestId = memberString(data, "requestId", legacyId);
+                if (!legacyId.isEmpty() && !legacyId.equals(requestId)) return null;
+                if (!requestId.isEmpty()) event.eventId = requestId;
+                event.gameSessionId = memberString(data, "gameSessionId", "");
+                if (!event.gameSessionId.isEmpty() && !event.gameSessionId.matches("[A-Za-z0-9_.:-]{1,128}")) return null;
+                if (data.has("args")) {
+                    if (!data.get("args").isJsonObject()) return null;
+                    event.args = GameEvents.arguments(new com.google.gson.Gson().fromJson(data.get("args"), Map.class));
+                }
+                return event.eventId.matches("[A-Za-z0-9_.:-]{1,128}") ? event : null;
+            } catch (RuntimeException error) { return null; }
+        }
+        private static String memberString(com.google.gson.JsonObject data, String name, String fallback) {
+            if (!data.has(name)) return fallback;
+            var value = data.get(name);
+            if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) throw new IllegalArgumentException("Invalid " + name);
+            String text = value.getAsString();
+            if (text.length() > 4096) throw new IllegalArgumentException("Text too long");
+            return text;
+        }
+        private static boolean memberBoolean(com.google.gson.JsonObject data, String name, boolean fallback) {
+            if (!data.has(name)) return fallback;
+            var value = data.get(name);
+            if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isBoolean()) throw new IllegalArgumentException("Invalid " + name);
+            return value.getAsBoolean();
+        }
+        private static double memberNumber(com.google.gson.JsonObject data, String name) {
+            if (!data.has(name)) return 0;
+            var value = data.get(name);
+            if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber() || !Double.isFinite(value.getAsDouble())) throw new IllegalArgumentException("Invalid " + name);
+            return value.getAsDouble();
         }
 
         private static String normalizeType(String type) {

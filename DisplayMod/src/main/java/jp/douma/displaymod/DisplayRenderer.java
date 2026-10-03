@@ -22,7 +22,7 @@ public final class DisplayRenderer {
         var sound = request.sound().isEmpty() ? null : BuiltInRegistries.SOUND_EVENT.getOptional(new ResourceLocation(request.sound())).orElse(null);
         var particle = request.particle().isEmpty() ? null : BuiltInRegistries.PARTICLE_TYPE.getOptional(new ResourceLocation(request.particle())).orElse(null);
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            player.connection.send(new ClientboundSetTitlesAnimationPacket(10, 70, 10));
+            player.connection.send(new ClientboundSetTitlesAnimationPacket(request.fadeInTicks(), request.stayTicks(), request.fadeOutTicks()));
             // Set subtitle before title, so the first rendered frame is the new pair.
             player.connection.send(new ClientboundSetSubtitleTextPacket(subtitle));
             player.connection.send(new ClientboundSetTitleTextPacket(title));
