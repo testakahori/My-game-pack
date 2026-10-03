@@ -31,7 +31,6 @@
 | サバイバル | BridgeMOD＋DisplayMOD | 共通コマンド |
 | 埋め立て | BridgeMOD＋DisplayMOD＋UmetateMOD | 共通＋登録された埋め立てのコマンド |
 | RUN | BridgeMOD＋DisplayMOD＋RunMOD | 共通＋登録されたランのコマンド |
-
 | 採掘 | BridgeMOD＋DisplayMOD＋saikutuMOD | 共通＋採掘の14コマンド |
 
 BridgeMODとDisplayMODは全ゲームの標準装備。アプリでの切替には両方のjarが必要。独立APIは表示MODが欠けた場合もゲーム本体を止めない。APIと表示タイミングは[DisplayMOD連携ガイド](DisplayMOD連携ガイド.md)を参照。
