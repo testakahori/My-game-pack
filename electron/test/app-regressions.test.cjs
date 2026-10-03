@@ -15,7 +15,7 @@ test("子プロセス: 成功・起動失敗・非ゼロ終了・タイムアウ
 });
 
 function loadApp(t, run = async () => { throw new Error("unexpected process"); }, updater = {}, dialog = {}, safeStorage) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mygamepack-regression-"));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "mygamepack-regression-")));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const handlers = new Map();
   let serverSpawn;
