@@ -53,3 +53,8 @@ GiftsViewer/data/
 # AI workflow files (Claude Code / OMC)
 .omc/
 .claude/
+
+SaikutuMod/build/
+SaikutuMod/.gradle/
+SaikutuMod/bin/
+build/game-packs/

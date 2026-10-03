@@ -19,7 +19,7 @@ final class FixedEnvironment {
                 long day = level.getDayTime();
                 level.setDayTime(day - Math.floorMod(day, 24000L) + 1000L);
             }
-            if (!effects.hasWeatherOverride(level) && (level.isRaining() || level.isThundering())) {
+            if (!effects.hasWeatherOverride(level) && !jp.douma.bridgemod.api.EnvironmentOverrides.hasWeather(level) && (level.isRaining() || level.isThundering())) {
                 level.setWeatherParameters(6000, 0, false, false);
             }
         }

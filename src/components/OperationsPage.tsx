@@ -475,7 +475,8 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
           <div className="ops-card-topline">
             <div>
               <h2>アプリ自動更新</h2>
-              <p>状態: <b className={updater.state === "error" ? "bad" : "ok"}>{({ idle: "未確認", checking: "更新を確認中…", downloading: `ダウンロード中 ${updater.percent || 0}%`, ready: "再起動で更新できます", current: "最新の状態です", error: "更新に失敗しました", development: "開発版では更新できません" } as Record<string, string>)[updater.state] || "未確認"}</b></p>
+              {appVersion?.includes("-local.") && <p>ローカル開発版を使用中です。公開された正式版だけを確認し、古い版には戻しません。</p>}
+              <p>状態: <b className={updater.state === "error" ? "bad" : "ok"}>{({ idle: "未確認", checking: "更新を確認中…", downloading: `ダウンロード中 ${updater.percent || 0}%`, ready: "再起動で更新できます", current: "利用できる新しい公開版はありません", error: "更新に失敗しました", development: "開発版では更新できません" } as Record<string, string>)[updater.state] || "未確認"}</b></p>
             </div>
             <button
               type="button"

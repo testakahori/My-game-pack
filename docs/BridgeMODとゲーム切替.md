@@ -1,6 +1,6 @@
 # BridgeMODとゲーム切替
 
-開発中の仕様。アプリのバージョン番号・公開リリース・インストール済みアプリは変更していません。
+2026-10-03更新。今回の変更は未公開・未適用です。採掘と要求番号の詳細は[採掘MODと統一コマンド](採掘MODと統一コマンド.md)を参照。
 
 ## DOUMAMODからの置き換え
 
@@ -28,11 +28,12 @@
 
 | 選択 | 両方のmodsフォルダに配置するもの | 選べるコマンド |
 |---|---|---|
-| 共通コマンドのみ | BridgeMOD＋DisplayMOD | 共通コマンド |
+| サバイバル | BridgeMOD＋DisplayMOD | 共通コマンド |
 | 埋め立て | BridgeMOD＋DisplayMOD＋UmetateMOD | 共通＋登録された埋め立てのコマンド |
-| ラン | BridgeMOD＋DisplayMOD＋RunMOD | 共通＋登録されたランのコマンド |
+| RUN | BridgeMOD＋DisplayMOD＋RunMOD | 共通＋登録されたランのコマンド |
+| 採掘 | BridgeMOD＋DisplayMOD＋saikutuMOD | 共通＋採掘の14コマンド |
 
-DisplayMODは独立した任意の表示MOD。通常配布には同梱するが、なくてもゲームは続行する。APIと表示タイミングは[DisplayMOD連携ガイド](DisplayMOD連携ガイド.md)を参照。
+BridgeMODとDisplayMODは全ゲームの標準装備。アプリでの切替には両方のjarが必要。独立APIは表示MODが欠けた場合もゲーム本体を止めない。APIと表示タイミングは[DisplayMOD連携ガイド](DisplayMOD連携ガイド.md)を参照。
 
 UmetateMOD・RunMODの本体はまだ存在しないため、初期状態は「未導入」。ゲームパックを登録するまで切り替えられない。実ゲームのAPI・コマンドは未確定であり、架空の呼び出し仕様を製品へ組み込んではいない。
 
@@ -42,7 +43,7 @@ UmetateMOD・RunMODの本体はまだ存在しないため、初期状態は「�
 - サーバー側はアプリで選んだサーバーフォルダ。Minecraft側は既定でユーザーの`.minecraft`。別の起動構成のゲームディレクトリを使う場合は「Minecraftの保存先を選ぶ」で指定。
 - 現在のmodsフォルダは丸ごと各保存先の`.mygamepack-mod-switch/<処理ID>/previous`へ退避。新しいmodsには必要なjarだけを配置する。他のMODも削除しない。
 - 両側のコピーを準備・照合してから入れ替える。片側失敗は両側を戻す。アプリが途中終了した場合は次回「切替前の状態に戻す」で復旧するまで起動を止める。
-- ギフト割り当て、いいね、各イベント・ルーレット設定をゲームごとに保存・復元。初めて選ぶゲームの割り当ては空から開始。アカウント・RCON・配信統計は共通のまま保持。
+- ギフト割り当て、いいね、各イベント・ルーレット設定をゲームごとに保存・復元。初めて選ぶゲームの割り当ては空から開始（採掘のみ旧14コマンドの割り当てを引き継ぐ）。アカウント・RCON・配信統計は共通のまま保持。
 - MAPそのものの保存・ロード・変更は行わない。
 
 ## ゲームMOD完成後の登録形式
@@ -71,11 +72,11 @@ UmetateMOD・RunMODの本体はまだ存在しないため、初期状態は「�
 | command | ゲームMODが実装したMinecraftコマンド1行。先頭の`/`は省略可 |
 | commonDisplay | 任意のboolean。即時イベントでBridgeMODから共通表示を出す場合のみtrue。省略・falseはゲーム側が実開始時に表示 |
 
-commandには既存の`{Count}`・`{ListenerName}`を使用できる。キーは`game_umetate_<key>.txt`等に分離する。既定ではBridgeMODはゲーム側に渡す前の共通タイトルを出さない。DisplayMODの独立APIを用意済み。ゲームMODが実際に開始するときの呼び出しは、各ゲームMODの完成時に接続・検証する。OBSMODは今後の実装。
+commandには`{Count}`・`{ListenerName}`・`{RequestId}`を使用できる。キーは`game_umetate_<key>.txt`等に分離する。既定ではBridgeMODはゲーム側に渡す前の共通タイトルを出さない。DisplayMODの独立APIを用意済み。ゲームMODが実際に開始するときの呼び出しは、各ゲームMODの完成時に接続・検証する。OBSMODは今後の実装。
 
-この登録形式はMinecraftコマンドを入口に使うためのもの。Java APIでの連携が必要になった場合は、実ゲームMODの仕様を確認して追加する。ゲームMOD内の待機列・処理上限・実開始通知の実装まで自動的に完成するものではない。
+プレイヤーの入力は全ゲームで `/bridge <key> <count>`。Java受付APIは`bridgeEventApi: 1`で選択でき、要求番号・名前・個数をMapで受け取る。詳細は採掘MODの連携ガイドを参照。ゲームMOD内の待機列・処理上限・実開始通知の実装まで自動的に完成するものではない。
 
-ゲームMODに追加の必須ライブラリMODがある場合は別途対応が必要。現在の配布形式はBridgeMOD・任意のDisplayMOD・ゲームMODの構成を対象とする。
+ゲームMODに追加の必須ライブラリMODがある場合は別途対応が必要。現在の配布形式はBridgeMOD・DisplayMOD・ゲームMODの構成を対象とする。
 
 ## 検証と公開
 

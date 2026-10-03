@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useUnsavedChanges, useUnsavedGuard } from '../UnsavedChanges';
 import './GameSelector.css';
 
-type GameStatus = { active: string; applied: boolean; displayBundled: boolean; serverMods: string; clientMods: string; recoveryRequired: boolean;
+type GameStatus = { saikutuMigrationNeeded?: boolean; active: string; applied: boolean; displayBundled: boolean; serverMods: string; clientMods: string; recoveryRequired: boolean;
   games: { id: string; name: string; modName: string; installed: boolean }[] };
 
 export default function GameSelector({ onChanged }: { onChanged: () => void }) {
@@ -46,13 +46,15 @@ export default function GameSelector({ onChanged }: { onChanged: () => void }) {
       <button type="button" className="game-selector-apply" disabled={busy || !game?.installed || status?.recoveryRequired}
         onClick={() => run(() => api.gamesActivate(selected), true)}>{busy ? '処理中…' : 'このゲームに切り替える'}</button>
     </div>
-    <p>{game?.installed ? `使用するMOD：BridgeMOD${status?.displayBundled ? ' ＋ DisplayMOD（表示）' : ''}${selected === 'common' ? '' : ` ＋ ${game.modName}`}` : 'このゲームMODはまだ登録されていません。完成したゲームパックを登録してください。'}</p>
+    <p>{game?.installed ? `使用するMOD：BridgeMOD ＋ DisplayMOD（表示）${selected === 'common' ? '' : ` ＋ ${game.modName}`}` : 'このゲームMODはまだ登録されていません。完成したゲームパックを登録してください。'}</p>
+    <p>コマンドはどのゲームでも /bridge コマンド名 回数 で実行できます。</p>
     <p>暗視・アイテムロストなし・昼・晴れは固定です。イベント中のみ時間・天候が一時的に変わります。</p>
     {status && <small>{status.applied ? `適用済み：${status.games.find(g => g.id === status.active)?.name}` : 'この保存先へのMOD切替はまだ行っていません。'} ／ 切替はサーバー・Minecraft・BRIDGEの停止中に行います。</small>}
+    {status?.saikutuMigrationNeeded && <p role="status">14種類のコマンドが採掘へ移りました。「採掘」に切り替えると、現在のギフト割り当てを引き継ぎます。</p>}
     <details><summary>MODの保存先・ゲームパックの登録</summary>
       <p>サーバー：{status?.serverMods || '未確認'}<br />Minecraft：{status?.clientMods || '未確認'}</p>
       <p>現在のMODは削除せず退避します。MAPは変更しません。Minecraftの起動構成で別のゲームフォルダを指定している場合は、その保存先を選んでください。</p>
-      <p>DisplayMODは共通タイトルなどの表示を担当します。表示MODがなくてもゲームは動きます。</p>
+      <p>BridgeMODとDisplayMODはすべてのゲームに標準装備されます。サバイバルでは、この2つだけを配置します。</p>
       <div className="game-selector-tools">
         <button type="button" disabled={busy || !status || status.recoveryRequired} onClick={() => run(() => api.gamesInstall())}>ゲームパックを登録</button>
         <button type="button" disabled={busy || !status || status.recoveryRequired} onClick={() => run(() => api.gamesClientFolder())}>Minecraftの保存先を選ぶ</button>

@@ -1,0 +1,32 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="All Rights Reserved"
+
+[[mods]]
+modId="saikutumod"
+version="${mod_version}"
+displayName="saikutuMOD（採掘）"
+authors="Douma"
+displayTest="IGNORE_SERVER_VERSION"
+description='''Mining game commands. BridgeMOD handles ingress; saikutuMOD owns execution and start-time display.'''
+
+[[dependencies.saikutumod]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.saikutumod]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1]"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.saikutumod]]
+modId="bridgemod"
+mandatory=true
+versionRange="[1.3.6,)"
+ordering="AFTER"
+side="BOTH"

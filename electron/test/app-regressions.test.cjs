@@ -137,6 +137,9 @@ test("自動更新: 検出・進捗・適用準備を保持し、エラー後は
   const updater = { on: (event, fn) => listeners.set(event, fn), checkForUpdates: async () => { checks++; }, quitAndInstall: (...args) => installs.push(args) };
   const app = loadApp(t, undefined, updater);
   app.startUpdater();
+  assert.equal(updater.allowPrerelease, false);
+  assert.equal(updater.allowDowngrade, false);
+  assert.equal(updater.autoInstallOnAppQuit, false);
   assert.equal((await app.invoke("updater:install")).ok, false);
   listeners.get("checking-for-update")();
   await app.invoke("updater:check");
@@ -527,4 +530,15 @@ test('server startup: legacy automatic backup setting never creates a MAP save',
   assert.equal(starts, 1);
   assert.equal((await app.invoke('world:saves:list')).saves.length, 0);
   assert.equal(fs.readFileSync(path.join(world, 'level.dat'), 'utf8'), 'original');
+});
+
+
+test('更新確認のPromise失敗もエラー状態へ戻り、再試行で復旧する',async t=>{
+ const listeners=new Map();let fail=true;
+ const updater={on:(event,fn)=>listeners.set(event,fn),checkForUpdates:async()=>{
+   listeners.get('checking-for-update')();if(fail)throw new Error('network unavailable');listeners.get('update-not-available')({version:'1.0.43'});
+ }};
+ const app=loadApp(t,undefined,updater);app.startUpdater();
+ assert.equal((await app.invoke('updater:check')).state,'error');
+ fail=false;assert.equal((await app.invoke('updater:check')).state,'current');
 });

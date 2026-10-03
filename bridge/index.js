@@ -651,10 +651,10 @@ function commandFileToBridgeKey(commandFile) {
   return path.basename(file, ".txt");
 }
 
-function sendBridgeModEvent({ host, port, type, commandFile, count, listenerName, announce, eventId }) {
+function sendBridgeModEvent({ host, port, type, commandFile, count, listenerName, announce, requestId, eventId }) {
   const payload = JSON.stringify({
     type,
-    ...(eventId ? { eventId } : {}),
+    ...((requestId || eventId) ? { requestId: requestId || eventId, eventId: requestId || eventId } : {}),
     key: commandFileToBridgeKey(commandFile),
     count: clampInt(count, 1, 100, 1),
     listenerName: String(listenerName || "viewer"),

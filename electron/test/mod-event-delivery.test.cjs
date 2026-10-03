@@ -30,6 +30,7 @@ test('混雑したいいねを待たせてもギフトはFIFOで送信し、回�
   const retried = attempts.filter(e => e.type === 'like').slice(0, 9);
   assert.equal(new Set(retried.map(e => e.eventId)).size, 1, '応答がなくても同じ受付IDで再送');
   assert.equal(new Set(accepted.map(e => e.eventId)).size, accepted.length, '別の発火は別ID');
+  assert.ok([...retried, ...accepted].every(e => e.requestId === e.eventId), 'ゲームまで伝える要求番号は再送中も同一');
   assert.deepEqual(delivery.pending(), { like: 0, gift: 0, other: 0 });
 });
 

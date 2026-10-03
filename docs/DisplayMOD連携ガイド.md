@@ -75,6 +75,8 @@ OptionalDisplay.show(server, Map.of(
 
 DisplayMODを必須とする環境では公開APIを直接importしてもよいが、今回の運用では上記の任意連携ヘルパーを使用する。`mods.toml`にDisplayMODを`mandatory=true`で登録しない。
 
+API受付型のゲーム（`bridgeEventApi: 1`）は、BridgeMODが受付時に表示せず、`announce`をゲーム側へ渡す。ゲームが実開始時に表示する。要求番号とキューの扱いは[採掘MODと統一コマンド](採掘MODと統一コマンド.md)を参照。以下のtxtの表示切替は、従来のテキストコマンド経由の場合。
+
 ## BridgeMODの共通表示スイッチ
 
 既存のHTTP `POST /bridge/event`の`announce`を利用する。
@@ -99,7 +101,7 @@ DisplayMODを必須とする環境では公開APIを直接importしてもよい�
 
 ## 配置と単独確認
 
-- アプリの通常配布・ゲーム切替はBridgeMOD＋DisplayMOD＋選択ゲームMODを配置する。DisplayMODは独立jarなので取り外して運用できる。
+- アプリの通常配布・ゲーム切替はBridgeMOD＋DisplayMOD＋選択ゲームMODを配置する。2026-10-03から、アプリのゲーム切替では両方を標準装備とし、欠けている場合は切替を止める。実行時の任意API連携は引き続き未導入でもゲームを止めない。
 - DisplayMODはサーバー側で標準Minecraftの表示パケットを送るため、クライアント側にDisplayMODがなくても表示できる。アプリは保存先管理を揃えるため両側へ配置する。
 - DisplayMODだけを入れたサーバーでも以下のコマンドで試せる。権限レベル2以上が必要。
 

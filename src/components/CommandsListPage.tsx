@@ -34,7 +34,7 @@ const CATEGORY_ORDER: { key: string; icon: string; note: string }[] = [
 ];
 
 function chatCommandOf(meta: CommandMeta): string {
-  return `/bridge ${meta.name.replace(/\.txt$/i, "")} 1`;
+  return `/bridge ${meta.name.replace(/\.txt$/i, "").replace(/^game_(?:saikutu|umetate|run)_/, "")} 1`;
 }
 
 const CommandsListPage: React.FC = () => {

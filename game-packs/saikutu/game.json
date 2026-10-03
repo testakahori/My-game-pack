@@ -1,0 +1,84 @@
+{
+  "format": 1,
+  "id": "saikutu",
+  "modId": "saikutumod",
+  "bridgeEventApi": 1,
+  "serverJar": "saikutumod-1.0.0.jar",
+  "clientJar": "saikutumod-1.0.0.jar",
+  "commands": [
+    {
+      "key": "randomtp",
+      "title": "ランダムテレポート",
+      "command": "saikutu randomtp {Count} {ListenerName}"
+    },
+    {
+      "key": "skytrap",
+      "title": "天空トラップ",
+      "command": "saikutu skytrap {Count} {ListenerName}"
+    },
+    {
+      "key": "cataclysm",
+      "title": "天変地異",
+      "command": "saikutu cataclysm {Count} {ListenerName}",
+      "destructive": true
+    },
+    {
+      "key": "iceage",
+      "title": "氷河期",
+      "command": "saikutu iceage {Count} {ListenerName}",
+      "destructive": true
+    },
+    {
+      "key": "flood",
+      "title": "洪水",
+      "command": "saikutu flood {Count} {ListenerName}",
+      "destructive": true
+    },
+    {
+      "key": "maguma_jigoku",
+      "title": "マグマ地獄",
+      "command": "saikutu maguma_jigoku {Count} {ListenerName}"
+    },
+    {
+      "key": "fissure",
+      "title": "大地割れ",
+      "command": "saikutu fissure {Count} {ListenerName}",
+      "destructive": true
+    },
+    {
+      "key": "otosiana",
+      "title": "落とし穴！",
+      "command": "saikutu otosiana {Count} {ListenerName}"
+    },
+    {
+      "key": "tntdaibakuhatu",
+      "title": "TNT大爆発",
+      "command": "saikutu tntdaibakuhatu {Count} {ListenerName}"
+    },
+    {
+      "key": "get_ender_pearl",
+      "title": "エンダーパール！",
+      "command": "saikutu get_ender_pearl {Count} {ListenerName}"
+    },
+    {
+      "key": "get_iron_pickaxe",
+      "title": "鉄ピッケル！",
+      "command": "saikutu get_iron_pickaxe {Count} {ListenerName}"
+    },
+    {
+      "key": "get_tree",
+      "title": "木材追加！",
+      "command": "saikutu get_tree {Count} {ListenerName}"
+    },
+    {
+      "key": "get_water_backet",
+      "title": "水入りバケツ！",
+      "command": "saikutu get_water_backet {Count} {ListenerName}"
+    },
+    {
+      "key": "pikkerubossyuu",
+      "title": "ピッケル没収！",
+      "command": "saikutu pikkerubossyuu {Count} {ListenerName}"
+    }
+  ]
+}

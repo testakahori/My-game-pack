@@ -17,7 +17,8 @@
     "electron:prod": "electron .",
     "prepare:bridge-runtime": "node scripts/prepare-bridge-runtime.cjs",
     "prepare:server-template": "node scripts/prepare-server-template.cjs",
-    "pack:win": "npm run build && npm run prepare:bridge-runtime && npm run prepare:server-template && electron-builder --win --x64"
+    "pack:win": "npm run build && npm run prepare:bridge-runtime && npm run prepare:server-template && npm run prepare:game-packs && electron-builder --win --x64",
+    "prepare:game-packs": "node scripts/prepare-game-packs.cjs"
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
@@ -98,6 +99,10 @@
       {
         "from": "build/server-template",
         "to": "server/Douma_Craft"
+      },
+      {
+        "from": "build/game-packs",
+        "to": "game-packs"
       }
     ],
     "asar": true,
