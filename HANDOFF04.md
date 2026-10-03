@@ -8,7 +8,10 @@
 - 1.0.45以前からの移行も手動インストールが必要。配布手順：`docs/手動配布とアプリ更新.md`。
 - 検証：型チェック、Bridge14件、App178件、Viteビルド、git diff --checkが成功。旧IPCが製品版でも通信・インストールしないことを確認。
 - ブラウザーで運用センターのバージョン1.0.46と手動更新手順を確認。自動更新・再起動適用のボタンは表示しない。
-- 非公開Release向けのWindowsインストーラーを作成中。完了結果は後続記録に追記する。
+- Windowsインストーラーの作成完了。app.asarのmain.cjsがソースと一致し、electron-updater・app-update.yml・latest.ymlが含まれないことを確認。同梱MODはBridgeMOD1.4.0／DisplayMOD1.1.0／saikutuMOD1.0.1。
+- D側のrelease/manual-v1.0.46にインストーラーと更新手順を保存。EXEのSHA-256は53bc6f18b4dff4be142f79dcd45f894dbcc8f862cdb19587884415c41a90f00f。元ファイルとの一致を確認。
+- 今回は手動配布用の資材を作成。使用中アプリの終了やPCへのインストールは実行していない。
+- 変更PR：#39。配布先は非公開リポジトリのv1.0.46 Release。
 - saikutuMODはD側へソース・JAR・ゲーム登録用資材27ファイルを同期し、全ファイルのSHA-256一致を確認。ソースは既にGitHub mainへマージ済みで、D側への同期のみ欠けていた。
 
 ---
