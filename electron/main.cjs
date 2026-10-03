@@ -21,6 +21,7 @@ const { EULA_URL, inspectSetup, inspectForgeClient, launchForgeInstaller, prepar
 const { migrateRetiredCommands } = require("./command_migration.cjs");
 const { exportStreamStatsMarkdown } = require("./stats_export.cjs");
 const { createGameProfiles } = require('./game_profiles.cjs');
+const { availableGameCommands, assertGameCommands } = require('./game_command_scope.cjs');
 const { discoverMinecraftLocations, validateMinecraftFolder } = require('./minecraft_locations.cjs');
 function minecraftLocationOptions() {
   return { appData: app.getPath('appData'), currentFolder: readAppConfig().minecraftGameFolder, serverRoot: getServerRoot() };
@@ -92,6 +93,7 @@ const eulerCredentials = require('./euler_credentials.cjs').createEulerCredentia
 let bridgeEulerRevision = null;
 const streamSessions = createStreamSessions(() => path.join(getBridgeBatDir(), "stream-sessions.json"));
 const settingsBackups = createSettingsBackups({
+  validateRestore: (config, commands) => assertGameCommands(config, [...selectableCommandNames(), ...Object.keys(commands).filter(name => !name.startsWith('game_'))], gameProfiles.list()),
   paths: () => ({
     config: getConfigPath(), app: getAppConfigPath(), tts: getTtsSettingsPath(),
     bridgeTts: path.join(getBridgeBatDir(), "tts-settings.json"),
@@ -399,7 +401,7 @@ const { updateGiftMapping } = require("./gift_mapping.cjs");
 
 function writeBridgeConfig(nextConfig) {
   assertGameProfileIdle();
-  if ((nextConfig?.gameProfile || 'common') !== gameProfiles.list().active) throw new Error('ゲームが切り替わっています。設定画面を開き直してください');
+  assertGameCommands(nextConfig, selectableCommandNames(), gameProfiles.list());
   const validation = validateBridgeConfig(nextConfig);
   if (!validation.ok) throw new Error(`設定エラー:\n${validation.errors.join("\n")}`);
   const configPath = getConfigPath();
@@ -432,7 +434,7 @@ ipcMain.handle("config:giftMapping:save", (_event, request) => {
   const configPath = getConfigPath();
   ensureConfigExists(configPath);
   const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
-  const names = fs.existsSync(dir) ? fs.readdirSync(dir).filter(name => name.endsWith(".txt") && !name.startsWith("_") && fs.statSync(path.join(dir, name)).isFile()) : [];
+  const names = selectableCommandNames();
   const next = updateGiftMapping(JSON.parse(fs.readFileSync(configPath, "utf8")), request, names);
   // Keep read / compare / write synchronous so another IPC cannot interleave.
   writeBridgeConfig(next);
@@ -1509,6 +1511,7 @@ function killBridgeByCommandLine() {
 
 async function launchBridge() {
   assertGameProfileIdle();
+  assertGameCommands(JSON.parse(fs.readFileSync(getConfigPath(), "utf8")), selectableCommandNames(), gameProfiles.list());
   const dir = getBridgeBatDir();
   const indexJs = getBridgeEntryPoint(dir);
   if (!fs.existsSync(indexJs)) throw new Error(`Bridge entry not found: ${indexJs}`);
@@ -1745,6 +1748,8 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
   const bridgeCfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8"));
   const commandsDir = path.join(getBridgeBatDir(), "commands", "minecraft");
   const historyPath = getOperationsHistoryPath();
+  assertGameCommands(bridgeCfg, selectableCommandNames(), gameProfiles.list());
+  if (value?.type === "gift") assertGameCommands({ gameProfile: bridgeCfg.gameProfile, commandFile: value.commandFile }, selectableCommandNames(), gameProfiles.list());
   const plan = planTestEvent(bridgeCfg, value, commandsDir);
   const details = plan.steps.map(step => ({ commandFile: step.commandFile, count: step.count, label: step.label, type: step.type }));
   if (value.preview === true || !plan.steps.length) return {
@@ -2569,21 +2574,13 @@ ipcMain.handle("server:copyTemplateStatus", () => copyTemplateState);
 // --------------------
 // IPC: bridge/commands/minecraft/ 内の .txt ファイル一覧
 // --------------------
-ipcMain.handle("bridge:commands:list", async () => {
-  const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
+function selectableCommandNames() {
+  const dir = path.join(getBridgeBatDir(), 'commands', 'minecraft');
   if (!fs.existsSync(dir)) return [];
-  // アンダースコア始まり（_gamerules など内部用）はギフト/イベント割当のドロップダウンに出さない
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".txt") && !f.startsWith("_")).sort();
-  return files.map((name) => {
-    let title = name;
-    try {
-      const content = fs.readFileSync(path.join(dir, name), "utf8");
-      const match = content.match(/^#\s*TITLE:\s*(.+)$/m);
-      if (match) title = match[1].trim();
-    } catch {}
-    return { name, title };
-  });
-});
+  const names = fs.readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isFile()).map(entry => entry.name);
+  return availableGameCommands(names, gameProfiles.list()).sort();
+}
+ipcMain.handle("bridge:commands:list", () => readCommandMetadata().map(({ name, title }) => ({ name, title })));
 
 // --------------------
 // IPC: bridge/commands/minecraft/ の TITLE + CATEGORY + 説明文 メタ情報一覧
@@ -2591,7 +2588,7 @@ ipcMain.handle("bridge:commands:list", async () => {
 function readCommandMetadata() {
   const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
   if (!fs.existsSync(dir)) return [];
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".txt") && !f.startsWith("_")).sort();
+  const files = selectableCommandNames();
   return files.map((name) => {
     let title = name;
     let category = "";

@@ -99,7 +99,8 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
   }
   function list() {
     const current = state();
-    return { active: current.active, saikutuMigrationNeeded: saikutu.hasLegacy(readJson(configPath(), {})), displayBundled: Boolean(displayJar()), applied: current.appliedFormat === 3 && JSON.stringify(current.appliedRoots) === JSON.stringify([path.resolve(serverRoot()), path.resolve(clientRoot())]), serverMods: path.join(serverRoot(), 'mods'), clientMods: path.join(clientRoot(), 'mods'), recoveryRequired: fs.existsSync(journalFile()),
+    const config = readJson(configPath(), {});
+    return { active: current.active, saikutuMigrationNeeded: saikutu.hasLegacy(readJson(configPath(), {})), displayBundled: Boolean(displayJar()), applied: (config.gameProfile || 'common') === current.active && current.appliedFormat === 3 && JSON.stringify(current.appliedRoots) === JSON.stringify([path.resolve(serverRoot()), path.resolve(clientRoot())]), serverMods: path.join(serverRoot(), 'mods'), clientMods: path.join(clientRoot(), 'mods'), recoveryRequired: fs.existsSync(journalFile()),
       games: GAMES.map(g => ({ ...g, installed: g.id === 'common' || Boolean(current.packages[g.id]) || bundledPackages().some(p => p.id === g.id), selected: current.active === g.id })) };
   }
   async function install(folder) {
@@ -177,7 +178,8 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     }
     const oldNames = fs.existsSync(commandDir) ? fs.readdirSync(commandDir).filter(n => /^game_(umetate|run|saikutu)_[a-z0-9_]+\.txt$/.test(n)) : [];
     const next = clone(current);
-    next.profiles[current.active] = Object.fromEntries(PROFILE_KEYS.filter(k => Object.hasOwn(config, k)).map(k => [k, config[k]]));
+    next.profiles[current.active] = { ...Object.fromEntries(PROFILE_KEYS.filter(k => Object.hasOwn(config, k)).map(k => [k, config[k]])),
+      options: { gameplay: clone(config.options?.gameplay || {}) } };
     // Preserve the complete previous profile, and carry its bindings into mining on first selection.
     for (const [profileId, profile] of Object.entries(next.profiles)) {
       if (saikutu.hasLegacy(profile)) {
@@ -217,7 +219,10 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
         fs.renameSync(path.join(slot, 'next'), mods);
       }
       for (const key of PROFILE_KEYS) delete config[key];
-      Object.assign(config, destination);
+      // Gameplay milestones/combo/poll also contain command bindings; other options stay shared.
+      const { options: profileOptions, ...bindings } = destination;
+      Object.assign(config, bindings);
+      config.options = { ...config.options, gameplay: profileOptions?.gameplay || {} };
       config.gameProfile = id;
       for (const name of oldNames) fs.unlinkSync(path.join(commandDir, name));
       for (const [name, text] of Object.entries(gameFiles)) atomicWrite(path.join(commandDir, name), text);

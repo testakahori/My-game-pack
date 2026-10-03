@@ -168,7 +168,7 @@ function RouletteItemsEditor({
       )}
       {items.map((item) => (
         <div key={item.id} className="grid grid-cols-1 md:grid-cols-[1fr_180px_70px_90px_70px_40px] gap-2 items-center bg-gray-900/50 border border-gray-700/60 rounded-xl p-2">
-          <CmdSelect value={item.commandFile} onChange={(v) => update(item.id, { commandFile: v, label: item.label || v.replace(/\.txt$/i, "") })} commandFiles={commandFiles} />
+          <CmdSelect value={item.commandFile} onChange={(v) => update(item.id, { commandFile: v, label: item.label || commandFiles.find(file => file.name === v)?.title || v.replace(/\.txt$/i, "") })} commandFiles={commandFiles} />
           <input
             type="text"
             value={item.label}

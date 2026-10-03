@@ -1,4 +1,5 @@
 import pkg from "../../package.json";
+import miningPack from "../../game-packs/saikutu/game.json";
 
 type DevAppConfig = {
   serverFolder: string;
@@ -59,7 +60,12 @@ if (import.meta.env.DEV && !win.mygamepack) {
   const readDevCommands = async () => {
     try {
       const response = await fetch("/__dev/commands/minecraft", { cache: "no-store" });
-      if (response.ok) return response.json();
+      if (response.ok) {
+        const commands = await response.json();
+        if (!previewModsApplied) return [];
+        const common = commands.filter((item: any) => !item.name.startsWith("_") && !item.name.startsWith("game_") && !miningPack.commands.some(command => item.name === command.key + ".txt"));
+        return previewActiveGame === "saikutu" ? [...common, ...miningPack.commands.map(command => ({ name: `game_saikutu_${command.key}.txt`, title: command.title, category: "saikutuMOD" }))] : common;
+      }
     } catch { /* ignore */ }
     return [];
   };
@@ -192,6 +198,8 @@ if (import.meta.env.DEV && !win.mygamepack) {
   let previewClientFolder = previewMinecraftFolders[0].path;
   let previewActiveGame = 'common';
   let previewModsApplied = false;
+  const previewProfiles: Record<string, any> = {};
+  const previewProfileKeys = ['mappings', 'likeEvents', 'unmappedGiftEvent', 'shareEvent', 'followEvent', 'memberEvent', 'roulette', 'deathRoulette', 'commentGifts'];
   const previewGameStatus = () => ({ active: previewActiveGame, applied: previewModsApplied, displayBundled: true, recoveryRequired: false,
     serverMods: appConfig.serverFolder + '\\mods', clientMods: previewClientFolder + '\\mods', games: [
       { id: 'common', name: 'サバイバル', modName: 'BridgeMOD', installed: true },
@@ -208,6 +216,9 @@ if (import.meta.env.DEV && !win.mygamepack) {
     },
     gamesActivate: async (id: string) => {
       if (!previewGameStatus().games.some(game => game.id === id && game.installed)) throw new Error('ゲームパックを登録してください。');
+      previewProfiles[previewActiveGame] = Object.fromEntries(previewProfileKeys.map(key => [key, structuredClone(bridgeConfig[key])]));
+      for (const key of previewProfileKeys) delete bridgeConfig[key];
+      Object.assign(bridgeConfig, structuredClone(previewProfiles[id] || { mappings: [], likeEvents: [] }), { gameProfile: id });
       previewActiveGame = id; previewModsApplied = true; return previewGameStatus();
     },
     gamesRecover: async () => previewGameStatus(),

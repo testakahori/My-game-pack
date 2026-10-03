@@ -3,37 +3,38 @@ import { useUnsavedChanges, useUnsavedGuard } from '../UnsavedChanges';
 import './GameSelector.css';
 import type { GameStatus, MinecraftLocationDiscovery } from '../types/electron';
 
-export default function GameSelector({ onChanged }: { onChanged: () => void }) {
+export default function GameSelector({ onChanged, onStatus }: { onChanged: () => void; onStatus: (status: GameStatus | null) => void }) {
   const [status, setStatus] = useState<GameStatus | null>(null);
   const [selected, setSelected] = useState('common');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const { confirmDiscard } = useUnsavedGuard();
-  useUnsavedChanges(false, busy);
+  const dirty = Boolean(status && selected !== status.active);
+  const guardId = useUnsavedChanges(dirty, busy);
   const [locations, setLocations] = useState<MinecraftLocationDiscovery | null>(null);
   const [folder, setFolder] = useState('');
   const [scanning, setScanning] = useState(false);
   const api = window.mygamepack;
   useEffect(() => {
     let disposed = false;
-    api?.gamesList?.().then((next: GameStatus) => { if (!disposed) { setStatus(next); setSelected(next.active); } })
-      .catch((e: Error) => { if (!disposed) setError(e.message); });
+    api?.gamesList?.().then((next: GameStatus) => { if (!disposed) { setStatus(next); setSelected(next.active); onStatus(next); } })
+      .catch((e: Error) => { if (!disposed) { setError(e.message); onStatus(null); } });
     return () => { disposed = true; };
-  }, []);
+  }, [onStatus]);
   async function run(action: () => Promise<GameStatus | { canceled: true }>, changed = false, folderChanged = false) {
-    if (busy || scanning || !confirmDiscard()) return;
+    if (busy || scanning || !confirmDiscard(guardId)) return;
     setBusy(true); setError(''); setMessage('');
     try {
       const next = await action();
       if ('canceled' in next) return;
-      setStatus(next); setSelected(next.active);
-      setMessage(folderChanged ? '保存先を変更しました。MODを反映するには「このゲームに切り替える」を押してください。' : changed ? '両方のMODフォルダとゲームの設定を切り替えました。' : '登録内容を更新しました。');
+      setStatus(next); setSelected(next.active); onStatus(next);
+      setMessage(folderChanged ? '保存先を変更しました。MODを反映するには「保存」を押してください。' : changed ? 'ゲームを保存しました。ギフトや各イベントを設定できます。' : '登録内容を更新しました。');
       if (folderChanged) { setLocations(null); setFolder(''); }
       if (changed) { localStorage.removeItem('mc_tiktok_mappings_unified_v1'); onChanged(); }
     } catch (e: any) {
       setError(e?.message || String(e));
-      try { setStatus(await api.gamesList()); } catch { /* Keep the original error visible. */ }
+      try { const next = await api.gamesList(); setStatus(next); onStatus(next); } catch { setStatus(null); onStatus(null); }
     }
     finally { setBusy(false); }
   }
@@ -57,13 +58,14 @@ export default function GameSelector({ onChanged }: { onChanged: () => void }) {
         </select>
       </label>
       <button type="button" className="game-selector-apply" disabled={busy || scanning || !game?.installed || status?.recoveryRequired}
-        onClick={() => run(() => api.gamesActivate(selected), true)}>{busy ? '処理中…' : 'このゲームに切り替える'}</button>
+        onClick={() => run(() => api.gamesActivate(selected), true)}>{busy ? '処理中…' : '保存'}</button>
     </div>
     <p>{game?.installed ? `使用するMOD：BridgeMOD ＋ DisplayMOD（表示）${selected === 'common' ? '' : ` ＋ ${game.modName}`}` : 'このゲームMODはまだ登録されていません。完成したゲームパックを登録してください。'}</p>
-    <p>コマンドはどのゲームでも /bridge コマンド名 回数 で実行できます。</p>
+    <p>① ゲームを選んで保存 → ② ギフト・いいね・ルーレットなどを設定。ゲームごとに設定を保存し、次回の切替時に読み込みます。</p>
+    {dirty && <p role="status" className="game-selector-pending">ゲームの変更は未保存です。「保存」を押すと選んだゲームへ切り替わります。</p>}
     <p>暗視・アイテムロストなし・昼・晴れは固定です。イベント中のみ時間・天候が一時的に変わります。</p>
     <p>コマンドの実行通知は非表示です。敵モブの自然発生は停止します。動物・魚の自然発生と、ギフト・コマンドでの召喚は有効です。</p>
-    {status && <small>{status.applied ? `適用済み：${status.games.find(g => g.id === status.active)?.name}` : 'この保存先へのMOD切替はまだ行っていません。'} ／ 切替はサーバー・Minecraft・BRIDGEの停止中に行います。</small>}
+    {status && <small>{status.applied ? `適用済み：${status.games.find(g => g.id === status.active)?.name}` : 'ゲームが未保存です。ゲームを選んで「保存」を押してください。'} ／ 切替はサーバー・Minecraft・BRIDGEの停止中に行います。</small>}
     {status?.saikutuMigrationNeeded && <p role="status">14種類のコマンドが採掘へ移りました。「採掘」に切り替えると、現在のギフト割り当てを引き継ぎます。</p>}
     <details><summary>Minecraftの保存先を探す・MODの保存先を確認</summary>
       <p>サーバー：{status?.serverMods || '未確認'}<br />Minecraft：{status?.clientMods || '未確認'}</p>
@@ -92,7 +94,7 @@ export default function GameSelector({ onChanged }: { onChanged: () => void }) {
         </fieldset>
         {!locations.candidates.some(candidate => candidate.selectable) && <p role="status">使用できる保存先が見つかりませんでした。Minecraft Launcherの起動構成を確認するか、「手動で指定」を使ってください。</p>}
         {locations.warnings.map(warning => <p key={warning} className="minecraft-location-warning">{warning}</p>)}
-        <p>保存先を選ぶ操作では、MODやMAPは変更しません。MODの配置は「このゲームに切り替える」で行います。</p>
+        <p>保存先を選ぶ操作では、MODやMAPは変更しません。MODの配置は「保存」で行います。</p>
         <div className="game-selector-tools">
           <button type="button" className="game-selector-apply" disabled={busy || scanning || !chosenFolder?.selectable || chosenFolder.current || status?.recoveryRequired} onClick={() => run(() => api.gamesSelectClientFolder(folder), false, true)}>この保存先を使う</button>
           {chosenFolder?.current && <span className="minecraft-location-current">この保存先を使用中です。</span>}

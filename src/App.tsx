@@ -16,6 +16,7 @@ import StatsDashboardPage from "./components/StatsDashboardPage";
 import MinecraftBlockIcon from "./components/MinecraftBlockIcon";
 import LoginPage from "./components/LoginPage";
 import GameSelector from './components/GameSelector';
+import type { GameStatus } from './types/electron';
 import { UnsavedChangesProvider, useUnsavedGuard } from "./UnsavedChanges";
 
 const PAGE_TITLE: Partial<Record<AppPage, string>> = {
@@ -44,6 +45,20 @@ const App: React.FC = () => {
   const { confirmDiscard, hasChanges } = useUnsavedGuard();
   const [settingsRevision, setSettingsRevision] = useState(0);
   const contentRef = useRef<HTMLElement>(null);
+  const [gameStatus, setGameStatus] = useState<GameStatus | null>(null);
+  const [gameLoading, setGameLoading] = useState(true);
+  const gameReady = Boolean(gameStatus?.applied && !gameStatus.recoveryRequired);
+  const gameSettingsPage = [AppPage.GIFTS, AppPage.EVENTS, AppPage.EVENTS2, AppPage.COMMANDS].includes(activePage);
+
+  useEffect(() => {
+    let disposed = false;
+    setGameLoading(true);
+    setGameStatus(null);
+    window.mygamepack?.gamesList?.().then(next => { if (!disposed) setGameStatus(next); })
+      .catch(() => { if (!disposed) setGameStatus(null); })
+      .finally(() => { if (!disposed) setGameLoading(false); });
+    return () => { disposed = true; };
+  }, [setupComplete, settingsRevision]);
 
   const navigateTo = (page: AppPage) => {
     if (page === activePage || !confirmDiscard()) return;
@@ -181,28 +196,35 @@ const App: React.FC = () => {
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <header className="app-topbar">
             <div className="app-topbar-title">{PAGE_TITLE[activePage]}</div>
+
           </header>
 
           {hasChanges && <div className="unsaved-banner" role="status">未保存の変更があります。保存してから画面を移動してください。</div>}
           <main key={settingsRevision} ref={contentRef} className="app-content flex-1 overflow-y-auto">
-          {setupComplete && [AppPage.DASHBOARD, AppPage.GIFTS, AppPage.COMMANDS].includes(activePage) && <GameSelector onChanged={() => setSettingsRevision(value => value + 1)} />}
-          {activePage === AppPage.DASHBOARD && (
+          {gameSettingsPage && gameReady && <div className="current-game-label">プレイ中のゲーム：<strong>{gameStatus?.games.find(game => game.id === gameStatus.active)?.name}</strong><span>変更はTOPから</span></div>}
+          {setupComplete && activePage === AppPage.DASHBOARD && <GameSelector onStatus={setGameStatus} onChanged={() => setSettingsRevision(value => value + 1)} />}
+          {(gameSettingsPage || activePage === AppPage.DASHBOARD) && !gameReady && <section className="game-required" role="status">
+            <h2>{gameLoading ? "ゲームの保存状態を確認しています…" : "TOPでプレイするゲームを保存してください"}</h2>
+            {!gameLoading && <><p>{gameStatus?.recoveryRequired ? "前回のゲーム切替を復旧してから設定を続けてください。" : "ゲームを保存すると、そのゲームで使えるコマンドをギフト・ルーレット・デスルーレット・いいね・シェア・訪問・未設定ギフトなどに設定できます。"}</p>
+            {activePage !== AppPage.DASHBOARD && <button type="button" onClick={() => navigateTo(AppPage.DASHBOARD)}>TOPへ戻る</button>}</>}
+          </section>}
+          {activePage === AppPage.DASHBOARD && gameReady && (
             <div className="page-pad p-6">
               <DashboardPage onNavigate={navigateTo} />
             </div>
           )}
 
           {/* GiftSettingsPage は独自に Header（タブ）を持つため p-0 */}
-          {activePage === AppPage.GIFTS && <GiftSettingsPage onOpenImageEditor={() => navigateTo(AppPage.IMAGE_EDITOR)} />}
+          {activePage === AppPage.GIFTS && gameReady && <GiftSettingsPage onOpenImageEditor={() => navigateTo(AppPage.IMAGE_EDITOR)} />}
           {activePage === AppPage.IMAGE_EDITOR && <div className="page-pad p-6"><ImageEditorPage /></div>}
 
-          {activePage === AppPage.EVENTS && (
+          {activePage === AppPage.EVENTS && gameReady && (
             <div className="page-pad p-6">
               <EventSettingsPage />
             </div>
           )}
 
-          {activePage === AppPage.EVENTS2 && (
+          {activePage === AppPage.EVENTS2 && gameReady && (
             <div className="page-pad p-6">
               <EventSettings2Page />
             </div>
@@ -230,7 +252,7 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {activePage === AppPage.COMMANDS && (
+          {activePage === AppPage.COMMANDS && gameReady && (
             <div className="page-pad p-6">
               <CommandsListPage />
             </div>
