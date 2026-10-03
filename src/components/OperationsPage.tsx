@@ -141,7 +141,6 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
   const [serverProps, setServerProps] = useState<Record<string, string>>({});
   const [stats, setStats] = useState<Stats>(defaultStats);
   const [gameplayText, setGameplayText] = useState("{}");
-  const [updater, setUpdater] = useState<any>({ state: "idle" });
   const [bridgeProcess, setBridgeProcess] = useState<any>({ running: false, restartCount: 0 });
   const [bridgeSync, setBridgeSync] = useState<any>({ state: "idle" });
   const [opsTab, setOpsTab] = useState("map");
@@ -164,11 +163,10 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
   }, []);
 
   const refresh = useCallback(async () => {
-    const [s, h, st, up, bp, bs] = await Promise.allSettled([
+    const [s, h, st, bp, bs] = await Promise.allSettled([
       api.modStatus(),
       api.operationsHistory(),
       api.operationsStats(),
-      api.updaterStatus(),
       api.bridgeProcessStatus(),
       api.bridgeSyncStatus ? api.bridgeSyncStatus() : Promise.resolve({ state: "unknown" }),
     ]);
@@ -176,7 +174,6 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
     if (s.status === "fulfilled") setStatus({ ...defaultStatus, ...(s.value || {}) });
     if (h.status === "fulfilled") setHistory(Array.isArray(h.value) ? h.value : []);
     if (st.status === "fulfilled") setStats({ ...defaultStats, ...(st.value || {}) });
-    if (up.status === "fulfilled") setUpdater(up.value || { state: "idle" });
     if (bp.status === "fulfilled") setBridgeProcess(bp.value || { running: false, restartCount: 0 });
     if (bs.status === "fulfilled") setBridgeSync(bs.value || { state: "unknown" });
   }, [api]);
@@ -256,17 +253,6 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
       }
     } catch (error: any) {
       setNotice(`ファイルを開けませんでした: ${error?.message || String(error)}`);
-    }
-  };
-
-  const checkUpdate = async () => {
-    try {
-      setNotice("更新を確認中…");
-      const result = await api.updaterCheck();
-      setUpdater(result || { state: "idle" });
-      setNotice(result?.error ? "更新確認に失敗しました。詳細を確認してください。" : "更新確認が完了しました");
-    } catch (error: any) {
-      setNotice(`更新確認失敗: ${error?.message || String(error)}`);
     }
   };
 
@@ -474,55 +460,20 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
         <div hidden={opsTab !== "maintenance"}><SettingsBackupsPanel onRestored={onRestored} /><OpsPanel className="ops-update-card">
           <div className="ops-card-topline">
             <div>
-              <h2>アプリ自動更新</h2>
-              {appVersion?.includes("-local.") && <p>ローカル開発版を使用中です。公開された正式版だけを確認し、古い版には戻しません。</p>}
-              <p>状態: <b className={updater.state === "error" ? "bad" : "ok"}>{({ idle: "未確認", checking: "更新を確認中…", downloading: `ダウンロード中 ${updater.percent || 0}%`, ready: "再起動で更新できます", current: "利用できる新しい公開版はありません", error: "更新に失敗しました", development: "開発版では更新できません" } as Record<string, string>)[updater.state] || "未確認"}</b></p>
+              <h2>アプリのバージョン・更新方法</h2>
+              <p>最新版は配布者から受け取ってください。</p>
             </div>
-            <button
-              type="button"
-              className="ops-small-button"
-              onClick={() => setNotice(
-                updater.error
-                  ? `更新エラー: ${updater.error}`
-                  : `更新状態: ${updater.state || "idle"}（バージョン ${updater.version || appVersion || "不明"}）`
-              )}
-            >
-              詳細を表示
-            </button>
           </div>
-
-          {updater.error && (
-            <div className="ops-update-error">
-              ⚠ 更新に失敗しています: {updater.error}
-            </div>
-          )}
-
           <div className="ops-update-diags">
-            <span><small>エラー内容</small><b className={updater.error ? "bad" : "ok"}>{updater.error || "なし"}</b></span>
-            <span><small>コード署名</small><b className="warn">なし（未署名の自己ビルド配布）</b></span>
             <span><small>現在のバージョン</small><b className="ok">{appVersion || "確認中…"}</b></span>
-            <span><small>最終確認</small><b className="ok">{updater.checkedAt ? fmtShortTime(updater.checkedAt) : "未確認"}</b></span>
+            <span><small>更新方法</small><b>配布されたインストーラーで更新</b></span>
           </div>
-
-          <div className="ops-updater-meta">
-            <span>リポジトリ: github.com/testakahori/My-game-pack</span>
-          </div>
-
-          <div className="ops-update-cta">
-            <CreeperSignal />
-            <button type="button" className="ops-primary-button ops-primary-button--violet" disabled={["checking", "downloading", "ready"].includes(updater.state)} onClick={checkUpdate}>↻ 更新を確認</button>
-            {updater.state === "ready" && (
-              <button type="button" className="ops-primary-button ops-primary-button--cyan" onClick={async () => {
-                if (hasChanges) { setNotice("変更を保存してから更新を適用してください。"); return; }
-                try {
-                  const result = await api.updaterInstall();
-                  if (!result?.ok) setNotice("更新の準備が完了していません。状態を確認してください。");
-                } catch (error: any) { setNotice(`更新を適用できませんでした: ${error?.message || error}`); }
-              }}>
-                再起動して適用
-              </button>
-            )}
-          </div>
+          <ol>
+            <li>設定を保存し、BRIDGE・サーバー・Minecraftを停止します。</li>
+            <li>このアプリを終了し、配布者から受け取った最新版のインストーラーを実行します。</li>
+            <li>現在と同じインストール先を選び、完了後にアプリを起動します。</li>
+          </ol>
+          <p>アプリをアンインストールする必要はありません。設定とMAPはそのまま引き継ぎます。</p>
         </OpsPanel>
       </div>
 
