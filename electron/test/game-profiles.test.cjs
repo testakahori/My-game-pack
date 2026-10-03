@@ -213,3 +213,30 @@ test('bridgeコマンド名が共通MODと重なるゲームは変更前に拒�
   await x.api.install(folder); await assert.rejects(x.api.activate('run'), /重複.*zombie/);
   assert.equal(fs.existsSync(path.join(x.server,'mods/other.jar')),true);
 });
+
+
+test('全イベント設定をゲーム別に復元し、ゲームプレイ内の個数・送信条件も混ぜない', async t => {
+  const x = fixture(t); await x.api.install(x.pack('saikutu'));
+  await x.api.activate('common');
+  const common = JSON.parse(fs.readFileSync(x.config));
+  const simple = { commandFile: 'cod.txt', repeat: 2, enabled: true };
+  Object.assign(common, { likeEvents: [{ ...simple, threshold: 100 }], unmappedGiftEvent: simple, followEvent: simple, memberEvent: simple,
+    roulette: { items: [simple] }, deathRoulette: { items: [simple] }, commentGifts: { rules: [{ ...simple, match: 'hi' }] } });
+  common.options.gameplay = { likeMilestones: [{ ...simple, threshold: 1000 }] };
+  fs.writeFileSync(x.config, JSON.stringify(common));
+  await x.api.activate('saikutu');
+  const mining = JSON.parse(fs.readFileSync(x.config));
+  assert.deepEqual(mining.mappings, []); assert.deepEqual(mining.options.gameplay, {});
+  assert.equal(mining.options.giftCooldownMs, 300);
+  mining.deathRoulette = { items: [{ commandFile: 'game_saikutu_fill.txt', repeat: 3 }] };
+  mining.options.gameplay = { likeMilestones: [{ commandFile: 'game_saikutu_fill.txt', threshold: 2000 }] };
+  fs.writeFileSync(x.config, JSON.stringify(mining));
+  await x.api.activate('common'); assert.deepEqual(JSON.parse(fs.readFileSync(x.config)), common);
+  await x.api.activate('saikutu'); assert.deepEqual(JSON.parse(fs.readFileSync(x.config)), mining);
+});
+test('保存先・設定のゲームが変わったら未保存として扱う', async t => {
+  const x = fixture(t); assert.equal(x.api.list().applied, false);
+  await x.api.activate('common'); assert.equal(x.api.list().applied, true);
+  const config = JSON.parse(fs.readFileSync(x.config)); config.gameProfile = 'run'; fs.writeFileSync(x.config, JSON.stringify(config));
+  assert.equal(x.api.list().applied, false);
+});

@@ -48,6 +48,11 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
   config.tiktokUsername = "akahoridouma";
   config.mappings = [];
   fs.writeFileSync(configPath, JSON.stringify(config));
+  const commandsDir = path.join(root, 'bridge', 'commands', 'minecraft');
+  fs.mkdirSync(commandsDir, { recursive: true });
+  for (const name of fs.readdirSync(path.resolve(__dirname, '../../bridge/commands/minecraft')).filter(name => name.endsWith('.txt'))) {
+    fs.copyFileSync(path.resolve(__dirname, '../../bridge/commands/minecraft', name), path.join(commandsDir, name));
+  }
   const tools = path.join(root, "GiftsViewer", "tools");
   fs.mkdirSync(tools, { recursive: true });
   for (const file of ["fetch_gifts.cjs", "gifts_to_html.cjs", "live_status.cjs"]) fs.writeFileSync(path.join(tools, file), "");
@@ -57,7 +62,11 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
     Buffer, URL, AbortSignal, fetch, setTimeout, clearTimeout, setInterval, clearInterval,
   });
   vm.runInContext(fs.readFileSync(mainPath, "utf8"), context, { filename: mainPath });
-  return { root, configPath, notifications, copiedTexts, invoke: (name, ...args) => handlers.get(name)({}, ...args),
+  // Ordinary regression cases start after the user saved Survival on TOP.
+  vm.runInContext(`var fixtureGameState = path.join(app.getPath('userData'), 'game-profiles', crypto.createHash('sha256').update(path.resolve(getServerRoot())).digest('hex').slice(0, 16), 'profiles.json');
+    fs.mkdirSync(path.dirname(fixtureGameState), { recursive: true });
+    fs.writeFileSync(fixtureGameState, JSON.stringify({ format: 1, active: 'common', packages: {}, profiles: {}, appliedFormat: 3, appliedRoots: [path.resolve(getServerRoot()), path.resolve(app.getPath('appData'), '.minecraft')] }));`, context);
+  return { root, configPath, notifications, copiedTexts, clearGameSelection: () => fs.unlinkSync(context.fixtureGameState), invoke: (name, ...args) => handlers.get(name)({}, ...args),
     startUpdater: () => {
       app.isPackaged = true;
       context.setTimeout = () => {};
@@ -578,4 +587,25 @@ test('Minecraft保存先IPC: 読み取り・候補選択・手動選択を通し
   fs.writeFileSync(launcherFile, JSON.stringify({ profiles: { gone: { gameDir: invalid } } }));
   await assert.rejects(app.invoke('games:selectClientFolder', invalid), /フォルダーがありません/);
   assert.equal((await app.invoke('games:list')).clientMods, path.join(manual, 'mods'), '失敗時は設定を維持する');
+});
+
+
+test('ゲーム選択IPC: TOPでの保存前は全候補・設定保存・イベントテストを止める', async t => {
+  const app = loadApp(t); app.clearGameSelection();
+  assert.equal(app.invoke('bridge:commands:list').length, 0);
+  assert.equal(app.invoke('bridge:commands:readMeta').length, 0);
+  const config = JSON.parse(fs.readFileSync(app.configPath));
+  await assert.rejects(app.invoke('config:write', config), /TOP/);
+  await assert.rejects(app.invoke('mod:testEvent', { type: 'gift', commandFile: 'cod.txt', preview: true }), /TOP/);
+});
+test('ゲーム選択IPC: サバイバルでは残った採掘TXTをルーレットにも保存できない', async t => {
+  const app = loadApp(t), dir = path.join(app.root, 'bridge/commands/minecraft');
+  fs.writeFileSync(path.join(dir, 'game_saikutu_get_ender_pearl.txt'), '# TITLE: エンダーパール\nsaikutu get_ender_pearl 1');
+  for (const route of ['bridge:commands:list','bridge:commands:readMeta']) {
+    const files = app.invoke(route); assert.ok(files.some(file => file.name === 'cod.txt'));
+    assert.ok(!files.some(file => /ender_pearl/.test(file.name)));
+  }
+  const config = JSON.parse(fs.readFileSync(app.configPath));
+  config.deathRoulette = { enabled: true, everyDeaths: 1, items: [{ commandFile: 'game_saikutu_get_ender_pearl.txt', weight: 1, repeat: 1 }] };
+  await assert.rejects(app.invoke('config:write', config), /使えないコマンド/);
 });

@@ -30,3 +30,11 @@
 .minecraft-location-current { align-self: center; color: #aee9c9; }
 .game-selector :is(button, select, input, summary):focus-visible { outline: 2px solid #77e0ef; outline-offset: 3px; }
 @media (max-width: 700px) { .game-selector-tools > button { flex: 1 1 180px; } }
+
+.current-game-label { color: #9ed8de; font-size: 13px; margin: 16px 24px 0; display: flex; align-items: center; gap: 8px; }
+.current-game-label span { color: #92a9bd; margin-left: auto; font-size: 12px; }
+.game-required { margin: 20px 24px; padding: 24px; border: 1px solid #365164; border-radius: 16px; background: #111f2e; }
+.game-required h2 { margin: 0 0 12px; font-size: 18px; font-weight: 700; }
+.game-required p { color: #b7c9dc; line-height: 1.8; }
+.game-required button { margin-top: 18px; padding: 10px 20px; border-radius: 8px; color: white; background: #087c92; }
+.game-selector .game-selector-pending { color: #ffd498; }

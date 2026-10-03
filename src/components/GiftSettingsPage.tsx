@@ -111,8 +111,8 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
       try {
         const cfg = await api?.configRead?.();
         const fromConfig = configToGiftMappings(cfg);
-        // config に割当があればそれを最優先（localStorage が空でもギフト設定が消えない）
-        if (Array.isArray(cfg?.mappings) && (fromConfig.length > 0 || cfg?.tiktokUsername)) resolved = fromConfig;
+        // 選んだゲームの空の割当も確定済み。別ゲームのキャッシュへ戻さない。
+        if (Array.isArray(cfg?.mappings)) resolved = fromConfig;
       } catch { /* fall back to localStorage */ }
 
       if (!resolved) {

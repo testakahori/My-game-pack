@@ -100,6 +100,7 @@ function createSettingsBackups(deps) {
     for (const key of ["commandsDir", "bridgeModHost", "bridgeModPort", "doumaModHost", "doumaModPort", "commandTransport"]) {
       if (Object.hasOwn(current.options || {}, key)) config.options[key] = current.options[key];
     }
+    deps.validateRestore?.(config, snapshot.payload.commands);
     const currentApp = fs.existsSync(p.app) ? read(p.app) : {};
     const prefs = Object.fromEntries(PREFS.map(key => [key, snapshot.payload.preferences[key] !== false]));
     const files = new Map([
