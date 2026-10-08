@@ -1,8 +1,9 @@
 const { randomUUID } = require("node:crypto");
 
-// The MOD answers these when the request itself is wrong (bad command name, unknown route, oversized body).
+// The MOD answers these when the request itself is wrong (bad command name, unknown route, oversized body, not JSON).
 // Resending the same request can never succeed and would block every later event in the same FIFO lane.
-const PERMANENT_HTTP_STATUSES = new Set([400, 404, 405, 413]);
+// 403 is not listed: a restarted server issues a new token, and the next attempt reads it again.
+const PERMANENT_HTTP_STATUSES = new Set([400, 404, 405, 413, 415]);
 function isPermanentDeliveryFailure(error) {
   return error?.permanent === true || PERMANENT_HTTP_STATUSES.has(Number(error?.status));
 }

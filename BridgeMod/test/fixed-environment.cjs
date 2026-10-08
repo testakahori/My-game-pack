@@ -1,4 +1,5 @@
 const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
+const { bridgeFetch } = require('./bridge-http.cjs');
 const mineflayer = require('mineflayer'), { Rcon } = require('rcon-client');
 const root = process.env.GIFT_QA_SERVER;
 if (!root || JSON.parse(fs.readFileSync(path.join(root, 'gift-qa-marker.json'))).purpose !== 'disposable-gift-effects-test') throw Error('Disposable server required');
@@ -54,7 +55,7 @@ const pass = msg => { result.checks.push(msg); console.log('PASS ' + msg); };
   assert.match(await cmd('execute if entity @e[tag=qa_existing]'), /passed/);
   pass('手動で召喚した敵を後から削除しない');
   const post = async key => {
-    const response = await fetch('http://127.0.0.1:25578/bridge/event', { method: 'POST', headers: { 'content-type': 'application/json' },
+    const response = await bridgeFetch('http://127.0.0.1:25578/bridge/event', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ type: 'gift', key, count: 1, requestId: 'environment-' + key, listenerName: 'SpawnTestGifter', announce: true }) });
     assert.equal(response.status, 202); await response.text();
   };
@@ -63,7 +64,7 @@ const pass = msg => { result.checks.push(msg); console.log('PASS ' + msg); };
   await post('cod');
   await wait(async () => /SpawnTestGifter/.test(await cmd('execute as @e[type=minecraft:cod] run data get entity @s CustomName')));
   pass('ギフト経路で名前付きゾンビとタラを召喚できる');
-  const status = await (await fetch('http://127.0.0.1:25578/bridge/status')).json();
+  const status = await (await bridgeFetch('http://127.0.0.1:25578/bridge/status')).json();
   assert.equal(status.failed, 0, status.lastError); result.status = status; result.ok = true;
 })().catch(error => { result.error = error.stack; console.error(error); process.exitCode = 1; })
   .finally(() => { fs.writeFileSync(path.join(root, 'fixed-environment-results.json'), JSON.stringify(result, null, 2)); bot?.quit(); rcon?.end(); });

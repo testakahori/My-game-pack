@@ -36,8 +36,6 @@ import java.nio.file.*;
 import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.Executors;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Mod(BridgeMod.MODID)
@@ -64,6 +62,8 @@ public class BridgeMod {
     private final LikeCodLimiter likeCod = new LikeCodLimiter();
 
     private HttpServer bridgeServer;
+    // サーバー起動ごとに作り直す。null の間は HTTP・WebSocket をすべて拒否する。
+    private volatile BridgeAuth auth;
     private MinecraftServer activeServer;
     private ServerSocket webSocketServer;
     private final Set<Socket> webSocketClients = Collections.synchronizedSet(new HashSet<>());
@@ -100,8 +100,32 @@ public class BridgeMod {
         activeServer = event.getServer();
         giftEffects.load(activeServer);
         environment.apply(activeServer, giftEffects);
+        issueAuthToken(event.getServer());
         startBridgeHttpServer(event.getServer());
         startWebSocketServer();
+    }
+
+    // Bridge とアプリはこのファイルを読んで X-Bridge-Token に付ける。書けなければ受付は閉じたまま（安全側）。
+    private void issueAuthToken(MinecraftServer server) {
+        String token = BridgeAuth.newToken();
+        Path file = BridgeAuth.tokenPath(server.getServerDirectory().toPath().toAbsolutePath().normalize());
+        try {
+            BridgeAuth.writeToken(file, token);
+            auth = new BridgeAuth(token);
+        } catch (IOException e) {
+            auth = null;
+            System.out.println("[Bridge] 認証トークンを書き込めません。Bridge からの要求はすべて拒否されます: " + file + " (" + e.getMessage() + ")");
+        }
+    }
+
+    // 0 なら処理を続ける。拒否した要求には 403（ブラウザー・別ホスト・トークン違い）か 415 を返す。
+    private boolean authorize(HttpExchange exchange) throws IOException {
+        BridgeAuth current = auth;
+        int status = current == null ? 403
+            : current.checkHttp(exchange.getRequestMethod(), getBridgePort(), name -> exchange.getRequestHeaders().getFirst(name));
+        if (status == BridgeAuth.ALLOWED) return true;
+        sendHttp(exchange, status, status == 415 ? "{\"ok\":false,\"error\":\"json_required\"}" : "{\"ok\":false,\"error\":\"forbidden\"}");
+        return false;
     }
 
     @SubscribeEvent
@@ -111,6 +135,7 @@ public class BridgeMod {
         EnvironmentOverrides.reset();
         stopBridgeHttpServer();
         stopWebSocketServer();
+        auth = null;
         activeServer = null;
         synchronized (this) {
             giftQueue.clear();
@@ -223,9 +248,9 @@ public class BridgeMod {
         int port = getBridgePort();
         try {
             bridgeServer = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 32);
-            bridgeServer.createContext("/bridge/event", exchange -> handleBridgeEvent(server, exchange));
-            bridgeServer.createContext("/bridge/exec", exchange -> handleBridgeExec(server, exchange));
-            bridgeServer.createContext("/bridge/status", this::handleBridgeStatus);
+            bridgeServer.createContext("/bridge/event", exchange -> { if (authorize(exchange)) handleBridgeEvent(server, exchange); });
+            bridgeServer.createContext("/bridge/exec", exchange -> { if (authorize(exchange)) handleBridgeExec(server, exchange); });
+            bridgeServer.createContext("/bridge/status", exchange -> { if (authorize(exchange)) handleBridgeStatus(exchange); });
             bridgeServer.setExecutor(Executors.newSingleThreadExecutor(r -> {
                 Thread t = new Thread(r, "BridgeMod-BridgeHttp");
                 t.setDaemon(true);
@@ -298,7 +323,27 @@ public class BridgeMod {
             return;
         }
         String body = readHttpBody(exchange);
-        List<String> commands = jsonStringArray(body, "commands");
+        List<String> commands = new ArrayList<>();
+        String listenerName = "viewer";
+        // 正規表現ではなく JSON として読む。commands は文字列の配列、listenerName は文字列だけを受け付ける。
+        try {
+            com.google.gson.JsonObject data = com.google.gson.JsonParser.parseString(body).getAsJsonObject();
+            com.google.gson.JsonElement list = data.get("commands");
+            if (list == null || !list.isJsonArray()) throw new IllegalArgumentException("commands must be an array");
+            for (com.google.gson.JsonElement item : list.getAsJsonArray()) {
+                if (!item.isJsonPrimitive() || !item.getAsJsonPrimitive().isString()) throw new IllegalArgumentException("commands must be strings");
+                // 以前の読み取りと同じく、改行・タブは空白にして1行のコマンドとして扱う。
+                commands.add(item.getAsString().replace('\r', ' ').replace('\n', ' ').replace('\t', ' '));
+            }
+            com.google.gson.JsonElement name = data.get("listenerName");
+            if (name != null) {
+                if (!name.isJsonPrimitive() || !name.getAsJsonPrimitive().isString()) throw new IllegalArgumentException("listenerName must be a string");
+                listenerName = name.getAsString();
+            }
+        } catch (RuntimeException e) {
+            sendHttp(exchange, 400, "{\"ok\":false,\"error\":\"bad_request\"}");
+            return;
+        }
         if (commands.isEmpty()) {
             sendHttp(exchange, 400, "{\"ok\":false,\"error\":\"commands_required\"}");
             return;
@@ -314,26 +359,12 @@ public class BridgeMod {
             sendHttp(exchange, 400, "{\"ok\":false,\"error\":\"commands_required\"}");
             return;
         }
-        String listenerName = BridgeEvent.jsonString(body, "listenerName", "viewer");
         BridgeEvent event = BridgeEvent.inline(safe, listenerName);
         if (!enqueueBridgeEvent(event)) {
             sendHttp(exchange, 429, "{\"ok\":false,\"error\":\"queue_full\"}");
             return;
         }
         sendHttp(exchange, 202, "{\"ok\":true,\"queued\":true}");
-    }
-
-    // "commands":["...","..."] を取り出す。コマンド文字列に ] が含まれても壊れないよう、
-    // 配列部分は最後の ] まで貪欲にマッチさせる（exec ペイロードでは commands が末尾要素）。
-    private static List<String> jsonStringArray(String json, String name) {
-        List<String> out = new ArrayList<>();
-        if (json == null || json.isBlank()) return out;
-        Pattern arr = Pattern.compile("\"" + Pattern.quote(name) + "\"\\s*:\\s*\\[(.*)\\]", Pattern.DOTALL);
-        Matcher m = arr.matcher(json);
-        if (!m.find()) return out;
-        Matcher item = Pattern.compile("\"((?:\\\\.|[^\"])*)\"").matcher(m.group(1));
-        while (item.find()) out.add(BridgeEvent.unescapeJsonString(item.group(1)));
-        return out;
     }
 
     private String readHttpBody(HttpExchange exchange) throws IOException {
@@ -424,10 +455,22 @@ public class BridgeMod {
     private void handleWebSocketClient(Socket socket) {
         try {
             BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+            String requestLine = reader.readLine();
+            Map<String, String> headers = new HashMap<>();
             String line;
-            String key = null;
             while ((line = reader.readLine()) != null && !line.isEmpty()) {
-                if (line.toLowerCase(Locale.ROOT).startsWith("sec-websocket-key:")) key = line.substring(line.indexOf(':') + 1).trim();
+                int colon = line.indexOf(':');
+                if (colon > 0) headers.putIfAbsent(line.substring(0, colon).trim().toLowerCase(Locale.ROOT), line.substring(colon + 1).trim());
+            }
+            String key = headers.get("sec-websocket-key");
+            BridgeAuth current = auth;
+            // ブラウザー（Origin あり）・別ホスト・トークン違いの接続は、状態（プレイヤー座標など）を一切送らずに閉じる。
+            if (current == null || !current.checkWebSocket(requestLine, getBridgePort() + 1, name -> headers.get(name.toLowerCase(Locale.ROOT)))) {
+                OutputStream denied = socket.getOutputStream();
+                denied.write("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+                denied.flush();
+                socket.close();
+                return;
             }
             if (key == null) { socket.close(); return; }
             String accept = Base64.getEncoder().encodeToString(MessageDigest.getInstance("SHA-1")
@@ -439,12 +482,10 @@ public class BridgeMod {
             webSocketClients.add(socket);
             sendWebSocket(socket, buildStatusJson());
             InputStream in = socket.getInputStream();
+            // 送信専用。Bridge は状態と死亡通知を受け取るだけなので、受信したテキストでイベントを積まない。
+            // 読み続けるのは、相手が閉じたことを検知するため。
             while (!socket.isClosed()) {
-                String message = readWebSocketText(in);
-                if (message == null) break;
-                BridgeEvent event = BridgeEvent.fromJson(message);
-                boolean accepted = event != null && !event.key.isBlank() && enqueueBridgeEvent(event);
-                sendWebSocket(socket, "{\"type\":\"ack\",\"ok\":" + accepted + "}");
+                if (readWebSocketText(in) == null) break;
             }
         } catch (Exception ignored) {
         } finally {
@@ -760,46 +801,6 @@ public class BridgeMod {
                 v = v.substring(0, v.length() - 4);
             }
             return v.replaceAll("[^A-Za-z0-9_.-]", "");
-        }
-
-        private static String jsonString(String json, String name, String fallback) {
-            Pattern p = Pattern.compile("\"" + Pattern.quote(name) + "\"\\s*:\\s*\"((?:\\\\.|[^\"])*)\"");
-            Matcher m = p.matcher(json);
-            return m.find() ? unescapeJsonString(m.group(1)) : fallback;
-        }
-
-        private static int jsonInt(String json, String name, int fallback) {
-            Pattern p = Pattern.compile("\"" + Pattern.quote(name) + "\"\\s*:\\s*(-?\\d+)");
-            Matcher m = p.matcher(json);
-            if (!m.find()) return fallback;
-            try {
-                return Integer.parseInt(m.group(1));
-            } catch (NumberFormatException e) {
-                return fallback;
-            }
-        }
-
-        private static boolean jsonBool(String json, String name, boolean fallback) {
-            Pattern p = Pattern.compile("\"" + Pattern.quote(name) + "\"\\s*:\\s*(true|false)");
-            Matcher m = p.matcher(json);
-            return m.find() ? Boolean.parseBoolean(m.group(1)) : fallback;
-        }
-
-        private static double jsonDouble(String json, String name, double fallback) {
-            Pattern p = Pattern.compile("\"" + Pattern.quote(name) + "\"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)");
-            Matcher m = p.matcher(json);
-            if (!m.find()) return fallback;
-            try { return Double.parseDouble(m.group(1)); }
-            catch (NumberFormatException e) { return fallback; }
-        }
-
-        private static String unescapeJsonString(String value) {
-            return value
-                .replace("\\\"", "\"")
-                .replace("\\\\", "\\")
-                .replace("\\n", " ")
-                .replace("\\r", " ")
-                .replace("\\t", " ");
         }
     }
 

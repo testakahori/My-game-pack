@@ -1,4 +1,5 @@
 const fs = require('node:fs');
+const { bridgeFetch } = require('./bridge-http.cjs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const mineflayer = require('mineflayer');
@@ -10,8 +11,8 @@ const props = fs.readFileSync(path.join(root, 'server.properties'), 'utf8');
 for (const setting of ['server-ip=127.0.0.1', 'server-port=25587', 'rcon.port=25588']) if (!props.includes(setting)) throw Error('Isolated QA ports required');
 const password = props.match(/^rcon.password=(.*)$/m)[1].trim();
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const status = async () => (await fetch('http://127.0.0.1:25578/bridge/status')).json();
-const post = data => fetch('http://127.0.0.1:25578/bridge/event', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) });
+const status = async () => (await bridgeFetch('http://127.0.0.1:25578/bridge/status')).json();
+const post = data => bridgeFetch('http://127.0.0.1:25578/bridge/event', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) });
 async function until(fn, ms = 70000) {
   const end = Date.now() + ms;
   while (Date.now() < end) { if (await fn()) return; await sleep(100); }

@@ -33,6 +33,7 @@ const { validateBridgeConfig } = require("./config_schema");
 const { prepareRoulette, createRouletteRunner } = require("./roulette.cjs");
 const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require("./mod_event_delivery.cjs");
 const { commandFileProblem } = require("./command_files.cjs");
+const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("./bridge_mod_token.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require("./feature_engine");
 const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras } = require("./event_rules.cjs");
 const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter } = require("./tiktok_events.cjs");
@@ -52,11 +53,17 @@ function updateRuntimeStatus(patch) {
   } catch {}
 }
 
+// アプリは起動時に BRIDGE_MOD_TOKEN_FILE を渡す。単体起動（bat）では bridge フォルダーの1つ上をサーバーフォルダーとみなす。
+function bridgeModTokenFile() {
+  return process.env.BRIDGE_MOD_TOKEN_FILE || bridgeModTokenPath(path.resolve(__dirname, ".."));
+}
+
 function connectBridgeModWebSocket({ host, port }) {
   if (typeof WebSocket !== "function") return;
   const wsUrl = `ws://${host}:${Number(port) + 1}`;
   try {
-    const socket = new WebSocket(wsUrl);
+    // 再接続のたびに読み直す（サーバーを再起動するとトークンが変わる）。ログには URL だけを出す。
+    const socket = new WebSocket(`${wsUrl}/?token=${encodeURIComponent(readBridgeModToken(bridgeModTokenFile()))}`);
     bridgeModWebSocket = socket;
     socket.addEventListener("open", () => console.log(`[BridgeWS] Connected: ${wsUrl}`));
     socket.addEventListener("message", event => {
@@ -677,10 +684,10 @@ function sendBridgeModEvent({ host, port, type, commandFile, count, listenerName
       path: "/bridge/event",
       method: "POST",
       timeout: 1500,
-      headers: {
+      headers: withBridgeModToken(bridgeModTokenFile(), {
         "Content-Type": "application/json",
         "Content-Length": Buffer.byteLength(payload),
-      },
+      }),
     }, (res) => {
       let body = "";
       res.setEncoding("utf8");
@@ -720,10 +727,10 @@ function sendBridgeExec({ host, port }, commands, listenerName = "system") {
       path: "/bridge/exec",
       method: "POST",
       timeout: 1500,
-      headers: {
+      headers: withBridgeModToken(bridgeModTokenFile(), {
         "Content-Type": "application/json",
         "Content-Length": Buffer.byteLength(payload),
-      },
+      }),
     }, (res) => {
       res.resume();
       res.on("end", () => {
@@ -767,6 +774,7 @@ function deliveryFailureReason(error) {
   if (status === 400) return "BridgeMODが受け付けませんでした（HTTP 400）。コマンドファイル名か内容を確認してください";
   if (status === 404 || status === 405) return `BridgeMODの受付先が見つかりません（HTTP ${status}）。BridgeMODのポート設定を確認してください`;
   if (status === 413) return "イベントが大きすぎるためBridgeMODが受け付けませんでした（HTTP 413）";
+  if (status === 415) return "BridgeMODがJSON以外の送信を受け付けませんでした（HTTP 415）";
   return String(error?.message || error || "不明なエラー");
 }
 
@@ -813,8 +821,12 @@ function bridgeEventDelivery(bridgeMod, opts = {}) {
       });
     },
     retry: (event, error, attempt) => {
+      // 403 はトークン違い。サーバーを再起動した直後なら、次の再送で新しいトークンを読み直して通る。
+      const detail = Number(error?.status) === 403
+        ? `BridgeMODの認証に失敗しました（トークンファイル: ${bridgeModTokenFile()}）。サーバーを起動し直すと作り直されます`
+        : error?.message || error;
       if (attempt === 1 || attempt % 20 === 0) console.warn(
-        "[BridgeMod] Waiting to retry", event.type, event.commandFile, "attempt=" + attempt, error?.message || error);
+        "[BridgeMod] Waiting to retry", event.type, event.commandFile, "attempt=" + attempt, detail);
     },
   });
 }

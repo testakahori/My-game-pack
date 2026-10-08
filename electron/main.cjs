@@ -13,6 +13,7 @@ const { runProc } = require("./process_runner.cjs");
 const { createSettingsBackups, atomicWrite, validCommand } = require("./settings_backups.cjs");
 const { prepareRoulette, createRouletteRunner } = require("../bridge/roulette.cjs");
 const { commandFileProblem } = require("../bridge/command_files.cjs");
+const { bridgeModTokenPath, withBridgeModToken } = require("../bridge/bridge_mod_token.cjs");
 const { runPreflight } = require("./preflight.cjs");
 const { planTestEvent } = require("./event_tests.cjs");
 const { createStreamSessions, streamBuckets } = require("./stream_sessions.cjs");
@@ -1502,8 +1503,10 @@ async function launchBridge() {
   const spawnOnce = () => {
     const { env, revision } = eulerCredentials.runtime();
     appendBridgeLog(`[BRIDGE] 起動します: ${indexJs}`);
+    // BridgeMOD の認証トークンはサーバーフォルダーにある。開発時は bridge とサーバーの場所が離れているので明示する。
     const child = spawn(nodeCmd, [indexJs, "--config", path.join(dir, "config.minecraft.json")], {
-      cwd: dir, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"], env,
+      cwd: dir, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"],
+      env: { ...env, BRIDGE_MOD_TOKEN_FILE: bridgeModTokenPath(getServerRoot()) },
     });
     bridgeEulerRevision = revision;
     bridgeProcRef = child;
@@ -1583,15 +1586,18 @@ function requestBridgeMod(method, requestPath, body, configOverride) {
     const host = cfg.options?.bridgeModHost || cfg.options?.doumaModHost || "127.0.0.1";
     const port = Number(cfg.options?.bridgeModPort || cfg.options?.doumaModPort || 25576);
     const data = body ? Buffer.from(JSON.stringify(body)) : null;
-    const req = http.request({ host, port, path: requestPath, method, timeout: 1500,
-      headers: data ? { "Content-Type": "application/json", "Content-Length": data.length } : {} },
+    // BridgeMOD はサーバー起動ごとのトークンがない要求を 403 で拒否する。
+    const headers = withBridgeModToken(bridgeModTokenPath(getServerRoot()),
+      data ? { "Content-Type": "application/json", "Content-Length": data.length } : {});
+    const req = http.request({ host, port, path: requestPath, method, timeout: 1500, headers },
     (res) => {
       const chunks = [];
       res.on("data", c => chunks.push(c));
       res.on("end", () => {
         const text = Buffer.concat(chunks).toString("utf8");
         let parsed = {}; try { parsed = JSON.parse(text); } catch { parsed = { message: text }; }
-        if (res.statusCode >= 400 || parsed.ok === false) reject(new Error(parsed.message || `HTTP ${res.statusCode}`));
+        if (res.statusCode === 403) reject(new Error("BridgeMODの認証に失敗しました。サーバーを起動し直してからお試しください。"));
+        else if (res.statusCode >= 400 || parsed.ok === false) reject(new Error(parsed.message || `HTTP ${res.statusCode}`));
         else resolve(parsed);
       });
     });

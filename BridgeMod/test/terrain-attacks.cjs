@@ -1,4 +1,5 @@
 const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
+const { bridgeFetch } = require('./bridge-http.cjs');
 const mineflayer = require('mineflayer'), { Rcon } = require('rcon-client'), { Vec3 } = require('vec3');
 const root = process.env.GIFT_QA_SERVER;
 if (!root || JSON.parse(fs.readFileSync(path.join(root, 'gift-qa-marker.json'))).purpose !== 'disposable-gift-effects-test') throw Error('Dedicated disposable QA server marker required');
@@ -7,11 +8,11 @@ if (properties['server-ip'] !== '127.0.0.1' || properties['server-port'] !== '25
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let bot, rcon, spawns = [], meteorStates = [], particles = 0, explosions = 0;
 const result = { tests: [] };
-async function status() { return (await fetch('http://127.0.0.1:25578/bridge/status')).json(); }
+async function status() { return (await bridgeFetch('http://127.0.0.1:25578/bridge/status')).json(); }
 async function wait(fn, ms=45000) { const end=Date.now()+ms; while(Date.now()<end) { if(await fn()) return; await sleep(100); } throw Error('Timed out'); }
 const cmd = s => rcon.send(s);
 const block = (x,y,z=0) => bot.blockAt(new Vec3(x,y,z))?.name;
-async function gift(key,count=1) { const r = await fetch('http://127.0.0.1:25578/bridge/event',{ method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'gift',key,count,announce:false}) }); assert.equal(r.status,202); }
+async function gift(key,count=1) { const r = await bridgeFetch('http://127.0.0.1:25578/bridge/event',{ method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'gift',key,count,announce:false}) }); assert.equal(r.status,202); }
 async function idle() { await wait(async()=>{ const s=await status(); return !s.gift&&!s.other&&!s.effectsPending&&!s.games?.saikutumod?.gift&&!s.games?.saikutumod?.other&&!s.games?.saikutumod?.effectsPending; }); }
 async function prepare(cx,deep=false) {
   await idle(); bot.physicsEnabled=false; await cmd('gamemode creative GiftTester'); await cmd('kill @e[type=!minecraft:player]'); await cmd('effect clear GiftTester'); await cmd('tp GiftTester '+(cx+.5)+' 64 0.5'); await sleep(2500);
@@ -99,7 +100,7 @@ async function test(name,fn) { if(process.argv.includes('--mining-only')&&!/^(ic
   });
   await test('protected area prevents ice attack and volcanic lava',async()=>{
     const x=-2001;await prepare(x);const health=bot.health;const before=(await status()).protectedSkips;
-    for(const key of ['iceage','volcano']){const response=await fetch('http://127.0.0.1:25578/bridge/event',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'gift',key,count:1,announce:false,protectionEnabled:true,protectX1:x-20,protectX2:x+20,protectZ1:-20,protectZ2:20})});assert.equal(response.status,202);await idle();}
+    for(const key of ['iceage','volcano']){const response=await bridgeFetch('http://127.0.0.1:25578/bridge/event',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'gift',key,count:1,announce:false,protectionEnabled:true,protectX1:x-20,protectX2:x+20,protectZ1:-20,protectZ2:20})});assert.equal(response.status,202);await idle();}
     await sleep(1500);assert.equal(block(x,63),'stone');assert.equal(block(x,64),'air');assert.ok(bot.health>=health);assert.equal((await status()).protectedSkips-before,2);return {damagePrevented:true,blocksUnchanged:true};
   });
   await test('wither actively attacks survival player near other mobs',async()=>{
