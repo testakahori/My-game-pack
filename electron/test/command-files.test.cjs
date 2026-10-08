@@ -19,17 +19,17 @@ const config = (extra = {}) => ({
   tiktokUsername: 'fixture', options: { commandTransport: 'bridge_mod', gameplay: {
     combo: { levels: [{ count: 10, commandFile: 'combo ネコ.txt' }] },
     likeMilestones: [{ threshold: 1000, commandFile: 'ok.txt' }],
-    commentCommands: { '!猫': 'ねこ.txt' }, poll: { options: { 1: { commandFile: 'ok.txt' } } },
+    commentCommands: { '!猫': 'ねこ.txt' }, poll: { enabled: true, options: { 1: { commandFile: 'ok.txt' } } },
   } },
   mappings: [{ giftId: '5655', name: 'バラ', commandFile: 'ネコ.txt' }],
   likeEvents: [{ threshold: 10, commandFile: 'cod.txt' }],
   followEvent: { commandFile: 'tnt - コピー.txt' },
-  roulette: { items: [{ label: '当たり', commandFile: 'あたり.txt' }] },
-  commentGifts: { rules: [{ match: 'こんにちは', commandFile: 'heal.txt' }] },
+  roulette: { enabled: true, items: [{ label: '当たり', commandFile: 'あたり.txt' }] },
+  commentGifts: { enabled: true, rules: [{ match: 'こんにちは', commandFile: 'heal.txt' }] },
   ...extra,
 });
 
-test('アプリの保存では、使えない名前の割り当てを場所付きのエラーにする', () => {
+test('アプリの保存では、新しく割り当てた使えない名前を場所付きのエラーにする', () => {
   const result = validateForSave(config());
   assert.equal(result.ok, false);
   const text = result.errors.join('\n');
@@ -40,15 +40,48 @@ test('アプリの保存では、使えない名前の割り当てを場所付�
   assert.equal(validateForSave(config({ options: { commandTransport: 'rcon' } })).ok, true);
 });
 
+test('無効にしてある設定は、Bridgeと同じく発火しないので検査しない', () => {
+  const disabled = config({
+    mappings: [], followEvent: { enabled: false, commandFile: 'tnt - コピー.txt' },
+    likeEvents: [{ enabled: false, threshold: 10, commandFile: 'ねこ.txt' }],
+    roulette: { enabled: false, items: [{ commandFile: 'あたり.txt' }] },
+    deathRoulette: { items: [{ commandFile: 'あたり.txt' }] },
+    commentGifts: { enabled: true, rules: [{ enabled: false, match: 'x', commandFile: 'ねこ.txt' }] },
+    options: { commandTransport: 'bridge_mod', gameplay: { poll: { enabled: false, options: { 1: 'ねこ.txt' } } } },
+  });
+  assert.deepEqual(commandFileRefs(disabled), []);
+  assert.equal(validateForSave(disabled).ok, true);
+});
+
+test('前から保存されていた割り当ては警告に留め、一括起動やほかの保存を止めない', () => {
+  const saved = config({ followEvent: null, roulette: null, options: { commandTransport: 'bridge_mod' } });
+  // 旧版で保存した「バラ→ネコ.txt」をそのままに、ID承認やほかの設定だけを保存する。
+  const result = validateForSave({ ...saved, tiktokUsername: 'changed' }, { previous: [saved] });
+  assert.equal(result.ok, true);
+  assert.ok(result.warnings.some(w => w.includes('ギフト割り当て（バラ）') && w.includes('実行されません')));
+  // 同じ名前でも、新しい場所への割り当てはエラーにする。
+  const added = { ...saved, mappings: [...saved.mappings, { giftId: '1', name: 'ハート', commandFile: 'ネコ.txt' }] };
+  const next = validateForSave(added, { previous: [saved] });
+  assert.equal(next.ok, false);
+  assert.ok(next.errors.some(e => e.includes('ギフト割り当て（ハート）')));
+  assert.ok(!next.errors.some(e => e.includes('ギフト割り当て（バラ）')));
+});
+
 test('Bridgeの起動・再読込では警告に留め、Bridge自体は起動できる', () => {
   const result = validateForBridge(config());
   assert.equal(result.ok, true);
   assert.ok(result.warnings.some(w => w.includes('ギフト割り当て（バラ）') && w.includes('実行されません')));
 });
 
-test('テスト発火でも本番と同じく使えない名前を送らない', t => {
+test('テスト発火でも本番と同じく使えない名前は送らず、ほかの設定は続けて確認する', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'command-files-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  fs.writeFileSync(path.join(dir, 'ネコ.txt'), 'say neko\n');
-  assert.throws(() => planTestEvent({}, { type: 'gift', commandFile: 'ネコ.txt' }, dir), /半角英数字/);
+  for (const name of ['ネコ.txt', 'cod.txt']) fs.writeFileSync(path.join(dir, name), 'say test\n');
+  const direct = planTestEvent({}, { type: 'gift', commandFile: 'ネコ.txt' }, dir);
+  assert.deepEqual(direct.steps, []);
+  assert.ok(direct.notes.some(note => note.includes('半角英数字')));
+  const likes = planTestEvent({ likeEvents: [{ threshold: 10, commandFile: 'ネコ.txt' }, { threshold: 10, commandFile: 'cod.txt' }] },
+    { type: 'like', likeCount: 10, previousLikes: 0 }, dir);
+  assert.deepEqual(likes.steps.map(step => step.commandFile), ['cod.txt']);
+  assert.ok(likes.notes.some(note => note.includes('ネコ.txt')));
 });

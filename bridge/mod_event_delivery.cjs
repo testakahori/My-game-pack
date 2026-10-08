@@ -22,8 +22,9 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {}, 
     try {
       while (lanes[lane].length) {
         const job = lanes[lane][0];
-        let failure = null;
-        while (job.remaining > 0 && !failure) {
+        // A separate flag: a rejection value may itself be falsy.
+        let failed = false, failure;
+        while (job.remaining > 0 && !failed) {
           const count = job.event.gameMod ? Math.min(job.event.count, job.remaining) : Math.min(100, job.remaining);
           const chunk = { ...job.event, count, requestId: `${job.id}:${job.part}`, eventId: `${job.id}:${job.part}` };
           let attempts = 0;
@@ -32,17 +33,17 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {}, 
             catch (error) {
               attempts++;
               // A finite retry limit is only for explicit callers/tests, never the live dispatcher.
-              if (isPermanentDeliveryFailure(error) || attempts > maxRetries) { failure = error; break; }
+              if (isPermanentDeliveryFailure(error) || attempts > maxRetries) { failed = true; failure = error; break; }
               try { retry(chunk, error, attempts); } catch { /* Diagnostics cannot discard a queued event. */ }
               await sleep(Math.min(3000, 250 * 2 ** Math.min(attempts - 1, 4)));
             }
           }
-          if (failure) break;
+          if (failed) break;
           job.remaining -= count;
           job.part++;
         }
         lanes[lane].shift();
-        if (failure) {
+        if (failed) {
           report({ ...job.event, count: job.remaining }, failure);
           job.reject(failure);
           continue;

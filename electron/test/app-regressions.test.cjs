@@ -263,6 +263,25 @@ test("設定保存: ギフト全削除を保持し、他のイベント設定を
   assert.equal((await app.invoke("config:read")).mappings.length, 0);
 });
 
+test("設定保存: 旧版で保存した使えない名前の割り当ては残したまま保存でき、新しい割り当てだけ止める", async (t) => {
+  const app = loadApp(t);
+  fs.writeFileSync(path.join(app.root, "bridge", "commands", "minecraft", "ネコ.txt"), "say neko\n");
+  // 旧版のアプリで保存された設定（この割り当ては BridgeMOD に拒否され、一度も実行されていなかった）。
+  const legacy = { ...JSON.parse(fs.readFileSync(app.configPath, "utf8")), mappings: [{ giftId: "5655", name: "バラ", commandFile: "ネコ.txt", repeat: 1 }] };
+  fs.writeFileSync(app.configPath, JSON.stringify(legacy));
+  // ID承認・一括起動と同じく、設定全体を書き直してもエラーにしない。
+  await app.invoke("config:write", { ...legacy, tiktokUsername: "another_id" });
+  assert.equal((await app.invoke("config:read")).tiktokUsername, "another_id");
+  const check = await app.invoke("config:validate", { ...legacy, tiktokUsername: "another_id" });
+  assert.equal(check.ok, true); assert.ok(check.warnings.some(w => w.includes("ネコ.txt")));
+  // 別のギフトへ新しく割り当てるのは保存前に止める。
+  await assert.rejects(app.invoke("config:mappings:write", [...legacy.mappings, { giftId: "1", name: "ハート", commandFile: "ネコ.txt", repeat: 1 }]), /ハート.*半角英数字/s);
+  // コマンドの候補一覧では、使えない名前だと分かるようにする。
+  const listed = (await app.invoke("bridge:commands:readMeta")).find(row => row.name === "ネコ.txt");
+  assert.match(listed.title, /^⚠/);
+  await assert.rejects(app.invoke("bridge:commands:write", { filename: "ネコ2.txt", content: "say x" }), /半角英数字/);
+});
+
 test("セットアップ: 保存するパスは絶対パス、消失しても別サーバーへ切り替わらない", async (t) => {
   const app = loadApp(t);
   await app.invoke("app:config:write", { serverFolder: "server/Douma_Craft", setupComplete: true });

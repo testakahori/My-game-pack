@@ -9,9 +9,6 @@ const TYPES = new Set(['gift', 'mapped_gift', 'unmapped_gift', 'like', 'share', 
 function commandName(value) {
   const name = String(value || '').trim();
   if (!name || name.length > 160 || /[<>:"/\\|?*\x00-\x1f]/.test(name) || name === '.' || name === '..') throw new Error('コマンドファイル名が不正です。');
-  // 本番の Bridge と同じく、BridgeMOD が拒否する名前はテストでも送らない。
-  const problem = commandFileProblem(name);
-  if (problem) throw new Error(problem);
   return /\.txt$/i.test(name) ? name : `${name}.txt`;
 }
 function planTestEvent(config, input, commandsDir) {
@@ -21,6 +18,9 @@ function planTestEvent(config, input, commandsDir) {
   const steps = [], notes = [];
   const push = (file, count, label, eventType = type, extras = []) => {
     const commandFile = commandName(file);
+    // 本番の Bridge と同じく、BridgeMOD が拒否する名前はその1件だけ送らずに理由を残す（ほかの設定は続けて確認する）。
+    const problem = commandFileProblem(commandFile);
+    if (problem) { notes.push(`${label}: ${problem}`); return; }
     const roulette = commandFile.toLowerCase() === 'roulette.txt' ? config.roulette : null;
     if (roulette && roulette.enabled !== true) throw new Error('ルーレットが無効です。イベント設定②で有効にして保存してください。');
     if (commandFile.toLowerCase() === 'roulette.txt' && !roulette) throw new Error('ルーレットが未設定です。');

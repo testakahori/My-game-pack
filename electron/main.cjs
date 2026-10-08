@@ -398,10 +398,15 @@ ipcMain.handle("config:read", async () => {
 
 const { updateGiftMapping } = require("./gift_mapping.cjs");
 
-function writeBridgeConfig(nextConfig) {
+// 保存済みの設定（読めなければ null）。前からある割り当てを、新しい問題と区別するために使う。
+function readSavedBridgeConfig() {
+  try { return JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch { return null; }
+}
+
+function writeBridgeConfig(nextConfig, { alsoKnown = [] } = {}) {
   assertGameProfileIdle();
   assertGameCommands(nextConfig, selectableCommandNames(), gameProfiles.list());
-  const validation = validateBridgeConfig(nextConfig);
+  const validation = validateBridgeConfig(nextConfig, { previous: [readSavedBridgeConfig(), ...alsoKnown] });
   if (!validation.ok) throw new Error(`設定エラー:\n${validation.errors.join("\n")}`);
   const configPath = getConfigPath();
   ensureConfigExists(configPath);
@@ -482,7 +487,7 @@ function manualUpdateStatus() {
 ipcMain.handle("updater:status", manualUpdateStatus);
 ipcMain.handle("updater:check", manualUpdateStatus);
 ipcMain.handle("updater:install", () => ({ ok: false, ...manualUpdateStatus() }));
-ipcMain.handle("config:validate", async (_event, value) => validateBridgeConfig(value));
+ipcMain.handle("config:validate", async (_event, value) => validateBridgeConfig(value, { previous: [readSavedBridgeConfig()] }));
 
 // ✅ preload側の「bridgeRoot / bridgeDir」ズレ事故を防ぐため両方返す
 ipcMain.handle("bridge:root", async () => getInstalledBridgeRoot());
@@ -1962,9 +1967,10 @@ ipcMain.handle("presets:load", (_event, name) => {
   const source = path.join(getPresetDir(), safe);
   if (!fs.existsSync(source)) throw new Error("プリセットがありません");
   const value = JSON.parse(fs.readFileSync(source, "utf8"));
-  const validation = validateBridgeConfig(value);
+  // 以前保存したプリセットは、その中の割り当ても「前からあるもの」として扱う（使えない名前は警告に留める）。
+  const validation = validateBridgeConfig(value, { previous: [readSavedBridgeConfig(), value] });
   if (!validation.ok) throw new Error(validation.errors.join("\n"));
-  writeBridgeConfig(value);
+  writeBridgeConfig(value, { alsoKnown: [value] });
   return { ok: true, config: value };
 });
 ipcMain.handle("operations:stats", () => {
@@ -2577,6 +2583,8 @@ function readCommandMetadata() {
       const descMatch = content.match(/^\/\/\s*(.+)$/m);
       if (descMatch) description = descMatch[1].trim();
     } catch {}
+    // Explorer で作った「ネコ.txt」「tnt - コピー.txt」なども一覧には出るが、BridgeMOD では実行できない。選ぶ前に分かるようにする。
+    if (commandFileProblem(name)) title = `⚠ ${title}（ファイル名を半角英数字に変えると使えます）`;
     return { name, title, category, description };
   });
 }

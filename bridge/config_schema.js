@@ -36,7 +36,7 @@ function validateBridgeConfig(config) {
   }
   // 旧版で保存した設定でも Bridge 自体は起動させる。該当イベントは送信時に記録して飛ばす。
   if (usesBridgeModTransport(config)) {
-    for (const problem of invalidCommandFileRefs(config)) warnings.push(`${problem}（このイベントは実行されません）`);
+    for (const ref of invalidCommandFileRefs(config)) warnings.push(`${ref.message}（このイベントは実行されません）`);
   }
   return { ok: errors.length === 0, errors, warnings };
 }
