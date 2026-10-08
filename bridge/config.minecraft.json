@@ -12,7 +12,7 @@
     "bridgeModHost": "127.0.0.1",
     "bridgeModPort": 25576,
     "maxLikeCatchUpPerEvent": 5,
-    "commandsDir": "D:\\Dev02\\game_dev\\MyGamePack02\\bridge_ui\\ui\\bridge\\commands\\minecraft",
+    "commandsDir": "commands/minecraft",
     "logUnknownGifts": true
   },
   "likeEvents": [
