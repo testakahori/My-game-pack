@@ -32,6 +32,7 @@ const { Rcon } = require("rcon-client");
 const { validateBridgeConfig } = require("./config_schema");
 const { prepareRoulette, createRouletteRunner } = require("./roulette.cjs");
 const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require("./mod_event_delivery.cjs");
+const { commandFileProblem } = require("./command_files.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted } = require("./feature_engine");
 const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras } = require("./event_rules.cjs");
 const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter } = require("./tiktok_events.cjs");
@@ -688,7 +689,8 @@ function sendBridgeModEvent({ host, port, type, commandFile, count, listenerName
         if (res.statusCode >= 200 && res.statusCode < 300) {
           resolve(body);
         } else {
-          reject(new Error(`BridgeMod HTTP ${res.statusCode}: ${body}`));
+          // The status decides whether the delivery queue retries (429/5xx) or reports and skips (400 etc.).
+          reject(Object.assign(new Error(`BridgeMod HTTP ${res.statusCode}: ${body}`), { status: res.statusCode }));
         }
       });
     });
@@ -760,10 +762,40 @@ function appendOperationsHistoryLine(historyPath, row) {
   } catch { /* ignore */ }
 }
 
+function deliveryFailureReason(error) {
+  const status = Number(error?.status);
+  if (status === 400) return "BridgeMODが受け付けませんでした（HTTP 400）。コマンドファイル名か内容を確認してください";
+  if (status === 404 || status === 405) return `BridgeMODの受付先が見つかりません（HTTP ${status}）。BridgeMODのポート設定を確認してください`;
+  if (status === 413) return "イベントが大きすぎるためBridgeMODが受け付けませんでした（HTTP 413）";
+  return String(error?.message || error || "不明なエラー");
+}
+
+// 再送しても届かないイベントの件数と直近の理由。runtime-status.json 経由で画面に出す。
+const deliveryRejections = { rejected: 0, last: null };
+function recordDeliveryRejection(event, error) {
+  const reason = deliveryFailureReason(error);
+  const commandFile = ensureTxt(event.commandFile);
+  deliveryRejections.rejected++;
+  deliveryRejections.last = { at: new Date().toISOString(), type: event.historyType || event.type || "other", commandFile, reason };
+  console.error(`[BridgeMod] 送れなかったイベント（再送しません）: type=${event.type || "other"} file=${commandFile} count=${event.count ?? 1} 理由: ${reason}`);
+  appendOperationsHistoryLine(path.join(__dirname, "operations-history.json"), {
+    at: deliveryRejections.last.at, type: deliveryRejections.last.type,
+    sender: event.listenerName || "viewer", commandFile, count: event.count || 1, ok: false, message: reason,
+  });
+  updateRuntimeStatus({ delivery: { ...deliveryRejections } });
+}
+
 function bridgeEventDelivery(bridgeMod, opts = {}) {
+  const prepare = opts.prepare || (event => event);
   return createModEventDelivery({
     send: event => sendBridgeModEvent({ ...bridgeMod, ...event }),
-    prepare: opts.prepare || (event => event),
+    // MOD は日本語などを含む名前を 400 で拒否する。送る前に止めて理由を残す。
+    prepare: event => {
+      const problem = commandFileProblem(event.commandFile);
+      if (problem) throw Object.assign(new Error(problem), { permanent: true });
+      return prepare(event);
+    },
+    rejected: recordDeliveryRejection,
     maxRetries: opts.retries ?? Infinity,
     delivered: event => {
       appendOperationsHistoryLine(path.join(__dirname, "operations-history.json"), {
@@ -941,6 +973,8 @@ async function main() {
     for (const error of configValidation.errors) console.error(`[Config] ${error}`);
     throw new Error("config.minecraft.json の設定が不正です");
   }
+  // 前回起動分の「送れなかったイベント」を画面に残さない。
+  updateRuntimeStatus({ delivery: { ...deliveryRejections } });
 
   const tiktokUsername = String(config.tiktokUsername || "").trim();
   const target = config.target || { type: "minecraft", rcon: config.rcon }; // 互換
@@ -1087,6 +1121,14 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   function reloadDynamicConfig() {
     try {
       const newCfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      // 起動時と同じ検証を通す。壊れた設定では切り替えず、今の設定で動かし続ける。
+      const validation = validateBridgeConfig(newCfg);
+      for (const warning of validation.warnings) console.warn(`[Config] ${warning}`);
+      if (!validation.ok) {
+        for (const error of validation.errors) console.error(`[Config] ${error}`);
+        console.error("[Bridge] Config reload skipped: 設定にエラーがあるため、直前の設定のまま動作します");
+        return;
+      }
       likeEvents        = Array.isArray(newCfg.likeEvents) ? newCfg.likeEvents : [];
       shareEvent        = newCfg.shareEvent        ?? null;
       followEvent       = newCfg.followEvent       ?? null;
@@ -1220,9 +1262,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   const prepareGameEvent = event => captureGameEvent(event,
     resolveCommands({ commandFile: ensureTxt(event.commandFile) }).meta?.GAME_MOD, bridgeGameSessions);
   const modDelivery = bridgeMod ? bridgeEventDelivery(bridgeMod, { prepare: prepareGameEvent }) : null;
-  const enqueueMod = event => modDelivery.enqueue(event).catch(error => {
-    console.error("[BridgeMod] Invalid event:", error?.message || error);
-  });
+  // 失敗は recordDeliveryRejection がログ・履歴・画面用の状態へ記録済み。
+  const enqueueMod = event => modDelivery.enqueue(event).catch(() => {});
 
   // RCON/Telnet 実行を直列化しつつ、ギフトをいいねの backlog より優先する。
   // 並列接続による gift_stream:bridge ストレージの上書きを防ぐため、実行自体は常に1本。

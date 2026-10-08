@@ -3,6 +3,7 @@ const path = require('node:path');
 const { FeatureEngine, parseWeightedList, chooseWeighted } = require('../bridge/feature_engine.js');
 const { boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras } = require('../bridge/event_rules.cjs');
 const { prepareRoulette } = require('../bridge/roulette.cjs');
+const { commandFileProblem } = require('../bridge/command_files.cjs');
 
 const TYPES = new Set(['gift', 'mapped_gift', 'unmapped_gift', 'like', 'share', 'follow', 'member', 'comment', 'death', 'roulette', 'combo', 'like_milestone', 'follow_milestone', 'comment_command', 'poll']);
 function commandName(value) {
@@ -17,6 +18,9 @@ function planTestEvent(config, input, commandsDir) {
   const steps = [], notes = [];
   const push = (file, count, label, eventType = type, extras = []) => {
     const commandFile = commandName(file);
+    // 本番の Bridge と同じく、BridgeMOD が拒否する名前はその1件だけ送らずに理由を残す（ほかの設定は続けて確認する）。
+    const problem = commandFileProblem(commandFile);
+    if (problem) { notes.push(`${label}: ${problem}`); return; }
     const roulette = commandFile.toLowerCase() === 'roulette.txt' ? config.roulette : null;
     if (roulette && roulette.enabled !== true) throw new Error('ルーレットが無効です。イベント設定②で有効にして保存してください。');
     if (commandFile.toLowerCase() === 'roulette.txt' && !roulette) throw new Error('ルーレットが未設定です。');

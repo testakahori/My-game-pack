@@ -1,17 +1,30 @@
 const { randomUUID } = require("node:crypto");
 
+// The MOD answers these when the request itself is wrong (bad command name, unknown route, oversized body).
+// Resending the same request can never succeed and would block every later event in the same FIFO lane.
+const PERMANENT_HTTP_STATUSES = new Set([400, 404, 405, 413]);
+function isPermanentDeliveryFailure(error) {
+  return error?.permanent === true || PERMANENT_HTTP_STATUSES.has(Number(error?.status));
+}
+
 // Each lane is FIFO. A full like queue must never hold up a gift's HTTP request.
-function createModEventDelivery({ send, delivered = () => {}, retry = () => {},
+// Only 429, 5xx, connection errors and timeouts are retried; a rejected request is reported and skipped.
+function createModEventDelivery({ send, delivered = () => {}, retry = () => {}, rejected = () => {},
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), maxRetries = Infinity, prepare = event => event } = {}) {
   const lanes = { gift: [], like: [], other: [] };
   const running = new Set();
+  const report = (event, error) => {
+    try { rejected(event, error); } catch { /* Recording failure must not stop the remaining events. */ }
+  };
   async function drain(lane) {
     if (running.has(lane)) return;
     running.add(lane);
     try {
       while (lanes[lane].length) {
         const job = lanes[lane][0];
-        while (job.remaining > 0) {
+        // A separate flag: a rejection value may itself be falsy.
+        let failed = false, failure;
+        while (job.remaining > 0 && !failed) {
           const count = job.event.gameMod ? Math.min(job.event.count, job.remaining) : Math.min(100, job.remaining);
           const chunk = { ...job.event, count, requestId: `${job.id}:${job.part}`, eventId: `${job.id}:${job.part}` };
           let attempts = 0;
@@ -19,22 +32,29 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {},
             try { await send(chunk); break; }
             catch (error) {
               attempts++;
+              // A finite retry limit is only for explicit callers/tests, never the live dispatcher.
+              if (isPermanentDeliveryFailure(error) || attempts > maxRetries) { failed = true; failure = error; break; }
               try { retry(chunk, error, attempts); } catch { /* Diagnostics cannot discard a queued event. */ }
-              if (attempts > maxRetries) throw error;
               await sleep(Math.min(3000, 250 * 2 ** Math.min(attempts - 1, 4)));
             }
           }
+          if (failed) break;
           job.remaining -= count;
           job.part++;
         }
         lanes[lane].shift();
+        if (failed) {
+          report({ ...job.event, count: job.remaining }, failure);
+          job.reject(failure);
+          continue;
+        }
         try { delivered({ ...job.event, count: job.total }); } catch { /* Recording failure must not affect gameplay delivery. */ }
         job.resolve();
       }
     } catch (error) {
-      // A finite retry limit is only for explicit callers/tests, never the live dispatcher.
+      // Only an injected sleep can throw here; drop that head so the lane keeps moving.
       const job = lanes[lane].shift();
-      job?.reject(error);
+      if (job) { report({ ...job.event, count: job.remaining }, error); job.reject(error); }
     } finally {
       running.delete(lane);
       if (lanes[lane].length) void drain(lane);
@@ -42,12 +62,13 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {},
   }
   return {
     enqueue(event) {
-      try { event = prepare({ ...event }); } catch (error) { return Promise.reject(error); }
+      const fail = error => { report({ ...event }, error); return Promise.reject(error); };
+      try { event = prepare({ ...event }); } catch (error) { return fail(error); }
       const count = Number(event.count ?? 1);
-      if (!Number.isSafeInteger(count) || count < 1 || event.gameMod && count > 100000) return Promise.reject(new Error("Invalid event count"));
+      if (!Number.isSafeInteger(count) || count < 1 || event.gameMod && count > 100000) return fail(new Error("Invalid event count"));
       const repetitions = event.gameMod ? Number(event.repeatRequests ?? 1) : 1;
       const total = count * repetitions;
-      if (!Number.isSafeInteger(repetitions) || repetitions < 1 || !Number.isSafeInteger(total)) return Promise.reject(new Error("Invalid game request repetitions"));
+      if (!Number.isSafeInteger(repetitions) || repetitions < 1 || !Number.isSafeInteger(total)) return fail(new Error("Invalid game request repetitions"));
       const lane = event.type === "gift" ? "gift" : event.type === "like" ? "like" : "other";
       return new Promise((resolve, reject) => {
         lanes[lane].push({ event: { ...event, count }, remaining: total, total, part: 0, id: randomUUID(), resolve, reject });
@@ -100,4 +121,4 @@ function captureGameEvent(event, gameMod, sessions = {}) {
   }
   return Object.freeze({ ...event, gameMod, gameSessionId: event.gameSessionId ?? sessions[gameMod]?.sessionId ?? '', args: Object.freeze({ ...args }) });
 }
-module.exports = { createModEventDelivery, createLikeBatcher, captureGameEvent };
+module.exports = { createModEventDelivery, createLikeBatcher, captureGameEvent, isPermanentDeliveryFailure };

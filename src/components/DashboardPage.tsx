@@ -31,6 +31,11 @@ type BridgeProcessStatus = {
     error?: string;
     at?: string;
   } | null;
+  // BridgeMOD が拒否したため再送せずに飛ばしたイベント（Bridge起動ごとに0から数える）
+  delivery?: {
+    rejected?: number;
+    last?: { at?: string; type?: string; commandFile?: string; reason?: string } | null;
+  } | null;
 };
 
 const LS_TIKTOK_USER = "mc_tiktok_username_unified_v1";
@@ -879,6 +884,13 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
           </div>
           <p className="cockpit-all-start-note">TikTokはアカウントのライブ配信状態を30秒ごとに確認します。イベントの受信にはBRIDGEの起動が必要です。</p>
           {launchNotice && <p role={launchNotice.type === "error" ? "alert" : "status"} className={`cockpit-launch-notice cockpit-launch-notice--${launchNotice.type}`}>{launchNotice.text}</p>}
+          {bridgeProcess.delivery?.rejected ? (
+            <p role="alert" className="cockpit-launch-notice cockpit-launch-notice--error">
+              Modへ送れなかったイベントが{bridgeProcess.delivery.rejected}件あります（後ろのギフトは止めずに処理しています）。
+              {bridgeProcess.delivery.last ? ` 直近: ${bridgeProcess.delivery.last.commandFile || "不明"} — ${bridgeProcess.delivery.last.reason || "理由不明"}` : ""}
+              {" "}割り当てたコマンドを見直してください。
+            </p>
+          ) : null}
           <p className="cockpit-all-start-note">LIVE STUDIOで接続済みなら「一括起動」を押してください。サーバー → Minecraft → BRIDGEの順に準備し、起動済みのものはそのまま使用します。</p>
           {serverProc.running && serverProc.managed === false && <p className="cockpit-all-start-note">このアプリを開く前からサーバーが動いています。BRIDGEは接続できます。サーバー停止・MAP保存は、起動した画面で stop を実行してから行ってください。</p>}
           <section className="cockpit-bridge-controls" aria-label="BRIDGE単体操作">

@@ -12,6 +12,7 @@ const { RestartPolicy } = require("./restart_policy.cjs");
 const { runProc } = require("./process_runner.cjs");
 const { createSettingsBackups, atomicWrite, validCommand } = require("./settings_backups.cjs");
 const { prepareRoulette, createRouletteRunner } = require("../bridge/roulette.cjs");
+const { commandFileProblem } = require("../bridge/command_files.cjs");
 const { runPreflight } = require("./preflight.cjs");
 const { planTestEvent } = require("./event_tests.cjs");
 const { createStreamSessions, streamBuckets } = require("./stream_sessions.cjs");
@@ -397,10 +398,15 @@ ipcMain.handle("config:read", async () => {
 
 const { updateGiftMapping } = require("./gift_mapping.cjs");
 
-function writeBridgeConfig(nextConfig) {
+// 保存済みの設定（読めなければ null）。前からある割り当てを、新しい問題と区別するために使う。
+function readSavedBridgeConfig() {
+  try { return JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch { return null; }
+}
+
+function writeBridgeConfig(nextConfig, { alsoKnown = [] } = {}) {
   assertGameProfileIdle();
   assertGameCommands(nextConfig, selectableCommandNames(), gameProfiles.list());
-  const validation = validateBridgeConfig(nextConfig);
+  const validation = validateBridgeConfig(nextConfig, { previous: [readSavedBridgeConfig(), ...alsoKnown] });
   if (!validation.ok) throw new Error(`設定エラー:\n${validation.errors.join("\n")}`);
   const configPath = getConfigPath();
   ensureConfigExists(configPath);
@@ -481,7 +487,7 @@ function manualUpdateStatus() {
 ipcMain.handle("updater:status", manualUpdateStatus);
 ipcMain.handle("updater:check", manualUpdateStatus);
 ipcMain.handle("updater:install", () => ({ ok: false, ...manualUpdateStatus() }));
-ipcMain.handle("config:validate", async (_event, value) => validateBridgeConfig(value));
+ipcMain.handle("config:validate", async (_event, value) => validateBridgeConfig(value, { previous: [readSavedBridgeConfig()] }));
 
 // ✅ preload側の「bridgeRoot / bridgeDir」ズレ事故を防ぐため両方返す
 ipcMain.handle("bridge:root", async () => getInstalledBridgeRoot());
@@ -1564,7 +1570,8 @@ ipcMain.handle("bridge:processStatus", () => {
   try {
     runtime = JSON.parse(fs.readFileSync(path.join(getBridgeBatDir(), "runtime-status.json"), "utf8"));
   } catch {}
-  return { ...status, ...getProcessMetrics(bridgePid), tiktok: status.running ? (runtime.tiktok || null) : null, recording: status.running ? (runtime.recording || null) : null };
+  return { ...status, ...getProcessMetrics(bridgePid), tiktok: status.running ? (runtime.tiktok || null) : null, recording: status.running ? (runtime.recording || null) : null,
+    delivery: status.running ? (runtime.delivery || null) : null };
 });
 
 ipcMain.handle("bridge:logs", () => ({ ok: true, lines: [...bridgeLogBuffer] }));
@@ -1960,9 +1967,10 @@ ipcMain.handle("presets:load", (_event, name) => {
   const source = path.join(getPresetDir(), safe);
   if (!fs.existsSync(source)) throw new Error("プリセットがありません");
   const value = JSON.parse(fs.readFileSync(source, "utf8"));
-  const validation = validateBridgeConfig(value);
+  // 以前保存したプリセットは、その中の割り当ても「前からあるもの」として扱う（使えない名前は警告に留める）。
+  const validation = validateBridgeConfig(value, { previous: [readSavedBridgeConfig(), value] });
   if (!validation.ok) throw new Error(validation.errors.join("\n"));
-  writeBridgeConfig(value);
+  writeBridgeConfig(value, { alsoKnown: [value] });
   return { ok: true, config: value };
 });
 ipcMain.handle("operations:stats", () => {
@@ -2575,7 +2583,9 @@ function readCommandMetadata() {
       const descMatch = content.match(/^\/\/\s*(.+)$/m);
       if (descMatch) description = descMatch[1].trim();
     } catch {}
-    return { name, title, category, description };
+    // Explorer で作った「ネコ.txt」「tnt - コピー.txt」なども一覧には出るが、BridgeMOD では実行できない。
+    // title はルーレット名やギフト画像にそのまま使われるので変えず、印だけを付ける（割り当てた保存は理由付きで止まる）。
+    return { name, title, category, description, ...(commandFileProblem(name) ? { invalidName: true } : {}) };
   });
 }
 ipcMain.handle("bridge:commands:readMeta", () => readCommandMetadata());
@@ -2593,6 +2603,8 @@ ipcMain.handle("bridge:commands:write", async (_event, { filename, content }) =>
   if (filename !== path.basename(filename) || filename.includes("/") || filename.includes("\\")) {
     throw new Error("Invalid filename: path separators are not allowed");
   }
+  const nameProblem = commandFileProblem(filename);
+  if (nameProblem) throw new Error(nameProblem);
   if (Buffer.byteLength(content, "utf8") > 1024 * 1024) throw new Error("command file is too large (max 1MB)");
   const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
   fs.mkdirSync(dir, { recursive: true });
