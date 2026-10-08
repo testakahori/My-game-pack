@@ -34,6 +34,50 @@ test('混雑したいいねを待たせてもギフトはFIFOで送信し、回�
   assert.deepEqual(delivery.pending(), { like: 0, gift: 0, other: 0 });
 });
 
+test('MODが400で拒否したギフトは再送せずに記録し、後ろのギフトを止めない', async () => {
+  const sent = [], rejected = [], retried = [];
+  const delivery = createModEventDelivery({
+    send: async event => {
+      sent.push(event);
+      if (event.commandFile === 'broken.txt') throw Object.assign(new Error('BridgeMod HTTP 400'), { status: 400 });
+    },
+    retry: (event, error) => retried.push(error.status),
+    rejected: (event, error) => rejected.push([event.commandFile, event.count, error.status]),
+    sleep: async () => { throw new Error('a permanent failure must not wait for a retry'); },
+  });
+  const results = await Promise.allSettled(['broken.txt', 'zombie.txt', 'cod.txt'].map((commandFile, i) =>
+    delivery.enqueue({ type: 'gift', commandFile, count: i + 1, listenerName: 'A' })));
+  assert.deepEqual(results.map(r => r.status), ['rejected', 'fulfilled', 'fulfilled']);
+  assert.deepEqual(sent.map(e => e.commandFile), ['broken.txt', 'zombie.txt', 'cod.txt'], '400は1回だけ送る');
+  assert.deepEqual(rejected, [['broken.txt', 1, 400]]);
+  assert.deepEqual(retried, []);
+  assert.deepEqual(delivery.pending(), { like: 0, gift: 0, other: 0 });
+});
+
+test('429・5xx・接続失敗は従来どおり届くまで再送する', async () => {
+  const failures = [Object.assign(new Error('HTTP 429'), { status: 429 }), Object.assign(new Error('HTTP 503'), { status: 503 }), new Error('ECONNREFUSED')];
+  const rejected = [], accepted = [];
+  const delivery = createModEventDelivery({
+    send: async event => { const error = failures.shift(); if (error) throw error; accepted.push(event); },
+    rejected: (...args) => rejected.push(args), sleep: async () => {},
+  });
+  await delivery.enqueue({ type: 'gift', commandFile: 'zombie.txt', count: 1 });
+  assert.equal(accepted.length, 1);
+  assert.deepEqual(rejected, []);
+});
+
+test('送る前に検査で弾いたイベントも記録する', async () => {
+  const rejected = [];
+  const delivery = createModEventDelivery({
+    send: async () => assert.fail('must not send'),
+    prepare: event => { if (event.commandFile === 'ネコ.txt') throw Object.assign(new Error('bad name'), { permanent: true }); return event; },
+    rejected: (event, error) => rejected.push([event.commandFile, error.message]),
+  });
+  await assert.rejects(delivery.enqueue({ type: 'gift', commandFile: 'ネコ.txt' }), /bad name/);
+  await assert.rejects(delivery.enqueue({ type: 'gift', commandFile: 'cod.txt', count: 0 }), /Invalid event count/);
+  assert.deepEqual(rejected, [['ネコ.txt', 'bad name'], ['cod.txt', 'Invalid event count']]);
+});
+
 test('いいねのまとめ送りは回数・送信者・コマンド順序を維持する', () => {
   let flush;
   const sent = [];

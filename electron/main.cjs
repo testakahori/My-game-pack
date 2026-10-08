@@ -12,6 +12,7 @@ const { RestartPolicy } = require("./restart_policy.cjs");
 const { runProc } = require("./process_runner.cjs");
 const { createSettingsBackups, atomicWrite, validCommand } = require("./settings_backups.cjs");
 const { prepareRoulette, createRouletteRunner } = require("../bridge/roulette.cjs");
+const { commandFileProblem } = require("../bridge/command_files.cjs");
 const { runPreflight } = require("./preflight.cjs");
 const { planTestEvent } = require("./event_tests.cjs");
 const { createStreamSessions, streamBuckets } = require("./stream_sessions.cjs");
@@ -1564,7 +1565,8 @@ ipcMain.handle("bridge:processStatus", () => {
   try {
     runtime = JSON.parse(fs.readFileSync(path.join(getBridgeBatDir(), "runtime-status.json"), "utf8"));
   } catch {}
-  return { ...status, ...getProcessMetrics(bridgePid), tiktok: status.running ? (runtime.tiktok || null) : null, recording: status.running ? (runtime.recording || null) : null };
+  return { ...status, ...getProcessMetrics(bridgePid), tiktok: status.running ? (runtime.tiktok || null) : null, recording: status.running ? (runtime.recording || null) : null,
+    delivery: status.running ? (runtime.delivery || null) : null };
 });
 
 ipcMain.handle("bridge:logs", () => ({ ok: true, lines: [...bridgeLogBuffer] }));
@@ -2593,6 +2595,8 @@ ipcMain.handle("bridge:commands:write", async (_event, { filename, content }) =>
   if (filename !== path.basename(filename) || filename.includes("/") || filename.includes("\\")) {
     throw new Error("Invalid filename: path separators are not allowed");
   }
+  const nameProblem = commandFileProblem(filename);
+  if (nameProblem) throw new Error(nameProblem);
   if (Buffer.byteLength(content, "utf8") > 1024 * 1024) throw new Error("command file is too large (max 1MB)");
   const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
   fs.mkdirSync(dir, { recursive: true });

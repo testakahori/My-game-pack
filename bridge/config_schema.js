@@ -1,5 +1,7 @@
 "use strict";
 
+const { usesBridgeModTransport, invalidCommandFileRefs } = require("./command_files.cjs");
+
 function validateBridgeConfig(config) {
   const errors = [];
   const warnings = [];
@@ -22,7 +24,7 @@ function validateBridgeConfig(config) {
   }
   if (config.mappings != null && !Array.isArray(config.mappings)) errors.push("mappings は配列で指定してください");
   const ids = new Set();
-  for (const [index, mapping] of (config.mappings || []).entries()) {
+  for (const [index, mapping] of (Array.isArray(config.mappings) ? config.mappings : []).entries()) {
     const id = String(mapping?.giftId ?? "").trim();
     if (!id) errors.push(`mappings[${index}].giftId が空です`);
     if (!String(mapping?.commandFile || "").trim()) errors.push(`mappings[${index}].commandFile が空です`);
@@ -31,6 +33,10 @@ function validateBridgeConfig(config) {
   }
   for (const key of ["mutedUsers", "ttsNgWords"]) {
     if (options[key] != null && !Array.isArray(options[key])) errors.push(`options.${key} は配列で指定してください`);
+  }
+  // 旧版で保存した設定でも Bridge 自体は起動させる。該当イベントは送信時に記録して飛ばす。
+  if (usesBridgeModTransport(config)) {
+    for (const problem of invalidCommandFileRefs(config)) warnings.push(`${problem}（このイベントは実行されません）`);
   }
   return { ok: errors.length === 0, errors, warnings };
 }

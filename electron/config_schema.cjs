@@ -1,5 +1,7 @@
 "use strict";
 
+const { usesBridgeModTransport, invalidCommandFileRefs } = require("../bridge/command_files.cjs");
+
 function validateBridgeConfig(config) {
   const errors = [];
   const warnings = [];
@@ -34,6 +36,8 @@ function validateBridgeConfig(config) {
   for (const key of ["mutedUsers", "ttsNgWords"]) {
     if (options[key] != null && !Array.isArray(options[key])) errors.push(`options.${key} は配列で指定してください`);
   }
+  // BridgeMOD が拒否する名前を割り当てると、そのイベントは配信中に一度も実行されない。保存の時点で止める。
+  if (usesBridgeModTransport(config)) errors.push(...invalidCommandFileRefs(config));
   return { ok: errors.length === 0, errors, warnings };
 }
 

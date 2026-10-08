@@ -3,11 +3,15 @@ const path = require('node:path');
 const { FeatureEngine, parseWeightedList, chooseWeighted } = require('../bridge/feature_engine.js');
 const { boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras } = require('../bridge/event_rules.cjs');
 const { prepareRoulette } = require('../bridge/roulette.cjs');
+const { commandFileProblem } = require('../bridge/command_files.cjs');
 
 const TYPES = new Set(['gift', 'mapped_gift', 'unmapped_gift', 'like', 'share', 'follow', 'member', 'comment', 'death', 'roulette', 'combo', 'like_milestone', 'follow_milestone', 'comment_command', 'poll']);
 function commandName(value) {
   const name = String(value || '').trim();
   if (!name || name.length > 160 || /[<>:"/\\|?*\x00-\x1f]/.test(name) || name === '.' || name === '..') throw new Error('コマンドファイル名が不正です。');
+  // 本番の Bridge と同じく、BridgeMOD が拒否する名前はテストでも送らない。
+  const problem = commandFileProblem(name);
+  if (problem) throw new Error(problem);
   return /\.txt$/i.test(name) ? name : `${name}.txt`;
 }
 function planTestEvent(config, input, commandsDir) {
