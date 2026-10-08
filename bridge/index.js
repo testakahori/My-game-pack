@@ -773,16 +773,21 @@ function deliveryFailureReason(error) {
 // 再送しても届かないイベントの件数と直近の理由。runtime-status.json 経由で画面に出す。
 const deliveryRejections = { rejected: 0, last: null };
 function recordDeliveryRejection(event, error) {
-  const reason = deliveryFailureReason(error);
-  const commandFile = ensureTxt(event.commandFile);
-  deliveryRejections.rejected++;
-  deliveryRejections.last = { at: new Date().toISOString(), type: event.historyType || event.type || "other", commandFile, reason };
-  console.error(`[BridgeMod] 送れなかったイベント（再送しません）: type=${event.type || "other"} file=${commandFile} count=${event.count ?? 1} 理由: ${reason}`);
-  appendOperationsHistoryLine(path.join(__dirname, "operations-history.json"), {
-    at: deliveryRejections.last.at, type: deliveryRejections.last.type,
-    sender: event.listenerName || "viewer", commandFile, count: event.count || 1, ok: false, message: reason,
-  });
-  updateRuntimeStatus({ delivery: { ...deliveryRejections } });
+  // 例外の受け皿から呼ばれるので、記録そのものの失敗で後続の処理を止めない。
+  try {
+    const reason = deliveryFailureReason(error);
+    const commandFile = ensureTxt(event?.commandFile);
+    deliveryRejections.rejected++;
+    deliveryRejections.last = { at: new Date().toISOString(), type: event?.historyType || event?.type || "other", commandFile, reason };
+    console.error(`[BridgeMod] 送れなかったイベント（再送しません）: type=${event?.type || "other"} file=${commandFile} count=${event?.count ?? 1} 理由: ${reason}`);
+    appendOperationsHistoryLine(path.join(__dirname, "operations-history.json"), {
+      at: deliveryRejections.last.at, type: deliveryRejections.last.type,
+      sender: event?.listenerName || "viewer", commandFile, count: event?.count || 1, ok: false, message: reason,
+    });
+    updateRuntimeStatus({ delivery: { ...deliveryRejections } });
+  } catch (recordError) {
+    console.error("[BridgeMod] 送れなかったイベントを記録できませんでした:", recordError?.message || recordError);
+  }
 }
 
 function bridgeEventDelivery(bridgeMod, opts = {}) {
@@ -1806,6 +1811,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   const queueLikeEventBatched = createLikeBatcher({
     windowMs: LIKE_BATCH_MS, schedule: setTimeout, prepare: prepareGameEvent,
     dispatch: event => dispatchBridgeEvent("like:" + event.commandFile, event),
+    failed: recordDeliveryRejection,
   });
 
   onTikTok("like", async (data) => {
