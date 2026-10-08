@@ -1,16 +1,23 @@
 "use strict";
 
+// txt に書かれた重みは有限の数だけ採用し、1未満・数値以外は 1 として扱う（NaN で抽選が壊れないように）。
+function weightOf(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(1, n) : 1;
+}
+
 function parseWeightedList(raw) {
   return String(raw || "").split(",").map(part => {
     const [file, weightRaw] = part.trim().split(/[=*]/);
-    return { commandFile: file?.trim(), weight: Math.max(1, Number(weightRaw || 1)),
+    return { commandFile: file?.trim(), weight: weightOf(weightRaw ?? 1),
       explicitWeight: weightRaw != null };
   }).filter(x => x.commandFile);
 }
 
 function chooseWeighted(items, random = Math.random) {
   const total = items.reduce((sum, item) => sum + item.weight, 0);
-  if (!total) return null;
+  if (!items.length) return null;
+  if (!Number.isFinite(total) || total <= 0) return items[0];
   let cursor = random() * total;
   for (const item of items) {
     cursor -= item.weight;
@@ -42,7 +49,8 @@ class FeatureEngine {
     const start = parse(mode.start);
     const end = parse(mode.end);
     const active = start <= end ? current >= start && current < end : current >= start || current < end;
-    return active ? Math.max(1, Math.min(10, Number(mode.multiplier || 2))) : 1;
+    const multiplier = Number(mode.multiplier || 2);
+    return active ? Math.max(1, Math.min(10, Number.isFinite(multiplier) ? multiplier : 2)) : 1;
   }
 
   recordGift({ giftId, sender, commandFile, count = 1 }) {
@@ -123,4 +131,4 @@ class FeatureEngine {
   }
 }
 
-module.exports = { FeatureEngine, parseWeightedList, chooseWeighted };
+module.exports = { FeatureEngine, parseWeightedList, chooseWeighted, weightOf };
