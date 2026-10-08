@@ -26,19 +26,20 @@ function commandFileProblem(commandFile) {
 }
 
 // 設定の中で、Bridge が実際に発火しうるコマンドファイルの参照を、画面に出す名前付きで列挙する。
-// 無効にしてある設定は Bridge も実行しないので数えない（判定は bridge/index.js・feature_engine.js と同じ）。
+// 無効にしてある設定は Bridge も実行しないので数えない。どれが enabled を見るかは bridge/index.js・
+// event_rules.cjs・feature_engine.js・roulette.cjs と同じにする（見ないものは enabled:false でも数える）。
 function commandFileRefs(config) {
   const refs = [];
-  const add = (where, value) => {
-    if (value && typeof value === "object" && value.enabled === false) return;
+  const add = (where, value, { honorsEnabled = false } = {}) => {
+    if (honorsEnabled && value && typeof value === "object" && value.enabled === false) return;
     const commandFile = typeof value === "string" ? value : value?.commandFile;
     if (String(commandFile ?? "").trim()) refs.push({ where, commandFile: String(commandFile).trim() });
   };
   const list = value => (Array.isArray(value) ? value : []);
   for (const m of list(config?.mappings)) add(`ギフト割り当て（${m?.name || m?.giftId || "名前なし"}）`, m);
-  for (const ev of list(config?.likeEvents)) add(`いいね（${ev?.threshold ?? "?"}いいねごと）`, ev);
+  for (const ev of list(config?.likeEvents)) add(`いいね（${ev?.threshold ?? "?"}いいねごと）`, ev, { honorsEnabled: true });
   for (const [key, label] of [["shareEvent", "シェア"], ["followEvent", "フォロー"], ["memberEvent", "訪問"], ["unmappedGiftEvent", "未設定ギフト"]]) {
-    add(label, config?.[key]);
+    add(label, config?.[key], { honorsEnabled: true });
   }
   if (config?.roulette?.enabled === true) {
     for (const item of list(config.roulette.items)) add(`ルーレット項目（${item?.label || item?.commandFile}）`, item);
@@ -47,7 +48,7 @@ function commandFileRefs(config) {
     for (const item of list(config.deathRoulette.items)) add(`デスルーレット項目（${item?.label || item?.commandFile}）`, item);
   }
   if (config?.commentGifts?.enabled === true) {
-    for (const rule of list(config.commentGifts.rules)) add(`コメントギフト（「${rule?.match ?? ""}」）`, rule);
+    for (const rule of list(config.commentGifts.rules)) add(`コメントギフト（「${rule?.match ?? ""}」）`, rule, { honorsEnabled: true });
   }
   // コンボ・マイルストーン・コメントコマンドは有効フラグを見ずに発火する（FeatureEngine）。投票だけは enabled を見る。
   const gameplay = config?.options?.gameplay || {};

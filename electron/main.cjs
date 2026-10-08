@@ -2583,9 +2583,9 @@ function readCommandMetadata() {
       const descMatch = content.match(/^\/\/\s*(.+)$/m);
       if (descMatch) description = descMatch[1].trim();
     } catch {}
-    // Explorer で作った「ネコ.txt」「tnt - コピー.txt」なども一覧には出るが、BridgeMOD では実行できない。選ぶ前に分かるようにする。
-    if (commandFileProblem(name)) title = `⚠ ${title}（ファイル名を半角英数字に変えると使えます）`;
-    return { name, title, category, description };
+    // Explorer で作った「ネコ.txt」「tnt - コピー.txt」なども一覧には出るが、BridgeMOD では実行できない。
+    // title はルーレット名やギフト画像にそのまま使われるので変えず、印だけを付ける（割り当てた保存は理由付きで止まる）。
+    return { name, title, category, description, ...(commandFileProblem(name) ? { invalidName: true } : {}) };
   });
 }
 ipcMain.handle("bridge:commands:readMeta", () => readCommandMetadata());

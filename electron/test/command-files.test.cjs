@@ -51,6 +51,12 @@ test('無効にしてある設定は、Bridgeと同じく発火しないので�
   });
   assert.deepEqual(commandFileRefs(disabled), []);
   assert.equal(validateForSave(disabled).ok, true);
+  // ギフト割り当て・コンボ・ルーレット項目は Bridge が enabled を見ずに発火するので、enabled:false でも数える。
+  const ignoredFlag = config({ mappings: [{ enabled: false, giftId: '1', name: 'ハート', commandFile: 'ねこ.txt' }],
+    roulette: { enabled: true, items: [{ enabled: false, label: '外れ', commandFile: 'あたり.txt' }] },
+    options: { commandTransport: 'bridge_mod', gameplay: { combo: { levels: [{ enabled: false, count: 5, commandFile: 'ねこ.txt' }] } } } });
+  const where = commandFileRefs(ignoredFlag).map(ref => ref.where);
+  for (const expected of ['ギフト割り当て（ハート）', 'ルーレット項目（外れ）', 'コンボ（5連）']) assert.ok(where.includes(expected), expected);
 });
 
 test('前から保存されていた割り当ては警告に留め、一括起動やほかの保存を止めない', () => {

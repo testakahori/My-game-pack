@@ -276,9 +276,11 @@ test("設定保存: 旧版で保存した使えない名前の割り当ては残
   assert.equal(check.ok, true); assert.ok(check.warnings.some(w => w.includes("ネコ.txt")));
   // 別のギフトへ新しく割り当てるのは保存前に止める。
   await assert.rejects(app.invoke("config:mappings:write", [...legacy.mappings, { giftId: "1", name: "ハート", commandFile: "ネコ.txt", repeat: 1 }]), /ハート.*半角英数字/s);
-  // コマンドの候補一覧では、使えない名前だと分かるようにする。
-  const listed = (await app.invoke("bridge:commands:readMeta")).find(row => row.name === "ネコ.txt");
-  assert.match(listed.title, /^⚠/);
+  // コマンドの一覧には使えない名前の印を付ける。title はルーレット名・ギフト画像に使われるので変えない。
+  const meta = await app.invoke("bridge:commands:readMeta");
+  const listed = meta.find(row => row.name === "ネコ.txt");
+  assert.equal(listed.invalidName, true); assert.equal(listed.title, "ネコ.txt");
+  assert.ok(!meta.find(row => row.name === "cod.txt").invalidName);
   await assert.rejects(app.invoke("bridge:commands:write", { filename: "ネコ2.txt", content: "say x" }), /半角英数字/);
 });
 
