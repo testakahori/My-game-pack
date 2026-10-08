@@ -16,6 +16,7 @@ function planTestEvent(config, input, commandsDir) {
   const type = input.type;
   const sender = String(input.listenerName || 'テスト視聴者').replace(/[\r\n]/g, ' ').slice(0, 40);
   const steps = [], notes = [];
+  const maxCount = boundedInt(config.options?.maxCommandsPerGift ?? 50, 1, 10000, 50);
   const push = (file, count, label, eventType = type, extras = []) => {
     const commandFile = commandName(file);
     // 本番の Bridge と同じく、BridgeMOD が拒否する名前はその1件だけ送らずに理由を残す（ほかの設定は続けて確認する）。
@@ -26,7 +27,13 @@ function planTestEvent(config, input, commandsDir) {
     if (commandFile.toLowerCase() === 'roulette.txt' && !roulette) throw new Error('ルーレットが未設定です。');
     if (roulette) prepareRoulette(roulette, commandsDir);
     else if (!fs.existsSync(path.join(commandsDir, commandFile))) throw new Error(`コマンドが見つかりません: ${commandFile}`);
-    steps.push({ commandFile, count: boundedInt(count, 1, 100, 1), label, type: eventType, extras, ...(roulette ? { roulette } : {}) });
+    let amount = boundedInt(count, 1, 100, 1);
+    // 本番の Bridge と同じく「個別最大コマンド数」で回数を抑える。ゲームMODのコマンドは count の意味をゲームが決めるので除く。
+    if (!roulette && amount > maxCount && !/^\s*#\s*GAME_MOD:/mi.test(fs.readFileSync(path.join(commandsDir, commandFile), 'utf8'))) {
+      notes.push(`${label}: 個別最大コマンド数（${maxCount}）により、${amount}回を${maxCount}回に減らします。`);
+      amount = maxCount;
+    }
+    steps.push({ commandFile, count: amount, label, type: eventType, extras, ...(roulette ? { roulette } : {}) });
   };
   const featureEngine = new FeatureEngine(config.options?.gameplay || {}, feature => {
     push(feature.commandFile, feature.count, feature.label || feature.type, feature.type);

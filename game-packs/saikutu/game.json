@@ -3,8 +3,8 @@
   "id": "saikutu",
   "modId": "saikutumod",
   "bridgeEventApi": 1,
-  "serverJar": "saikutumod-1.0.1.jar",
-  "clientJar": "saikutumod-1.0.1.jar",
+  "serverJar": "saikutumod-1.0.2.jar",
+  "clientJar": "saikutumod-1.0.2.jar",
   "commands": [
     {
       "key": "randomtp",

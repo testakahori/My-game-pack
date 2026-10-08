@@ -39,7 +39,6 @@ import java.util.function.IntConsumer;
 final class GiftEffects {
     static final Set<String> KEYS = Set.of("bullettime", "anvildrop", "chickenrain", "meteor",
         "superjump", "volcano", "zombiewave", "storm", "clearweather", "meteorshower", "witherhunt", "heavygravity");
-    static final int JUMP_HEIGHT = 32;
     private final List<Job> jobs = new ArrayList<>();
     private final List<MeteorFlight> meteorFlights = new ArrayList<>();
     private final Map<UUID, Jump> jumps = new HashMap<>();
@@ -149,6 +148,9 @@ final class GiftEffects {
 
     int start(CommandSourceStack source, String key, int count, Protection protection) throws Exception {
         if (!KEYS.contains(key)) throw new IllegalArgumentException("Unknown effect: " + key);
+        int limited = EffectLimits.clamp(key, count);
+        if (limited != count) System.out.println("[Bridge effects] " + key + " の count を " + count + " から上限の " + limited + " に抑えました");
+        count = limited;
         ServerLevel level = source.getLevel();
         Origin o = new Origin(level, source.getPosition(), protection == null ? NONE : protection);
         switch (key) {
@@ -532,7 +534,7 @@ final class GiftEffects {
     private void jump(ServerPlayer p, int count) {
         Jump j = jumps.computeIfAbsent(p.getUUID(), id -> new Jump(p));
         if (j.level != p.serverLevel()) { j = new Jump(p); jumps.put(p.getUUID(), j); }
-        j.target += JUMP_HEIGHT * (double)count; j.liftY = p.getY(); j.coasting = false; j.age = 0;
+        j.target = EffectLimits.jumpTarget(j.target, p.getY(), count); j.liftY = p.getY(); j.coasting = false; j.age = 0;
         p.removeEffect(MobEffects.JUMP); p.removeEffect(MobEffects.LEVITATION);
         p.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, (int)Math.min(120000, Math.max(800, (j.target - p.getY()) * 10 + 400)), 0, false, false));
         p.setOnGround(false);
