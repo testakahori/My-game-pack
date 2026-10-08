@@ -78,6 +78,18 @@ test('送る前に検査で弾いたイベントも記録する', async () => {
   assert.deepEqual(rejected, [['ネコ.txt', 'bad name'], ['cod.txt', 'Invalid event count']]);
 });
 
+test('いいねのまとめ送りで1件が例外を出しても、残りは送り、その1件を記録する', () => {
+  let flush;
+  const sent = [], failed = [];
+  const batch = createLikeBatcher({ windowMs: 100, schedule: fn => { flush = fn; return 1; },
+    dispatch: event => { if (event.commandFile === 'bad.txt') throw new Error('boom'); sent.push(event.commandFile); },
+    failed: (event, error) => failed.push([event.commandFile, error.message]) });
+  batch('cod.txt', 1, 'A', true); batch('bad.txt', 1, 'A', true); batch('zombie.txt', 1, 'A', true);
+  assert.doesNotThrow(() => flush());
+  assert.deepEqual(sent, ['cod.txt', 'zombie.txt']);
+  assert.deepEqual(failed, [['bad.txt', 'boom']]);
+});
+
 test('いいねのまとめ送りは回数・送信者・コマンド順序を維持する', () => {
   let flush;
   const sent = [];

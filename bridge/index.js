@@ -33,7 +33,7 @@ const { validateBridgeConfig } = require("./config_schema");
 const { prepareRoulette, createRouletteRunner } = require("./roulette.cjs");
 const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require("./mod_event_delivery.cjs");
 const { commandFileProblem } = require("./command_files.cjs");
-const { FeatureEngine, parseWeightedList, chooseWeighted } = require("./feature_engine");
+const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require("./feature_engine");
 const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras } = require("./event_rules.cjs");
 const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter } = require("./tiktok_events.cjs");
 let runtimeProtection = { enabled: false };
@@ -773,16 +773,21 @@ function deliveryFailureReason(error) {
 // 再送しても届かないイベントの件数と直近の理由。runtime-status.json 経由で画面に出す。
 const deliveryRejections = { rejected: 0, last: null };
 function recordDeliveryRejection(event, error) {
-  const reason = deliveryFailureReason(error);
-  const commandFile = ensureTxt(event.commandFile);
-  deliveryRejections.rejected++;
-  deliveryRejections.last = { at: new Date().toISOString(), type: event.historyType || event.type || "other", commandFile, reason };
-  console.error(`[BridgeMod] 送れなかったイベント（再送しません）: type=${event.type || "other"} file=${commandFile} count=${event.count ?? 1} 理由: ${reason}`);
-  appendOperationsHistoryLine(path.join(__dirname, "operations-history.json"), {
-    at: deliveryRejections.last.at, type: deliveryRejections.last.type,
-    sender: event.listenerName || "viewer", commandFile, count: event.count || 1, ok: false, message: reason,
-  });
-  updateRuntimeStatus({ delivery: { ...deliveryRejections } });
+  // 例外の受け皿から呼ばれるので、記録そのものの失敗で後続の処理を止めない。
+  try {
+    const reason = deliveryFailureReason(error);
+    const commandFile = ensureTxt(event?.commandFile);
+    deliveryRejections.rejected++;
+    deliveryRejections.last = { at: new Date().toISOString(), type: event?.historyType || event?.type || "other", commandFile, reason };
+    console.error(`[BridgeMod] 送れなかったイベント（再送しません）: type=${event?.type || "other"} file=${commandFile} count=${event?.count ?? 1} 理由: ${reason}`);
+    appendOperationsHistoryLine(path.join(__dirname, "operations-history.json"), {
+      at: deliveryRejections.last.at, type: deliveryRejections.last.type,
+      sender: event?.listenerName || "viewer", commandFile, count: event?.count || 1, ok: false, message: reason,
+    });
+    updateRuntimeStatus({ delivery: { ...deliveryRejections } });
+  } catch (recordError) {
+    console.error("[BridgeMod] 送れなかったイベントを記録できませんでした:", recordError?.message || recordError);
+  }
 }
 
 function bridgeEventDelivery(bridgeMod, opts = {}) {
@@ -953,6 +958,10 @@ async function main() {
   console.log("        target: Minecraft(RCON) / 7DTD(Telnet)");
   console.log("=======================================");
   console.log(`[Bridge] Started: ${nowStr()}`);
+  // 取りこぼした Promise の失敗でプロセスを終了させない（Node 15 以降の既定は終了）。記録して動作を続ける。
+  process.on("unhandledRejection", reason => {
+    console.error("[Bridge] 処理されなかったエラー（Bridge は動作を続けます）:", reason?.stack || reason?.message || reason);
+  });
 
   const argConfig = getConfigPathFromArgs();
   const defaultConfigPath = path.join(__dirname, "config.json");
@@ -1158,10 +1167,14 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   let _reloadTimer = null;
   try {
     // Atomic saves replace the file. Watching the directory keeps later saves observable.
-    fs.watch(path.dirname(configPath), (_event, filename) => {
+    const configWatcher = fs.watch(path.dirname(configPath), (_event, filename) => {
       if (filename && String(filename).toLowerCase() !== path.basename(configPath).toLowerCase()) return;
       clearTimeout(_reloadTimer);
       _reloadTimer = setTimeout(reloadDynamicConfig, 500);
+    });
+    // 監視のエラー（フォルダーの削除・権限など）は自動再読込が止まるだけ。Bridge は落とさない。
+    configWatcher.on("error", error => {
+      console.error("[Bridge] 設定ファイルの監視でエラー（自動再読込は止まります。設定を変えたら BRIDGE を再起動してください）:", error?.message || error);
     });
   } catch {}
 
@@ -1231,10 +1244,11 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const choices = parseWeightedList(resolved.meta?.RANDOM).map(choice => {
       if (choice.explicitWeight) return choice;
       const candidate = resolveCommands({ commandFile: ensureTxt(choice.commandFile) });
-      return { ...choice, weight: Math.max(1, Number(candidate.meta?.WEIGHT || 1)) };
+      return { ...choice, weight: weightOf(candidate.meta?.WEIGHT ?? 1) };
     });
     if (!resolved.ok || choices.length === 0) return { mapping, meta: resolved.meta || {} };
     const chosen = chooseWeighted(choices);
+    if (!chosen) return { mapping, meta: resolved.meta || {} };
     const commandFile = ensureTxt(chosen.commandFile);
     console.log(`[Random] ${mapping.commandFile} -> ${commandFile} (weight=${chosen.weight})`);
     return { mapping: { ...mapping, commandFile }, meta: resolved.meta || {} };
@@ -1242,6 +1256,11 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
   // 初回接続・再接続時の過去コメント再送を止め、ライブ中に届いたイベントだけ処理する。
   const tiktok = new TikTokLiveConnection(tiktokUsername, connectionOptions(process.env));
+  // 1件のイベント処理で例外が出ても Bridge 全体を落とさない（落ちると送信待ちのギフトがすべて消える）。
+  const onTikTok = (type, handler) => tiktok.on(type, async (...args) => {
+    try { await handler(...args); }
+    catch (error) { console.error(`[Bridge] ${type} イベントの処理でエラー（このイベントだけ飛ばして続行します）:`, error?.stack || error?.message || error); }
+  });
   const likeCounter = createLikeCounter();
   let connectedAt = 0;
   let tiktokConnectLoop = null;
@@ -1390,7 +1409,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   }
   // Record received activity before command eligibility/mute checks; test fire bypasses TikTok.
   for (const type of ['gift', 'like', 'chat', 'share', 'follow', 'member', 'roomUser']) {
-    tiktok.on(type, data => {
+    onTikTok(type, data => {
       if (isPreConnectionEvent(data)) return;
       try { audience.receive(type, data); }
       catch (error) { updateRuntimeStatus({ recording: { state: 'error', error: error.message } }); console.error('[Audience recording]', error.message); }
@@ -1479,7 +1498,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   console.log("[Bridge] Listening for gifts...");
   console.log("[Bridge] Press Ctrl+C to stop.");
 
-  tiktok.on("gift", async (data) => {
+  onTikTok("gift", async (data) => {
     data = normalizeTikTokEvent(data, 'gift');
     if (isMuted(data)) return;
     // [診断ログ] TikTok ライブラリが受信した全ギフトイベントを記録
@@ -1706,7 +1725,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // --------------------
   const commentGiftLastAt = new Map(); // rule毎の連投クールダウン
 
-  tiktok.on("chat", async (data) => {
+  onTikTok("chat", async (data) => {
     data = normalizeTikTokEvent(data, 'chat');
     if (isPreConnectionEvent(data)) return;
     if (isMuted(data)) return;
@@ -1768,7 +1787,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   } catch { /* ファイルが無ければ何もしない */ }
 
   let currentViewers = 0;
-  tiktok.on("roomUser", (data) => {
+  onTikTok("roomUser", (data) => {
     data = normalizeTikTokEvent(data, 'roomUser');
     const v = Number(data?.viewerCount ?? 0);
     if (Number.isFinite(v) && v >= 0) currentViewers = v;
@@ -1792,9 +1811,10 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   const queueLikeEventBatched = createLikeBatcher({
     windowMs: LIKE_BATCH_MS, schedule: setTimeout, prepare: prepareGameEvent,
     dispatch: event => dispatchBridgeEvent("like:" + event.commandFile, event),
+    failed: recordDeliveryRejection,
   });
 
-  tiktok.on("like", async (data) => {
+  onTikTok("like", async (data) => {
     data = normalizeTikTokEvent(data, 'like');
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
     if (isMuted(data)) return;
@@ -1825,7 +1845,9 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
           `[Like] total=${total} threshold=${thresh} newTriggers=${newTriggers} run=${triggersToRun} skipped=${skippedTriggers} repeat=${evRepeat} -> BridgeMod file=${ev.commandFile} count=${count}`
         );
         if (count > 0) {
-          queueLikeEventBatched(ev.commandFile, count, sender, announceEnabled && thresh >= 100, triggersToRun);
+          // 1つのルールの不備（GAME_MOD の書き間違いなど）で、残りのいいねルールまで止めない。
+          try { queueLikeEventBatched(ev.commandFile, count, sender, announceEnabled && thresh >= 100, triggersToRun); }
+          catch (error) { recordDeliveryRejection({ type: "like", commandFile: ev.commandFile, count, listenerName: sender }, error); }
         }
         continue;
       }
@@ -1872,7 +1894,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // --------------------
   // Share イベント
   // --------------------
-  tiktok.on("share", async (data) => {
+  onTikTok("share", async (data) => {
     data = normalizeTikTokEvent(data, 'share');
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
     if (isMuted(data)) return;
@@ -1927,7 +1949,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // --------------------
   // Follow（フォロー）イベント
   // --------------------
-  tiktok.on("follow", async (data) => {
+  onTikTok("follow", async (data) => {
     data = normalizeTikTokEvent(data, 'follow');
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
     if (isMuted(data)) return;
@@ -1982,7 +2004,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // --------------------
   // Member（訪問）イベント
   // --------------------
-  tiktok.on("member", async (data) => {
+  onTikTok("member", async (data) => {
     data = normalizeTikTokEvent(data, 'member');
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
     if (isMuted(data)) return;

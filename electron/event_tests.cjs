@@ -1,6 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { FeatureEngine, parseWeightedList, chooseWeighted } = require('../bridge/feature_engine.js');
+const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require('../bridge/feature_engine.js');
 const { boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras } = require('../bridge/event_rules.cjs');
 const { prepareRoulette } = require('../bridge/roulette.cjs');
 const { commandFileProblem } = require('../bridge/command_files.cjs');
@@ -53,7 +53,7 @@ function planTestEvent(config, input, commandsDir) {
     else {
       let file = commandName(mapping.commandFile);
       const meta = (name, key) => fs.readFileSync(path.join(commandsDir, name), 'utf8').match(new RegExp(`^#\\s*${key}:\\s*(.+)$`, 'mi'))?.[1] || '';
-      const choices = parseWeightedList(meta(file, 'RANDOM')).map(c => ({ ...c, weight: c.explicitWeight ? c.weight : Math.max(1, Number(meta(commandName(c.commandFile), 'WEIGHT')) || 1) }));
+      const choices = parseWeightedList(meta(file, 'RANDOM')).map(c => ({ ...c, weight: c.explicitWeight ? c.weight : weightOf(meta(commandName(c.commandFile), 'WEIGHT') || 1) }));
       if (choices.length) { file = commandName(chooseWeighted(choices).commandFile); notes.push(`ランダム選択: ${file}（実行ごとに抽選）`); }
       const count = (number('count', 1, 100) || 1) * boundedInt(mapping.repeat ?? 1, 1, 100, 1);
       const actual = featureEngine.recordGift({ giftId: String(input.giftId), sender, commandFile: file, count });

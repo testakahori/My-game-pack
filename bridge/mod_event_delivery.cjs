@@ -80,7 +80,7 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {}, 
 }
 
 // Coalesce only adjacent identical requests; retain every repetition and sender in order.
-function createLikeBatcher({ dispatch, windowMs, schedule = setTimeout, prepare = event => event }) {
+function createLikeBatcher({ dispatch, windowMs, schedule = setTimeout, prepare = event => event, failed = () => {} }) {
   let pending = [], timer = null;
   return (commandFile, count, sender, announce, triggers = 1) => {
     const event = prepare({ type: "like", commandFile, count, listenerName: sender, announce });
@@ -99,7 +99,11 @@ function createLikeBatcher({ dispatch, windowMs, schedule = setTimeout, prepare 
     timer = schedule(() => {
       const batch = pending;
       pending = []; timer = null;
-      for (const event of batch) dispatch(event);
+      // Runs inside a timer: one failing event must not crash the process or drop the rest of the batch.
+      for (const event of batch) {
+        try { dispatch(event); }
+        catch (error) { try { failed(event, error); } catch { /* Recording failure must not stop the batch. */ } }
+      }
     }, windowMs);
   };
 }
