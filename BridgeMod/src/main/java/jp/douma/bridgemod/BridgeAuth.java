@@ -22,7 +22,7 @@ import java.util.function.Function;
  *       サーバーフォルダーの config/bridgemod-token.txt に書いた乱数と一致すること。</li>
  *   <li>POST の本文は application/json に限る（フォームや text/plain の要求を通さない）。</li>
  * </ul>
- * Minecraft に依存しない純粋な Java にしてある。scripts/test-bridge-auth.cjs で単体検証する。
+ * Minecraft に依存しない純粋な Java にしてある。scripts/test-bridge-contracts.cjs で単体検証する。
  */
 public final class BridgeAuth {
     public static final String HEADER = "X-Bridge-Token";

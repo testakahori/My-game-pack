@@ -46,5 +46,4 @@ jobs:
       - run: node scripts/prepare-game-packs.cjs
       - run: node scripts/test-game-contract.cjs
       - run: node scripts/test-display-contract.cjs
-      - run: node scripts/test-bridge-auth.cjs
-      - run: node scripts/test-effect-limits.cjs
+      - run: node scripts/test-bridge-contracts.cjs

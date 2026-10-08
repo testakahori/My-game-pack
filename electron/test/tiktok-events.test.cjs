@@ -41,6 +41,26 @@ test('旧形式互換と空の名前のフォールバック、同名ユーザ�
   assert.notEqual(getSenderIdentity({user:{nickname:'同名',id:'1'}}),getSenderIdentity({user:{nickname:'同名',id:'2'}}));
   assert.deepEqual(normalizeTikTokEvent({likeCount:10,totalLikeCount:100},'like').totalLikeCount,100);
 });
+test('視聴者名はコマンド・ログに入れても壊れない形にする（BridgeMODのListenerNamesと同じ規則）', () => {
+  const { safeDisplayName } = require('../../bridge/tiktok_events.cjs');
+  // シングルクォートで SNBT の外へ出て NBT を書き足す名前・JSON を壊す名前・書式コード・ログの偽の行。
+  assert.equal(getStableSender({ nickname: "a'},Passengers:[{id:\"wither\"}],x:{'" }), 'a’},Passengers:[{id:”wither”}],x:{’');
+  assert.equal(getStableSender({ nickname: 'say "hi" \\o/' }), 'say ”hi” ＼o/');
+  assert.equal(getStableSender({ nickname: '§c赤§r字' }), '赤字');
+  assert.equal(getStableSender({ nickname: '視聴者\n[Gift] 偽の行' }), '視聴者 [Gift] 偽の行');
+  assert.equal(getStableSender({ nickname: 'abc\u202edef\u0007' }), 'abcdef');
+  // 名前が記号・制御文字だけなら、次の候補（ID）へ進む。
+  assert.equal(getStableSender({ nickname: '§\u0000', uniqueId: 'handle' }), 'handle');
+  assert.equal(safeDisplayName('ふつうの名前'), 'ふつうの名前');
+});
+test('同梱のコマンドtxtは、シングルクォートの中に視聴者名を埋め込まない', () => {
+  const fs = require('node:fs'), path = require('node:path');
+  const dir = path.resolve(__dirname, '../../bridge/commands/minecraft');
+  for (const name of fs.readdirSync(dir).filter(file => file.endsWith('.txt'))) {
+    const lines = fs.readFileSync(path.join(dir, name), 'utf8').split(/\r?\n/).filter(line => !line.trim().startsWith('#'));
+    assert.ok(!lines.some(line => /'[^']*\{ListenerName\}[^']*'/.test(line)), name);
+  }
+});
 test('現行protobuf: 100いいねの最初のパケットで1回、次の100でさらに1回', () => {
   const counter=createLikeCounter(), rule={threshold:100};
   let triggers=0;

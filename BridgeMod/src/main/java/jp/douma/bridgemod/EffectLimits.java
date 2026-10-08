@@ -6,7 +6,7 @@ import java.util.Map;
  * 大技（bridgeeffect）の count の上限。count は数の倍率（鶏なら 200×count 羽）なので、
  * 高額ギフトの連打や大きな count でワールドと TPS が崩れないよう、1回の呼び出しで受け付ける倍率を抑える。
  * 超えた分は実行しない（ログに残す）。値は実機で確認済みの量（count=1）の2〜3倍を目安にしている。
- * Minecraft に依存しない純粋な Java。scripts/test-effect-limits.cjs で単体検証する。
+ * Minecraft に依存しない純粋な Java。scripts/test-bridge-contracts.cjs で単体検証する。
  */
 public final class EffectLimits {
     private EffectLimits() {}

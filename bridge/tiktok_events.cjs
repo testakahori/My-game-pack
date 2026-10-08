@@ -37,9 +37,16 @@ function normalizeTikTokEvent(input = {}, type = '') {
     viewerCount: type === 'roomUser' ? count(data.viewerCount, data.total) : data.viewerCount,
   };
 }
+// 視聴者名はコマンド・ログ・読み上げに埋め込まれる。どこに入れても壊れない形にする（BridgeMOD の ListenerNames.java と同じ規則）。
+// " ' \ は全角の同じ形の文字へ、改行・タブは空白へ。書式コード（§ と次の1文字）・制御文字・文字の向きを変える制御文字は除く。
+const NAME_SYMBOLS = { '"': '”', "'": '’', '\\': '＼' };
+function safeDisplayName(value) {
+  return Array.from(String(value ?? '').replace(/§[\s\S]?/gu, ''), ch => /[\r\n\t]/.test(ch) ? ' '
+    : /[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩]/.test(ch) ? '' : NAME_SYMBOLS[ch] || ch).join('').trim();
+}
 function getStableSender(data) {
   const event = normalizeTikTokEvent(data);
-  return event.nickname || event.uniqueId || event.userId || 'unknown';
+  return safeDisplayName(event.nickname) || safeDisplayName(event.uniqueId) || safeDisplayName(event.userId) || 'unknown';
 }
 function getSenderIdentity(data) {
   const event = normalizeTikTokEvent(data);
@@ -77,4 +84,4 @@ function createLikeCounter() {
     },
   };
 }
-module.exports = { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent, createLikeCounter };
+module.exports = { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent, createLikeCounter, safeDisplayName };

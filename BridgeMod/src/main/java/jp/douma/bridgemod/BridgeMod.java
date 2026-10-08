@@ -737,7 +737,8 @@ public class BridgeMod {
             this.key = sanitizeKey(key);
             if (count < 1 || count > MAX_GAME_COUNT) throw new IllegalArgumentException("count must be from 1 to " + MAX_GAME_COUNT);
             this.count = count;
-            this.listenerName = listenerName == null || listenerName.isBlank() ? "viewer" : listenerName;
+            // HTTP・/bridge・/bridge/exec のどこから来た名前も、ここで一度だけ安全な形にする（表示・txt・ゲームMODで共通）。
+            this.listenerName = ListenerNames.display(listenerName);
             this.announce = announce;
             this.protectionEnabled = protectionEnabled;
             this.protectX1 = protectX1;
