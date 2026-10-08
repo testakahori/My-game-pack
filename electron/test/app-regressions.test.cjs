@@ -221,6 +221,21 @@ test("イベントIPC: 条件確認は未送信、全種別の実送信はテス
   assert.equal(partial.ok, false); assert.equal(partial.fired.filter(row => row.ok).length, 1);
 });
 
+test("Mod状態IPC: 認証の失敗（403）はオフラインと区別し、直し方を返す", async t => {
+  const http = require("node:http");
+  const server = http.createServer((_req, res) => { res.writeHead(403, { "Content-Type": "application/json" }); res.end('{"ok":false,"error":"forbidden"}'); });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const app = loadApp(t);
+  const cfg = JSON.parse(fs.readFileSync(app.configPath)); cfg.options.bridgeModPort = server.address().port;
+  fs.writeFileSync(app.configPath, JSON.stringify(cfg));
+  const status = await app.invoke("mod:status");
+  assert.equal(status.online, false); assert.equal(status.authFailed, true);
+  assert.match(status.error, /認証に失敗/);
+  const check = (await app.invoke("preflight:run")).checks.find(row => row.id === "mod");
+  assert.equal(check.status, "error"); assert.match(check.detail, /認証に失敗/);
+});
+
 test("ギフト更新: 手動と自動の同時実行をまとめ、検証後に両画面へ通知する", async (t) => {
   let calls = 0;
   const app = loadApp(t, async (_cmd, args) => {

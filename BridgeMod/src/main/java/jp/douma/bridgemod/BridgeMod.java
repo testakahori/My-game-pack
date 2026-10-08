@@ -331,15 +331,14 @@ public class BridgeMod {
             com.google.gson.JsonElement list = data.get("commands");
             if (list == null || !list.isJsonArray()) throw new IllegalArgumentException("commands must be an array");
             for (com.google.gson.JsonElement item : list.getAsJsonArray()) {
-                if (!item.isJsonPrimitive() || !item.getAsJsonPrimitive().isString()) throw new IllegalArgumentException("commands must be strings");
-                // 以前の読み取りと同じく、改行・タブは空白にして1行のコマンドとして扱う。
+                // 以前の読み取りと同じく、文字列以外の要素は飛ばす（演出フレーム全体を捨てない）。
+                if (!item.isJsonPrimitive() || !item.getAsJsonPrimitive().isString()) continue;
+                // 改行・タブは空白にして1行のコマンドとして扱う。
                 commands.add(item.getAsString().replace('\r', ' ').replace('\n', ' ').replace('\t', ' '));
             }
             com.google.gson.JsonElement name = data.get("listenerName");
-            if (name != null) {
-                if (!name.isJsonPrimitive() || !name.getAsJsonPrimitive().isString()) throw new IllegalArgumentException("listenerName must be a string");
-                listenerName = name.getAsString();
-            }
+            // 文字列でなければ以前と同じく viewer として扱う。
+            if (name != null && name.isJsonPrimitive() && name.getAsJsonPrimitive().isString()) listenerName = name.getAsString();
         } catch (RuntimeException e) {
             sendHttp(exchange, 400, "{\"ok\":false,\"error\":\"bad_request\"}");
             return;
@@ -454,11 +453,16 @@ public class BridgeMod {
 
     private void handleWebSocketClient(Socket socket) {
         try {
+            // ハンドシェイクは5秒・64行・16KBまで。送ってこない相手にスレッドを抱えさせない。
+            socket.setSoTimeout(5000);
             BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
             String requestLine = reader.readLine();
             Map<String, String> headers = new HashMap<>();
             String line;
+            int lines = 0, chars = requestLine == null ? 0 : requestLine.length();
             while ((line = reader.readLine()) != null && !line.isEmpty()) {
+                chars += line.length();
+                if (++lines > 64 || chars > 16384) { socket.close(); return; }
                 int colon = line.indexOf(':');
                 if (colon > 0) headers.putIfAbsent(line.substring(0, colon).trim().toLowerCase(Locale.ROOT), line.substring(colon + 1).trim());
             }
@@ -479,6 +483,7 @@ public class BridgeMod {
             out.write(("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
                 + "Sec-WebSocket-Accept: " + accept + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
             out.flush();
+            socket.setSoTimeout(0); // 接続後は状態を送り続けるだけなので、読み込みの時間制限を外す
             webSocketClients.add(socket);
             sendWebSocket(socket, buildStatusJson());
             InputStream in = socket.getInputStream();

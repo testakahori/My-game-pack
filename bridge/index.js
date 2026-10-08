@@ -779,7 +779,16 @@ function deliveryFailureReason(error) {
 }
 
 // 再送しても届かないイベントの件数と直近の理由。runtime-status.json 経由で画面に出す。
-const deliveryRejections = { rejected: 0, last: null };
+// authFailed：BridgeMOD が 403（認証失敗）を返していて、ギフトが再送待ちのまま止まっている間だけ入る。
+const deliveryRejections = { rejected: 0, last: null, authFailed: null };
+function markBridgeModAuth(failed) {
+  // 毎回の再送で書き込まないよう、状態が変わったときだけ更新する。
+  if (Boolean(deliveryRejections.authFailed) === Boolean(failed)) return;
+  deliveryRejections.authFailed = failed ? { at: new Date().toISOString(), tokenFile: bridgeModTokenFile() } : null;
+  if (failed) console.error(`[BridgeMod] 認証に失敗しています。ギフト・いいねは再送を続けています（トークンファイル: ${bridgeModTokenFile()}）。Minecraftサーバーを起動し直すと直ります`);
+  else console.log("[BridgeMod] 認証に成功しました。送信を再開します");
+  updateRuntimeStatus({ delivery: { ...deliveryRejections } });
+}
 function recordDeliveryRejection(event, error) {
   // 例外の受け皿から呼ばれるので、記録そのものの失敗で後続の処理を止めない。
   try {
@@ -811,6 +820,7 @@ function bridgeEventDelivery(bridgeMod, opts = {}) {
     rejected: recordDeliveryRejection,
     maxRetries: opts.retries ?? Infinity,
     delivered: event => {
+      markBridgeModAuth(false);
       appendOperationsHistoryLine(path.join(__dirname, "operations-history.json"), {
         at: new Date().toISOString(), type: event.historyType || event.type || "other",
         sender: event.listenerName || "viewer", commandFile: ensureTxt(event.commandFile),
@@ -822,6 +832,7 @@ function bridgeEventDelivery(bridgeMod, opts = {}) {
     },
     retry: (event, error, attempt) => {
       // 403 はトークン違い。サーバーを再起動した直後なら、次の再送で新しいトークンを読み直して通る。
+      if (Number(error?.status) === 403) markBridgeModAuth(true);
       const detail = Number(error?.status) === 403
         ? `BridgeMODの認証に失敗しました（トークンファイル: ${bridgeModTokenFile()}）。サーバーを起動し直すと作り直されます`
         : error?.message || error;
@@ -1194,7 +1205,12 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   console.log(`[Bridge] TikTok Username: @${tiktokUsername}`);
   console.log(`[Bridge] Target: ${targetType}`);
   if (mc) console.log(`[Bridge] RCON: ${mc.rconHost}:${mc.rconPort}`);
-  if (bridgeMod) console.log(`[Bridge] BridgeMod HTTP: ${bridgeMod.host}:${bridgeMod.port}`);
+  if (bridgeMod) {
+    console.log(`[Bridge] BridgeMod HTTP: ${bridgeMod.host}:${bridgeMod.port}`);
+    // トークンの値は出さず、読む場所だけ出す（単体起動で場所が合わないときに気づけるように）。
+    const tokenFile = bridgeModTokenFile();
+    console.log(`[Bridge] BridgeMod token file: ${tokenFile}${fs.existsSync(tokenFile) ? "" : "（まだありません。Minecraftサーバーの起動時に作られます）"}`);
+  }
   if (dtd) console.log(`[Bridge] Telnet: ${dtd.host}:${dtd.port} playerId=${dtd.playerId}`);
   console.log(`[Bridge] Mappings: ${mappingById.size} items`);
   console.log(`[Bridge] CommandsDir: ${commandsDirName}/`);

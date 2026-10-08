@@ -79,8 +79,12 @@ test('BridgeはMODの認証トークンを付けて送り、サーバー再起�
   modToken='token-b';
   await gift();
   await until(()=>denied.length>=1,'old token is refused');
+  // 再送待ちの間は、画面用の状態に「認証に失敗」とトークンファイルの場所を出す（オフラインと区別する）。
+  const runtime=()=>JSON.parse(fs.readFileSync(path.join(dir,'runtime-status.json'),'utf8'));
+  await until(()=>runtime().delivery?.authFailed?.tokenFile===tokenFile,'auth failure is shown');
   fs.writeFileSync(tokenFile,'token-b\n');
   await until(()=>accepted.length===2,'retried with the new token');
+  await until(()=>runtime().delivery?.authFailed===null,'auth failure is cleared after delivery');
   assert.ok(logs.some(x=>x.includes('BridgeMODの認証に失敗しました')&&x.includes(tokenFile)),'403 の理由とトークンファイルの場所を出す');
   assert.ok(!logs.some(x=>x.includes('送れなかったイベント')),'403 は捨てない');
 });

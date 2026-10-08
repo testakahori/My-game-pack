@@ -6,6 +6,8 @@ import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 
 type ModStatus = {
   online: boolean;
+  // Mod は応答しているが認証（X-Bridge-Token）に失敗している。error に直し方が入る。
+  authFailed?: boolean;
   gift?: number;
   like?: number;
   other?: number;
@@ -356,14 +358,14 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
         <div className="ops-monitor-right">
           <div className="ops-alert-row">
             <span className={`ops-status-pill ${status.online ? "is-ok" : "is-alert"}`}>
-              {status.online ? "● 正常（サーバー・Mod応答あり）" : "● 応答なし（サーバー停止・Mod未ロード）"}
+              {status.online ? "● 正常（サーバー・Mod応答あり）" : status.authFailed ? "● 認証に失敗（Modは応答あり）" : "● 応答なし（サーバー停止・Mod未ロード）"}
             </span>
             <button type="button" className="ops-ghost-button" onClick={() => setShowHistory((value) => !value)}>
               ⊞ ログを表示
             </button>
           </div>
 
-          <p className="studio-monitor-note">{status.online ? "サーバーとModが応答しています。下のテストでイベントの発火を確認できます。" : "サーバーを起動すると、接続状態とコマンドの実行状況をここで確認できます。"}</p>
+          <p className="studio-monitor-note">{status.online ? "サーバーとModが応答しています。下のテストでイベントの発火を確認できます。" : status.authFailed ? status.error : "サーバーを起動すると、接続状態とコマンドの実行状況をここで確認できます。"}</p>
 
           <div className="ops-monitor-bottom">
             <span>最終イベント: {latestAt ? fmtShortTime(latestAt) : "なし"}</span>

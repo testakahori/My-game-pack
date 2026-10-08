@@ -46,15 +46,35 @@ public final class BridgeAuth {
         return serverDir.resolve("config").resolve(TOKEN_FILE);
     }
 
-    /** 一時ファイルから置き換え、読み手が書きかけのトークンを読まないようにする。 */
+    /**
+     * 一時ファイルから置き換え、読み手が書きかけのトークンを読まないようにする。
+     * 置き換えはウイルス対策ソフトや OneDrive が一瞬つかんでいると失敗するので数回やり直し、
+     * それでも駄目なら直接書く（書けないままだと受付が閉じたままになり、ギフトが届かない）。
+     */
     public static void writeToken(Path file, String token) throws IOException {
         Files.createDirectories(file.getParent());
         Path temp = file.resolveSibling(TOKEN_FILE + ".tmp");
-        Files.writeString(temp, token, StandardCharsets.UTF_8);
+        IOException last = null;
+        for (int attempt = 0; attempt < 5; attempt++) {
+            try {
+                Files.writeString(temp, token, StandardCharsets.UTF_8);
+                try {
+                    Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                } catch (AtomicMoveNotSupportedException e) {
+                    Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+                }
+                return;
+            } catch (IOException e) {
+                last = e;
+                try { Thread.sleep(100L * (attempt + 1)); } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); break; }
+            }
+        }
         try {
-            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException e) {
-            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+            Files.writeString(file, token, StandardCharsets.UTF_8);
+            Files.deleteIfExists(temp);
+        } catch (IOException e) {
+            if (last != null) e.addSuppressed(last);
+            throw e;
         }
     }
 
