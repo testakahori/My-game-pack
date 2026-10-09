@@ -106,6 +106,37 @@
 3. PR #56 の中の指摘3件を、後続の PR で直す（自分のセッションに絞る・読めなかったことをメッセージで区別・`readJavaCommandLines` のテスト）。
 4. 強さの上限をやめる設計書を書く（`docs/superpowers/specs/` に置く）。ユーザーに見てもらってから実装計画、そのあと実装。BridgeMOD・saikutuMOD・契約テスト（`scripts/test-bridge-contracts.cjs` の EffectLimits・SaikutuLimits）にまたがる。
 5. 2026-10-09 の「今月の項目」に進む（「タグ別の同時存在数の上限」は取りやめ）。
+6. **BridgeMOD に全ゲーム共通の「保護ブロック」機能を足す**（2026-10-10 のユーザーの依頼。下の「次の依頼」）。
+
+#### 次の依頼：BridgeMOD の保護ブロック（全ゲーム共通）
+
+ユーザーの依頼（2026-10-10）を、要点を落とさずに書き写す。
+
+- 背景：MAP の中では、コマンドブロックをゲームの進行やイベントの制御に使っていることがある。妨害イベントの爆発やブロックの破壊でコマンドブロックまで壊れると、ゲームの進行が止まったり、MAP が正しく動かなくなったりする。
+- 保護するブロック
+  - `minecraft:command_block`
+  - `minecraft:chain_command_block`
+  - `minecraft:repeating_command_block`
+- 保護の判定を通す処理：BridgeMOD の中で行う次の処理の前。
+  - 爆発
+  - ブロックの破壊
+  - ブロックの削除
+  - ブロックの置換
+  - 地形の変更
+- 作り方
+  - `isProtectedBlock(level, pos)`・`canModifyBlock(level, pos)` のような共通の API（または共通のサービス）を用意し、Bridge 標準のイベントから必ずそれを使う。
+  - 保護対象なら、そのブロックだけ変更せずに飛ばす（処理全体は止めない）。
+  - できれば、ゲーム MOD からも同じ判定を使える API として公開する。
+  - 既存の処理への影響は最小限にする。
+- 対象外
+  - プレイヤー自身がブロックを壊すこと（禁止しなくてよい）。対象は、BridgeMOD やイベント処理による自動的な破壊・変更。
+  - 各ゲーム MOD（StackingGame など）が Bridge の共通処理を通さずに直接行う処理（FallingBlock 化、一時的な水・マグマへの変更、特定ブロックの削除など）。これはゲーム MOD 側で個別に保護判定を足す予定。
+- 進め方：まず今の BridgeMOD に同等の共通保護があるかを確かめる。なければ足す。
+- 修正後に説明すること：どの処理に保護判定を足したか、どのブロックを保護するか、ゲーム MOD から使えるか。
+- 2026-10-10 に軽く見た手がかり（実装はしていない）
+  - BridgeMOD・saikutuMOD には、範囲の保護 `GiftEffects.Protection`（X・Z の四角い範囲。`protectionEnabled` で受け取る）がある。`Origin.allowed(BlockPos)` が高さ・読み込み済みチャンク・範囲を見ている（`GiftEffects.java` 55-66行目、saikutuMOD の `SaikutuEffects.java` 62行目付近も同じ形）。ブロックの種類で守る仕組みはない。
+  - コマンドを .txt で流す経路（`fill`・`setblock`・`summon tnt` など、BridgeMOD がコマンドとして実行するもの）は、この判定を通らない。どこまでを対象にするかを確かめる必要がある。
+  - 4 の TNT大爆発の作り直し（衝撃波で地形をえぐる）も、同じ保護判定を通すようにする。
 
 ---
 
