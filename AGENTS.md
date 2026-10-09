@@ -26,7 +26,7 @@
 
 - 必ず `npm run verify` を実行します（型チェック、Bridge のシミュレーション、アプリのテスト、ビルド）。
 - MOD（BridgeMod・DisplayMod・SaikutuMod）を変えたとき
-  - 契約テスト：`node scripts/test-game-contract.cjs`、`test-display-contract.cjs`、`test-bridge-auth.cjs`、`test-effect-limits.cjs`（javac が必要）
+  - 契約テスト：`.github/workflows/verify.yml` の mod-build ジョブにある `node scripts/test-*.cjs` をすべて実行します（javac が必要）。
   - ビルド：プロキシ環境では証明書の確認に失敗するので、オフラインで行います。
     - BridgeMod：`BridgeMod/` で `gradlew build --offline "-Dnet.minecraftforge.gradle.check.certs=false"`
     - SaikutuMod・DisplayMod：`BridgeMod/gradlew -p <MODのフォルダー> build` に同じ引数を付けます。
