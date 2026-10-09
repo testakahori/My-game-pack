@@ -1073,7 +1073,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
                 {serverProc.pid ? <span> PID {serverProc.pid}</span> : null}
               </p>
             </div>
-            <button type="button" onClick={handleServerStop} disabled={isBusy || !serverProc.running}>■ サーバー停止</button>
+            <button type="button" onClick={handleServerStop} disabled={isBusy || !serverProc.running || serverProc.managed === false}>■ サーバー停止</button>
           </div>
           <div className="cockpit-bridge-log-body">
             {serverLogs.length ? serverLogs.slice(-80).map((line, index) => (

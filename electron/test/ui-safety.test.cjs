@@ -22,8 +22,8 @@ function loadComponent(relative) {
   return compiled.exports;
 }
 const source = relative => fs.readFileSync(path.resolve(__dirname, '../../src', relative), 'utf8');
-const { stopConfirmMessage, stopState, keepLastKnown } = loadTs('stopSafety.ts');
-const { parseListInput, formatListInput, sameList, listInputOnBlur, COMMA_ONLY } = loadTs('listInput.ts');
+const { stopConfirmMessage, stopState, keepLastKnown, runningLabel } = loadTs('stopSafety.ts');
+const { parseListInput, formatListInput, sameList, listInputOnBlur, hasJapaneseComma, COMMA_ONLY } = loadTs('listInput.ts');
 const { commandOptionLabel } = loadTs('commandLabel.ts');
 
 test('停止: 動いているものを止めるときだけ確認し、配信中ならそう書く', () => {
@@ -74,12 +74,37 @@ test('停止パネル: 状態をまだ取得できていなくてもパネルを
   try {
     const html = renderToString(React.createElement(StopPanel));
     assert.match(html, /class="stop-panel"/);
-    assert.match(html, /BRIDGE：<b>不明<\/b>/);
-    assert.match(html, /Minecraft：<b>不明<\/b>/);
-    assert.doesNotMatch(html, /disabled/, '不明なら停止ボタンを無効にしない');
+    // 最初の確認（tasklist を待つので数秒かかる）が返るまでは「確認中」。以前は全項目が「不明」になり、動いているかもしれないという注意まで出ていた。
+    assert.match(html, /BRIDGE：<b>確認中<\/b>/);
+    assert.match(html, /サーバー：<b>確認中<\/b>/);
+    assert.match(html, /Minecraft：<b>確認中<\/b>/);
+    assert.doesNotMatch(html, /不明/);
+    assert.doesNotMatch(html, /disabled/, '確認中でも停止ボタンを無効にしない');
   } finally {
     delete globalThis.window;
   }
+});
+
+test('停止パネル: 「不明」は取得に失敗して前回の値もない項目だけ', () => {
+  assert.equal(runningLabel(undefined, '稼働中'), '確認中');
+  assert.equal(runningLabel(null, '稼働中'), '不明');
+  assert.equal(runningLabel(true, '起動中'), '起動中');
+  assert.equal(runningLabel(false, '稼働中'), '停止中');
+  const rejected = { status: 'rejected', reason: new Error('timeout') };
+  // まだ一度も返ってきていない（undefined）項目の確認が失敗したら、確認中から不明へ移る。
+  assert.equal(keepLastKnown(undefined, rejected), null);
+  assert.equal(keepLastKnown(undefined, { status: 'fulfilled', value: null }), null, 'minecraftStatus が無いときも確認中のまま残さない');
+  assert.equal(runningLabel(stopState(keepLastKnown(undefined, rejected), null).bridgeRunning, '稼働中'), '不明');
+  // 確認中の項目も、停止前の確認では動いているかもしれないものとして扱う。
+  assert.match(stopConfirmMessage('all', stopState(undefined, undefined)), /BRIDGEとサーバーの状態を確認できていません/);
+});
+
+test('停止パネル: 作り直したパネルが描画から effect までの間に停止が終わっても「停止しています」のまま固まらない', () => {
+  // 停止中に作り直したパネルは busy=true で始まる。effect より前に停止が終わると follow が呼ばれず、全ボタンが押せないままだった。
+  const panel = source('components/StopPanel.tsx');
+  assert.match(panel, /useState\(\(\) => stopping !== null\)/);
+  const effect = panel.slice(panel.indexOf('mounted.current = true;'), panel.indexOf('}, [refresh, follow]);'));
+  assert.match(effect, /if \(stopping\) follow\(stopping\);\s*else setBusy\(false\);/);
 });
 
 test('カンマ区切り: 打ったカンマを消さず、読点・全角カンマでも区切る', () => {
@@ -115,6 +140,25 @@ test('画面: 操作盤が出ない間の停止パネルと、カンマ区切り
   const operations = source('components/OperationsPage.tsx');
   assert.match(operations, /label="ミュートユーザー（半角カンマ区切り）">\s*<ListInput values=\{o\.mutedUsers[^\n]*separators=\{COMMA_ONLY\}/);
   assert.match(operations, /label="TTS NGワード（カンマ区切り）">\s*<ListInput values=\{o\.ttsNgWords/);
+});
+
+test('ミュート欄: 「、」「，」が入っていたら、区切りにならないと欄の下に出す', () => {
+  // 日本語入力のままカンマキーを押すと「、」になり、半角カンマだけで区切るミュート欄では2つの名前が黙って1件になっていた。
+  assert.equal(hasJapaneseComma(parseListInput('baduser1、baduser2', COMMA_ONLY)), true);
+  assert.equal(hasJapaneseComma(parseListInput('baduser1，baduser2', COMMA_ONLY)), true);
+  assert.equal(hasJapaneseComma(parseListInput('baduser1, baduser2', COMMA_ONLY)), false);
+  assert.equal(hasJapaneseComma([]), false);
+  const operations = source('components/OperationsPage.tsx');
+  const start = operations.indexOf('label="ミュートユーザー（半角カンマ区切り）"');
+  const field = operations.slice(start, operations.indexOf('label="TTS NGワード', start));
+  assert.match(field, /\{hasJapaneseComma\(o\.mutedUsers \|\| \[\]\) && <small[^>]*>「、」「，」は区切りになりません。区切るときは半角の「,」を使ってください/);
+});
+
+test('配信ホーム: アプリの外で起動したサーバーは「■ サーバー停止」を押せない', () => {
+  // server:stop はアプリ外のサーバーを断るので、押すとエラーになっていた（理由は一括操作の下の注意に出ている）。
+  const dashboard = source('components/DashboardPage.tsx');
+  assert.match(dashboard, /<button type="button" onClick=\{handleServerStop\} disabled=\{[^}]*serverProc\.managed === false[^}]*\}>■ サーバー停止<\/button>/);
+  assert.match(dashboard, /このアプリを開く前からサーバーが動いています。/);
 });
 
 test('コマンド候補: BridgeMOD が拒否する名前だけに印を付け、title は変えない', () => {
