@@ -51,15 +51,32 @@ test("ルーレット: 日本語・引用符・絵文字を表示して減速し
   assert.equal(events[0].repeat, 3);
 });
 
-test("ルーレット: 同時発動は順に表示し、通信失敗を報告して次の回を再開できる", async t => {
+test("ルーレット: 演出を送れなくても当選は必ず発火し、残りの演出は飛ばして次の回も順に表示する", async t => {
   const { dir, config } = fixture(t);
   const round = prepareRoulette(config, dir);
-  const order = [];
+  const order = [], waits = [], frameErrors = [], wins = [];
   let fail = true;
-  const run = createRouletteRunner({ sendFrame: async (_commands, listener) => { if (fail) { fail = false; throw new Error("Modに接続できません"); } order.push(listener); }, sleep: async () => {} });
-  let wins = 0;
-  await assert.rejects(run(round, "failure", () => { wins++; }), /Modに接続できません/);
-  await Promise.all([run(round, "first", () => { wins++; }), run(round, "second", () => { wins++; })]);
+  const run = createRouletteRunner({
+    sendFrame: async (_commands, listener) => { if (fail) { fail = false; throw new Error("BridgeMod exec HTTP 403"); } order.push(listener); },
+    sleep: async ms => { waits.push(ms); },
+    onFrameError: error => { frameErrors.push(error.message); },
+  });
+  // 以前は1フレームの失敗で当選ごと消え、ルーレットに割り当てたギフトが再送も記録もされなかった。
+  assert.equal((await run(round, "failure", () => { wins.push("failure"); })).commandFile, round.winner.commandFile);
+  assert.deepEqual(frameErrors, ["BridgeMod exec HTTP 403"]);
+  assert.deepEqual(waits, [], "失敗した回は待たずに当選へ進む（タイムアウトを29回待たない）");
+  await Promise.all([run(round, "first", () => { wins.push("first"); }), run(round, "second", () => { wins.push("second"); })]);
+  assert.ok(!order.includes("failure"), "失敗した回の残りの演出は送らない");
   assert.deepEqual(order, [...Array(29).fill("first"), ...Array(29).fill("second")]);
-  assert.equal(wins, 2);
+  assert.deepEqual(wins, ["failure", "first", "second"]);
+});
+
+test("ルーレット: 当選の発火に失敗したら呼び出し元へ伝え、次の回は通常どおり実行する", async t => {
+  const { dir, config } = fixture(t);
+  const round = prepareRoulette(config, dir);
+  const run = createRouletteRunner({ sendFrame: async () => {}, sleep: async () => {} });
+  await assert.rejects(run(round, "first", () => { throw new Error("発火できません"); }), /発火できません/);
+  let wins = 0;
+  await run(round, "second", () => { wins++; });
+  assert.equal(wins, 1);
 });

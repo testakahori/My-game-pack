@@ -55,6 +55,13 @@ public final class BridgeAuthContractTest {
         BridgeAuth.writeToken(file, token);
         same(token, Files.readString(file, StandardCharsets.UTF_8), "token file replaced");
         truth(!Files.exists(file.resolveSibling(BridgeAuth.TOKEN_FILE + ".tmp")), "no temporary file left");
+        // 一時ファイルの場所がふさがっていて置き換えも削除もできなくても、直接書いて受付を開く。
+        // 以前は削除の失敗で例外になり、トークンは書けているのにサーバー稼働中ずっと全要求が 403 だった。
+        Path blocked = file.resolveSibling(BridgeAuth.TOKEN_FILE + ".tmp");
+        Files.createDirectories(blocked);
+        Files.writeString(blocked.resolve("held"), "x", StandardCharsets.UTF_8);
+        BridgeAuth.writeToken(file, "fallback");
+        same("fallback", Files.readString(file, StandardCharsets.UTF_8), "token written when the temporary file is blocked");
         System.out.println("BridgeAuth contract: " + checks + " checks passed");
     }
 

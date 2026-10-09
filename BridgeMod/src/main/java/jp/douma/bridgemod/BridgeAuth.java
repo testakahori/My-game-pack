@@ -71,11 +71,12 @@ public final class BridgeAuth {
         }
         try {
             Files.writeString(file, token, StandardCharsets.UTF_8);
-            Files.deleteIfExists(temp);
         } catch (IOException e) {
             if (last != null) e.addSuppressed(last);
             throw e;
         }
+        // 残った一時ファイルの掃除。つかまれたままで消せなくてもトークンは書けているので、受付を閉じない。
+        try { Files.deleteIfExists(temp); } catch (IOException ignored) {}
     }
 
     /**

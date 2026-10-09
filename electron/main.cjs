@@ -1800,8 +1800,15 @@ let bridgeModWaitTimedOutFor = null;
 async function waitForBridgeMod(timeoutMs = 150000, intervalMs = 3000) {
   let authFailed = false;
   const quickCheck = async () => {
-    try { await requestBridgeMod("GET", "/bridge/status"); return true; }
-    catch (e) { authFailed = e?.authFailed === true; return false; }
+    for (let attempt = 0; ; attempt++) {
+      try { await requestBridgeMod("GET", "/bridge/status"); authFailed = false; return true; }
+      catch (e) {
+        authFailed = e?.authFailed === true;
+        // トークンの書き換えと読み込みがすれ違うと、正常でも1回だけ 403 になる。少し待って読み直してから判断する。
+        if (!authFailed || attempt >= 1) return false;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
   };
   // 認証の失敗は待っても直らない（トークンはサーバー起動時に HTTP より先に書かれる）。すぐ原因を出す。
   const reportAuthFailure = () => { appendServerLog(`[SERVER] ${BRIDGE_MOD_AUTH_FAILED}（トークンファイル: ${bridgeModTokenPath(getServerRoot())}）`); return false; };

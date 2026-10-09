@@ -735,7 +735,7 @@ function sendBridgeExec({ host, port }, commands, listenerName = "system") {
       res.resume();
       res.on("end", () => {
         if (res.statusCode >= 200 && res.statusCode < 300) resolve();
-        else reject(new Error(`BridgeMod exec HTTP ${res.statusCode}`));
+        else reject(Object.assign(new Error(`BridgeMod exec HTTP ${res.statusCode}`), { status: res.statusCode }));
       });
     });
     req.on("timeout", () => req.destroy(new Error("BridgeMod exec timeout")));
@@ -817,7 +817,11 @@ function bridgeEventDelivery(bridgeMod, opts = {}) {
       if (problem) throw Object.assign(new Error(problem), { permanent: true });
       return prepare(event);
     },
-    rejected: recordDeliveryRejection,
+    rejected: (event, error) => {
+      // 403 以外の応答が返ったなら、トークンは通っている（認証の失敗の表示を残さない）。
+      if (Number.isInteger(error?.status) && error.status !== 403) markBridgeModAuth(false);
+      recordDeliveryRejection(event, error);
+    },
     maxRetries: opts.retries ?? Infinity,
     delivered: event => {
       markBridgeModAuth(false);
@@ -832,11 +836,14 @@ function bridgeEventDelivery(bridgeMod, opts = {}) {
     },
     retry: (event, error, attempt) => {
       // 403 はトークン違い。サーバーを再起動した直後なら、次の再送で新しいトークンを読み直して通る。
-      if (Number(error?.status) === 403) markBridgeModAuth(true);
-      const detail = Number(error?.status) === 403
+      // トークンの書き換えと読み込みがすれ違うと正常でも1回だけ 403 になるので、2回続いたら認証の失敗として出す。
+      const forbidden = Number(error?.status) === 403;
+      if (forbidden && attempt < 2) return;
+      if (forbidden) markBridgeModAuth(true);
+      const detail = forbidden
         ? `BridgeMODの認証に失敗しました（トークンファイル: ${bridgeModTokenFile()}）。サーバーを起動し直すと作り直されます`
         : error?.message || error;
-      if (attempt === 1 || attempt % 20 === 0) console.warn(
+      if (attempt === (forbidden ? 2 : 1) || attempt % 20 === 0) console.warn(
         "[BridgeMod] Waiting to retry", event.type, event.commandFile, "attempt=" + attempt, detail);
     },
   });
@@ -1359,6 +1366,11 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // --------------------
   const animateRoulette = createRouletteRunner({
     sendFrame: (commands, listenerName) => sendBridgeExec(bridgeMod, commands, listenerName),
+    // 演出を送れなくても当選は再送のあるレーンへ流す。理由だけ残す。
+    onFrameError: error => {
+      if (Number(error?.status) === 403) markBridgeModAuth(true);
+      console.warn("[Roulette] 演出を送れなかったため、演出を省いて当選を発火します:", error?.message || error);
+    },
   });
   function runRoulette(rl, triggerName, historyType) {
     if (!bridgeMod) return false;

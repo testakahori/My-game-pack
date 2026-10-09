@@ -41,7 +41,7 @@ const App: React.FC = () => {
   const [authState, setAuthState] = useState<"checking" | "authed" | "unauthed">("checking");
   const [appVersion, setAppVersion] = useState("");
   const [clock, setClock] = useState(new Date());
-  const [headerStatus, setHeaderStatus] = useState({ bridgeRunning: false, modOnline: false });
+  const [headerStatus, setHeaderStatus] = useState({ bridgeRunning: false, modOnline: false, modAuthFailed: false });
   const { confirmDiscard, hasChanges } = useUnsavedGuard();
   const [settingsRevision, setSettingsRevision] = useState(0);
   const contentRef = useRef<HTMLElement>(null);
@@ -133,7 +133,7 @@ const App: React.FC = () => {
           api?.bridgeProcessStatus ? api.bridgeProcessStatus() : Promise.resolve({ running: false }),
           api?.modStatus ? api.modStatus() : Promise.resolve({ online: false }),
         ]);
-        if (!cancelled) setHeaderStatus({ bridgeRunning: Boolean(bridge?.running), modOnline: Boolean(mod?.online) });
+        if (!cancelled) setHeaderStatus({ bridgeRunning: Boolean(bridge?.running), modOnline: Boolean(mod?.online), modAuthFailed: mod?.authFailed === true });
       } catch { /* ヘッダーの参考表示なので失敗しても無視 */ }
     };
     poll();
@@ -175,7 +175,7 @@ const App: React.FC = () => {
           <div><b>MyGamePack <em className="global-app-edition">BRIDGE</em></b><small>{appVersion ? `v${appVersion}` : ""}</small></div>
         </div>
         <div className="global-app-status">
-          <span><i className={`status-dot ${headerStatus.modOnline ? "status-dot--ok" : "status-dot--warn"}`} />Minecraft <b>{headerStatus.modOnline ? "接続済み" : "未接続"}</b></span>
+          <span title={headerStatus.modAuthFailed ? "BridgeMODは応答していますが、認証に失敗しています。Minecraftサーバーを起動し直すと直ります。" : undefined}><i className={`status-dot ${headerStatus.modOnline ? "status-dot--ok" : "status-dot--warn"}`} />Minecraft <b>{headerStatus.modOnline ? "接続済み" : headerStatus.modAuthFailed ? "認証エラー" : "未接続"}</b></span>
           <span>BRIDGE <b>{headerStatus.bridgeRunning ? "稼働中" : "停止中"}</b></span>
           <time>{clock.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}</time>
         </div>
