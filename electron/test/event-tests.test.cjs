@@ -46,6 +46,15 @@ test('無効・条件未達・ミュート・不明な種類を成功発火扱�
   config.options.mutedUsers=['検証']; assert.equal(plan({type:'member'}).steps.length,0);
   assert.throws(()=>plan({type:'made_up'}),/対応していない/);
 });
+test('ミュート: 設定は生の名前（it\'s me）でも整えた表示名（it’s me）でもテスト発火に効く', t => {
+  const { plan, config } = fixture(t);
+  config.options.mutedUsers = ["it's me"];
+  assert.equal(plan({ type: 'member', listenerName: "it's me" }).steps.length, 0);
+  assert.equal(plan({ type: 'member', listenerName: 'It’s Me' }).steps.length, 0);
+  config.options.mutedUsers = ['it’s me'];
+  assert.equal(plan({ type: 'member', listenerName: "it's me" }).steps.length, 0);
+  assert.equal(plan({ type: 'member', listenerName: 'its me' }).steps.length, 1);
+});
 test('いいね: 前後の累計・追いつき上限・到達済みマイルストーンを判定', t => {
   const { plan } = fixture(t);
   const result = plan({type:'like',previousLikes:300,likeCount:900});

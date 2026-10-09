@@ -6,6 +6,7 @@
 
 - DOUMAMODのJava処理をBridgeModディレクトリへ移し、MOD IDを`bridgemod`、表示名をBridgeMODに変更。
 - ゲーム内コマンドは`/bridge zombie 1`、大技の内部コマンドは`bridgeeffect`。`/bridge`は1.5.0からOP（権限2）だけが使える（中身は権限4で動くため）。
+- 視聴者名（1.5.0）：`{ListenerName}` に入る名前は、`"` `'` `\` を全角の `”` `’` `＼` に置き換え、書式コード（`§` と次の1文字）・制御文字・文字の向きを変える制御文字を除き、40文字までにする（`ListenerNames.java`。Bridge 側の `safeDisplayName` も同じ規則）。どの埋め込み方でも壊れず、名前から NBT を書き足すこともできない。txt では他のファイルと同じ `CustomName:"\"{ListenerName}\""` の形で埋め込むこと。
 - 強さの上限（1.5.0／saikutuMOD 1.0.2）：大技の count は数の倍率なので、1回で受け付ける倍率を抑える。超えた分は実行せずサーバーログに残す。値は `EffectLimits.java`・`SaikutuEffects.java` の表で変えられる。
   - BridgeMOD：鶏・矢・金床・メテオ・流星群・火山は3倍まで、ゾンビウェーブは2倍まで、スーパージャンプは10回分（320ブロック）まで。空中で重ねたジャンプも、今の位置から320ブロック上で止める。
   - saikutuMOD：洪水・氷河期は3倍まで、天変地異は2倍まで。

@@ -64,7 +64,7 @@ async function startBridgeFixture(t, { commands = {}, config = {}, env = {} } = 
   const emit = async (type, fields) => {
     const message = { ...proto[type].decode(new Uint8Array()), ...fields,
       common: { ...proto.CommonMessageData.decode(new Uint8Array()), msgId: String(++msg), createTime: String(Math.floor(Date.now() / 1000)) },
-      user: { ...proto.User.decode(new Uint8Array()), id: '123', displayId: 'viewer', nickname: '視聴者' } };
+      user: { ...proto.User.decode(new Uint8Array()), id: '123', displayId: 'viewer', nickname: '視聴者', ...fields.user } };
     if (fields.gift) message.gift = { ...proto.Gift.decode(new Uint8Array()), type: 1, ...fields.gift };
     await connection.processDecodedData({ type, data: proto[type].decode(proto[type].encode(message).finish()) });
   };
