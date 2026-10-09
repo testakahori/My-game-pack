@@ -39,6 +39,9 @@
 
 #### 開発版で実機確認するときの罠
 
+- **開発版が使う生成物は、git でソースを更新しても古いまま残る**（jar・`dist`・`GiftsViewer/tools-bundled`・`build/game-packs` はどれも git 管理外で、ビルドしたときにしかできない）。D 側は 10/08 までファイル同期のコピーで、配布用のビルドは Codex 側で行っていたため、D 側の生成物は 8〜9月のまま残っていた。
+  - まとめて作り直すコマンドを足した：`npm run dev:refresh`（`scripts/refresh-dev.cjs`）。画面 → BRIDGE の同梱物とギフト取得ツール → BridgeMod・DisplayMod・SaikutuMod の jar（BridgeMod の gradlew、オフライン・証明書確認なし）→ 採掘のゲームパック、の順に作る。失敗した手順で止まる。`npm run dev:refresh -- --dry-run` で手順だけを表示する。
+  - 2026-10-10 は、コマンドの起動の仕組み（空白を含むパスの .bat・npm の2通りの呼び方・ゲームパックの手順）とテストだけを確かめた。全手順を通しで実行したことはまだない。
 - Claude Code（VS Code 拡張）から起動すると、環境変数 `ELECTRON_RUN_AS_NODE=1` が付いていて、`main.cjs` の `ipcMain.handle` で落ちる。`Remove-Item Env:ELECTRON_RUN_AS_NODE` してから `npm run electron:dev`。
 - 開発版は `dist/index.html` を読むので、先に `npm run build`。node_modules は `--ignore-scripts` で作ってあるため、初回の起動で Electron 本体のダウンロードが走る。
 - 開発版の切替は、リポジトリのビルド結果から jar を配置する。`DisplayMod/build/libs` に古い 1.0.0 しかなく、そのまま切り替えると入っている 1.1.0 から 1.0.0 に戻るところだった。DisplayMod には gradlew がないので、`DisplayMod` フォルダーで `..\BridgeMod\gradlew.bat build --offline --no-daemon "-Dnet.minecraftforge.gradle.check.certs=false"` を実行して 1.1.0 を作った（CI と同じやり方）。
@@ -98,10 +101,11 @@
 
 #### 次にやること
 
-1. **BRIDGE停止でサーバーも止まった件を再現して原因を直す**（上の「不具合（未解決・高）」）。実機確認の4項目は終わり、手元の環境は戻してある。開発版を使うときは、退避してから D 側で `Remove-Item Env:ELECTRON_RUN_AS_NODE; npm run electron:dev`（`dist` は 2026-10-10 にビルド済み）。
-2. PR #56 の中の指摘3件を、後続の PR で直す（自分のセッションに絞る・読めなかったことをメッセージで区別・`readJavaCommandLines` のテスト）。
-3. 強さの上限をやめる設計書を書く（`docs/superpowers/specs/` に置く）。ユーザーに見てもらってから実装計画、そのあと実装。BridgeMOD・saikutuMOD・契約テスト（`scripts/test-bridge-contracts.cjs` の EffectLimits・SaikutuLimits）にまたがる。
-4. 2026-10-09 の「今月の項目」に進む（「タグ別の同時存在数の上限」は取りやめ）。
+1. **開発版の生成物をまとめて作り直す**：D 側で `npm run dev:refresh`。時間がかかる（Gradle のビルド3回を含む）ので、2026-10-10 は実行していない。初めての通しの実行なので、全手順が成功するかも確かめる。
+2. **BRIDGE停止でサーバーも止まった件を再現して原因を直す**（上の「不具合（未解決・高）」）。実機確認の4項目は終わり、手元の環境は戻してある。開発版を使うときは、退避してから D 側で `Remove-Item Env:ELECTRON_RUN_AS_NODE; npm run electron:dev`。
+3. PR #56 の中の指摘3件を、後続の PR で直す（自分のセッションに絞る・読めなかったことをメッセージで区別・`readJavaCommandLines` のテスト）。
+4. 強さの上限をやめる設計書を書く（`docs/superpowers/specs/` に置く）。ユーザーに見てもらってから実装計画、そのあと実装。BridgeMOD・saikutuMOD・契約テスト（`scripts/test-bridge-contracts.cjs` の EffectLimits・SaikutuLimits）にまたがる。
+5. 2026-10-09 の「今月の項目」に進む（「タグ別の同時存在数の上限」は取りやめ）。
 
 ---
 
