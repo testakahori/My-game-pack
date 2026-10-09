@@ -27,3 +27,15 @@ test('403 のあとに別の失敗が続いたら、その失敗もすぐログ�
   assert.ok(bridge.logs.some(x => x.includes('Waiting to retry') && x.includes('attempt=2') && x.includes('503')), bridge.logs.join('\n'));
   assert.ok(!bridge.logs.some(x => x.includes('認証に失敗')));
 });
+
+test('403 と接続エラーが交互に続いても、再送のたびにはログを出さない', async t => {
+  // 種類が変わるたびに数え直すと、交互のときに再送1回おきにログが出ていた。
+  const bridge = await giftWithReplies(t, [403, 503, 403, 503, 202]);
+  // 再送の間隔は 250ms から倍に延びるので、5回目（届く回）は約4秒後。
+  const deadline = Date.now() + 10000;
+  while (bridge.requests.length < 5 && Date.now() < deadline) await bridge.wait(50);
+  assert.equal(bridge.requests.length, 5);
+  const waits = bridge.logs.filter(x => x.includes('Waiting to retry'));
+  assert.equal(waits.length, 1, waits.join('\n'));
+  assert.ok(!bridge.logs.some(x => x.includes('認証に失敗')));
+});

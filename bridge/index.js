@@ -858,8 +858,11 @@ function bridgeEventDelivery(bridgeMod, opts = {}) {
       const detail = forbidden
         ? `BridgeMODの認証に失敗しました（トークンファイル: ${bridgeModTokenFile()}）。サーバーを起動し直すと作り直されます`
         : error?.message || error;
-      // ログは失敗の種類が変わったとき（403 は2回続いたとき）と、20回ごとに出す。
-      if (state.streak === (forbidden ? 2 : 1) || attempt % 20 === 0) console.warn(
+      // ログは、直前にログへ出した種類と違う失敗のとき（403 は2回続いたとき）と、20回ごとに出す。
+      // 403 と接続エラーが交互に来ても、再送のたびにログが出ないようにする。
+      const changed = state.logged !== kind;
+      state.logged = kind;
+      if (changed || attempt % 20 === 0) console.warn(
         "[BridgeMod] Waiting to retry", event.type, event.commandFile, "attempt=" + attempt, detail);
     },
   });
@@ -1385,8 +1388,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   const animateRoulette = createRouletteRunner({
     sendFrame: (commands, listenerName) => sendBridgeExec(bridgeMod, commands, listenerName),
     // 演出を送れなくても当選は再送のあるレーンへ流す。理由だけ残す。
+    // 認証の失敗かどうかは、当選を送るレーンが「同じ要求で 403 が2回続いたか」で判定する（演出の1回の 403 では決めない）。
     onFrameError: error => {
-      if (Number(error?.status) === 403) markBridgeModAuth(true);
       console.warn("[Roulette] 演出を送れなかったため、演出を省いて当選を発火します:", error?.message || error);
     },
   });
