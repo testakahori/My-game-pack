@@ -13,6 +13,7 @@ const { runProc } = require("./process_runner.cjs");
 const { createSettingsBackups, atomicWrite, validCommand } = require("./settings_backups.cjs");
 const { prepareRoulette, createRouletteRunner } = require("../bridge/roulette.cjs");
 const { commandFileProblem } = require("../bridge/command_files.cjs");
+const { bridgeModTokenPath, withBridgeModToken } = require("../bridge/bridge_mod_token.cjs");
 const { runPreflight } = require("./preflight.cjs");
 const { planTestEvent } = require("./event_tests.cjs");
 const { createStreamSessions, streamBuckets } = require("./stream_sessions.cjs");
@@ -468,7 +469,7 @@ ipcMain.handle("preflight:run", () => {
     configPath: getConfigPath(), serverRoot: getServerRoot(),
     commandsDir: path.join(getBridgeBatDir(), "commands", "minecraft"),
     giftsPath: getGiftsMinPath(), giftsMetaPath: getGiftsMetaPath(),
-    modStatus: async () => { try { return { ...(await requestBridgeMod("GET", "/bridge/status")), online: true }; } catch { return { online: false }; } },
+    modStatus: async () => { try { return { ...(await requestBridgeMod("GET", "/bridge/status")), online: true }; } catch (e) { return { online: false, authFailed: e?.authFailed === true, error: e?.message || "" }; } },
     bridgeStatus: () => {
       let runtime = {};
       try { runtime = JSON.parse(fs.readFileSync(path.join(getBridgeBatDir(), "runtime-status.json"), "utf8")); } catch {}
@@ -1311,6 +1312,7 @@ async function startServer(resumeAfterMap = false) {
   // アプリを開き直しても、動作中のサーバーを再起動したりMAPに触れたりしない。
   const existing = await getServerProcessStatus();
   if (existing.running) {
+    if (existing.modAuthFailed) throw new Error(`起動済みのサーバーが見つかりましたが、${BRIDGE_MOD_AUTH_FAILED}`);
     if (!existing.modReady) throw new Error("起動済みのサーバーが見つかりましたが、MyGamePackのModに接続できません。サーバーの起動完了とModの設定を確認してください。");
     appendServerLog("[SERVER] 起動済みのサーバーを使用します（このアプリからの停止・MAP操作はできません）");
     return { ok: true, alreadyRunning: true, external: true, backup: null };
@@ -1400,7 +1402,7 @@ async function getServerProcessStatus() {
   if (serverProcRef) return { running: true, managed: true, pid: serverPid };
   const listening = await isServerPortOpen();
   if (!listening) return { running: false, managed: false, pid: null };
-  let modReady = false;
+  let modReady = false, modAuthFailed = false;
   try {
     const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8"));
     const host = String(cfg.options?.bridgeModHost || cfg.options?.doumaModHost || "127.0.0.1").toLowerCase();
@@ -1408,8 +1410,8 @@ async function getServerProcessStatus() {
       const status = await requestBridgeMod("GET", "/bridge/status");
       modReady = status.ok === true && Number.isFinite(status.tps) && typeof status.player?.online === "boolean";
     }
-  } catch { /* ポートは開いている。Modが準備中なら再起動せず案内する。 */ }
-  return { running: true, managed: false, pid: null, modReady };
+  } catch (e) { modAuthFailed = e?.authFailed === true; /* ポートは開いている。Modが準備中なら再起動せず案内する。 */ }
+  return { running: true, managed: false, pid: null, modReady, modAuthFailed };
 }
 ipcMain.handle("server:processStatus", getServerProcessStatus);
 
@@ -1502,8 +1504,10 @@ async function launchBridge() {
   const spawnOnce = () => {
     const { env, revision } = eulerCredentials.runtime();
     appendBridgeLog(`[BRIDGE] 起動します: ${indexJs}`);
+    // BridgeMOD の認証トークンはサーバーフォルダーにある。開発時は bridge とサーバーの場所が離れているので明示する。
     const child = spawn(nodeCmd, [indexJs, "--config", path.join(dir, "config.minecraft.json")], {
-      cwd: dir, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"], env,
+      cwd: dir, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"],
+      env: { ...env, BRIDGE_MOD_TOKEN_FILE: bridgeModTokenPath(getServerRoot()) },
     });
     bridgeEulerRevision = revision;
     bridgeProcRef = child;
@@ -1576,6 +1580,8 @@ ipcMain.handle("bridge:processStatus", () => {
 
 ipcMain.handle("bridge:logs", () => ({ ok: true, lines: [...bridgeLogBuffer] }));
 
+const BRIDGE_MOD_AUTH_FAILED = "BridgeMODは応答していますが、認証に失敗しました。Minecraftサーバーを起動し直すと直ります。直らない場合は、初期セットアップのサーバーフォルダーと、実際に起動しているサーバーが同じか確認してください。";
+
 function requestBridgeMod(method, requestPath, body, configOverride) {
   return new Promise((resolve, reject) => {
     let cfg = configOverride || {};
@@ -1583,15 +1589,19 @@ function requestBridgeMod(method, requestPath, body, configOverride) {
     const host = cfg.options?.bridgeModHost || cfg.options?.doumaModHost || "127.0.0.1";
     const port = Number(cfg.options?.bridgeModPort || cfg.options?.doumaModPort || 25576);
     const data = body ? Buffer.from(JSON.stringify(body)) : null;
-    const req = http.request({ host, port, path: requestPath, method, timeout: 1500,
-      headers: data ? { "Content-Type": "application/json", "Content-Length": data.length } : {} },
+    // BridgeMOD はサーバー起動ごとのトークンがない要求を 403 で拒否する。
+    const headers = withBridgeModToken(bridgeModTokenPath(getServerRoot()),
+      data ? { "Content-Type": "application/json", "Content-Length": data.length } : {});
+    const req = http.request({ host, port, path: requestPath, method, timeout: 1500, headers },
     (res) => {
       const chunks = [];
       res.on("data", c => chunks.push(c));
       res.on("end", () => {
         const text = Buffer.concat(chunks).toString("utf8");
         let parsed = {}; try { parsed = JSON.parse(text); } catch { parsed = { message: text }; }
-        if (res.statusCode >= 400 || parsed.ok === false) reject(new Error(parsed.message || `HTTP ${res.statusCode}`));
+        // 403 は「MODは動いているが認証に失敗」。オフラインと区別して原因と直し方を出す。
+        if (res.statusCode === 403) reject(Object.assign(new Error(BRIDGE_MOD_AUTH_FAILED), { status: 403, authFailed: true }));
+        else if (res.statusCode >= 400 || parsed.ok === false) reject(new Error(parsed.message || `HTTP ${res.statusCode}`));
         else resolve(parsed);
       });
     });
@@ -1691,7 +1701,7 @@ function readViewerMetrics() {
 
 ipcMain.handle("mod:status", async () => {
   try { return { online: true, ...(await requestBridgeMod("GET", "/bridge/status")) }; }
-  catch (e) { return { online: false, error: e.message }; }
+  catch (e) { return { online: false, authFailed: e?.authFailed === true, error: e.message }; }
 });
 async function fireBridgeEventMaybeRoulette(payload, bridgeCfg, commandsDir) {
   const send = (method, route, body) => requestBridgeMod(method, route, body, bridgeCfg);
@@ -1788,11 +1798,22 @@ ipcMain.handle("image:saveGiftPanel", (_event, value) => saveGiftPanelPng(dialog
 // 即諦める（一括起動で gamerules→OP付与 と連続150秒ずつ待って計5分固まる事故の防止）。
 let bridgeModWaitTimedOutFor = null;
 async function waitForBridgeMod(timeoutMs = 150000, intervalMs = 3000) {
+  let authFailed = false;
   const quickCheck = async () => {
-    try { await requestBridgeMod("GET", "/bridge/status"); return true; }
-    catch { return false; }
+    for (let attempt = 0; ; attempt++) {
+      try { await requestBridgeMod("GET", "/bridge/status"); authFailed = false; return true; }
+      catch (e) {
+        authFailed = e?.authFailed === true;
+        // トークンの書き換えと読み込みがすれ違うと、正常でも1回だけ 403 になる。少し待って読み直してから判断する。
+        if (!authFailed || attempt >= 1) return false;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
   };
+  // 認証の失敗は待っても直らない（トークンはサーバー起動時に HTTP より先に書かれる）。すぐ原因を出す。
+  const reportAuthFailure = () => { appendServerLog(`[SERVER] ${BRIDGE_MOD_AUTH_FAILED}（トークンファイル: ${bridgeModTokenPath(getServerRoot())}）`); return false; };
   if (await quickCheck()) { bridgeModWaitTimedOutFor = null; return true; }
+  if (authFailed) return reportAuthFailure();
   if (serverProcRef && bridgeModWaitTimedOutFor === serverProcRef) return false;
   appendServerLog("[SERVER] Mod（BridgeMod）のHTTP応答を待っています。ワールド読み込み完了（Done表示）までお待ちください…");
   const deadline = Date.now() + timeoutMs;
@@ -1810,6 +1831,7 @@ async function waitForBridgeMod(timeoutMs = 150000, intervalMs = 3000) {
       appendServerLog("[SERVER] Mod（HTTP:25576）と接続できました。");
       return true;
     }
+    if (authFailed) return reportAuthFailure();
   }
 }
 

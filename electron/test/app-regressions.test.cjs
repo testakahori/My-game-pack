@@ -187,7 +187,7 @@ test("イベントIPC: 条件確認は未送信、全種別の実送信はテス
   const received = [];
   const server = http.createServer((req, res) => {
     const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => {
-      const payload = JSON.parse(Buffer.concat(chunks).toString()); received.push({ url: req.url, payload });
+      const payload = JSON.parse(Buffer.concat(chunks).toString()); received.push({ url: req.url, payload, token: req.headers["x-bridge-token"] });
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify(payload.key === "fail" ? { ok: false, message: "模擬エラー" } : { ok: true }));
     });
@@ -203,6 +203,9 @@ test("イベントIPC: 条件確認は未送信、全種別の実送信はテス
   fs.writeFileSync(app.configPath, JSON.stringify(cfg));
   const dir = path.join(app.root, "bridge", "commands", "minecraft"); fs.mkdirSync(dir, { recursive: true });
   for (const file of ["qa.txt", "fail.txt"]) fs.writeFileSync(path.join(dir, file), "say test");
+  // BridgeMOD がサーバーフォルダーに書く認証トークンを、テスト発火でも付けて送る。
+  const tokenFile = path.join(app.root, "server", "Douma_Craft", "config", "bridgemod-token.txt");
+  fs.mkdirSync(path.dirname(tokenFile), { recursive: true }); fs.writeFileSync(tokenFile, "qa-token\n");
   const preview = await app.invoke("mod:testEvent", { type: "share", preview: true });
   assert.equal(preview.matched, true); assert.equal(received.length, 0);
   for (const type of ["share", "follow", "member", "unmapped_gift", "comment", "like", "gift"]) {
@@ -210,11 +213,27 @@ test("イベントIPC: 条件確認は未送信、全種別の実送信はテス
     assert.equal(result.ok, true, type);
   }
   assert.equal(received.length, 7);
+  assert.ok(received.every(row => row.token === "qa-token"), "X-Bridge-Token を付けて送る");
   assert.ok((await app.invoke("operations:history")).every(row => row.source === "test"));
   assert.equal((await app.invoke("operations:streamStats")).overall.events, 0);
   cfg.commentGifts.rules.push({ ...rule, match: "確認", commandFile: "fail.txt" }); fs.writeFileSync(app.configPath, JSON.stringify(cfg));
   const partial = await app.invoke("mod:testEvent", { type: "comment", comment: "確認" });
   assert.equal(partial.ok, false); assert.equal(partial.fired.filter(row => row.ok).length, 1);
+});
+
+test("Mod状態IPC: 認証の失敗（403）はオフラインと区別し、直し方を返す", async t => {
+  const http = require("node:http");
+  const server = http.createServer((_req, res) => { res.writeHead(403, { "Content-Type": "application/json" }); res.end('{"ok":false,"error":"forbidden"}'); });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const app = loadApp(t);
+  const cfg = JSON.parse(fs.readFileSync(app.configPath)); cfg.options.bridgeModPort = server.address().port;
+  fs.writeFileSync(app.configPath, JSON.stringify(cfg));
+  const status = await app.invoke("mod:status");
+  assert.equal(status.online, false); assert.equal(status.authFailed, true);
+  assert.match(status.error, /認証に失敗/);
+  const check = (await app.invoke("preflight:run")).checks.find(row => row.id === "mod");
+  assert.equal(check.status, "error"); assert.match(check.detail, /認証に失敗/);
 });
 
 test("ギフト更新: 手動と自動の同時実行をまとめ、検証後に両画面へ通知する", async (t) => {

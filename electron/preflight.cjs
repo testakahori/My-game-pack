@@ -51,7 +51,8 @@ async function runPreflight(deps) {
   } catch { add("gifts", "ギフト一覧の更新", "warn", "ギフト一覧を取得してください。", "gifts_viewer"); }
   const [mod, tts] = await Promise.allSettled([bounded(deps.modStatus), bounded(deps.ttsStatus)]);
   const status = mod.status === "fulfilled" ? mod.value : null;
-  add("mod", "Minecraftサーバー・Modの応答", status?.online ? "ok" : "warn", status?.online ? "サーバーとModが応答しています。" : "サーバー起動後に、もう一度チェックしてください。", "dashboard");
+  add("mod", "Minecraftサーバー・Modの応答", status?.online ? "ok" : status?.authFailed ? "error" : "warn",
+    status?.online ? "サーバーとModが応答しています。" : status?.authFailed ? status.error : "サーバー起動後に、もう一度チェックしてください。", "dashboard");
   if (status?.online) add("player", "プレイヤーの参加", status.player?.online ? "ok" : "warn", status.player?.online ? "プレイヤーの参加を確認しました。" : "Minecraftからサーバーに参加してください。", "dashboard");
   const bridge = deps.bridgeStatus();
   const connected = bridge.running && bridge.tiktok?.state === "connected" && String(bridge.tiktok.username || "").toLowerCase() === username.toLowerCase();

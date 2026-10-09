@@ -33,6 +33,7 @@ const { validateBridgeConfig } = require("./config_schema");
 const { prepareRoulette, createRouletteRunner } = require("./roulette.cjs");
 const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require("./mod_event_delivery.cjs");
 const { commandFileProblem } = require("./command_files.cjs");
+const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("./bridge_mod_token.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require("./feature_engine");
 const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras } = require("./event_rules.cjs");
 const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter } = require("./tiktok_events.cjs");
@@ -52,11 +53,17 @@ function updateRuntimeStatus(patch) {
   } catch {}
 }
 
+// アプリは起動時に BRIDGE_MOD_TOKEN_FILE を渡す。単体起動（bat）では bridge フォルダーの1つ上をサーバーフォルダーとみなす。
+function bridgeModTokenFile() {
+  return process.env.BRIDGE_MOD_TOKEN_FILE || bridgeModTokenPath(path.resolve(__dirname, ".."));
+}
+
 function connectBridgeModWebSocket({ host, port }) {
   if (typeof WebSocket !== "function") return;
   const wsUrl = `ws://${host}:${Number(port) + 1}`;
   try {
-    const socket = new WebSocket(wsUrl);
+    // 再接続のたびに読み直す（サーバーを再起動するとトークンが変わる）。ログには URL だけを出す。
+    const socket = new WebSocket(`${wsUrl}/?token=${encodeURIComponent(readBridgeModToken(bridgeModTokenFile()))}`);
     bridgeModWebSocket = socket;
     socket.addEventListener("open", () => console.log(`[BridgeWS] Connected: ${wsUrl}`));
     socket.addEventListener("message", event => {
@@ -677,10 +684,10 @@ function sendBridgeModEvent({ host, port, type, commandFile, count, listenerName
       path: "/bridge/event",
       method: "POST",
       timeout: 1500,
-      headers: {
+      headers: withBridgeModToken(bridgeModTokenFile(), {
         "Content-Type": "application/json",
         "Content-Length": Buffer.byteLength(payload),
-      },
+      }),
     }, (res) => {
       let body = "";
       res.setEncoding("utf8");
@@ -720,15 +727,15 @@ function sendBridgeExec({ host, port }, commands, listenerName = "system") {
       path: "/bridge/exec",
       method: "POST",
       timeout: 1500,
-      headers: {
+      headers: withBridgeModToken(bridgeModTokenFile(), {
         "Content-Type": "application/json",
         "Content-Length": Buffer.byteLength(payload),
-      },
+      }),
     }, (res) => {
       res.resume();
       res.on("end", () => {
         if (res.statusCode >= 200 && res.statusCode < 300) resolve();
-        else reject(new Error(`BridgeMod exec HTTP ${res.statusCode}`));
+        else reject(Object.assign(new Error(`BridgeMod exec HTTP ${res.statusCode}`), { status: res.statusCode }));
       });
     });
     req.on("timeout", () => req.destroy(new Error("BridgeMod exec timeout")));
@@ -767,11 +774,21 @@ function deliveryFailureReason(error) {
   if (status === 400) return "BridgeMODが受け付けませんでした（HTTP 400）。コマンドファイル名か内容を確認してください";
   if (status === 404 || status === 405) return `BridgeMODの受付先が見つかりません（HTTP ${status}）。BridgeMODのポート設定を確認してください`;
   if (status === 413) return "イベントが大きすぎるためBridgeMODが受け付けませんでした（HTTP 413）";
+  if (status === 415) return "BridgeMODがJSON以外の送信を受け付けませんでした（HTTP 415）";
   return String(error?.message || error || "不明なエラー");
 }
 
 // 再送しても届かないイベントの件数と直近の理由。runtime-status.json 経由で画面に出す。
-const deliveryRejections = { rejected: 0, last: null };
+// authFailed：BridgeMOD が 403（認証失敗）を返していて、ギフトが再送待ちのまま止まっている間だけ入る。
+const deliveryRejections = { rejected: 0, last: null, authFailed: null };
+function markBridgeModAuth(failed) {
+  // 毎回の再送で書き込まないよう、状態が変わったときだけ更新する。
+  if (Boolean(deliveryRejections.authFailed) === Boolean(failed)) return;
+  deliveryRejections.authFailed = failed ? { at: new Date().toISOString(), tokenFile: bridgeModTokenFile() } : null;
+  if (failed) console.error(`[BridgeMod] 認証に失敗しています。ギフト・いいねは再送を続けています（トークンファイル: ${bridgeModTokenFile()}）。Minecraftサーバーを起動し直すと直ります`);
+  else console.log("[BridgeMod] 認証に成功しました。送信を再開します");
+  updateRuntimeStatus({ delivery: { ...deliveryRejections } });
+}
 function recordDeliveryRejection(event, error) {
   // 例外の受け皿から呼ばれるので、記録そのものの失敗で後続の処理を止めない。
   try {
@@ -800,9 +817,14 @@ function bridgeEventDelivery(bridgeMod, opts = {}) {
       if (problem) throw Object.assign(new Error(problem), { permanent: true });
       return prepare(event);
     },
-    rejected: recordDeliveryRejection,
+    rejected: (event, error) => {
+      // 403 以外の応答が返ったなら、トークンは通っている（認証の失敗の表示を残さない）。
+      if (Number.isInteger(error?.status) && error.status !== 403) markBridgeModAuth(false);
+      recordDeliveryRejection(event, error);
+    },
     maxRetries: opts.retries ?? Infinity,
     delivered: event => {
+      markBridgeModAuth(false);
       appendOperationsHistoryLine(path.join(__dirname, "operations-history.json"), {
         at: new Date().toISOString(), type: event.historyType || event.type || "other",
         sender: event.listenerName || "viewer", commandFile: ensureTxt(event.commandFile),
@@ -813,8 +835,16 @@ function bridgeEventDelivery(bridgeMod, opts = {}) {
       });
     },
     retry: (event, error, attempt) => {
-      if (attempt === 1 || attempt % 20 === 0) console.warn(
-        "[BridgeMod] Waiting to retry", event.type, event.commandFile, "attempt=" + attempt, error?.message || error);
+      // 403 はトークン違い。サーバーを再起動した直後なら、次の再送で新しいトークンを読み直して通る。
+      // トークンの書き換えと読み込みがすれ違うと正常でも1回だけ 403 になるので、2回続いたら認証の失敗として出す。
+      const forbidden = Number(error?.status) === 403;
+      if (forbidden && attempt < 2) return;
+      if (forbidden) markBridgeModAuth(true);
+      const detail = forbidden
+        ? `BridgeMODの認証に失敗しました（トークンファイル: ${bridgeModTokenFile()}）。サーバーを起動し直すと作り直されます`
+        : error?.message || error;
+      if (attempt === (forbidden ? 2 : 1) || attempt % 20 === 0) console.warn(
+        "[BridgeMod] Waiting to retry", event.type, event.commandFile, "attempt=" + attempt, detail);
     },
   });
 }
@@ -1182,7 +1212,12 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   console.log(`[Bridge] TikTok Username: @${tiktokUsername}`);
   console.log(`[Bridge] Target: ${targetType}`);
   if (mc) console.log(`[Bridge] RCON: ${mc.rconHost}:${mc.rconPort}`);
-  if (bridgeMod) console.log(`[Bridge] BridgeMod HTTP: ${bridgeMod.host}:${bridgeMod.port}`);
+  if (bridgeMod) {
+    console.log(`[Bridge] BridgeMod HTTP: ${bridgeMod.host}:${bridgeMod.port}`);
+    // トークンの値は出さず、読む場所だけ出す（単体起動で場所が合わないときに気づけるように）。
+    const tokenFile = bridgeModTokenFile();
+    console.log(`[Bridge] BridgeMod token file: ${tokenFile}${fs.existsSync(tokenFile) ? "" : "（まだありません。Minecraftサーバーの起動時に作られます）"}`);
+  }
   if (dtd) console.log(`[Bridge] Telnet: ${dtd.host}:${dtd.port} playerId=${dtd.playerId}`);
   console.log(`[Bridge] Mappings: ${mappingById.size} items`);
   console.log(`[Bridge] CommandsDir: ${commandsDirName}/`);
@@ -1331,6 +1366,11 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // --------------------
   const animateRoulette = createRouletteRunner({
     sendFrame: (commands, listenerName) => sendBridgeExec(bridgeMod, commands, listenerName),
+    // 演出を送れなくても当選は再送のあるレーンへ流す。理由だけ残す。
+    onFrameError: error => {
+      if (Number(error?.status) === 403) markBridgeModAuth(true);
+      console.warn("[Roulette] 演出を送れなかったため、演出を省いて当選を発火します:", error?.message || error);
+    },
   });
   function runRoulette(rl, triggerName, historyType) {
     if (!bridgeMod) return false;

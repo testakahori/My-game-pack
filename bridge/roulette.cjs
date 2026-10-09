@@ -39,32 +39,44 @@ function prepareRoulette(config, commandsDir, random = Math.random) {
 
 // 本番Bridgeとアプリ内テストが同じ抽選・文字・タイミングを使う。
 // HTTPを順番に待ち、前フレームや当選コマンドが結果表示を追い越さないようにする。
-function createRouletteRunner({ sendFrame, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+// 演出は飾り。フレームを送れなかったら残りの演出を飛ばし、当選の発火（再送のあるレーン）へ必ず進む。
+// 以前は1フレームの失敗で当選ごと消え、ルーレットに割り当てたギフトが再送も記録もされなかった。
+function createRouletteRunner({ sendFrame, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), onFrameError = () => {} }) {
   let queue = Promise.resolve();
   return (round, listenerName, fireWinner) => {
     const run = queue.then(async () => {
+      let animating = true;
+      const show = async commands => {
+        if (!animating) return;
+        try { await sendFrame(commands, listenerName); }
+        catch (error) {
+          animating = false;
+          try { onFrameError(error); } catch { /* 記録の失敗で当選の発火を止めない */ }
+        }
+      };
+      const pause = async ms => { if (animating) await sleep(ms); };
       const text = (value, color, bold = false) => JSON.stringify({ text: value, color, bold });
       const delays = [...Array(24).fill(50), 70, 90, 120, 160];
       for (let frame = 0; frame < delays.length; frame++) {
         const item = round.items[frame % round.items.length];
-        await sendFrame([
+        await show([
           "title @a times 0 6 0",
           `title @a subtitle ${text(item.description || "ルーレット回転中…", "green")}`,
           `title @a title ${text(item.label, "yellow", true)}`,
           "execute as @a at @s run playsound block.note_block.hat master @s ~ ~ ~ 0.7 1.4",
-        ], listenerName);
-        await sleep(delays[frame]);
+        ]);
+        await pause(delays[frame]);
       }
       const winner = round.winner;
-      await sendFrame([
+      await show([
         "title @a times 0 55 15",
         `title @a subtitle ${text(winner.description || winner.label, "green")}`,
         `title @a title ${text(`▶ ${winner.label} ◀`, "yellow", true)}`,
         `title @a actionbar ${text(cleanText(listenerName || "ルーレット", 30), "aqua")}`,
         `execute as @a at @s run playsound ${round.stopSound} master @s ~ ~ ~ 1 1`,
         `execute at @a run particle ${round.particle} ~ ~1 ~ 0.8 1 0.8 0.08 30 force`,
-      ], listenerName);
-      await sleep(400);
+      ]);
+      await pause(400);
       await fireWinner(winner);
       return winner;
     });

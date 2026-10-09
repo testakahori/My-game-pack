@@ -35,6 +35,8 @@ type BridgeProcessStatus = {
   delivery?: {
     rejected?: number;
     last?: { at?: string; type?: string; commandFile?: string; reason?: string } | null;
+    // BridgeMOD が認証（トークン）を拒否していて、ギフト・いいねが再送待ちのまま止まっている
+    authFailed?: { at?: string; tokenFile?: string } | null;
   } | null;
 };
 
@@ -884,6 +886,12 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
           </div>
           <p className="cockpit-all-start-note">TikTokはアカウントのライブ配信状態を30秒ごとに確認します。イベントの受信にはBRIDGEの起動が必要です。</p>
           {launchNotice && <p role={launchNotice.type === "error" ? "alert" : "status"} className={`cockpit-launch-notice cockpit-launch-notice--${launchNotice.type}`}>{launchNotice.text}</p>}
+          {bridgeProcess.delivery?.authFailed ? (
+            <p role="alert" className="cockpit-launch-notice cockpit-launch-notice--error">
+              BridgeMODの認証に失敗しているため、ギフト・いいねをModへ送れていません（届くまで再送を続けています）。Minecraftサーバーを起動し直すと直ります。直らない場合は、初期セットアップのサーバーフォルダーと実際に起動しているサーバーが同じか確認してください。
+              {bridgeProcess.delivery.authFailed.tokenFile ? ` トークンファイル: ${bridgeProcess.delivery.authFailed.tokenFile}` : ""}
+            </p>
+          ) : null}
           {bridgeProcess.delivery?.rejected ? (
             <p role="alert" className="cockpit-launch-notice cockpit-launch-notice--error">
               Modへ送れなかったイベントが{bridgeProcess.delivery.rejected}件あります（後ろのギフトは止めずに処理しています）。

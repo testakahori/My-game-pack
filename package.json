@@ -58,6 +58,7 @@
       "bridge/feature_engine.js",
       "bridge/event_rules.cjs",
       "bridge/command_files.cjs",
+      "bridge/bridge_mod_token.cjs",
       "bridge/package.json",
       "assets/icon.ico",
       "bridge/stream_sessions.cjs",

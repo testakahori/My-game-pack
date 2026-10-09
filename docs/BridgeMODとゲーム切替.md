@@ -7,6 +7,7 @@
 - DOUMAMODのJava処理をBridgeModディレクトリへ移し、MOD IDを`bridgemod`、表示名をBridgeMODに変更。
 - ゲーム内コマンドは`/bridge zombie 1`、大技の内部コマンドは`bridgeeffect`。
 - HTTPは`/bridge/event`、`/bridge/exec`、`/bridge/status`。ポートは従来と同じ。変更する場合は`BRIDGE_MOD_PORT`。
+- BridgeMOD 1.5.0 から、HTTP と WebSocket はこのPCの Bridge・アプリだけが使える。サーバー起動ごとに乱数トークンを `<サーバーフォルダー>/config/bridgemod-token.txt` に書き、HTTP は `X-Bridge-Token` ヘッダー、WebSocket は `ws://127.0.0.1:<ポート+1>/?token=<トークン>` で送る。次の要求は 403 で拒否する：トークンなし・不一致、`Origin` ヘッダーあり（ブラウザー）、`Host` が `127.0.0.1:<ポート>` / `localhost:<ポート>` 以外。POST の本文は `application/json` に限る（違えば 415）。WebSocket は送信専用（状態・死亡通知）で、受信したイベントは実行しない。アプリは Bridge 起動時に環境変数 `BRIDGE_MOD_TOKEN_FILE` でトークンの場所を渡す。
 - アプリ・BRIDGE・コマンド一覧・同梱txtも新名称を使用。旧`/douma`コマンドと旧HTTP入口は登録しない。
 - 旧設定の`douma_mod`・`doumaModHost`・`doumaModPort`は読み取り互換を維持する。旧MODを起動する意味ではない。
 - ワールド中の既存Mobタグ・天候の保存ファイル名は互換のため維持する。

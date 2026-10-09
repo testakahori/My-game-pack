@@ -1,18 +1,19 @@
 const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
+const { bridgeFetch } = require('./bridge-http.cjs');
 const mineflayer = require('mineflayer'), { Rcon } = require('rcon-client');
 const root = process.env.GIFT_QA_SERVER;
 if (!root || JSON.parse(fs.readFileSync(path.join(root, 'gift-qa-marker.json'))).purpose !== 'disposable-gift-effects-test') throw Error('Disposable server required');
 const props = fs.readFileSync(path.join(root, 'server.properties'), 'utf8');
 for (const setting of ['server-ip=127.0.0.1','server-port=25587','rcon.port=25588']) if (!props.includes(setting)) throw Error('QA ports required');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const status = async () => (await fetch('http://127.0.0.1:25578/bridge/status')).json();
+const status = async () => (await bridgeFetch('http://127.0.0.1:25578/bridge/status')).json();
 async function wait(fn, ms=20000) { const end=Date.now()+ms; while(Date.now()<end){if(await fn())return;await sleep(75);}throw Error('Timed out'); }
 let rcon,bot; const packets=[], result={checks:[]};
 const pass = text => {result.checks.push(text); console.log('PASS '+text);};
 const noDisplay = process.env.GIFT_QA_NO_DISPLAY === '1';
 const cmd = command => rcon.send(command);
 async function send(event, code=202) {
-  const response=await fetch('http://127.0.0.1:25578/bridge/event',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'gift',key:'qa_game',count:1,listenerName:'Aさん',...event})});
+  const response=await bridgeFetch('http://127.0.0.1:25578/bridge/event',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'gift',key:'qa_game',count:1,listenerName:'Aさん',...event})});
   assert.equal(response.status,code,await response.text());
 }
 (async()=>{
