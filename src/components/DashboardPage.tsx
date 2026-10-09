@@ -5,7 +5,7 @@ import PreflightPanel from "./PreflightPanel";
 import EulerApiKeySettings from './EulerApiKeySettings';
 import { useUnsavedChanges } from "../UnsavedChanges";
 import type { GiftMapping } from "../types";
-import { stopConfirmMessage, type StopTarget } from "../lib/stopSafety";
+import { stopConfirmMessage, stopState, type StopTarget } from "../lib/stopSafety";
 
 type RunState = "stopped" | "starting" | "running" | "error";
 type LogType  = "info" | "ok" | "error" | "warn";
@@ -456,11 +456,9 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
   };
 
   // 稼働中のものを止めるときだけ確認する（配信中のうっかり停止を防ぐ。止まっていれば確認なしで実行）。
+  // アプリの外で起動したサーバーはここから止められないので、止める対象に数えない。
   const confirmStop = (target: StopTarget) => {
-    const message = stopConfirmMessage(target, {
-      bridgeRunning: bridgeProcess.running === true, serverRunning: serverProc.running === true,
-      tiktokConnected: bridgeProcess.running === true && bridgeProcess.tiktok?.state === "connected",
-    });
+    const message = stopConfirmMessage(target, stopState(bridgeProcess, serverProc));
     return !message || window.confirm(message);
   };
 
@@ -737,20 +735,28 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
       const text = `BRIDGE停止: ${errorMessage(e)}`;
       errors.push(text); addLog(text, "error");
     }
-    try {
-      setForgeState("starting");
-      addLog("Forgeサーバーを停止中…（ワールド保存を待っています）", "info");
-      await api.serverStop();
-      setForgeState("stopped");
-      addLog("Forgeサーバーを停止しました。", "ok");
-    } catch (e: any) {
-      setForgeState("error");
-      const text = `Forgeサーバー停止: ${errorMessage(e)}`;
-      errors.push(text); addLog(text, "error");
+    // アプリの外で起動したサーバーは server:stop が断るので呼ばず、エラーではなく案内にする。
+    const externalServer = serverProc.running === true && serverProc.managed === false;
+    if (externalServer) {
+      addLog("サーバーはアプリの外で起動しているため停止しません。起動した画面で stop を実行してください。", "info");
+    } else {
+      try {
+        setForgeState("starting");
+        addLog("Forgeサーバーを停止中…（ワールド保存を待っています）", "info");
+        await api.serverStop();
+        setForgeState("stopped");
+        addLog("Forgeサーバーを停止しました。", "ok");
+      } catch (e: any) {
+        setForgeState("error");
+        const text = `Forgeサーバー停止: ${errorMessage(e)}`;
+        errors.push(text); addLog(text, "error");
+      }
     }
     const notice = errors.length
       ? { type: "error" as const, text: `停止が完了していません。${errors.join(" ")}` }
-      : { type: "ok" as const, text: "一括停止が完了しました。" };
+      : externalServer
+        ? { type: "info" as const, text: "BRIDGEを停止しました。サーバーはアプリの外で起動しているため止めていません。起動した画面で stop を実行してください。" }
+        : { type: "ok" as const, text: "一括停止が完了しました。" };
     setLaunchNotice(notice); addLog(notice.text, notice.type);
     setAllStopBusy(false);
   };

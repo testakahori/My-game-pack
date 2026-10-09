@@ -3,6 +3,7 @@ import EventTestPanel from "./EventTestPanel";
 import WorldSavesPanel from "./WorldSavesPanel";
 import SettingsBackupsPanel from "./SettingsBackupsPanel";
 import ListInput from "./ListInput";
+import { COMMA_ONLY } from "../lib/listInput";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 
 type ModStatus = {
@@ -405,8 +406,9 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
                   <input type="number" value={o.maxCommandsPerGift ?? 200} onChange={(event) => setOption("maxCommandsPerGift", Number(event.target.value) || 0)} />
                 </FieldLabel>
               </div>
-              <FieldLabel label="ミュートユーザー（カンマ区切り）">
-                <ListInput values={o.mutedUsers || []} onChange={(values) => setOption("mutedUsers", values)} placeholder="例）baduser1, baduser2" />
+              {/* ニックネームでもミュートするので、読点の入った名前（例：ゆき、だよ）を分けないよう半角カンマだけで区切る */}
+              <FieldLabel label="ミュートユーザー（半角カンマ区切り）">
+                <ListInput values={o.mutedUsers || []} separators={COMMA_ONLY} onChange={(values) => setOption("mutedUsers", values)} placeholder="例）baduser1, baduser2" />
               </FieldLabel>
               <FieldLabel label="TTS NGワード（カンマ区切り）">
                 <ListInput values={o.ttsNgWords || []} onChange={(values) => setOption("ttsNgWords", values)} placeholder="例）暴言, URL, 宣伝" />
