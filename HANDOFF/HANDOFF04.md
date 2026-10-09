@@ -1,3 +1,101 @@
+### 2026-10-10：開発版で実機確認（BridgeMOD 1.5.0・saikutuMOD 1.0.2）と、強さの上限をやめる方針
+
+#### 注意：手元の環境は開発版で試した状態のまま。戻すまでインストール版で配信しない
+
+ユーザーの判断で、PC を切る前に元へ戻さなかった（次回すぐ続きから確認するため）。
+
+- サーバー（`D:\新しいフォルダー (3)\mods`）と Minecraft（`%APPDATA%\.minecraft\mods`）の mods が、bridgemod-1.5.0・displaymod-1.1.0・saikutumod-1.0.2 になっている。インストール済みアプリ 1.0.45 の Bridge はトークンを送らないので、BridgeMOD 1.5.0 に 403 で拒否され、コマンドが届かない。
+- 共有の `%APPDATA%\tiktok-bridge-ui\game-profiles\3a04a27d61dbcc79\profiles.json` は active=saikutu。common の枠には、リポジトリの開発用設定（mappings 52件、旧採掘コマンド入り）が保存された。このままインストール版でゲームを切り替えると、本物のギフト設定がこの開発用設定で上書きされる。
+- ワールド `haihu_world` は、ゾンビなどのテストで変わっている。
+- D 側（`My-game-pack-review`、ブランチ `fix/minecraft-java-detection`）に切替の書き込みが残っている：`bridge/config.minecraft.json` の変更と、未追跡の `bridge/commands/minecraft/_op.txt`・`game_saikutu_*.txt`（14件）・`bridge/stream-audience.json`・`bridge/stream-sessions.json`。
+- **戻し方**（Minecraft を閉じ、アプリでサーバーと BRIDGE を止め、開発版アプリも閉じてから）
+  1. 退避 `MyGamePack02\back\実機確認_退避_20261010` から戻す。退避は元と SHA-256 で一致を確認済み。
+     - `server\mods` → `D:\新しいフォルダー (3)\mods`（中身を入れ替える）
+     - `server\haihu_world` → `D:\新しいフォルダー (3)\haihu_world`
+     - `server\config` → `D:\新しいフォルダー (3)\config`（`bridgemod-token.txt` は退避時になかったので消える）
+     - `server\server.properties`
+     - `minecraft\mods` → `%APPDATA%\.minecraft\mods`
+     - `tiktok-bridge-ui\game-profiles\3a04a27d61dbcc79\profiles.json` と `tiktok-bridge-ui\app-config.json` → `%APPDATA%\tiktok-bridge-ui\` の同じ場所
+     - BRIDGE の実行ファイル（`bridge\node_modules`・`bridge\node`）とキャッシュは退避していない。アプリが同梱品から入れ直せるため。
+  2. D 側で `git restore bridge/config.minecraft.json` を実行し、上の未追跡ファイルを消す。`git status` が切替前（PR #56 の差分だけ）に戻ったことを確かめる。
+  3. 切替でアプリが退避した旧 mods は、`<各フォルダー>\.mygamepack-mod-switch\<番号>\previous` にも残っている。
+
+#### 実機で確かめたこと（開発版 `npm run electron:dev`、サーバーは `D:\新しいフォルダー (3)`）
+
+- トークン認証：成功。サーバーのログで BridgeMOD が 1.4.0 から 1.5.0 に上がって起動した。サーバーの起動で `config\bridgemod-token.txt`（64文字）ができた。テスト発火のコマンドは届き、403 は1件もなかった。
+- 視聴者名：成功。`テスト視聴者01` と `太郎'\§aX😀` の名前でゾンビを出した。後者は `太郎’＼X😀` になった（`'` と `\` は全角へ、`§a` は削除、絵文字は残る）。ゾンビ 50 匹の設定で 50 匹出た。
+- ゲーム切替（採掘）：PR #56 の修正後に成功。両方の mods の jar は、ビルド結果と SHA-256 が一致した。
+- 停止パネル：未確認。停止パネル（`StopPanel.tsx`）はホームの一括停止とは別物で、TOP でゲームが未保存・切替の復旧待ち・状態の取得失敗のときだけ、操作盤の代わりに出る（`App.tsx` の `!gameReady` の枠）。採掘を保存済みの今は出ないので、わざとその状態を作る手順を考えてから確かめる。ホームの一括停止の確認（動いているときだけ出す）は、同じ `stopSafety.ts` を使う。
+- 強さの上限：確認せず、方針を変えた（下の「方針の変更」）。
+
+#### 開発版で実機確認するときの罠
+
+- Claude Code（VS Code 拡張）から起動すると、環境変数 `ELECTRON_RUN_AS_NODE=1` が付いていて、`main.cjs` の `ipcMain.handle` で落ちる。`Remove-Item Env:ELECTRON_RUN_AS_NODE` してから `npm run electron:dev`。
+- 開発版は `dist/index.html` を読むので、先に `npm run build`。node_modules は `--ignore-scripts` で作ってあるため、初回の起動で Electron 本体のダウンロードが走る。
+- 開発版の切替は、リポジトリのビルド結果から jar を配置する。`DisplayMod/build/libs` に古い 1.0.0 しかなく、そのまま切り替えると入っている 1.1.0 から 1.0.0 に戻るところだった。DisplayMod には gradlew がないので、`DisplayMod` フォルダーで `..\BridgeMod\gradlew.bat build --offline --no-daemon "-Dnet.minecraftforge.gradle.check.certs=false"` を実行して 1.1.0 を作った（CI と同じやり方）。
+- 開発版は、userData（`%APPDATA%\tiktok-bridge-ui`）とサーバーフォルダーをインストール版と共有する。BRIDGE の設定だけは、リポジトリの `bridge/config.minecraft.json`（git 管理）を使う。
+- リポジトリの開発用設定には、旧採掘コマンド（`get_tree.txt` など）が common のまま残っている。そのため一括起動が「選択したゲームでは使えないコマンドです: get_tree.txt（mappings.3）」で止まった。採掘に切り替えると、保管してあった採掘の設定（6件）が読み込まれて解消した。
+- Electron の CSP の警告は開発版だけで出る（`main.cjs` は ELECTRON_DEV=1 のとき CSP を付けない）。製品版では出ない。
+
+#### PR #56：ゲーム切替の前に、VS Code の Java や Gradle を Minecraft と見なさない（未マージ）
+
+- 症状：Minecraft を起動していないのに、採掘の保存が「Minecraftとランチャーを終了してから切り替えてください」で止まった。切替前の確認（`getMinecraftProcessStatus(true)`）が java.exe をすべて Minecraft として数えていて、VS Code の Java 拡張機能の java.exe（言語サーバー1・Gradle サーバー1・Gradle デーモン6）に引っかかっていた。インストール版でも同じことが起きる。
+- 修正
+  - java.exe の起動引数を PowerShell（`Get-CimInstance`）で読み、Minecraft・Forge のものだけを数える。外で起動したサーバーとワールド生成は `@libraries/net/minecraftforge/...`、java.exe で動くゲーム本体は `cpw.mods.`・`net.minecraft.`・`.minecraft`・`--gameDir` で見分ける。
+  - 起動引数を読めないとき・時間切れのときは、今までどおり数える。
+  - 止めたときのメッセージに、動いているプロセス名を出す。
+  - 判定は `electron/minecraft_processes.cjs` に分け、`electron/test/minecraft-processes.test.cjs` を足した。
+- 検証：`npm run verify`（App 227件）が成功し、CI の3チェックも成功した。実機では、Forge サーバーの起動中に java.exe 9個のうちサーバーの1個だけを数え、VS Code の8個は数えなかった。日本語のパスも化けずに読めた。
+- レビュー（サブエージェント）は APPROVE。CRITICAL・HIGH は 0 件。
+- ブランチは `fix/minecraft-java-detection`（`6052788`）。D 側は今このブランチにいる。
+- 残り（中）。マージの前に直すか、後続の PR にする。
+  - 自分のログインセッションの java.exe だけを調べる。サービスや管理者権限の java.exe は起動引数を読めず、今も切替が止まる（`-Filter "Name='java.exe' AND SessionId=<自分>"`）。
+  - 起動引数を読めずに数えたことを、メッセージで区別する。
+  - `readJavaCommandLines` の失敗時（終了コード1・error・spawn の例外・時間切れ・二重通知）のテストを足す。
+- 残り（低）
+  - stdout を `setEncoding('utf8')` にする（日本語が塊の境目で化ける。判定には影響しない）。
+  - タイマーの clearTimeout と `stdio: ['ignore','pipe','ignore']`。
+  - `powershell.exe` を絶対パスで起動する。
+  - 正規表現の選択肢ごとのテスト。
+  - NeoForge・Fabric・`server.jar` を見落とす（アプリの対象外）。
+
+#### 方針の変更：強さの上限をやめる（ユーザーの決定）
+
+- ユーザーの考え
+  - お客さんは、ギフトを100個送ったら100回分の妨害が起きて配信者が慌てるのを期待して送る。
+  - 数を増やしてサーバーを落とそうとするのも、妨害の醍醐味。
+  - 落ちたら「落ちたからちょっと待ってね」と言って立て直せばよい。
+- 決めたこと
+  - 制限は一切なし。送られた分をそのまま出す。落ちたときの仕組みも作らない（自動再起動などはしない）。
+  - P4 で入れた強さの上限を外す。
+    - BridgeMOD の `EffectLimits`：鶏・矢・金床・メテオ・流星群・火山の3倍、ゾンビウェーブの2倍、スーパージャンプの10回分。
+    - saikutuMOD の `SaikutuLimits`：洪水・氷河期の3倍、天変地異の2倍、スクリプトのくり返し回数（TNT大爆発などの3回、ピッケル没収の1回、そのほかの200回）。
+  - 鶏やゾンビは消さない。「同時に存在する数の上限を超えたら古いものから消す」案は却下された（消えたら面白くない）。今月の項目の「タグ別の同時存在数の上限」は取りやめる。
+  - TNT大爆発は、N 個送られたら「半径が N 倍の大爆発を1回」起こす。100回くり返すことはしない。
+    1. 見た目は今と同じ。頭上に TNT が並んで落ちてきて爆発する。並べる TNT は N に関係なく1回分（数を増やすと、それだけで固まるため）。
+    2. 爆発のあと、爆心から衝撃波が広がり、半径「今の穴の半径 × N」まで地形をえぐる。一瞬で消すのではなく、広がっていく見せ方にする（ユーザーの選択）。
+    3. えぐるのは、プレイヤーの周りに読み込まれている地形（配信に映る範囲、半径約128ブロック）。遠くの地形を生成して削る作りや、近づいたときに削る作りにはしない。ユーザーの言葉：「TNT が落ちてきて、地形がえぐれて、えらいこっちゃとなっているのを見せたい」。岩盤は残す。
+    4. 衝撃波に巻き込まれたモブ・プレイヤーは、爆発と同じくダメージを受けて吹き飛ぶ。
+    5. 削ったブロックはアイテムにしない。
+    - N が 6〜7 を超えると、見える範囲がすべて消えて岩盤だけ残り、見た目はそれ以上変わらない（ユーザーに説明済み）。
+  - `/bridge` コマンドを OP（権限2）に限った P4 の変更はセキュリティのためなので残す。
+  - 2026-10-09 の「残っている低の指摘」のうち、「大技の上限が2回分効く」と「抑えた数が表示に反映されない」は、上限をやめるので不要になる。
+- 進め方：上の方向はユーザーが会話で了承した。設計書はまだ書いていない。
+- 設計書で決めること
+  - 今の穴の半径（count=1 を実機で測る）。
+  - 衝撃波の広がる速さ。
+  - スーパージャンプの高さの上限（重ねたときの落下死を防ぐ修正だった）も外すか。ユーザーに確認する。
+  - Bridge の「個別最大コマンド数」（運用センターで設定、既定200）をどうするか。運用者の設定なので残す案。
+
+#### 次にやること
+
+1. 手元の環境：開発版で停止パネルを確かめ、終わったら上の「戻し方」で戻す。インストール版で配信する前に必ず戻す。開発版の起動は D 側で `Remove-Item Env:ELECTRON_RUN_AS_NODE; npm run electron:dev`（`dist` は 2026-10-10 にビルド済み）。
+2. PR #56：中の指摘3件を直してマージする。
+3. 強さの上限をやめる設計書を書く（`docs/superpowers/specs/` に置く）。ユーザーに見てもらってから実装計画、そのあと実装。BridgeMOD・saikutuMOD・契約テスト（`scripts/test-bridge-contracts.cjs` の EffectLimits・SaikutuLimits）にまたがる。
+4. 2026-10-09 の「今月の項目」に進む（「タグ別の同時存在数の上限」は取りやめ）。
+
+---
+
 ### 2026-10-09：アプリレビュー（2026-10-08）の「今週」7項目と、レビューで残った指摘の後続 PR をすべてマージ
 
 #### 依頼と進め方
@@ -151,7 +249,7 @@
 
 #### 次にやること
 
-1. 実機で確認する（2026-10-09 に準備を始め、利用上限のため中断）：BridgeMOD 1.5.0 と saikutuMOD 1.0.2 を入れ、次を確かめる。
+1. 実機で確認する（2026-10-09 に準備を始め、利用上限のため中断）→ 2026-10-10 に開発版で実施。結果と今の手元の状態は、上の 2026-10-10 の項目を見ること。以下は 2026-10-09 時点の記録。BridgeMOD 1.5.0 と saikutuMOD 1.0.2 を入れ、次を確かめる。
    - **今の手元の状態（2026-10-09 夜に確認）**
      - インストール済みアプリは 1.0.45。1.0.46 のインストーラーは作成済みだが、入れていない。
      - 設定は `%APPDATA%\tiktok-bridge-ui\app-config.json`。serverFolder は `D:\新しいフォルダー (3)`、ワールドは `haihu_world/world`。
