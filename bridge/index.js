@@ -36,7 +36,7 @@ const { commandFileProblem } = require("./command_files.cjs");
 const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("./bridge_mod_token.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require("./feature_engine");
 const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras } = require("./event_rules.cjs");
-const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter } = require("./tiktok_events.cjs");
+const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter, createMuteMatcher } = require("./tiktok_events.cjs");
 let runtimeProtection = { enabled: false };
 let bridgeModWebSocket = null;
 let bridgeModWebSocketStopping = false;
@@ -428,7 +428,9 @@ function mcJsonStringEscape(s, maxLen = 40) {
   let v = String(s ?? "");
   v = v.replace(/[\r\n\t]/g, " ");
   v = v.replace(/[\u0000-\u001F\u007F]/g, "");
-  if (v.length > maxLen) v = v.slice(0, maxLen);
+  // 絵文字などのサロゲートペアを途中で切らないよう、文字（コードポイント）単位で数えて切る。
+  const chars = Array.from(v);
+  if (chars.length > maxLen) v = chars.slice(0, maxLen).join("");
   return JSON.stringify(v).slice(1, -1);
 }
 
@@ -1046,15 +1048,14 @@ async function main() {
   const bridgeModHost = String(options.bridgeModHost || options.doumaModHost || "127.0.0.1").trim();
   const bridgeModPort = Number(options.bridgeModPort || options.doumaModPort || 25576);
   const logUnknownGifts = !!options.logUnknownGifts;
-  const mutedUsers = new Set((Array.isArray(options.mutedUsers) ? options.mutedUsers : [])
-    .map(v => String(v).trim().toLowerCase()).filter(Boolean));
+  const isMutedUser = createMuteMatcher(options.mutedUsers);
   const ttsNgWords = (Array.isArray(options.ttsNgWords) ? options.ttsNgWords : [])
     .map(v => String(v).trim()).filter(Boolean);
   const isMuted = (data) => {
-    const candidates = [getStableSender(data), data?.uniqueId, data?.userId]
-      .map(v => String(v || "").trim().toLowerCase());
-    const blocked = candidates.some(v => v && mutedUsers.has(v));
-    if (blocked) console.log(`[Safety] muted user event ignored: ${candidates.find(Boolean)}`);
+    // 表示名は整えた形（' → ’ など）になるので、生の uniqueId・名前も候補に入れる（設定は生の名前でも整えた名前でもよい）。
+    const event = normalizeTikTokEvent(data), sender = getStableSender(event);
+    const blocked = isMutedUser([event.uniqueId, event.nickname, event.userId, sender]);
+    if (blocked) console.log(`[Safety] muted user event ignored: ${sender}`);
     return blocked;
   };
 

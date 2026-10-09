@@ -37,12 +37,54 @@ function normalizeTikTokEvent(input = {}, type = '') {
     viewerCount: type === 'roomUser' ? count(data.viewerCount, data.total) : data.viewerCount,
   };
 }
-// 視聴者名はコマンド・ログ・読み上げに埋め込まれる。どこに入れても壊れない形にする（BridgeMOD の ListenerNames.java と同じ規則）。
-// " ' \ は全角の同じ形の文字へ、改行・タブは空白へ。書式コード（§ と次の1文字）・制御文字・文字の向きを変える制御文字は除く。
+// 視聴者名はコマンド・ログ・読み上げに埋め込まれる。どこに入れても壊れない形にする（BridgeMOD の ListenerNames.java と同じ規則。
+// 同じ入力で同じ結果になることを scripts/test-bridge-contracts.cjs で確かめる）。
+// " ' \ は全角の同じ形の文字へ、改行・タブは空白へ。書式コード（§ と次の1文字）・制御文字・文字の向きや行を変える制御文字・
+// 片割れのサロゲートは除く。前後の空白（trimmedNameChar の一覧だけ）を削り、40文字（コードポイント）までにする。空になったら ''。
+const NAME_MAX_LENGTH = 40;
 const NAME_SYMBOLS = { '"': '”', "'": '’', '\\': '＼' };
+function removedNameChar(cp) {
+  return cp < 0x20 || (cp >= 0x7f && cp < 0xa0) || (cp >= 0xd800 && cp <= 0xdfff)
+    || cp === 0x061c || cp === 0x200e || cp === 0x200f || cp === 0x2028 || cp === 0x2029
+    || (cp >= 0x202a && cp <= 0x202e) || (cp >= 0x2066 && cp <= 0x2069);
+}
+// 前後から削る空白。String.prototype.trim（JS）と String.trim（Java）は範囲が違うので、この一覧だけを使う。
+function trimmedNameChar(cp) {
+  return cp === 0x20 || cp === 0xa0 || cp === 0x1680 || (cp >= 0x2000 && cp <= 0x200a)
+    || cp === 0x202f || cp === 0x205f || cp === 0x3000 || cp === 0xfeff;
+}
 function safeDisplayName(value) {
-  return Array.from(String(value ?? '').replace(/§[\s\S]?/gu, ''), ch => /[\r\n\t]/.test(ch) ? ' '
-    : /[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩]/.test(ch) ? '' : NAME_SYMBOLS[ch] || ch).join('').trim();
+  const chars = Array.from(String(value ?? '')), kept = [];
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
+    if (ch === '§') { i++; continue; } // 書式コードは「§」と次の1文字（§c など）をまとめて除く
+    if (ch === '\r' || ch === '\n' || ch === '\t') kept.push(' ');
+    else if (!removedNameChar(ch.codePointAt(0))) kept.push(NAME_SYMBOLS[ch] || ch);
+  }
+  // 前の空白を削ってから40文字で切り、後ろの空白を削る（ListenerNames.java と同じ順番）。
+  let start = 0, end = kept.length;
+  while (start < end && trimmedNameChar(kept[start].codePointAt(0))) start++;
+  end = Math.min(end, start + NAME_MAX_LENGTH);
+  while (end > start && trimmedNameChar(kept[end - 1].codePointAt(0))) end--;
+  return kept.slice(start, end).join('');
+}
+// ミュートの照合。設定には生の名前（it's me）も、整えた後の表示名（it’s me）も書かれうる。
+// 視聴者側の候補（生の ID・名前と整えた表示名）と設定の値を、それぞれ生のままと整えた形の両方で比べ、
+// どれか1つでも一致すればミュートにする。大文字小文字と前後の空白は区別しない。
+function muteKeys(values) {
+  const keys = new Set();
+  for (const value of values) {
+    if (value == null) continue;
+    for (const key of [String(value), safeDisplayName(value)]) {
+      const normalized = key.trim().toLowerCase();
+      if (normalized) keys.add(normalized);
+    }
+  }
+  return keys;
+}
+function createMuteMatcher(entries) {
+  const muted = muteKeys(Array.isArray(entries) ? entries : []);
+  return candidates => muted.size > 0 && [...muteKeys(candidates)].some(key => muted.has(key));
 }
 function getStableSender(data) {
   const event = normalizeTikTokEvent(data);
@@ -84,4 +126,4 @@ function createLikeCounter() {
     },
   };
 }
-module.exports = { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent, createLikeCounter, safeDisplayName };
+module.exports = { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent, createLikeCounter, safeDisplayName, createMuteMatcher };

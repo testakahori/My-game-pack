@@ -52,6 +52,14 @@ test('視聴者名はコマンド・ログに入れても壊れない形にす�
   // 名前が記号・制御文字だけなら、次の候補（ID）へ進む。
   assert.equal(getStableSender({ nickname: '§\u0000', uniqueId: 'handle' }), 'handle');
   assert.equal(safeDisplayName('ふつうの名前'), 'ふつうの名前');
+  // 40文字（コードポイント）まで。前後の空白は全角空白・NBSP・BOM も削り、空になれば ID へ進む。
+  assert.equal(safeDisplayName('x'.repeat(50)), 'x'.repeat(40));
+  assert.equal(safeDisplayName('\u{1f600}'.repeat(45)), '\u{1f600}'.repeat(40));
+  assert.equal(getStableSender({ nickname: '\u{3000}\u{3000}', uniqueId: 'handle' }), 'handle');
+  assert.equal(safeDisplayName('\u{feff}\u{a0}名前\u{3000}'), '名前');
+  // 行・段落の区切りと文字の向きの印、片割れのサロゲートも除く。
+  assert.equal(safeDisplayName('a\u{2028}b\u{2029}c\u{200e}d\u{200f}e\u{61c}f'), 'abcdef');
+  assert.equal(safeDisplayName('a\u{d83d}b'), 'ab');
 });
 test('同梱のコマンドtxtは、シングルクォートの中に視聴者名を埋め込まない', () => {
   const fs = require('node:fs'), path = require('node:path');

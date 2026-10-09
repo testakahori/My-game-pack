@@ -53,6 +53,14 @@ async function main() {
     ]);
   });
 
+  await ok("applyPlaceholders(RCON): 40文字で切っても絵文字のサロゲートペアを壊さない", () => {
+    // 途中で切れた \ud83d が SNBT の CustomName に入ると、summon ごと失敗する。
+    const name = "x".repeat(39) + "\u{1f600}\u{1f600}";
+    const out = bridge.applyPlaceholders('summon minecraft:zombie ~ ~ ~ {CustomName:"\\"{ListenerName}\\""}', { listenerName: name });
+    assert.strictEqual(out, 'summon minecraft:zombie ~ ~ ~ {CustomName:"\\"' + "x".repeat(39) + '\u{1f600}\\""}');
+    assert.ok(!/\\u[dD][89a-fA-F]/.test(out), out);
+  });
+
   await ok("dedupe: 同一msgId+repeatCountは重複、repeatCountが進めば別イベント", () => {
     const base = { msgId: "m1", giftId: "5655", nickname: "alice", repeatCount: 1 };
     const k1 = bridge.dedupeKeyFromGift(base);

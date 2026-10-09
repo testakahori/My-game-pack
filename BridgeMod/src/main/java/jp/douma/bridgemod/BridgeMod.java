@@ -981,7 +981,8 @@ public class BridgeMod {
         String v = (s == null) ? "" : s;
         v = v.replace("\r", " ").replace("\n", " ").replace("\t", " ");
         v = v.replaceAll("[\\u0000-\\u001F\\u007F]", "");
-        if (v.length() > maxLen) v = v.substring(0, maxLen);
+        // 絵文字などのサロゲートペアを途中で切らないよう、文字（コードポイント）単位で数えて切る。
+        if (v.codePointCount(0, v.length()) > maxLen) v = v.substring(0, v.offsetByCodePoints(0, maxLen));
 
         // JSON string の中身として使える形にする（" を \", \ を \\）
         v = v.replace("\\", "\\\\").replace("\"", "\\\"");

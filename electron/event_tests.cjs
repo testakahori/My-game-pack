@@ -4,6 +4,7 @@ const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require('
 const { boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras } = require('../bridge/event_rules.cjs');
 const { prepareRoulette } = require('../bridge/roulette.cjs');
 const { commandFileProblem } = require('../bridge/command_files.cjs');
+const { createMuteMatcher } = require('../bridge/tiktok_events.cjs');
 
 const TYPES = new Set(['gift', 'mapped_gift', 'unmapped_gift', 'like', 'share', 'follow', 'member', 'comment', 'death', 'roulette', 'combo', 'like_milestone', 'follow_milestone', 'comment_command', 'poll']);
 function commandName(value) {
@@ -50,7 +51,8 @@ function planTestEvent(config, input, commandsDir) {
     if (enabledCommand(rule)) push(rule.commandFile, rule.repeat ?? 1, label);
     else notes.push(`${label}は無効または未設定です。`);
   };
-  if ((Array.isArray(config.options?.mutedUsers) ? config.options.mutedUsers : []).some(v => String(v).trim().toLowerCase() === sender.trim().toLowerCase()) && type !== 'death') {
+  // 本番の Bridge と同じ照合（生の名前と整えた表示名のどちらで設定しても効く）。
+  if (createMuteMatcher(config.options?.mutedUsers)([sender]) && type !== 'death') {
     return { type, sender, steps, notes: ['この視聴者はミュート対象のため発火しません。'] };
   }
   if (['gift', 'mapped_gift', 'combo'].includes(type) && number('count', 1, 100) < 1) throw new Error('ギフト数は1以上にしてください。');
