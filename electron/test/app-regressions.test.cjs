@@ -638,3 +638,32 @@ test('ゲーム選択IPC: サバイバルでは残った採掘TXTをルーレッ
   config.deathRoulette = { enabled: true, everyDeaths: 1, items: [{ commandFile: 'game_saikutu_get_ender_pearl.txt', weight: 1, repeat: 1 }] };
   await assert.rejects(app.invoke('config:write', config), /使えないコマンド/);
 });
+
+test("テスト発火のルーレット: 演出だけ送れなくても当選は送り、演出を送れなかった理由を結果に書く", async t => {
+  const http = require("node:http");
+  const received = [];
+  // 演出（/bridge/exec）だけ待ち列が満杯で断られ、当選（/bridge/event）は受け付ける MOD。
+  const server = http.createServer((req, res) => {
+    req.resume(); req.on("end", () => {
+      received.push(req.url);
+      res.writeHead(req.url === "/bridge/exec" ? 429 : 202, { "Content-Type": "application/json" });
+      res.end(req.url === "/bridge/exec" ? '{"ok":false,"error":"queue_full"}' : '{"ok":true}');
+    });
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const app = loadApp(t);
+  const cfg = JSON.parse(fs.readFileSync(app.configPath));
+  cfg.roulette = { enabled: true, items: [{ commandFile: "qa.txt", label: "QA", weight: 1, repeat: 2 }] };
+  cfg.options.bridgeModPort = server.address().port;
+  fs.writeFileSync(app.configPath, JSON.stringify(cfg));
+  const dir = path.join(app.root, "bridge", "commands", "minecraft"); fs.mkdirSync(dir, { recursive: true });
+  for (const file of ["qa.txt", "roulette.txt"]) fs.writeFileSync(path.join(dir, file), "say test");
+  const tokenFile = path.join(app.root, "server", "Douma_Craft", "config", "bridgemod-token.txt");
+  fs.mkdirSync(path.dirname(tokenFile), { recursive: true }); fs.writeFileSync(tokenFile, "qa-token\n");
+  const result = await app.invoke("mod:testEvent", { type: "gift", commandFile: "roulette.txt" });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(received, ["/bridge/exec", "/bridge/event"], "演出は最初の失敗でやめ、当選は送る");
+  // 以前は演出が出なかった理由がどこにも残らず、結果は「成功」とだけ表示された。
+  assert.match(result.fired[0].message, /ルーレットの演出は送れませんでした/);
+});

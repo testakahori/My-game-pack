@@ -845,16 +845,21 @@ function bridgeEventDelivery(bridgeMod, opts = {}) {
         ...(Number(event.diamond) > 0 ? { diamond: Number(event.diamond) } : {}),
       });
     },
-    retry: (event, error, attempt) => {
+    // state は同じ要求の再送のあいだ共有される。失敗の種類が変わったら数え直す。
+    retry: (event, error, attempt, state = {}) => {
       // 403 はトークン違い。サーバーを再起動した直後なら、次の再送で新しいトークンを読み直して通る。
-      // トークンの書き換えと読み込みがすれ違うと正常でも1回だけ 403 になるので、2回続いたら認証の失敗として出す。
+      // トークンの書き換えと読み込みがすれ違うと正常でも1回だけ 403 になるので、同じ要求で2回続いたら認証の失敗として出す。
       const forbidden = Number(error?.status) === 403;
-      if (forbidden && attempt < 2) return;
+      const kind = forbidden ? "forbidden" : "other";
+      state.streak = state.kind === kind ? (state.streak || 0) + 1 : 1;
+      state.kind = kind;
+      if (forbidden && state.streak < 2) return;
       if (forbidden) markBridgeModAuth(true);
       const detail = forbidden
         ? `BridgeMODの認証に失敗しました（トークンファイル: ${bridgeModTokenFile()}）。サーバーを起動し直すと作り直されます`
         : error?.message || error;
-      if (attempt === (forbidden ? 2 : 1) || attempt % 20 === 0) console.warn(
+      // ログは失敗の種類が変わったとき（403 は2回続いたとき）と、20回ごとに出す。
+      if (state.streak === (forbidden ? 2 : 1) || attempt % 20 === 0) console.warn(
         "[BridgeMod] Waiting to retry", event.type, event.commandFile, "attempt=" + attempt, detail);
     },
   });

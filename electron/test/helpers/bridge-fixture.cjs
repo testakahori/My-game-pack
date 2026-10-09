@@ -21,13 +21,16 @@ async function until(check, label) {
 /**
  * @param commands { 'cod': 'say test\n', ... } を commands/ に書く（.txt は自動で付ける）
  * @param config bridge の設定。options の commandsDir・transport・接続先はこちらで埋める
+ * @param respond 偽 BridgeMOD が返す HTTP ステータス（要求の本文と URL を受け取る）。既定は 202
  */
-async function startBridgeFixture(t, { commands = {}, config = {}, env = {} } = {}) {
+async function startBridgeFixture(t, { commands = {}, config = {}, env = {}, respond = () => 202 } = {}) {
   const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-fixture-')));
   const requests = [], logs = [], timers = new Set(), watchers = [];
   const server = http.createServer((req, res) => {
     let body = ''; req.on('data', chunk => body += chunk); req.on('end', () => {
-      requests.push(JSON.parse(body)); res.writeHead(202, { 'Content-Type': 'application/json' }); res.end('{"ok":true}');
+      const payload = JSON.parse(body); requests.push(payload);
+      const status = respond(payload, req.url);
+      res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(status < 300 ? '{"ok":true}' : '{"ok":false}');
     });
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));

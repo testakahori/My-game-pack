@@ -27,6 +27,16 @@ public final class EffectLimitsContractTest {
         for (int i = 0; i < 20; i++) target = EffectLimits.jumpTarget(target, 100, 10);
         same(420.0, target, "repeated max jumps never exceed base + 320");
         same(320, EffectLimits.MAX_JUMP_RISE, "max rise");
+        // 連続ジャンプの記録：最初に跳んだ高さが基準。上昇中・頂上のどこで何回重ねても上限は動かない。
+        EffectLimits.JumpChain chain = new EffectLimits.JumpChain(100);
+        same(132.0, chain.stack(1), "chain first jump");
+        for (int i = 0; i < 20; i++) chain.stack(10);
+        same(420.0, chain.target(), "chain capped at the first height + 320");
+        same(100.0, chain.baseY, "chain keeps the first height");
+        // 低速落下は、目標から基準の高さまで落ちきる分（1ブロック10 tick＋400）。今の位置が途中でも基準から数える。
+        same(3600, chain.slowFallingTicks(420), "slow falling covers the whole drop from the top");
+        same(3600, chain.slowFallingTicks(250), "slow falling measured from the base, not the current height");
+        same(800, new EffectLimits.JumpChain(64).slowFallingTicks(64), "minimum slow falling");
         System.out.println("EffectLimits contract: " + checks + " checks passed");
     }
 

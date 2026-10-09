@@ -145,3 +145,20 @@ test('同じユーザーのゲーム向けいいねも別要求のまま保持�
   assert.equal(new Set(sent.map(e => e.requestId)).size, sent.length);
   assert.deepEqual(sent.map(e => [e.count, e.gameSessionId]), [[2,'round-1'],[2,'round-1'],[2,'round-1'],[2,'round-2'],[12,undefined]]);
 });
+
+test('再送のあいだ同じ要求には同じ状態を渡し、次の要求には新しい状態を渡す', async () => {
+  // Bridge は 403 が同じ要求で2回続いたかをこの状態で数える（失敗の種類をまたいで数えない）。
+  const states = [];
+  let failures = 2;
+  const delivery = createModEventDelivery({
+    send: async () => { if (failures-- > 0) throw Object.assign(new Error('HTTP 503'), { status: 503 }); },
+    retry: (_event, _error, _attempt, state) => states.push(state),
+    sleep: async () => {},
+  });
+  await delivery.enqueue({ type: 'gift', commandFile: 'a.txt', count: 1 });
+  failures = 1;
+  await delivery.enqueue({ type: 'gift', commandFile: 'b.txt', count: 1 });
+  assert.equal(states.length, 3);
+  assert.equal(states[0], states[1]);
+  assert.notEqual(states[1], states[2]);
+});
