@@ -14,6 +14,7 @@
     "test:app": "node --test electron/test/*.test.cjs",
     "verify": "npm run typecheck && npm run test:bridge && npm run test:app && npm run build",
     "electron:dev": "cross-env ELECTRON_DEV=1 electron .",
+    "dev:refresh": "node scripts/refresh-dev.cjs",
     "electron:prod": "electron .",
     "prepare:bridge-runtime": "node scripts/prepare-bridge-runtime.cjs",
     "prepare:server-template": "node scripts/prepare-server-template.cjs",
