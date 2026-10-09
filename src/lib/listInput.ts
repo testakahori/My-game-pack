@@ -17,6 +17,14 @@ export function parseListInput(text: string, separators: string = LIST_SEPARATOR
   });
 }
 
+/**
+ * 読点・全角カンマが入っているか。半角カンマだけで区切る欄（ミュートユーザー）で注意を出すのに使う。
+ * 日本語入力のままカンマキーを押すと「、」になり、2つの名前が気づかないうちに1件になる。
+ */
+export function hasJapaneseComma(values: readonly string[]): boolean {
+  return values.some(value => /[、，]/.test(value));
+}
+
 /** 保存する値を入力欄に表示する文字列にする。 */
 export function formatListInput(values: readonly string[]): string {
   return values.join(", ");

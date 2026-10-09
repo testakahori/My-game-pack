@@ -21,9 +21,21 @@ export function stopState(bridge: BridgeStatus, server: ServerStatus): RunningSt
   };
 }
 
-/** 状態の取得結果を反映する。取得に失敗した項目は前回の値を残し、一度も取れていなければ null（不明）のまま。 */
-export function keepLastKnown<T>(previous: T | null, result: PromiseSettledResult<T | null | undefined>): T | null {
-  return result.status === "fulfilled" && result.value != null ? result.value : previous;
+/**
+ * 状態の取得結果を反映する。取得に失敗した項目は前回の値を残し、一度も取れていなければ null（不明）にする。
+ * previous の undefined は、まだ最初の確認が返ってきていない（確認中）。
+ */
+export function keepLastKnown<T>(previous: T | null | undefined, result: PromiseSettledResult<T | null | undefined>): T | null {
+  return result.status === "fulfilled" && result.value != null ? result.value : previous ?? null;
+}
+
+/**
+ * 停止パネルに出す状態の文言。undefined はまだ最初の確認が返ってきていない（確認中）、null は取得に失敗して前回の値もない（不明）。
+ * 確認中を「不明」と出すと、tasklist の確認を待つ数秒の間、動いているかもしれないという注意まで出てしまう。
+ */
+export function runningLabel(running: boolean | null | undefined, on: string): string {
+  if (running === undefined) return "確認中";
+  return running === null ? "不明" : running ? on : "停止中";
 }
 
 /**

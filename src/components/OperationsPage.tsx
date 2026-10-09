@@ -3,7 +3,7 @@ import EventTestPanel from "./EventTestPanel";
 import WorldSavesPanel from "./WorldSavesPanel";
 import SettingsBackupsPanel from "./SettingsBackupsPanel";
 import ListInput from "./ListInput";
-import { COMMA_ONLY } from "../lib/listInput";
+import { COMMA_ONLY, hasJapaneseComma } from "../lib/listInput";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 
 type ModStatus = {
@@ -412,6 +412,8 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
               <FieldLabel label="ミュートユーザー（半角カンマ区切り）">
                 <ListInput values={o.mutedUsers || []} separators={COMMA_ONLY} onChange={(values) => setOption("mutedUsers", values)} placeholder="例）baduser1, baduser2" />
               </FieldLabel>
+              {/* 日本語入力のままカンマキーを押すと「、」になり、2つの名前が1件になるので注意を出す（.ops-panel p の色に負けないよう p にしない） */}
+              {hasJapaneseComma(o.mutedUsers || []) && <small className="mt-1.5 block text-[11px] leading-relaxed text-amber-300">「、」「，」は区切りになりません。区切るときは半角の「,」を使ってください（名前に「、」を含む場合はそのままで大丈夫です）。</small>}
               <FieldLabel label="TTS NGワード（カンマ区切り）">
                 <ListInput values={o.ttsNgWords || []} onChange={(values) => setOption("ttsNgWords", values)} placeholder="例）暴言, URL, 宣伝" />
               </FieldLabel>
