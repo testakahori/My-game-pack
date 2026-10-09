@@ -2,7 +2,7 @@
 
 #### 注意：手元の環境は開発版で試した状態のまま。戻すまでインストール版で配信しない
 
-ユーザーの判断で、PC を切る前に元へ戻さなかった（次回すぐ続きから確認するため）。
+ユーザーの判断で、PC を切る前に元へ戻さなかった（次回すぐ続きから確認するため）。サーバーと BRIDGE は 03:44 に停止済み。D 側の `bridge/config.minecraft.json` の `gameProfile` は `saikutu` に戻してある。
 
 - サーバー（`D:\新しいフォルダー (3)\mods`）と Minecraft（`%APPDATA%\.minecraft\mods`）の mods が、bridgemod-1.5.0・displaymod-1.1.0・saikutumod-1.0.2 になっている。インストール済みアプリ 1.0.45 の Bridge はトークンを送らないので、BridgeMOD 1.5.0 に 403 で拒否され、コマンドが届かない。
 - 共有の `%APPDATA%\tiktok-bridge-ui\game-profiles\3a04a27d61dbcc79\profiles.json` は active=saikutu。common の枠には、リポジトリの開発用設定（mappings 52件、旧採掘コマンド入り）が保存された。このままインストール版でゲームを切り替えると、本物のギフト設定がこの開発用設定で上書きされる。
@@ -25,7 +25,10 @@
 - トークン認証：成功。サーバーのログで BridgeMOD が 1.4.0 から 1.5.0 に上がって起動した。サーバーの起動で `config\bridgemod-token.txt`（64文字）ができた。テスト発火のコマンドは届き、403 は1件もなかった。
 - 視聴者名：成功。`テスト視聴者01` と `太郎'\§aX😀` の名前でゾンビを出した。後者は `太郎’＼X😀` になった（`'` と `\` は全角へ、`§a` は削除、絵文字は残る）。ゾンビ 50 匹の設定で 50 匹出た。
 - ゲーム切替（採掘）：PR #56 の修正後に成功。両方の mods の jar は、ビルド結果と SHA-256 が一致した。
-- 停止パネル：未確認。停止パネル（`StopPanel.tsx`）はホームの一括停止とは別物で、TOP でゲームが未保存・切替の復旧待ち・状態の取得失敗のときだけ、操作盤の代わりに出る（`App.tsx` の `!gameReady` の枠）。採掘を保存済みの今は出ないので、わざとその状態を作る手順を考えてから確かめる。ホームの一括停止の確認（動いているときだけ出す）は、同じ `stopSafety.ts` を使う。
+- 停止パネル：成功。停止パネル（`StopPanel.tsx`）はホームの一括停止とは別物で、TOP でゲームが未保存・切替の復旧待ち・状態の取得失敗のときだけ、操作盤の代わりに出る（`App.tsx` の `!gameReady` の枠）。
+  - 出し方：D 側の `bridge/config.minecraft.json` の `gameProfile` を一時的に `common` にし（profiles.json の active は saikutu のまま）、別のページから TOP に戻ると「未保存」になって出る。試したあと `saikutu` に戻した。この間、ホームの操作盤（一括起動・一括停止）は出ない。
+  - 結果：「BRIDGE・サーバー・Minecraft」の状態が出て、停止後は「BRIDGE：停止中 ／ サーバー：停止中」、ボタン3つが押せなくなり「停止しました。」が出た。サーバーは 03:44:01 に停止命令を受け、ワールドを保存して正常に止まった。BRIDGE停止のボタンはサーバーを止めない作りなので、一括停止かサーバー停止も押されたはず（ユーザーの報告は「BRIDGE停止を押した」。違っていたら不具合として調べる）。
+- ギフト一覧の更新が、開発版で「[fetchRoomGiftsRoute] Missing roomId」で失敗した。開発版は `GiftsViewer/tools-bundled`（git 管理外）があればそちらを使うが、中の `fetch_gifts.cjs` が 2026-08-02 に作った古いもので、#28（09-27）より前の取得方法（`fetchAvailableGifts`）のままだった。インストーラーは `pack:win` の `prepare:bridge-runtime` でソースから作り直すので、製品版には影響しない。開発版で直すには `npm run prepare:bridge-runtime` で作り直す。
 - 強さの上限：確認せず、方針を変えた（下の「方針の変更」）。
 
 #### 開発版で実機確認するときの罠
@@ -89,7 +92,7 @@
 
 #### 次にやること
 
-1. 手元の環境：開発版で停止パネルを確かめ、終わったら上の「戻し方」で戻す。インストール版で配信する前に必ず戻す。開発版の起動は D 側で `Remove-Item Env:ELECTRON_RUN_AS_NODE; npm run electron:dev`（`dist` は 2026-10-10 にビルド済み）。
+1. 手元の環境：実機確認の4項目は終わった（強さの上限は方針変更で不要）。上の「戻し方」で戻す。インストール版で配信する前に必ず戻す。開発版をまた使うときは、D 側で `Remove-Item Env:ELECTRON_RUN_AS_NODE; npm run electron:dev`（`dist` は 2026-10-10 にビルド済み）。
 2. PR #56：中の指摘3件を直してマージする。
 3. 強さの上限をやめる設計書を書く（`docs/superpowers/specs/` に置く）。ユーザーに見てもらってから実装計画、そのあと実装。BridgeMOD・saikutuMOD・契約テスト（`scripts/test-bridge-contracts.cjs` の EffectLimits・SaikutuLimits）にまたがる。
 4. 2026-10-09 の「今月の項目」に進む（「タグ別の同時存在数の上限」は取りやめ）。
