@@ -54,6 +54,10 @@ test('ミュート: 設定は生の名前（it\'s me）でも整えた表示名�
   config.options.mutedUsers = ['it’s me'];
   assert.equal(plan({ type: 'member', listenerName: "it's me" }).steps.length, 0);
   assert.equal(plan({ type: 'member', listenerName: 'its me' }).steps.length, 1);
+  // 絵文字の名前も本番と同じく文字単位で40文字まで。以前は UTF-16 の40単位で切って20文字になり、ミュートが効かなかった。
+  const emoji = '\u{1f600}'.repeat(21);
+  config.options.mutedUsers = [emoji];
+  assert.equal(plan({ type: 'member', listenerName: emoji }).steps.length, 0);
 });
 test('いいね: 前後の累計・追いつき上限・到達済みマイルストーンを判定', t => {
   const { plan } = fixture(t);

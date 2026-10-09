@@ -40,4 +40,25 @@ public final class EffectLimits {
     public static double jumpTarget(double currentTarget, double baseY, int count) {
         return Math.min(currentTarget + JUMP_HEIGHT * (double) count, baseY + MAX_JUMP_RISE);
     }
+
+    /**
+     * 連続ジャンプの高さの記録。着地するまで同じものを使い、最初に跳んだ高さ（baseY）を基準に上限を掛ける。
+     * 呼び出し側が「今の位置」を基準に渡し間違えないよう、基準はここで持つ。
+     */
+    public static final class JumpChain {
+        public final double baseY;
+        private double target;
+
+        public JumpChain(double startY) { baseY = target = startY; }
+
+        /** count 回分を重ね、新しい目標の高さを返す。 */
+        public double stack(int count) { return target = jumpTarget(target, baseY, count); }
+
+        public double target() { return target; }
+
+        /** 低速落下の長さ（tick）。目標から基準の高さ（今の位置が下ならそこ）まで落ちきる分に余裕を足す。 */
+        public int slowFallingTicks(double currentY) {
+            return (int) Math.min(120000, Math.max(800, (target - Math.min(currentY, baseY)) * 10 + 400));
+        }
+    }
 }

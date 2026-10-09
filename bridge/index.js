@@ -845,16 +845,24 @@ function bridgeEventDelivery(bridgeMod, opts = {}) {
         ...(Number(event.diamond) > 0 ? { diamond: Number(event.diamond) } : {}),
       });
     },
-    retry: (event, error, attempt) => {
+    // state は同じ要求の再送のあいだ共有される。失敗の種類が変わったら数え直す。
+    retry: (event, error, attempt, state = {}) => {
       // 403 はトークン違い。サーバーを再起動した直後なら、次の再送で新しいトークンを読み直して通る。
-      // トークンの書き換えと読み込みがすれ違うと正常でも1回だけ 403 になるので、2回続いたら認証の失敗として出す。
+      // トークンの書き換えと読み込みがすれ違うと正常でも1回だけ 403 になるので、同じ要求で2回続いたら認証の失敗として出す。
       const forbidden = Number(error?.status) === 403;
-      if (forbidden && attempt < 2) return;
+      const kind = forbidden ? "forbidden" : "other";
+      state.streak = state.kind === kind ? (state.streak || 0) + 1 : 1;
+      state.kind = kind;
+      if (forbidden && state.streak < 2) return;
       if (forbidden) markBridgeModAuth(true);
       const detail = forbidden
         ? `BridgeMODの認証に失敗しました（トークンファイル: ${bridgeModTokenFile()}）。サーバーを起動し直すと作り直されます`
         : error?.message || error;
-      if (attempt === (forbidden ? 2 : 1) || attempt % 20 === 0) console.warn(
+      // ログは、直前にログへ出した種類と違う失敗のとき（403 は2回続いたとき）と、20回ごとに出す。
+      // 403 と接続エラーが交互に来ても、再送のたびにログが出ないようにする。
+      const changed = state.logged !== kind;
+      state.logged = kind;
+      if (changed || attempt % 20 === 0) console.warn(
         "[BridgeMod] Waiting to retry", event.type, event.commandFile, "attempt=" + attempt, detail);
     },
   });
@@ -1380,8 +1388,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   const animateRoulette = createRouletteRunner({
     sendFrame: (commands, listenerName) => sendBridgeExec(bridgeMod, commands, listenerName),
     // 演出を送れなくても当選は再送のあるレーンへ流す。理由だけ残す。
+    // 認証の失敗かどうかは、当選を送るレーンが「同じ要求で 403 が2回続いたか」で判定する（演出の1回の 403 では決めない）。
     onFrameError: error => {
-      if (Number(error?.status) === 403) markBridgeModAuth(true);
       console.warn("[Roulette] 演出を送れなかったため、演出を省いて当選を発火します:", error?.message || error);
     },
   });

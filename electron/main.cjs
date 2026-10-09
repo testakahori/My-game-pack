@@ -1716,7 +1716,12 @@ async function fireBridgeEventMaybeRoulette(payload, bridgeCfg, commandsDir) {
     await send('POST', '/bridge/event', { ...event, requestId: crypto.randomUUID(),
       ...(metadata ? { gameSessionId: status?.gameSessions?.[metadata[1]]?.sessionId || '' } : {}) });
   };
-  const animateTestRoulette = createRouletteRunner({ sendFrame: (commands, listenerName) => send("POST", "/bridge/exec", { listenerName, commands }) });
+  // 演出だけ送れなかったとき（待ち列が満杯・古い MOD など）も当選は発火する。理由はテスト結果に書く。
+  let animationError = null;
+  const animateTestRoulette = createRouletteRunner({
+    sendFrame: (commands, listenerName) => send("POST", "/bridge/exec", { listenerName, commands }),
+    onFrameError: error => { animationError = error?.message || String(error); },
+  });
   if (payload.key !== "roulette") {
     await fire(payload);
     return { key: payload.key, count: payload.count, roulette: false };
@@ -1728,7 +1733,7 @@ async function fireBridgeEventMaybeRoulette(payload, bridgeCfg, commandsDir) {
   const winner = await animateTestRoulette(round, payload.listenerName, item => fire({
     ...payload, key: item.commandFile.replace(/\.txt$/i, ""), count: item.repeat, announce: false,
   }));
-  return { key: winner.commandFile.replace(/\.txt$/i, ""), count: winner.repeat, roulette: true, label: winner.label };
+  return { key: winner.commandFile.replace(/\.txt$/i, ""), count: winner.repeat, roulette: true, label: winner.label, ...(animationError ? { animationError } : {}) };
 }
 
 let testEventRunning = false;
@@ -1763,7 +1768,8 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
       try {
         outcome = await fireBridgeEventMaybeRoulette(payload, step.roulette ? { ...bridgeCfg, roulette: step.roulette } : bridgeCfg, commandsDir);
         if (step.extras?.length) await requestBridgeMod("POST", "/bridge/exec", { listenerName: plan.sender, commands: step.extras }, bridgeCfg);
-        result = { ok: true, message: step.label + " → " + outcome.key + ".txt × " + outcome.count + " をModへ送信済み" };
+        result = { ok: true, message: step.label + " → " + outcome.key + ".txt × " + outcome.count + " をModへ送信済み"
+          + (outcome.animationError ? `（ルーレットの演出は送れませんでした: ${outcome.animationError}）` : "") };
       } catch (error) { result = { ok: false, message: error.message }; }
       const row = { at: new Date().toISOString(), source: "test", type: step.type, sender: plan.sender,
         commandFile: outcome.key + ".txt", count: outcome.count, ...result };

@@ -29,13 +29,15 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {}, 
           const count = job.event.gameMod ? Math.min(job.event.count, job.remaining) : Math.min(100, job.remaining);
           const chunk = { ...job.event, count, requestId: `${job.id}:${job.part}`, eventId: `${job.id}:${job.part}` };
           let attempts = 0;
+          // Shared by every retry of this chunk, so diagnostics can count consecutive failures of one kind.
+          const retryState = {};
           for (;;) {
             try { await send(chunk); break; }
             catch (error) {
               attempts++;
               // A finite retry limit is only for explicit callers/tests, never the live dispatcher.
               if (isPermanentDeliveryFailure(error) || attempts > maxRetries) { failed = true; failure = error; break; }
-              try { retry(chunk, error, attempts); } catch { /* Diagnostics cannot discard a queued event. */ }
+              try { retry(chunk, error, attempts, retryState); } catch { /* Diagnostics cannot discard a queued event. */ }
               await sleep(Math.min(3000, 250 * 2 ** Math.min(attempts - 1, 4)));
             }
           }

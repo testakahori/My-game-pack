@@ -15,7 +15,8 @@ function commandName(value) {
 function planTestEvent(config, input, commandsDir) {
   if (!input || !TYPES.has(input.type)) throw new Error('対応していないテストイベントです。');
   const type = input.type;
-  const sender = String(input.listenerName || 'テスト視聴者').replace(/[\r\n]/g, ' ').slice(0, 40);
+  // 本番の Bridge・MOD と同じく、絵文字を割らないよう文字（コードポイント）単位で40文字までにする。
+  const sender = Array.from(String(input.listenerName || 'テスト視聴者').replace(/[\r\n]/g, ' ')).slice(0, 40).join('');
   const steps = [], notes = [];
   // 既定値は Bridge・アプリの初期設定・運用センターの表示と同じ 200。
   const maxCount = boundedInt(config.options?.maxCommandsPerGift ?? 200, 1, 10000, 200);
