@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import EventTestPanel from "./EventTestPanel";
 import WorldSavesPanel from "./WorldSavesPanel";
 import SettingsBackupsPanel from "./SettingsBackupsPanel";
+import ListInput from "./ListInput";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 
 type ModStatus = {
@@ -405,10 +406,10 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
                 </FieldLabel>
               </div>
               <FieldLabel label="ミュートユーザー（カンマ区切り）">
-                <input value={(o.mutedUsers || []).join(", ")} onChange={(event) => setOption("mutedUsers", event.target.value.split(",").map((value) => value.trim()).filter(Boolean))} placeholder="例）baduser1,baduser2" />
+                <ListInput values={o.mutedUsers || []} onChange={(values) => setOption("mutedUsers", values)} placeholder="例）baduser1, baduser2" />
               </FieldLabel>
               <FieldLabel label="TTS NGワード（カンマ区切り）">
-                <input value={(o.ttsNgWords || []).join(", ")} onChange={(event) => setOption("ttsNgWords", event.target.value.split(",").map((value) => value.trim()).filter(Boolean))} placeholder="例）暴言, URL, 宣伝" />
+                <ListInput values={o.ttsNgWords || []} onChange={(values) => setOption("ttsNgWords", values)} placeholder="例）暴言, URL, 宣伝" />
               </FieldLabel>
               <button type="button" className="ops-primary-button ops-primary-button--violet" disabled={saving} onClick={save}>動作設定を保存</button>
             </div>

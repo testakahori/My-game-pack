@@ -4,8 +4,9 @@
 // カードクリックでチャット欄に貼り付けられる「/bridge <コマンド名> 1」をコピーする。
 import React from "react";
 import { copyText } from "../lib/clipboard";
+import { INVALID_COMMAND_NAME_HINT } from "../lib/commandLabel";
 
-type CommandMeta = { name: string; title: string; category: string; description?: string };
+type CommandMeta = { name: string; title: string; category: string; description?: string; invalidName?: boolean };
 
 function getApi() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -183,6 +184,11 @@ const CommandsListPage: React.FC = () => {
                     <span className="cmd-card__copy">▣ コピー</span>
                   </div>
                   <p className="cmd-card__desc">{meta.description || "説明なし"}</p>
+                  {meta.invalidName && (
+                    <p className="cmd-card__warn">
+                      ⚠ この名前（{meta.name}）は BridgeMOD で実行できません。{INVALID_COMMAND_NAME_HINT}（使える文字：半角英数字と _ . -）。
+                    </p>
+                  )}
                   <code className="cmd-card__code">{chatCommandOf(meta)}</code>
                 </button>
               ))}

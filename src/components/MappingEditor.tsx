@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { CommandSet, GiftMapping } from "../types";
 import MinecraftCommandIcon from "./MinecraftCommandIcon";
 import { useUnsavedChanges } from "../UnsavedChanges";
+import { commandOptionLabel } from "../lib/commandLabel";
 
 type Props = {
   mappings?: GiftMapping[];
@@ -21,7 +22,7 @@ type Props = {
   defaultCommandsDirHint?: string;
 };
 
-type CmdFile = { name: string; title: string; category?: string; description?: string };
+type CmdFile = { name: string; title: string; category?: string; description?: string; invalidName?: boolean };
 const commandCategory = (raw = "") => { const key = raw.split("|")[0].trim(); return key === "お助け" ? "お助け系" : key === "妨害" ? "妨害系" : key || "その他"; };
 type SaveMsg = { type: "ok" | "error"; text: string };
 
@@ -226,7 +227,7 @@ const MappingEditor: React.FC<Props> = (props) => {
                 </option>
                 {selectedTxtName && !selectedCommandVisible && <optgroup label="現在の設定"><option value={selectedTxtName}>{titleMap[selectedTxtName] || selectedTxtName}</option></optgroup>}
                 {visibleCommandGroups.map(group => <optgroup key={group.category} label={group.category}>
-                  {group.files.map(file => <option key={file.name} value={file.name}>{file.title || file.name}</option>)}
+                  {group.files.map(file => <option key={file.name} value={file.name}>{commandOptionLabel(file)}</option>)}
                 </optgroup>)}
               </select>
               <div className="gift-repeat-control">

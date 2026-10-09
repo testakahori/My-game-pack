@@ -2560,7 +2560,7 @@ function selectableCommandNames() {
   const names = fs.readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isFile()).map(entry => entry.name);
   return availableGameCommands(names, gameProfiles.list()).sort();
 }
-ipcMain.handle("bridge:commands:list", () => readCommandMetadata().map(({ name, title }) => ({ name, title })));
+ipcMain.handle("bridge:commands:list", () => readCommandMetadata().map(({ name, title, invalidName }) => ({ name, title, ...(invalidName ? { invalidName } : {}) })));
 
 // --------------------
 // IPC: bridge/commands/minecraft/ の TITLE + CATEGORY + 説明文 メタ情報一覧

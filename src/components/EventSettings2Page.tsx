@@ -3,6 +3,7 @@
 // デザインはイベント設定①（EventSettingsPage）を踏襲。
 import React, { useCallback, useEffect, useState } from "react";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
+import { commandOptionLabel } from "../lib/commandLabel";
 import { ToggleSlider } from "./ToggleSlider";
 
 type RouletteItem = {
@@ -32,7 +33,7 @@ type CommentGiftRule = {
   enabled: boolean;
 };
 
-type CommandFile = { name: string; title: string };
+type CommandFile = { name: string; title: string; invalidName?: boolean };
 
 const api = (window as any).mygamepack;
 
@@ -137,7 +138,7 @@ function CmdSelect({
     >
       <option value="">（未設定）</option>
       {value && !selected && <option value={value}>{value}</option>}
-      {commandFiles.map((f) => <option key={f.name} value={f.name}>{f.title}</option>)}
+      {commandFiles.map((f) => <option key={f.name} value={f.name}>{commandOptionLabel(f)}</option>)}
     </select>
   );
 }

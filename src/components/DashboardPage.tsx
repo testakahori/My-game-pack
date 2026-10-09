@@ -5,6 +5,7 @@ import PreflightPanel from "./PreflightPanel";
 import EulerApiKeySettings from './EulerApiKeySettings';
 import { useUnsavedChanges } from "../UnsavedChanges";
 import type { GiftMapping } from "../types";
+import { stopConfirmMessage, type StopTarget } from "../lib/stopSafety";
 
 type RunState = "stopped" | "starting" | "running" | "error";
 type LogType  = "info" | "ok" | "error" | "warn";
@@ -454,7 +455,17 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
     }
   };
 
+  // 稼働中のものを止めるときだけ確認する（配信中のうっかり停止を防ぐ。止まっていれば確認なしで実行）。
+  const confirmStop = (target: StopTarget) => {
+    const message = stopConfirmMessage(target, {
+      bridgeRunning: bridgeProcess.running === true, serverRunning: serverProc.running === true,
+      tiktokConnected: bridgeProcess.running === true && bridgeProcess.tiktok?.state === "connected",
+    });
+    return !message || window.confirm(message);
+  };
+
   const handleServerStop = async () => {
+    if (!confirmStop("server")) return;
     setForgeState("starting"); addLog("Forgeサーバーを停止中…");
     try {
       await api.serverStop(); setForgeState("stopped");
@@ -477,6 +488,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
   };
 
   const handleBridgeStop = async () => {
+    if (!confirmStop("bridge")) return;
     setBridgeState("starting"); addLog("BRIDGEを停止中…");
     try {
       await api.bridgeStop(); setBridgeState("stopped");
@@ -712,7 +724,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
   };
 
   const handleAllStop = async () => {
-    if (allStopBusy) return;
+    if (allStopBusy || !confirmStop("all")) return;
     setAllStopBusy(true);
     const errors: string[] = [];
     setLaunchNotice({ type: "info", text: "BRIDGEとサーバーを停止しています。ワールドの保存完了までお待ちください。" });

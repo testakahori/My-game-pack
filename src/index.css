@@ -6516,6 +6516,17 @@ button.tts-status-card:hover {
   min-height: 2.6em;
 }
 
+.cmd-card__warn {
+  margin: 0;
+  padding: 6px 9px;
+  border-radius: 7px;
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  background: rgba(120, 72, 0, 0.25);
+  color: #fcd34d;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .cmd-card__code {
   padding: 6px 9px;
   border-radius: 7px;

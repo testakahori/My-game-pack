@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { GiftAssignment } from '../types/electron';
 import { useUnsavedChanges, useUnsavedGuard } from '../UnsavedChanges';
+import { commandOptionLabel } from '../lib/commandLabel';
 
-type Command = { name: string; title: string; category: string; description?: string };
+type Command = { name: string; title: string; category: string; description?: string; invalidName?: boolean };
 export default function GiftCommandDialog({ giftId, giftName, hasCards, onClose, onSaved }: {
   giftId: string; giftName: string; hasCards: boolean; onClose: () => void;
   onSaved: (mappings: GiftAssignment[], command: Command, repeat: number, syncImage: boolean) => void;
@@ -62,7 +63,7 @@ export default function GiftCommandDialog({ giftId, giftName, hasCards, onClose,
           <label className="panel-field"><span>実行するコマンド</span><select aria-label="実行するコマンド" autoFocus value={commandFile} required onChange={e => setCommandFile(e.target.value)}>
             <option value="">コマンドを選択</option>
             {commandFile && !command && <option value={commandFile} disabled>見つからないコマンド: {commandFile}</option>}
-            {[...new Set(commands.map(c => c.category || 'その他'))].map(category => <optgroup key={category} label={category}>{commands.filter(c => (c.category || 'その他') === category).map(c => <option key={c.name} value={c.name}>{c.title}</option>)}</optgroup>)}
+            {[...new Set(commands.map(c => c.category || 'その他'))].map(category => <optgroup key={category} label={category}>{commands.filter(c => (c.category || 'その他') === category).map(c => <option key={c.name} value={c.name}>{commandOptionLabel(c)}</option>)}</optgroup>)}
           </select></label>
           {command?.description && <p className="gift-command-description">{command.description}</p>}
           {!commands.length && <p role="alert">コマンドがありません。初期セットアップを確認してください。</p>}
