@@ -16,7 +16,8 @@ function planTestEvent(config, input, commandsDir) {
   const type = input.type;
   const sender = String(input.listenerName || 'テスト視聴者').replace(/[\r\n]/g, ' ').slice(0, 40);
   const steps = [], notes = [];
-  const maxCount = boundedInt(config.options?.maxCommandsPerGift ?? 50, 1, 10000, 50);
+  // 既定値は Bridge・アプリの初期設定・運用センターの表示と同じ 200。
+  const maxCount = boundedInt(config.options?.maxCommandsPerGift ?? 200, 1, 10000, 200);
   const push = (file, count, label, eventType = type, extras = []) => {
     const commandFile = commandName(file);
     // 本番の Bridge と同じく、BridgeMOD が拒否する名前はその1件だけ送らずに理由を残す（ほかの設定は続けて確認する）。

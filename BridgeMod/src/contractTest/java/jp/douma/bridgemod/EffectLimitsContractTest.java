@@ -17,13 +17,16 @@ public final class EffectLimitsContractTest {
         // count を使わない大技・ゲームMODのキーは変えない。
         same(7, EffectLimits.clamp("storm", 7), "storm untouched");
         same(7, EffectLimits.clamp("witherhunt", 7), "witherhunt untouched");
-        // ジャンプ：1回 32 ブロック。空中で重ねても今の位置から 320 ブロック上まで。
+        // ジャンプ：1回 32 ブロック。空中で重ねても、連続ジャンプを始めた高さから 320 ブロック上まで。
         same(132.0, EffectLimits.jumpTarget(100, 100, 1), "one jump");
-        same(420.0, EffectLimits.jumpTarget(100, 100, 50), "jump capped from current height");
+        same(420.0, EffectLimits.jumpTarget(100, 100, 50), "jump capped from the base height");
         same(420.0, EffectLimits.jumpTarget(400, 100, 1), "stacked jumps capped");
-        // 上限に届いたあと、上昇して位置が上がった分だけは重ねられる。
-        same(432.0, EffectLimits.jumpTarget(400, 132, 1), "stacked jump below cap");
-        same(452.0, EffectLimits.jumpTarget(420, 132, 5), "rising player continues up to cap");
+        same(132.0, EffectLimits.jumpTarget(100, 100, 1), "base is the height of the first jump");
+        // 上昇中・頂上で何度重ねても上限は動かない（以前は今の位置が基準で、重ねるたびに上限も上がった）。
+        double target = 100;
+        for (int i = 0; i < 20; i++) target = EffectLimits.jumpTarget(target, 100, 10);
+        same(420.0, target, "repeated max jumps never exceed base + 320");
+        same(320, EffectLimits.MAX_JUMP_RISE, "max rise");
         System.out.println("EffectLimits contract: " + checks + " checks passed");
     }
 

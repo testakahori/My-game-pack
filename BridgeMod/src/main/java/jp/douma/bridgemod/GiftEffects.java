@@ -74,8 +74,9 @@ final class GiftEffects {
         }
     }
     private static final class Jump {
-        final ServerLevel level; double target, liftY; boolean coasting; int age;
-        Jump(ServerPlayer p) { level = p.serverLevel(); target = liftY = p.getY(); }
+        // baseY：連続ジャンプを始めた高さ。着地するまで同じ Jump を使うので、空中で重ねても上限は動かない。
+        final ServerLevel level; final double baseY; double target, liftY; boolean coasting; int age;
+        Jump(ServerPlayer p) { level = p.serverLevel(); baseY = target = liftY = p.getY(); }
     }
 
     void load(MinecraftServer server) {
@@ -534,9 +535,9 @@ final class GiftEffects {
     private void jump(ServerPlayer p, int count) {
         Jump j = jumps.computeIfAbsent(p.getUUID(), id -> new Jump(p));
         if (j.level != p.serverLevel()) { j = new Jump(p); jumps.put(p.getUUID(), j); }
-        j.target = EffectLimits.jumpTarget(j.target, p.getY(), count); j.liftY = p.getY(); j.coasting = false; j.age = 0;
+        j.target = EffectLimits.jumpTarget(j.target, j.baseY, count); j.liftY = p.getY(); j.coasting = false; j.age = 0;
         p.removeEffect(MobEffects.JUMP); p.removeEffect(MobEffects.LEVITATION);
-        p.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, (int)Math.min(120000, Math.max(800, (j.target - p.getY()) * 10 + 400)), 0, false, false));
+        p.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, (int)Math.min(120000, Math.max(800, (j.target - Math.min(p.getY(), j.baseY)) * 10 + 400)), 0, false, false));
         p.setOnGround(false);
     }
     private void tickJumps(MinecraftServer server) {
@@ -554,6 +555,10 @@ final class GiftEffects {
                 p.fallDistance = 0;
                 if (j.liftY >= j.target) j.coasting = true;
             }
+            // 着地するまで低速落下を切らさない（牛乳などで消えても、高い所から落ちて死なないようにする）。
+            MobEffectInstance falling = p.getEffect(MobEffects.SLOW_FALLING);
+            if (falling == null || falling.getDuration() < 40)
+                p.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, 200, 0, false, false));
         }
     }
 }

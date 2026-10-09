@@ -82,21 +82,9 @@ final class SaikutuEffects {
         weatherLevels.forEach(level -> EnvironmentOverrides.releaseWeather(level, owner));
         weatherLevels.clear(); jobs.clear(); blizzards.clear(); icePrisons.clear(); ticks = 0; failures = 0;
     }
-    // count は数の倍率（天変地異なら TNT 100×count 個）。ゲームMOD経路では count が最大100,000のまま届くので、
-    // 1回で受け付ける倍率を抑えてワールドと TPS を守る。超えた分は実行しない（ログに残す）。
-    // 値は実機で確認済みの量（count=1）の2〜3倍を目安にしている。
-    private static final Map<String, Integer> MAX_COUNT = Map.of(
-        "flood", 3,       // ドラウンド 90体
-        "iceage", 3,      // 落ちてくる氷 225個
-        "cataclysm", 2);  // TNT 200個・隕石は BridgeMOD 側の上限で抑える
-
-    static int limitCount(String key, int count) {
-        Integer max = MAX_COUNT.get(key);
-        return max == null ? count : Math.max(1, Math.min(count, max));
-    }
-
     int start(CommandSourceStack source, String key, int count, Protection protection) throws Exception {
-        int limited = limitCount(key, count);
+        // count は数の倍率（天変地異なら TNT 100×count 個）。上限は SaikutuLimits にまとめてある。
+        int limited = SaikutuLimits.effectCount(key, count);
         if (limited != count) System.out.println("[saikutu] " + key + " の count を " + count + " から上限の " + limited + " に抑えました");
         count = limited;
         Origin o = new Origin(source.getLevel(), source.getPosition(), protection == null ? NONE : protection);

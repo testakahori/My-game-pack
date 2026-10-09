@@ -43,4 +43,20 @@ test('テスト発火も同じ上限で回数を減らし、理由を表示す�
   assert.ok(plain.notes.some(note => note.includes('個別最大コマンド数（5）')));
   const game = planTestEvent({ options }, { type: 'gift', commandFile: 'tower.txt', count: 30 }, dir);
   assert.equal(game.steps[0].count, 30);
+  // 設定に値がない古い config でも、運用センターに表示される既定値 200 を使う（以前は黙って 50 だった）。
+  const fallback = planTestEvent({ options: {} }, { type: 'gift', commandFile: 'zombie.txt', count: 100 }, dir);
+  assert.equal(fallback.steps[0].count, 100);
+  assert.ok(!fallback.notes.some(note => note.includes('個別最大コマンド数')));
+});
+
+test('「個別最大コマンド数」が設定にないときは、運用センターの表示と同じ 200 を使う', async t => {
+  const bridge = await startBridgeFixture(t, {
+    commands: { cod: '# TITLE: cod\nsay cod\n' },
+    config: { likeEvents: [{ enabled: true, threshold: 1, commandFile: 'cod.txt', repeat: 1 }], options: {} },
+  });
+  const total = () => bridge.requests.filter(x => x.key === 'cod').reduce((sum, x) => sum + x.count, 0);
+  await bridge.emit('WebcastLikeMessage', { count: 300, total: '300' });
+  await bridge.until(() => total() >= 200, 'default cap');
+  await bridge.wait(200);
+  assert.equal(total(), 200);
 });

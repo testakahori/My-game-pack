@@ -1031,7 +1031,8 @@ async function main() {
   const options = config.options || {};
   runtimeProtection = options.protection || { enabled: false };
   const giftCooldownMs = Number(options.giftCooldownMs ?? 300);
-  const maxCommandsPerGift = Number(options.maxCommandsPerGift ?? 50);
+  // 既定値はアプリの初期設定（electron/main.cjs）・運用センターの表示と同じ 200。
+  const maxCommandsPerGift = Number(options.maxCommandsPerGift ?? 200);
   const maxLikeCatchUpPerEvent = clampInt(options.maxLikeCatchUpPerEvent ?? 5, 1, 100, 5);
   const rconQueueWarnSize = clampInt(options.rconQueueWarnSize ?? 20, 1, 10000, 20);
   const commandTransport = String(options.commandTransport || "rcon").toLowerCase().trim();
@@ -1325,7 +1326,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   const prepareGameEvent = event => captureGameEvent(event,
     resolveCommands({ commandFile: ensureTxt(event.commandFile) }).meta?.GAME_MOD, bridgeGameSessions);
   const modDelivery = bridgeMod ? bridgeEventDelivery(bridgeMod, {
-    prepare: prepareGameEvent, maxCount: clampInt(maxCommandsPerGift, 1, 10000, 50),
+    prepare: prepareGameEvent, maxCount: clampInt(maxCommandsPerGift, 1, 10000, 200),
   }) : null;
   // 失敗は recordDeliveryRejection がログ・履歴・画面用の状態へ記録済み。
   const enqueueMod = event => modDelivery.enqueue(event).catch(() => {});

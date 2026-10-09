@@ -30,11 +30,14 @@ public final class EffectLimits {
         return max == null ? count : Math.max(1, Math.min(count, max));
     }
 
+    /** 連続ジャンプで上がれる高さ（ブロック）。最初に跳んだ高さからここまで。 */
+    public static final int MAX_JUMP_RISE = JUMP_HEIGHT * 10;
+
     /**
-     * 空中で重ねたジャンプの目標の高さを、今いる位置から 320 ブロック上までに抑える。
-     * 際限なく上がると、効果が切れた時点で落下死する。
+     * 空中で重ねたジャンプの目標の高さを、連続ジャンプを始めた高さ（baseY）から 320 ブロック上までに抑える。
+     * 今の位置を基準にすると、空中で重ねるたびに上限も上がって際限なく高くなり、効果が切れた時点で落下死する。
      */
-    public static double jumpTarget(double currentTarget, double playerY, int count) {
-        return Math.min(currentTarget + JUMP_HEIGHT * (double) count, playerY + JUMP_HEIGHT * (double) MAX_COUNT.get("superjump"));
+    public static double jumpTarget(double currentTarget, double baseY, int count) {
+        return Math.min(currentTarget + JUMP_HEIGHT * (double) count, baseY + MAX_JUMP_RISE);
     }
 }
