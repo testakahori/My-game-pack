@@ -1,24 +1,21 @@
 ### 2026-10-10：開発版で実機確認（BridgeMOD 1.5.0・saikutuMOD 1.0.2）と、強さの上限をやめる方針
 
-#### 注意：手元の環境は開発版で試した状態のまま。戻すまでインストール版で配信しない
+#### 手元の環境は、実機確認の前の状態に戻した（インストール版で配信できる）
 
-ユーザーの判断で、PC を切る前に元へ戻さなかった（次回すぐ続きから確認するため）。サーバーと BRIDGE は 03:44 に停止済み。D 側の `bridge/config.minecraft.json` の `gameProfile` は `saikutu` に戻してある。
+いったん「開発版の状態のまま残す」と決めたが、ユーザーの指示で 2026-10-10 04 時ごろに戻した。
 
-- サーバー（`D:\新しいフォルダー (3)\mods`）と Minecraft（`%APPDATA%\.minecraft\mods`）の mods が、bridgemod-1.5.0・displaymod-1.1.0・saikutumod-1.0.2 になっている。インストール済みアプリ 1.0.45 の Bridge はトークンを送らないので、BridgeMOD 1.5.0 に 403 で拒否され、コマンドが届かない。
-- 共有の `%APPDATA%\tiktok-bridge-ui\game-profiles\3a04a27d61dbcc79\profiles.json` は active=saikutu。common の枠には、リポジトリの開発用設定（mappings 52件、旧採掘コマンド入り）が保存された。このままインストール版でゲームを切り替えると、本物のギフト設定がこの開発用設定で上書きされる。
-- ワールド `haihu_world` は、ゾンビなどのテストで変わっている。
-- D 側（`My-game-pack-review`、ブランチ `fix/minecraft-java-detection`）に切替の書き込みが残っている：`bridge/config.minecraft.json` の変更と、未追跡の `bridge/commands/minecraft/_op.txt`・`game_saikutu_*.txt`（14件）・`bridge/stream-audience.json`・`bridge/stream-sessions.json`。
-- **戻し方**（Minecraft を閉じ、アプリでサーバーと BRIDGE を止め、開発版アプリも閉じてから）
-  1. 退避 `MyGamePack02\back\実機確認_退避_20261010` から戻す。退避は元と SHA-256 で一致を確認済み。
-     - `server\mods` → `D:\新しいフォルダー (3)\mods`（中身を入れ替える）
-     - `server\haihu_world` → `D:\新しいフォルダー (3)\haihu_world`
-     - `server\config` → `D:\新しいフォルダー (3)\config`（`bridgemod-token.txt` は退避時になかったので消える）
-     - `server\server.properties`
-     - `minecraft\mods` → `%APPDATA%\.minecraft\mods`
-     - `tiktok-bridge-ui\game-profiles\3a04a27d61dbcc79\profiles.json` と `tiktok-bridge-ui\app-config.json` → `%APPDATA%\tiktok-bridge-ui\` の同じ場所
-     - BRIDGE の実行ファイル（`bridge\node_modules`・`bridge\node`）とキャッシュは退避していない。アプリが同梱品から入れ直せるため。
-  2. D 側で `git restore bridge/config.minecraft.json` を実行し、上の未追跡ファイルを消す。`git status` が切替前（PR #56 の差分だけ）に戻ったことを確かめる。
-  3. 切替でアプリが退避した旧 mods は、`<各フォルダー>\.mygamepack-mod-switch\<番号>\previous` にも残っている。
+- 開発版アプリと Minecraft を閉じてから、退避 `MyGamePack02\back\実機確認_退避_20261010` から次を戻した（robocopy /MIR とコピー）。
+  - サーバーの `mods`（bridgemod-1.4.0・displaymod-1.1.0 に戻った）・`haihu_world`・`config`（`bridgemod-token.txt` は消えた）・`server.properties`
+  - Minecraft の `%APPDATA%\.minecraft\mods`
+  - `%APPDATA%\tiktok-bridge-ui\game-profiles\3a04a27d61dbcc79\profiles.json`（active=common に戻った）
+- `app-config.json` は退避時から変わっていなかったので、戻していない。
+- 戻したあと、全部のファイルが退避と SHA-256 で一致することを確かめた（ワールド 42件、mods 2件ずつ、config 1件）。
+- D 側は `git restore bridge/config.minecraft.json` と、切替で増えた未追跡ファイル（`bridge/commands/minecraft/_op.txt`・`game_saikutu_*.txt` 14件・`bridge/stream-audience.json`・`bridge/stream-sessions.json`）の削除で片付けた。
+- 残っているもの
+  - 退避フォルダーそのもの（次に開発版で試すときも使える）。
+  - 切替でアプリが退避した旧 mods：`D:\新しいフォルダー (3)\.mygamepack-mod-switch\` と `%APPDATA%\.minecraft\.mygamepack-mod-switch\`。不要なら消してよい。
+  - サーバー起動で書き換わる `usercache.json`・`ops.json` などは戻していない（サーバーが毎回作り直す）。
+- もう一度開発版で試すときは、同じ手順で退避してから行う。退避と戻し方の手順は、メモ（`electron-dev-device-check`）とこの節にある。
 
 #### 実機で確かめたこと（開発版 `npm run electron:dev`、サーバーは `D:\新しいフォルダー (3)`）
 
@@ -27,7 +24,16 @@
 - ゲーム切替（採掘）：PR #56 の修正後に成功。両方の mods の jar は、ビルド結果と SHA-256 が一致した。
 - 停止パネル：成功。停止パネル（`StopPanel.tsx`）はホームの一括停止とは別物で、TOP でゲームが未保存・切替の復旧待ち・状態の取得失敗のときだけ、操作盤の代わりに出る（`App.tsx` の `!gameReady` の枠）。
   - 出し方：D 側の `bridge/config.minecraft.json` の `gameProfile` を一時的に `common` にし（profiles.json の active は saikutu のまま）、別のページから TOP に戻ると「未保存」になって出る。試したあと `saikutu` に戻した。この間、ホームの操作盤（一括起動・一括停止）は出ない。
-  - 結果：「BRIDGE・サーバー・Minecraft」の状態が出て、停止後は「BRIDGE：停止中 ／ サーバー：停止中」、ボタン3つが押せなくなり「停止しました。」が出た。サーバーは 03:44:01 に停止命令を受け、ワールドを保存して正常に止まった。BRIDGE停止のボタンはサーバーを止めない作りなので、一括停止かサーバー停止も押されたはず（ユーザーの報告は「BRIDGE停止を押した」。違っていたら不具合として調べる）。
+  - 結果：「BRIDGE・サーバー・Minecraft」の状態が出て、停止後は「BRIDGE：停止中 ／ サーバー：停止中」、ボタン3つが押せなくなり「停止しました。」が出た。
+  - **不具合（未解決・高）：BRIDGE停止しか押していないのに、サーバーも止まった**（ユーザーが「BRIDGE停止しか押していない」と確認）。
+    - サーバーのログでは 03:44:01 に `Stopping the server`（`stop` コマンドの文言）が出て、ワールドを保存して正常に止まった。落ちたのではない。
+    - コードで確かめたこと
+      - 停止パネルの `stop("bridge")` は `runStop(api, "bridge", false)` で、`bridgeStop` だけを呼ぶ（`StopPanel.tsx:20-31`、98行目）。
+      - `bridge:stop` → `stopBridge()` は BRIDGE に `shutdown` を送るだけ（`main.cjs` 1536行目付近）。BRIDGE の `shutdownBridge()`（`bridge/index.js` 2111行目）も `stop` を送らない。
+      - サーバーへ `stop` を書くのは `stopMapServer()`（`main.cjs` 1937行目）だけ。呼ぶのは `server:stop`（停止パネルのサーバー停止・一括停止、ホームのボタン）と、MAP の保存・読込（`runMapOperation`）。
+      - BRIDGE停止の確認ダイアログの文言は BRIDGE 用で正しい（`stopSafety.ts:52-55`）。
+    - 開発版アプリの出力にもアプリのログにも、この時刻の記録は残っていなかった。原因は特定できていない。
+    - 次に調べること：開発版でサーバーと BRIDGE を起動し、停止パネルを出して BRIDGE停止だけを押して再現する。サーバーのログの `[MAP] ワールドを保存して停止します`（アプリのサーバーログ欄）が出るか、`server:stop` が呼ばれたか（main に一時的なログを足す）を見る。ホームの BRIDGE停止でも起きるかも確かめる。配信中に BRIDGE だけ止めたつもりでサーバーまで止まると、配信者がワールドから切断される。
 - ギフト一覧の更新が、開発版で「[fetchRoomGiftsRoute] Missing roomId」で失敗した。開発版は `GiftsViewer/tools-bundled`（git 管理外）があればそちらを使うが、中の `fetch_gifts.cjs` が 2026-08-02 に作った古いもので、#28（09-27）より前の取得方法（`fetchAvailableGifts`）のままだった。インストーラーは `pack:win` の `prepare:bridge-runtime` でソースから作り直すので、製品版には影響しない。開発版で直すには `npm run prepare:bridge-runtime` で作り直す。
 - 強さの上限：確認せず、方針を変えた（下の「方針の変更」）。
 
@@ -50,8 +56,8 @@
   - 判定は `electron/minecraft_processes.cjs` に分け、`electron/test/minecraft-processes.test.cjs` を足した。
 - 検証：`npm run verify`（App 227件）が成功し、CI の3チェックも成功した。実機では、Forge サーバーの起動中に java.exe 9個のうちサーバーの1個だけを数え、VS Code の8個は数えなかった。日本語のパスも化けずに読めた。
 - レビュー（サブエージェント）は APPROVE。CRITICAL・HIGH は 0 件。
-- ブランチは `fix/minecraft-java-detection`（`6052788`）。D 側は今このブランチにいる。
-- 残り（中）。マージの前に直すか、後続の PR にする。
+- ブランチは `fix/minecraft-java-detection`（`6052788`）。ユーザーの指示で 2026-10-10 にマージした（`6fed022`）。
+- 残り（中）。後続の PR で直す。
   - 自分のログインセッションの java.exe だけを調べる。サービスや管理者権限の java.exe は起動引数を読めず、今も切替が止まる（`-Filter "Name='java.exe' AND SessionId=<自分>"`）。
   - 起動引数を読めずに数えたことを、メッセージで区別する。
   - `readJavaCommandLines` の失敗時（終了コード1・error・spawn の例外・時間切れ・二重通知）のテストを足す。
@@ -92,8 +98,8 @@
 
 #### 次にやること
 
-1. 手元の環境：実機確認の4項目は終わった（強さの上限は方針変更で不要）。上の「戻し方」で戻す。インストール版で配信する前に必ず戻す。開発版をまた使うときは、D 側で `Remove-Item Env:ELECTRON_RUN_AS_NODE; npm run electron:dev`（`dist` は 2026-10-10 にビルド済み）。
-2. PR #56：中の指摘3件を直してマージする。
+1. **BRIDGE停止でサーバーも止まった件を再現して原因を直す**（上の「不具合（未解決・高）」）。実機確認の4項目は終わり、手元の環境は戻してある。開発版を使うときは、退避してから D 側で `Remove-Item Env:ELECTRON_RUN_AS_NODE; npm run electron:dev`（`dist` は 2026-10-10 にビルド済み）。
+2. PR #56 の中の指摘3件を、後続の PR で直す（自分のセッションに絞る・読めなかったことをメッセージで区別・`readJavaCommandLines` のテスト）。
 3. 強さの上限をやめる設計書を書く（`docs/superpowers/specs/` に置く）。ユーザーに見てもらってから実装計画、そのあと実装。BridgeMOD・saikutuMOD・契約テスト（`scripts/test-bridge-contracts.cjs` の EffectLimits・SaikutuLimits）にまたがる。
 4. 2026-10-09 の「今月の項目」に進む（「タグ別の同時存在数の上限」は取りやめ）。
 
