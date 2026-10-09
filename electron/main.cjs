@@ -24,6 +24,7 @@ const { exportStreamStatsMarkdown } = require("./stats_export.cjs");
 const { createGameProfiles } = require('./game_profiles.cjs');
 const { availableGameCommands, assertGameCommands } = require('./game_command_scope.cjs');
 const { discoverMinecraftLocations, validateMinecraftFolder } = require('./minecraft_locations.cjs');
+const { tasklistNames, minecraftProcesses, readJavaCommandLines } = require('./minecraft_processes.cjs');
 function minecraftLocationOptions() {
   return { appData: app.getPath('appData'), currentFolder: readAppConfig().minecraftGameFolder, serverRoot: getServerRoot() };
 }
@@ -51,7 +52,8 @@ const gameProfiles = createGameProfiles({
   ensureStopped: async () => {
     assertMapIdle();
     if (initialSetupRunning || serverStarting || serverStopping || bridgeProcRef || bridgeRestartTimer || (await getServerProcessStatus()).running) throw new Error('サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください');
-    if ((await getMinecraftProcessStatus(true)).running) throw new Error('Minecraftとランチャーを終了してから切り替えてください');
+    const minecraft = await getMinecraftProcessStatus(true);
+    if (minecraft.running) throw new Error(`Minecraftとランチャーを終了してから切り替えてください（動いているもの: ${minecraft.processes.join('、')}）`);
   },
 });
 function assertGameProfileIdle() {
@@ -1442,9 +1444,7 @@ ipcMain.handle('euler:openPortal', () => shell.openExternal('https://www.eulerst
 // --------------------
 // IPC: Minecraft ランチャー/ゲーム本体の稼働検知（Gameノード表示用）
 // --------------------
-// ランチャーはゲーム起動と同時に自動で閉じる設定が既定のため、ゲーム本体
-// （javaw.exe）も検知対象に含める。
-const MINECRAFT_PROC_NAMES = new Set(["minecraftlauncher.exe", "minecraft.exe", "javaw.exe"]);
+// 数える名前と java.exe の見分け方は minecraft_processes.cjs にある。
 async function getMinecraftProcessStatus(strict = false) {
   if (process.platform !== "win32") return { running: false, processes: [] };
   const csv = await new Promise((resolve) => {
@@ -1463,12 +1463,10 @@ async function getMinecraftProcessStatus(strict = false) {
     setTimeout(() => { try { p.kill(); } catch { /* ignore */ } finish(); }, 4000);
   });
   if (strict && !String(csv).trim()) throw new Error('Minecraftの停止状態を確認できません。切替を中止しました');
-  const found = new Set();
-  for (const line of String(csv).split("\n")) {
-    const name = (line.split('","')[0] || "").replace(/^"/, "").trim().toLowerCase();
-    if (MINECRAFT_PROC_NAMES.has(name) || (strict && name === 'java.exe')) found.add(name);
-  }
-  return { running: found.size > 0, processes: [...found] };
+  const names = tasklistNames(csv);
+  const javaCommandLines = strict && names.includes('java.exe') ? await readJavaCommandLines() : null;
+  const processes = minecraftProcesses(names, { strict, javaCommandLines });
+  return { running: processes.length > 0, processes };
 }
 ipcMain.handle("minecraft:status", () => getMinecraftProcessStatus());
 
