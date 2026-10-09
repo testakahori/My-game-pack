@@ -193,7 +193,8 @@ public class BridgeMod {
 
         d.register(
             Commands.literal("bridge")
-                .requires(src -> src.hasPermission(0)) // 誰でもOK。OP限定なら 2
+                // OP（権限2）だけ。中身は権限4で動くので、視聴者参加の配信やコラボのゲストに実行させない。
+                .requires(src -> src.hasPermission(2))
                 .then(Commands.argument("key", StringArgumentType.word())
                     .suggests(keySuggest)
                     .then(Commands.argument("count", IntegerArgumentType.integer(1, MAX_GAME_COUNT))

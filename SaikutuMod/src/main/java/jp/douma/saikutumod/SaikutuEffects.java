@@ -83,6 +83,10 @@ final class SaikutuEffects {
         weatherLevels.clear(); jobs.clear(); blizzards.clear(); icePrisons.clear(); ticks = 0; failures = 0;
     }
     int start(CommandSourceStack source, String key, int count, Protection protection) throws Exception {
+        // count は数の倍率（天変地異なら TNT 100×count 個）。上限は SaikutuLimits にまとめてある。
+        int limited = SaikutuLimits.effectCount(key, count);
+        if (limited != count) System.out.println("[saikutu] " + key + " の count を " + count + " から上限の " + limited + " に抑えました");
+        count = limited;
         Origin o = new Origin(source.getLevel(), source.getPosition(), protection == null ? NONE : protection);
         switch (key) {
             case "skytrap" -> skytrap(source.getPlayerOrException());

@@ -807,6 +807,15 @@ function recordDeliveryRejection(event, error) {
   }
 }
 
+// 運用センターの「個別最大コマンド数」を、BridgeMOD 経由の1回あたりの実行回数にも効かせる。
+// 以前は RCON/Telnet だけで効き、標準の BridgeMOD 経路では高額ギフトの連打の回数がそのまま MOD へ届いていた。
+// ゲームMOD向けの要求は count の意味をゲーム側が決める約束なので変えない。
+function limitEventCount(event, maxCount) {
+  if (!maxCount || event.gameMod || !(Number(event.count) > maxCount)) return event;
+  console.warn(`[BridgeMod] 個別最大コマンド数（${maxCount}）を超えたため回数を減らしました: type=${event.type || "other"} file=${ensureTxt(event.commandFile)} ${event.count} -> ${maxCount}`);
+  return { ...event, count: maxCount };
+}
+
 function bridgeEventDelivery(bridgeMod, opts = {}) {
   const prepare = opts.prepare || (event => event);
   return createModEventDelivery({
@@ -815,7 +824,7 @@ function bridgeEventDelivery(bridgeMod, opts = {}) {
     prepare: event => {
       const problem = commandFileProblem(event.commandFile);
       if (problem) throw Object.assign(new Error(problem), { permanent: true });
-      return prepare(event);
+      return limitEventCount(prepare(event), opts.maxCount);
     },
     rejected: (event, error) => {
       // 403 以外の応答が返ったなら、トークンは通っている（認証の失敗の表示を残さない）。
@@ -1022,7 +1031,8 @@ async function main() {
   const options = config.options || {};
   runtimeProtection = options.protection || { enabled: false };
   const giftCooldownMs = Number(options.giftCooldownMs ?? 300);
-  const maxCommandsPerGift = Number(options.maxCommandsPerGift ?? 50);
+  // 既定値はアプリの初期設定（electron/main.cjs）・運用センターの表示と同じ 200。
+  const maxCommandsPerGift = Number(options.maxCommandsPerGift ?? 200);
   const maxLikeCatchUpPerEvent = clampInt(options.maxLikeCatchUpPerEvent ?? 5, 1, 100, 5);
   const rconQueueWarnSize = clampInt(options.rconQueueWarnSize ?? 20, 1, 10000, 20);
   const commandTransport = String(options.commandTransport || "rcon").toLowerCase().trim();
@@ -1315,7 +1325,9 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // Independent FIFO senders: retrying likes cannot block gift delivery.
   const prepareGameEvent = event => captureGameEvent(event,
     resolveCommands({ commandFile: ensureTxt(event.commandFile) }).meta?.GAME_MOD, bridgeGameSessions);
-  const modDelivery = bridgeMod ? bridgeEventDelivery(bridgeMod, { prepare: prepareGameEvent }) : null;
+  const modDelivery = bridgeMod ? bridgeEventDelivery(bridgeMod, {
+    prepare: prepareGameEvent, maxCount: clampInt(maxCommandsPerGift, 1, 10000, 200),
+  }) : null;
   // 失敗は recordDeliveryRejection がログ・履歴・画面用の状態へ記録済み。
   const enqueueMod = event => modDelivery.enqueue(event).catch(() => {});
 

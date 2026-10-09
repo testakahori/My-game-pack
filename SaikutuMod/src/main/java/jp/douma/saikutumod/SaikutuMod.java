@@ -65,6 +65,12 @@ public final class SaikutuMod {
         if (!SCRIPTS.containsKey(request.key) || request.total < 1 || request.total > 100000)
             throw new IllegalArgumentException("Unknown saikutu command or invalid count");
         if (requests.alreadyAccepted(request.requestId, request.fingerprint)) { duplicates++; return GameEvents.ACCEPTED; }
+        if (!SaikutuEffects.KEYS.contains(request.key)) {
+            // スクリプトは count 回くり返す。TNT大爆発などは回数を抑える（大技の倍率は SaikutuEffects.start で抑える）。
+            int limited = SaikutuLimits.scriptRepeat(request.key, request.total);
+            if (limited != request.total) System.out.println("[saikutu] " + request.key + " のくり返しを " + request.total + " 回から上限の " + limited + " 回に抑えました");
+            request.remaining = limited;
+        }
         String type = String.valueOf(data.getOrDefault("type", "other"));
         if (!queues.containsKey(type)) type = "other";
         var queue = queues.get(type); int limit = type.equals("gift") ? 600 : type.equals("like") ? 120 : 280;
