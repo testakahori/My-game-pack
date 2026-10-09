@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useUnsavedGuard } from '../UnsavedChanges';
+import { commandOptionLabel } from '../lib/commandLabel';
 
 const EVENTS = [
   ['gift', '🎁 ギフト（コマンド直接）'], ['mapped_gift', '🎁 設定済みギフト'], ['unmapped_gift', '🎁 未設定ギフト'],
@@ -14,7 +15,7 @@ export default function EventTestPanel({ onTested }: { onTested: () => Promise<v
   const api = window.mygamepack;
   const { hasChanges } = useUnsavedGuard();
   const [type, setType] = useState('gift');
-  const [commands, setCommands] = useState<Array<{ name: string; title: string }>>([]);
+  const [commands, setCommands] = useState<Array<{ name: string; title: string; invalidName?: boolean }>>([]);
   const [mappings, setMappings] = useState<Array<{ giftId: string | number; name?: string }>>([]);
   const [commandFile, setCommandFile] = useState('');
   const [sender, setSender] = useState('テスト視聴者');
@@ -53,7 +54,7 @@ export default function EventTestPanel({ onTested }: { onTested: () => Promise<v
     <fieldset disabled={busy} className="event-test-fields">
       <label className="ops-field"><span>テストするイベント</span><select value={type} onChange={e => { setType(e.target.value); setResult(null); }}>{EVENTS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
       <label className="ops-field"><span>テスト視聴者名・プレイヤー名</span><input value={sender} maxLength={40} onChange={e => setSender(e.target.value)} /></label>
-      {type === 'gift' ? <label className="ops-field"><span>コマンドファイル</span><select value={commandFile} onChange={e => setCommandFile(e.target.value)}>{commands.map(c => <option key={c.name} value={c.name}>{c.title || c.name}（{c.name}）</option>)}</select></label> : null}
+      {type === 'gift' ? <label className="ops-field"><span>コマンドファイル</span><select value={commandFile} onChange={e => setCommandFile(e.target.value)}>{commands.map(c => <option key={c.name} value={c.name}>{commandOptionLabel(c)}（{c.name}）</option>)}</select></label> : null}
       {['mapped_gift', 'combo'].includes(type) ? <label className="ops-field"><span>設定済みギフト</span><select value={giftId} onChange={e => setGiftId(e.target.value)}>{mappings.length ? mappings.map((m, i) => <option key={`${m.giftId}-${i}`} value={String(m.giftId)}>{m.name || m.giftId}（ID: {m.giftId}）</option>) : <option value="">割当がありません</option>}</select></label> : null}
       {type === 'unmapped_gift' ? <label className="ops-field"><span>割当のないギフトID</span><input value={unknownGiftId} onChange={e => setUnknownGiftId(e.target.value)} /></label> : null}
       {['gift', 'mapped_gift', 'combo'].includes(type) ? <label className="ops-field"><span>ギフト数・発火数（1〜100）</span><input type="number" min={1} max={100} value={count} onChange={e => setCount(Number(e.target.value))} /></label> : null}

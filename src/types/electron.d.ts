@@ -70,7 +70,7 @@ declare global {
 
       // invalidName: BridgeMOD が拒否する名前（日本語・空白など）。割り当てて保存すると理由付きで止まる。
       bridgeCommandsReadMeta: () => Promise<Array<{ name: string; title: string; category: string; description?: string; invalidName?: boolean }>>;
-      bridgeCommandsList: () => Promise<Array<{ name: string; title: string }>>;
+      bridgeCommandsList: () => Promise<Array<{ name: string; title: string; invalidName?: boolean }>>;
       testEvent: (event: { type: string; preview?: boolean; listenerName?: string; commandFile?: string; giftId?: string; count?: number; previousLikes?: number; likeCount?: number; deaths?: number; followCount?: number; comment?: string; pollOption?: string }) => Promise<{ ok: boolean; message: string; preview?: boolean; notes?: string[]; steps?: Array<{ label: string; commandFile: string; count: number }>; fired?: Array<{ ok: boolean; message: string }> }>;
       worldSavesList: () => Promise<{ world: string; busy: boolean; recoveryPending: boolean; saves: MapSave[] }>;
       worldSavesSave: (name: string) => Promise<MapOperationResult>;
@@ -138,7 +138,8 @@ declare global {
       serverStop: () => Promise<{ ok: true; graceful?: boolean }>;
       serverLogs: () => Promise<{ ok: true; lines: string[] }>;
       serverCommand: (command: string) => Promise<{ ok: true }>;
-      serverProcessStatus: () => Promise<{ running: boolean; pid: number | null }>;
+      // managed=false はこのアプリを開く前から動いているサーバー（アプリからは停止できない）。
+      serverProcessStatus: () => Promise<{ running: boolean; pid: number | null; managed?: boolean }>;
       minecraftStatus: () => Promise<{ running: boolean; processes: string[] }>;
       bridgeLaunch: () => Promise<{ ok: true }>;
       bridgeStop: () => Promise<{ ok: true }>;

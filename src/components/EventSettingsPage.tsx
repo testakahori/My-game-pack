@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ToggleSlider } from "./ToggleSlider";
 import EventTypeIcon, { type EventIconKind } from "./EventTypeIcon";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
+import { commandOptionLabel } from "../lib/commandLabel";
 
 type LikeEvent = {
   id: string;
@@ -27,7 +28,7 @@ type Config = {
   memberEvent?: SimpleEvent;
 };
 
-type CommandFile = { name: string; title: string };
+type CommandFile = { name: string; title: string; invalidName?: boolean };
 
 type Props = {
   onDirtyChange?: (dirty: boolean) => void;
@@ -61,7 +62,7 @@ function CmdFileSelect({
           <option value="">（未設定）</option>
           {value && !selected && <option value={value}>{value}</option>}
           {commandFiles.map((f) => (
-            <option key={f.name} value={f.name}>{f.title}</option>
+            <option key={f.name} value={f.name}>{commandOptionLabel(f)}</option>
           ))}
         </select>
       ) : (

@@ -37,4 +37,11 @@
 .game-required h2 { margin: 0 0 12px; font-size: 18px; font-weight: 700; }
 .game-required p { color: #b7c9dc; line-height: 1.8; }
 .game-required button { margin-top: 18px; padding: 10px 20px; border-radius: 8px; color: white; background: #087c92; }
+.stop-panel { margin-top: 18px; padding-top: 16px; border-top: 1px solid #365164; }
+.stop-panel p { margin: 6px 0; }
+.stop-panel-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.game-required .stop-panel-actions button { margin-top: 4px; background: #a3263a; }
+.game-required .stop-panel-actions button:disabled { background: #3a4654; color: #8fa3b8; cursor: not-allowed; }
+.stop-panel-notice--error { color: #fca5a5 !important; }
+.stop-panel-notice--ok { color: #86efac !important; }
 .game-selector .game-selector-pending { color: #ffd498; }

@@ -16,6 +16,7 @@ import StatsDashboardPage from "./components/StatsDashboardPage";
 import MinecraftBlockIcon from "./components/MinecraftBlockIcon";
 import LoginPage from "./components/LoginPage";
 import GameSelector from './components/GameSelector';
+import StopPanel from "./components/StopPanel";
 import type { GameStatus } from './types/electron';
 import { UnsavedChangesProvider, useUnsavedGuard } from "./UnsavedChanges";
 
@@ -207,6 +208,8 @@ const App: React.FC = () => {
             <h2>{gameLoading ? "ゲームの保存状態を確認しています…" : "TOPでプレイするゲームを保存してください"}</h2>
             {!gameLoading && <><p>{gameStatus?.recoveryRequired ? "前回のゲーム切替を復旧してから設定を続けてください。" : "ゲームを保存すると、そのゲームで使えるコマンドをギフト・ルーレット・デスルーレット・いいね・シェア・訪問・未設定ギフトなどに設定できます。"}</p>
             {activePage !== AppPage.DASHBOARD && <button type="button" onClick={() => navigateTo(AppPage.DASHBOARD)}>TOPへ戻る</button>}</>}
+            {/* 操作盤を出せない間も止められるようにする（ゲームの保存・復旧は停止中に行うため） */}
+            {setupComplete && <StopPanel />}
           </section>}
           {activePage === AppPage.DASHBOARD && gameReady && (
             <div className="page-pad p-6">
