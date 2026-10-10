@@ -20,8 +20,10 @@ async function until(check,label) {
 test('BridgeはMODの認証トークンを付けて送り、サーバー再起動でトークンが変わっても読み直して届ける', async t=>{
   const dir=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'bridge-mod-token-')));
   const tokenFile=path.join(dir,'server','config','bridgemod-token.txt');
-  fs.mkdirSync(path.dirname(tokenFile),{recursive:true});fs.writeFileSync(tokenFile,'token-a\n');
-  let modToken='token-a';
+  fs.mkdirSync(path.dirname(tokenFile),{recursive:true});fs.writeFileSync(tokenFile,'secret-a\n');
+  // トークンの値は一時フォルダーのパス（bridge-mod-token-XXXXXX）に出てこない名前にする。
+  // token-a だと、ランダムな部分が a で始まったときにログのトークンファイルのパスと一致して落ちていた。
+  let modToken='secret-a';
   const accepted=[], denied=[], logs=[], timers=new Set(), watchers=[], sockets=[];
   // BridgeAuth と同じく、トークンが違えば 403 を返す偽MOD。
   const server=http.createServer((req,res)=>{
@@ -63,8 +65,8 @@ test('BridgeはMODの認証トークンを付けて送り、サーバー再起�
   vm.runInNewContext(fs.readFileSync(source,'utf8')+'\nmodule.exports.startFixture=main;',context,{filename:source});
   await context.module.exports.startFixture();
   await until(()=>logs.some(x=>x.includes('[TikTok] Connected.')),'connected');
-  assert.equal(sockets[0],`ws://127.0.0.1:${port+1}/?token=token-a`);
-  assert.ok(!logs.some(x=>x.includes('token-a')),'トークンをログに出さない');
+  assert.equal(sockets[0],`ws://127.0.0.1:${port+1}/?token=secret-a`);
+  assert.ok(!logs.some(x=>x.includes('secret-a')),'トークンをログに出さない');
   let msg=100;
   const gift=async()=>{
     const message={...proto.WebcastGiftMessage.decode(new Uint8Array()),giftId:'1',repeatCount:1,repeatEnd:1,
@@ -76,13 +78,13 @@ test('BridgeはMODの認証トークンを付けて送り、サーバー再起�
   await gift();
   await until(()=>accepted.length===1,'gift with the current token');
   // サーバーを再起動した直後：MOD は新しいトークン、ファイルはまだ古い。403 は捨てずに再送する。
-  modToken='token-b';
+  modToken='secret-b';
   await gift();
   await until(()=>denied.length>=1,'old token is refused');
   // 再送待ちの間は、画面用の状態に「認証に失敗」とトークンファイルの場所を出す（オフラインと区別する）。
   const runtime=()=>JSON.parse(fs.readFileSync(path.join(dir,'runtime-status.json'),'utf8'));
   await until(()=>runtime().delivery?.authFailed?.tokenFile===tokenFile,'auth failure is shown');
-  fs.writeFileSync(tokenFile,'token-b\n');
+  fs.writeFileSync(tokenFile,'secret-b\n');
   await until(()=>accepted.length===2,'retried with the new token');
   await until(()=>runtime().delivery?.authFailed===null,'auth failure is cleared after delivery');
   assert.ok(logs.some(x=>x.includes('BridgeMODの認証に失敗しました')&&x.includes(tokenFile)),'403 の理由とトークンファイルの場所を出す');
