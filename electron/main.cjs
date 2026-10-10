@@ -24,7 +24,7 @@ const { exportStreamStatsMarkdown } = require("./stats_export.cjs");
 const { createGameProfiles } = require('./game_profiles.cjs');
 const { availableGameCommands, assertGameCommands } = require('./game_command_scope.cjs');
 const { discoverMinecraftLocations, validateMinecraftFolder } = require('./minecraft_locations.cjs');
-const { tasklistNames, minecraftProcesses, readJavaCommandLines } = require('./minecraft_processes.cjs');
+const { tasklistNames, minecraftProcesses, readJavaCommandLines, switchBlockedMessage } = require('./minecraft_processes.cjs');
 function minecraftLocationOptions() {
   return { appData: app.getPath('appData'), currentFolder: readAppConfig().minecraftGameFolder, serverRoot: getServerRoot() };
 }
@@ -53,7 +53,7 @@ const gameProfiles = createGameProfiles({
     assertMapIdle();
     if (initialSetupRunning || serverStarting || serverStopping || bridgeProcRef || bridgeRestartTimer || (await getServerProcessStatus()).running) throw new Error('サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください');
     const minecraft = await getMinecraftProcessStatus(true);
-    if (minecraft.running) throw new Error(`Minecraftとランチャーを終了してから切り替えてください（動いているもの: ${minecraft.processes.join('、')}）`);
+    if (minecraft.running) throw new Error(switchBlockedMessage(minecraft.processes));
   },
 });
 function assertGameProfileIdle() {
