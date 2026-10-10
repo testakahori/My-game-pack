@@ -104,7 +104,7 @@ contextBridge.exposeInMainWorld("mygamepack", {
   serverStart: () => ipcRenderer.invoke("server:start"),
 
   // サーバー停止（ワールド保存完了を待つ。強制終了しない）
-  serverStop: () => ipcRenderer.invoke("server:stop"),
+  serverStop: (origin) => ipcRenderer.invoke("server:stop", origin),
 
   // Forgeサーバーのログ・稼働状態（ダッシュボード表示用）
   serverLogs: () => ipcRenderer.invoke("server:logs"),
@@ -119,9 +119,9 @@ contextBridge.exposeInMainWorld("mygamepack", {
   bridgeLaunch: () => ipcRenderer.invoke("bridge:launch"),
 
   // Bridge 停止
-  bridgeStop: () => ipcRenderer.invoke("bridge:stop"),
+  bridgeStop: (origin) => ipcRenderer.invoke("bridge:stop", origin),
   // Bridge 再起動（停止完了を待ってから起動：stop→launch連打の空振りを防ぐ）
-  bridgeRestart: () => ipcRenderer.invoke("bridge:restart"),
+  bridgeRestart: (origin) => ipcRenderer.invoke("bridge:restart", origin),
   bridgeProcessStatus: () => ipcRenderer.invoke("bridge:processStatus"),
   bridgeLogs: () => ipcRenderer.invoke("bridge:logs"),
   modStatus: () => ipcRenderer.invoke("mod:status"),

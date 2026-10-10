@@ -468,7 +468,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
     if (!confirmStop("server")) return;
     setForgeState("starting"); addLog("Forgeサーバーを停止中…");
     try {
-      await api.serverStop(); setForgeState("stopped");
+      await api.serverStop("home:server"); setForgeState("stopped");
       addLog("Forgeサーバーを停止しました。", "ok");
     } catch (e: any) {
       setForgeState("error");
@@ -491,7 +491,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
     if (!confirmStop("bridge")) return;
     setBridgeState("starting"); addLog("BRIDGEを停止中…");
     try {
-      await api.bridgeStop(); setBridgeState("stopped");
+      await api.bridgeStop("home:bridge"); setBridgeState("stopped");
       addLog("BRIDGEを停止しました。", "ok");
     } catch (e: any) {
       setBridgeState("error"); addLog(`BRIDGE停止エラー: ${e?.message ?? String(e)}`, "error");
@@ -503,9 +503,9 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
     try {
       // main側で「停止完了→起動」を直列実行する専用IPCを使う（stop→launch連打の空振りを防ぐ）
       if (api.bridgeRestart) {
-        await api.bridgeRestart();
+        await api.bridgeRestart("home:bridge-restart");
       } else {
-        await api.bridgeStop();
+        await api.bridgeStop("home:bridge-restart");
         await api.bridgeLaunch();
       }
       setBridgeState("running");
@@ -730,7 +730,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
     setLaunchNotice({ type: "info", text: "BRIDGEとサーバーを停止しています。ワールドの保存完了までお待ちください。" });
     addLog("一括停止を開始します…", "info");
     try {
-      await api.bridgeStop();
+      await api.bridgeStop("home:all");
       setBridgeState("stopped");
       addLog("BRIDGEを停止しました。", "ok");
     } catch (e: any) {
@@ -745,7 +745,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
       try {
         setForgeState("starting");
         addLog("Forgeサーバーを停止中…（ワールド保存を待っています）", "info");
-        await api.serverStop();
+        await api.serverStop("home:all");
         setForgeState("stopped");
         addLog("Forgeサーバーを停止しました。", "ok");
       } catch (e: any) {

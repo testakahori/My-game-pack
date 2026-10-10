@@ -10,6 +10,8 @@ const { ENGINE_PORTS, checkEngine, getSpeakers, flattenSpeakers, synthesize } = 
 const { validateBridgeConfig } = require("./config_schema.cjs");
 const { RestartPolicy } = require("./restart_policy.cjs");
 const { runProc } = require("./process_runner.cjs");
+// サーバー・BRIDGE の停止を、どのボタン・操作から来たか付きで logs/stop-requests.log に残す。
+const stopRequests = require("./stop_requests.cjs").createStopRequestLog({ file: () => path.join(app.getPath("userData"), "logs", "stop-requests.log") });
 const { createSettingsBackups, atomicWrite, validCommand } = require("./settings_backups.cjs");
 const { prepareRoulette, createRouletteRunner } = require("../bridge/roulette.cjs");
 const { commandFileProblem } = require("../bridge/command_files.cjs");
@@ -1367,7 +1369,7 @@ ipcMain.handle("server:start", () => startServer());
 // --------------------
 // IPC: サーバー停止（保存完了を待ち、保存中の強制終了はしない）
 // --------------------
-ipcMain.handle("server:stop", async () => {
+ipcMain.handle("server:stop", async (_event, origin) => {
   assertMapIdle();
   if (serverStarting || serverStopping) throw new Error("サーバーを起動・停止中です。完了までお待ちください。");
   const proc = serverProcRef;
@@ -1377,7 +1379,7 @@ ipcMain.handle("server:stop", async () => {
   }
   serverStopping = true;
   try {
-    await stopMapServer();
+    await stopMapServer(origin);
     return { ok: true, graceful: true };
   } finally { serverStopping = false; }
 });
@@ -1397,6 +1399,7 @@ ipcMain.handle("server:command", async (_event, command) => {
   if (/[\r\n]/.test(cmd)) throw new Error("コマンドは1行で入力してください");
   if (!serverProcRef?.stdin?.writable) throw new Error("Minecraftサーバーが起動していません");
   appendServerLog(`> ${cmd}`);
+  if (/^stop(\s|$)/i.test(cmd)) stopRequests.record("server", "console");
   serverProcRef.stdin.write(cmd + "\n");
   return { ok: true };
 });
@@ -1533,12 +1536,14 @@ async function launchBridge() {
   return { ok: true, pid: bridgePid };
 }
 
-async function stopBridge() {
+// origin はどのボタン・操作から止めたか（stop_requests.cjs の名前）。ログ欄と logs/stop-requests.log に残す。
+async function stopBridge(origin) {
   bridgeStopRequested = true;
   bridgeRestartPolicy.requestStop();
   if (bridgeRestartTimer) { clearTimeout(bridgeRestartTimer); bridgeRestartTimer = null; }
   const child = bridgeProcRef;
   if (!child) return { ok: true };
+  appendBridgeLog(`[BRIDGE] 停止します（${stopRequests.record("bridge", origin)}）`);
   if (child.connected) {
     const ended = waitChildExit(child, 7000);
     child.send({ type: 'shutdown' }, error => { if (error) appendBridgeLog('[BRIDGE] ' + error.message); });
@@ -1555,14 +1560,14 @@ ipcMain.handle("bridge:launch", async () => { assertMapIdle(); return launchBrid
 // --------------------
 // IPC: Bridge 停止
 // --------------------
-ipcMain.handle("bridge:stop", async () => { assertMapIdle(); return stopBridge(); });
+ipcMain.handle("bridge:stop", async (_event, origin) => { assertMapIdle(); return stopBridge(origin); });
 
 // --------------------
 // IPC: Bridge 再起動（停止完了を待ってから起動する。UI側の stop→launch 連打は使わない）
 // --------------------
-ipcMain.handle("bridge:restart", async () => {
+ipcMain.handle("bridge:restart", async (_event, origin) => {
   assertMapIdle();
-  await stopBridge();
+  await stopBridge(origin);
   await new Promise((r) => setTimeout(r, 400)); // ポート/ファイル解放の猶予
   return launchBridge();
 });
@@ -1934,27 +1939,28 @@ function waitChildExit(child, timeoutMs) {
     child.once('exit', ended);
   });
 }
-async function stopMapServer() {
+// サーバーへ stop を書くのはここだけ（コンソールコマンドを除く）。origin はどのボタン・操作から止めたか。
+async function stopMapServer(origin) {
   const child = serverProcRef;
   if (!child) { await assertMapServerStopped(); return; }
   if (!child.stdin?.writable) throw new Error('サーバーに保存・停止を送信できません。ダッシュボードで停止してください。');
   const ended = waitChildExit(child, 120000);
-  appendServerLog('[MAP] ワールドを保存して停止します');
+  appendServerLog(`[SERVER] ワールドを保存して停止します（${stopRequests.record('server', origin)}）`);
   child.stdin.write('stop\n');
   if (!await ended) throw new Error('サーバーの保存・停止がまだ完了していません。強制終了せずに待機しています。Forgeログを確認し、停止完了後に再試行してください。');
   if (serverProcRef === child) { serverProcRef = null; serverPid = null; }
   if (child.exitCode !== 0) throw new Error('サーバーが正常終了しませんでした。Forgeログを確認してください。');
   await assertMapServerStopped();
 }
-async function runMapOperation(action) {
+async function runMapOperation(origin, action) {
   assertGameProfileIdle();
   assertMapIdle();
   if (initialSetupRunning || serverStarting || serverStopping) throw new Error('サーバーの準備・停止が終わるまでお待ちください。');
   mapOperationBusy = true;
   const restartServer = Boolean(serverProcRef), restartBridge = Boolean(bridgeProcRef || bridgeRestartTimer);
   try {
-    if (restartBridge) await stopBridge();
-    await stopMapServer();
+    if (restartBridge) await stopBridge(origin);
+    await stopMapServer(origin);
     const result = await action();
     let restartError = '';
     try {
@@ -1965,14 +1971,14 @@ async function runMapOperation(action) {
   } finally { mapOperationBusy = false; }
 }
 ipcMain.handle('world:saves:list', async () => ({ ...(await mapSaves.list()), busy: mapOperationBusy || mapSaves.isBusy() }));
-ipcMain.handle('world:saves:save', (_event, name) => runMapOperation(async () => ({ saved: await mapSaves.save(name) })));
-ipcMain.handle('world:saves:load', (_event, id) => runMapOperation(() => mapSaves.load(id)));
+ipcMain.handle('world:saves:save', (_event, name) => runMapOperation('map:save', async () => ({ saved: await mapSaves.save(name) })));
+ipcMain.handle('world:saves:load', (_event, id) => runMapOperation('map:load', () => mapSaves.load(id)));
 
 async function createWorldBackup() {
   const saved = await mapSaves.save('', 'manual');
   return { ok: true, path: path.join(getServerRoot(), 'map-saves', saved.id), reason, message: 'MAPを保存しました: ' + saved.name };
 }
-ipcMain.handle('world:backup', () => runMapOperation(() => createWorldBackup()));
+ipcMain.handle('world:backup', () => runMapOperation('map:backup', () => createWorldBackup()));
 
 function getPresetDir() {
   const dir = path.join(getBridgeBatDir(), "presets");

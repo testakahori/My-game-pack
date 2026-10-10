@@ -17,6 +17,8 @@ export type MapOperationResult = { ok: boolean; saved?: MapSave; loaded?: MapSav
 export type StreamSession = { id: string; title: string; startedAt: string; endedAt: string | null };
 
 export type PreflightCheck = { id: string; title: string; status: "ok" | "warn" | "error" | "skip"; detail: string; page: string };
+// 停止の出どころ。main がログ欄と logs/stop-requests.log に残す（名前は electron/stop_requests.cjs の STOP_ORIGINS と同じ）。
+export type StopOrigin = "stop-panel:all" | "stop-panel:bridge" | "stop-panel:server" | "home:all" | "home:bridge" | "home:server" | "home:bridge-restart" | "euler:bridge-restart";
 export type PreflightResult = { checkedAt: string; checks: PreflightCheck[] };
 export type SettingsBackup = { id: string; createdAt: string; reason: string; version: string; username: string; mappings: number; commands: number; ttsEnabled: boolean; issues: number };
 
@@ -135,15 +137,15 @@ declare global {
       // サーバー管理（統合UI）
       // --------------------
       serverStart: () => Promise<{ ok: true; alreadyRunning?: boolean; backup?: { ok: boolean; message: string } | null }>;
-      serverStop: () => Promise<{ ok: true; graceful?: boolean }>;
+      serverStop: (origin?: StopOrigin) => Promise<{ ok: true; graceful?: boolean }>;
       serverLogs: () => Promise<{ ok: true; lines: string[] }>;
       serverCommand: (command: string) => Promise<{ ok: true }>;
       // managed=false はこのアプリを開く前から動いているサーバー（アプリからは停止できない）。
       serverProcessStatus: () => Promise<{ running: boolean; pid: number | null; managed?: boolean }>;
       minecraftStatus: () => Promise<{ running: boolean; processes: string[] }>;
       bridgeLaunch: () => Promise<{ ok: true }>;
-      bridgeStop: () => Promise<{ ok: true }>;
-      bridgeRestart: () => Promise<{ ok: true }>;
+      bridgeStop: (origin?: StopOrigin) => Promise<{ ok: true }>;
+      bridgeRestart: (origin?: StopOrigin) => Promise<{ ok: true }>;
       bridgeProcessStatus: () => Promise<any>;
       bridgeLogs: () => Promise<{ ok: true; lines: string[] }>;
       minecraftLaunch: () => Promise<{ ok: true }>;

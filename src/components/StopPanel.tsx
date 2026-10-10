@@ -17,15 +17,17 @@ function errorText(error: unknown) {
 // 停止中の処理。画面を離れて戻るとパネルが作り直されるので、ここに置いて作り直したパネルでも「停止中」を出し続ける。
 let stopping: Promise<Notice> | null = null;
 
-async function runStop(api: Api, target: StopTarget, stopServer: boolean): Promise<Notice> {
+/** serverRunning は stopState の値（null は不明）。押したボタンを出どころとして main に渡し、ログに残す。 */
+export async function runStop(api: Api, target: StopTarget, serverRunning: boolean | null): Promise<Notice> {
   const errors: string[] = [];
+  const origin = `stop-panel:${target}` as const;
   // 一括停止は配信ホームと同じく BRIDGE → サーバーの順（先にギフトの受付を止め、そのあとワールドを保存して止める）。
   if (target !== "server") {
-    try { await api.bridgeStop(); } catch (error) { errors.push(`BRIDGE停止: ${errorText(error)}`); }
+    try { await api.bridgeStop(origin); } catch (error) { errors.push(`BRIDGE停止: ${errorText(error)}`); }
   }
-  // アプリの外で起動したサーバーは server:stop が断るので呼ばない（止まっているとわかっているときも呼ばない）。
-  if (stopServer) {
-    try { await api.serverStop(); } catch (error) { errors.push(`サーバー停止: ${errorText(error)}`); }
+  // BRIDGE停止ではサーバーに触れない。アプリの外で起動したサーバーは server:stop が断るので呼ばない（止まっているとわかっているときも呼ばない）。
+  if (target !== "bridge" && serverRunning !== false) {
+    try { await api.serverStop(origin); } catch (error) { errors.push(`サーバー停止: ${errorText(error)}`); }
   }
   return errors.length ? { type: "error", text: `停止が完了していません。${errors.join(" ")}` } : { type: "ok", text: "停止しました。" };
 }
@@ -95,7 +97,7 @@ export default function StopPanel() {
     const message = stopConfirmMessage(target, state);
     if (message && !window.confirm(message)) return;
     setNotice(null);
-    const pending = runStop(api, target, target !== "bridge" && state.serverRunning !== false).finally(() => { stopping = null; });
+    const pending = runStop(api, target, state.serverRunning).finally(() => { stopping = null; });
     stopping = pending;
     follow(pending);
   };

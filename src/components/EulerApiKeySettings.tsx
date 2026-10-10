@@ -33,7 +33,7 @@ export default function EulerApiKeySettings({ bridgeRunning, bridgePid }: { brid
     try {
       let next: EulerSettingsStatus;
       if (action === 'restart') {
-        await window.mygamepack.bridgeRestart();
+        await window.mygamepack.bridgeRestart("euler:bridge-restart");
         next = await window.mygamepack.eulerStatus();
       } else {
         next = action === 'save' ? await window.mygamepack.eulerSave(key) : await window.mygamepack.eulerClear();
