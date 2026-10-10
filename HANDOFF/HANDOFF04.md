@@ -1,3 +1,51 @@
+### 2026-10-10（昼）：開発版の生成物の作り直し、PR #56 の後続、BRIDGE停止でサーバーも止まった件の調査と記録
+
+#### やったこと
+
+- **`npm run dev:refresh` を初めて通しで実行した**：6手順すべて成功（113秒、終了コード0）。BridgeMod 1.5.0・DisplayMod 1.1.0・SaikutuMod 1.0.2 の jar、`dist`、`GiftsViewer/tools-bundled`（新しい `gift/list/` 方式の `fetch_gifts.cjs` と `live_status.cjs`）、`build/game-packs/saikutu` が 10:43〜10:45 の日付に更新された。SaikutuMod の jar はゲームパックのものと SHA-256 が一致。生成物はすべて git 管理外なので、D 側の git の状態は変わらない。
+- **PR #60：ゲーム切替の java.exe 確認の後続**（PR #56 の中3件と、同じ関数の低）。ブランチ `fix/minecraft-java-followups`（`29ad404`）。
+  - 自分のログインセッションの java.exe だけを調べる（`SessionId=$session`）。別セッションの Forge はポート確認に任せる。
+  - 確かめられなかった java.exe を「中身を確認できないjava.exe」（管理者として実行など）と「確認に失敗したjava.exe」（PowerShell の失敗・時間切れ）に分け、それぞれの対処を案内する。
+  - `readJavaCommandLines` の失敗時のテストと、Windows の本物の PowerShell で読めることのテスト。utf8 のストリームで読む、終わったらタイマーを止める、stdin と stderr は使わない。
+  - レビュー（別のエージェント）は APPROVE。MEDIUM 1件と LOW はこの PR で直した。CI の3チェックは成功。
+  - 残り（低）：`powershell.exe` の絶対パス、正規表現の選択肢ごとのテスト、NeoForge・Fabric。別セッション（SYSTEM など）の java.exe が実際に除外されることは、この PC に該当する java.exe がなく未確認。
+- **BRIDGE停止でサーバーも止まった件の調査**（原因は未特定）
+  - BRIDGE のログ（`bridge/logs/bridge-2026-10-09T18-12-21.log`）の `[Bridge] Stopping...` が 03:44:00.893、サーバーの `latest.log` の `Stopping the server` が 03:44:01.662。0.8秒差。
+  - `Stopping the server` は stop コマンドの応答で、送り主はサーバーのコンソール（標準入力）。MOD が実行するコマンドは `withSuppressedOutput` なのでこの行は出ない。RCON なら `[Rcon: …]` の形になる。
+  - 標準入力へ stop を書くのは main の `stopMapServer`（`server:stop` と、MAP の保存・読込・バックアップ）とコンソールコマンドだけ。BRIDGE停止からそこへつながる経路はコード上にない。
+  - 停止パネルの「BRIDGE停止」は、3つの版（55d0147・4e0d9d9・5453a39）のどれでも `bridgeStop` しか呼ばない。配信ホーム（DashboardPage）は、停止パネルが出ている間は描画されない。GameSelector は停止系の API を使わない。アプリの終了時にサーバーを止める処理もない。
+  - 「BRIDGE を止め終えてからサーバーを止める」という並びは、一括停止や MAP 操作の順序と同じ。押し間違いか、まだ見つかっていない経路かは判別できない。アプリのログ欄はメモリ上だけで残っておらず、操作履歴 `operations-history.json` にも停止は記録されない。
+  - ユーザーの選択：記録を足してから再現する。
+- **PR #61：サーバー・BRIDGE の停止を、出どころ（どのボタン・操作から来たか）付きで記録する**。ブランチ `fix/stop-origin-log`（`8334f11`）。
+  - ログ欄に `[SERVER] ワールドを保存して停止します（停止パネルの一括停止）`・`[BRIDGE] 停止します（停止パネルのBRIDGE停止）` を出す。以前は MAP 以外の停止でも `[MAP] ワールドを保存して停止します` と出ていた。
+  - ファイル `%APPDATA%\tiktok-bridge-ui\logs\stop-requests.log` に `2026-10-10 03:44:01.662 サーバー停止 ← 停止パネルの一括停止` の形で残す（Minecraft のログと同じ時刻の書き方。256KB を超えたら新しい半分だけ残す）。コンソールの stop も残す。
+  - 画面の停止・再起動と MAP 操作が出どころの名前を渡す。停止パネルの判定を `runStop`（`src/lib/stopSafety.ts`）に移し、BRIDGE停止がサーバーに触れないことを、実際に IPC を呼ぶテストで固定した。
+  - レビュー（別のエージェント）は APPROVE。MEDIUM 2件（文字列でない出どころで停止が止まる、配線テストが正規表現頼り）と LOW の多くを直した。見送り（低）：断った・実行しなかった停止要求は記録しない。
+- **PR #62：BridgeMOD のトークンのテストが、一時フォルダー名しだいで落ちるのを直した**（PR #61 の CI の ubuntu で発生）。一時フォルダーが `bridge-mod-token-XXXXXX` で、ランダム部分が `a` で始まるとパスに `token-a` が含まれ、「トークンをログに出さない」の確認が落ちていた。トークンの値を `secret-a`・`secret-b` に変えた。`TEMP` を `token-a` を含むフォルダーにすると、変更前は必ず落ち、変更後は通る。ブランチ `test/token-log-flaky`。
+- **マージは自動モードの権限で止められた**（「レビューなしのマージ」と判定）。PR #60・#61・#62 はユーザーの許可を待っている。
+- 気づいたこと（未修正・低）：`createWorldBackup`（`world:backup`）が未定義の変数 `reason` を返していて、呼ぶと例外になる。BRIDGE とサーバーを止めて MAP を保存したあとに落ちるので、再起動されずに止まったまま残る。今は画面から呼ぶ箇所がない。
+- 作業フォルダー：PR #61 は git worktree `<scratchpad>/wt-stoplog` で作った（node_modules・`bridge/node_modules`・`GiftsViewer/node_modules` をジャンクションでつないである）。消すときは、先にジャンクションだけを外す。
+
+#### 次にやること
+
+1. PR #60・#61・#62 をマージする（ユーザーの許可が要る）。
+2. **開発版で再現する**（ユーザーが BRIDGE停止を押し、退避と復元は Claude が行う）
+   1. インストール版・Minecraft・開発版がすべて閉じていることを確かめる。
+   2. 新しく退避する（`MyGamePack02\back\実機確認_退避_<日付>`）。対象は次のとおり。
+      - サーバー `D:\新しいフォルダー (3)` の `mods`・ワールド・`config`・`server.properties`
+      - `%APPDATA%\.minecraft\mods`
+      - `%APPDATA%\tiktok-bridge-ui\game-profiles\<hash>\profiles.json`、`app-config.json`
+   3. D 側で #61 を含む main にして `npm run build`。`Remove-Item Env:ELECTRON_RUN_AS_NODE; npm run electron:dev`。
+   4. サーバーと BRIDGE を起動し、停止パネルを出して BRIDGE停止だけを押す。停止パネルの出し方：`bridge/config.minecraft.json` の `gameProfile` を一時的に `common` にし、別のページから TOP に戻る。ホームの BRIDGE停止でも試す。
+   5. 次の4つを見比べる：`stop-requests.log`、アプリのログ欄（`[SERVER] ワールドを保存して停止します（…）`・`[BRIDGE] 停止します（…）`）、サーバーの `latest.log`、`bridge/logs`。
+   6. アプリを閉じてから退避を戻し、SHA-256 で一致を確かめる。D 側は `git restore bridge/` と、切替で増えた未追跡ファイルの削除。
+3. 強さの上限をやめる設計書（`docs/superpowers/specs/`）。
+4. 2026-10-09 の「今月の項目」（「タグ別の同時存在数の上限」は取りやめ）。
+5. BridgeMOD の保護ブロック（全ゲーム共通）。
+6. `world:backup` の未定義の `reason` を直す（低）。
+
+---
+
 ### 2026-10-10：開発版で実機確認（BridgeMOD 1.5.0・saikutuMOD 1.0.2）と、強さの上限をやめる方針
 
 #### 手元の環境は、実機確認の前の状態に戻した（インストール版で配信できる）
@@ -33,7 +81,7 @@
       - サーバーへ `stop` を書くのは `stopMapServer()`（`main.cjs` 1937行目）だけ。呼ぶのは `server:stop`（停止パネルのサーバー停止・一括停止、ホームのボタン）と、MAP の保存・読込（`runMapOperation`）。
       - BRIDGE停止の確認ダイアログの文言は BRIDGE 用で正しい（`stopSafety.ts:52-55`）。
     - 開発版アプリの出力にもアプリのログにも、この時刻の記録は残っていなかった。原因は特定できていない。
-    - 次に調べること：開発版でサーバーと BRIDGE を起動し、停止パネルを出して BRIDGE停止だけを押して再現する。サーバーのログの `[MAP] ワールドを保存して停止します`（アプリのサーバーログ欄）が出るか、`server:stop` が呼ばれたか（main に一時的なログを足す）を見る。ホームの BRIDGE停止でも起きるかも確かめる。配信中に BRIDGE だけ止めたつもりでサーバーまで止まると、配信者がワールドから切断される。
+    - 次に調べること：開発版でサーバーと BRIDGE を起動し、停止パネルを出して BRIDGE停止だけを押して再現する。アプリのサーバーログ欄の `[SERVER] ワールドを保存して停止します（出どころ）` と `logs/stop-requests.log`（PR #61）で、どのボタン・操作から来たか、`server:stop` が呼ばれたか（main に一時的なログを足す）を見る。ホームの BRIDGE停止でも起きるかも確かめる。配信中に BRIDGE だけ止めたつもりでサーバーまで止まると、配信者がワールドから切断される。
 - ギフト一覧の更新が、開発版で「[fetchRoomGiftsRoute] Missing roomId」で失敗した。開発版は `GiftsViewer/tools-bundled`（git 管理外）があればそちらを使うが、中の `fetch_gifts.cjs` が 2026-08-02 に作った古いもので、#28（09-27）より前の取得方法（`fetchAvailableGifts`）のままだった。インストーラーは `pack:win` の `prepare:bridge-runtime` でソースから作り直すので、製品版には影響しない。開発版で直すには `npm run prepare:bridge-runtime` で作り直す。
 - 強さの上限：確認せず、方針を変えた（下の「方針の変更」）。
 
