@@ -1,3 +1,34 @@
+### 2026-10-10（夜）〜10-11：BRIDGE停止の件を閉じた。保護ブロックの設計書と実装計画をマージ（実装はこれから）
+
+#### やったこと
+
+- **BRIDGE停止でサーバーも止まった件は閉じた**（ユーザーの判断）。今のコードでは再現しない。もう一度起きたら、その時刻の `%APPDATA%\tiktok-bridge-ui\logs\stop-requests.log`・サーバーの `latest.log`・`bridge/logs` を見比べる。
+- **BridgeMOD の保護ブロック（コマンドブロック3種）の設計書をマージした**（PR #65、`efdd02a`）：`docs/superpowers/specs/2026-10-10-protected-blocks-design.md`
+  - 調べて分かったこと：3種はバニラの時点で、爆発・ウィザー・落下ブロック・液体では壊れない。壊しうるのは、コードでの直接の書き換えと、`fill`・`setblock`・`clone`・`place` のコマンドだけ。BridgeMOD の Java の書き換え（`GiftEffects.set()`）は、BlockEntity がある位置を飛ばすので、今も結果的に守られている。守られていないのは、BRIDGE の txt（`lavafloor`・`husk_watertower`、ユーザーが作る txt）、`/bridge/exec`、SaikutuMOD の内蔵 txt（`fissure`・`maguma_jigoku`・`otosiana`・`tntdaibakuhatu`）。
+  - ユーザーと決めたこと
+    - SaikutuMOD もいっしょに守る（PR は分ける）。
+    - 守り方は「案1：コマンドの前後で控えて戻す」。Mixin は使わない。
+    - 保護対象は3種で固定。
+  - 形：公開 API `jp.douma.bridgemod.api.BlockProtection`（`isProtectedBlock`・`canModifyBlock`・`runProtected`）と、ID の一覧 `ProtectedBlockIds`。BridgeMOD・SaikutuMOD は、tick ごとのキュー処理を `runProtected` で包み、`set()` で `canModifyBlock` を呼ぶ。戻すときは `BlockEntity.loadStatic` を使い、常時実行のインパルス型を再実行させない。版は BridgeMOD 1.6.0・SaikutuMOD 1.0.3（`mods.toml` の bridgemod を `[1.6.0,)` に上げる）。
+- **実装計画をマージした**（PR #66、`50ad24f`）：`docs/superpowers/plans/2026-10-10-protected-blocks.md`
+  - PR1 BridgeMOD（Task 1〜5）、PR2 SaikutuMOD（Task 6〜7）、Task 8 開発版での確認と HANDOFF。各 Task にコードとテストをそのまま書いてある。
+  - 実機テストは、使い捨ての Forge サーバーで行う。`server\Douma_Craft` の jdk と libraries を読むだけで使い（libraries はジャンクションでつなぐ）、`%TEMP%\mygamepack-protect-qa` に作る。`server.properties` に `enable-command-block=true` が要る。ゲームに使っているサーバーには触れない。
+  - 進め方はユーザーが **Native**（Claude がこの会話で全 Task を実装し、最後に別のレビュー役がブランチ全体を見る）を選んだ。
+- 実装は始めていない。作業用ブランチ `feat/bridgemod-protected-blocks` はコミットなしのまま消した。計画の進み具合を記録する場所（`.superpowers/sdd/2026-10-10-protected-blocks/`、git 管理外）だけができている。中に進み具合の記録（`progress.md`）はまだない。
+
+#### 次にやること
+
+1. **保護ブロックの実装を、計画の Task 1 から始める**（Native）。
+   - 手順：superpowers の `executing-plans` を使う。D 側で `git switch main; git pull --ff-only origin main; git switch -c feat/bridgemod-protected-blocks`。計画の `docs/superpowers/plans/2026-10-10-protected-blocks.md` と設計書を読み、Task 1 から順に、テストを先に書いて落ちるのを見てから実装する。
+   - PR1（Task 1〜5）は、CI とレビュー（別のエージェント）のあと、ユーザーの許可を得てマージ。PR2（Task 6〜7）は PR1 のマージ後に main から切る。
+   - Task 4・7 の実機テストのあとは、検証サーバーを stop し、**ジャンクション `libraries` を先に外してから**フォルダーを消す（外さずに消すと `Douma_Craft` の libraries を消す恐れがある）。
+   - 終わったら、ユーザーに3点を報告する：どの処理に判定を足したか・守るブロック・ゲーム MOD から使えるか。
+2. 強さの上限をやめる設計書（TNT大爆発を N 倍の半径で1回、`EffectLimits`・`SaikutuLimits` を外す）。TNT大爆発で地形を削る処理は `BlockProtection.canModifyBlock` を通す。
+3. 2026-10-09 の「今月の項目」（「タグ別の同時存在数の上限」は取りやめ）。
+4. `world:backup` の未定義の `reason` を直す（低）。
+
+---
+
 ### 2026-10-10（夕）：PR #60〜#63 のマージと、BRIDGE停止でサーバーも止まった件の再現（再現せず）
 
 #### やったこと
