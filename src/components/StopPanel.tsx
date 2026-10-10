@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { keepLastKnown, runningLabel, stopConfirmMessage, stopState, type StopTarget } from "../lib/stopSafety";
+import { keepLastKnown, runningLabel, runStop, stopConfirmMessage, stopState, type StopNotice, type StopTarget } from "../lib/stopSafety";
 
-type Api = Window["mygamepack"];
-type Notice = { type: "ok" | "error"; text: string };
+type Notice = StopNotice;
 // 最後に取得できた状態。undefined はまだ最初の確認が返ってきていない（確認中）、null は取得に失敗して前回の値もない（不明）。
 type Snapshot = {
   bridge?: { running?: boolean; tiktok?: { state?: string } | null } | null;
@@ -10,25 +9,8 @@ type Snapshot = {
   minecraft?: { running?: boolean } | null;
 };
 
-function errorText(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
 // 停止中の処理。画面を離れて戻るとパネルが作り直されるので、ここに置いて作り直したパネルでも「停止中」を出し続ける。
 let stopping: Promise<Notice> | null = null;
-
-async function runStop(api: Api, target: StopTarget, stopServer: boolean): Promise<Notice> {
-  const errors: string[] = [];
-  // 一括停止は配信ホームと同じく BRIDGE → サーバーの順（先にギフトの受付を止め、そのあとワールドを保存して止める）。
-  if (target !== "server") {
-    try { await api.bridgeStop(); } catch (error) { errors.push(`BRIDGE停止: ${errorText(error)}`); }
-  }
-  // アプリの外で起動したサーバーは server:stop が断るので呼ばない（止まっているとわかっているときも呼ばない）。
-  if (stopServer) {
-    try { await api.serverStop(); } catch (error) { errors.push(`サーバー停止: ${errorText(error)}`); }
-  }
-  return errors.length ? { type: "error", text: `停止が完了していません。${errors.join(" ")}` } : { type: "ok", text: "停止しました。" };
-}
 
 /**
  * ゲームが未保存・復旧待ち・取得失敗で配信ホームの操作盤を出せないときの停止ボタン。
@@ -95,7 +77,7 @@ export default function StopPanel() {
     const message = stopConfirmMessage(target, state);
     if (message && !window.confirm(message)) return;
     setNotice(null);
-    const pending = runStop(api, target, target !== "bridge" && state.serverRunning !== false).finally(() => { stopping = null; });
+    const pending = runStop(api, target, state.serverRunning).finally(() => { stopping = null; });
     stopping = pending;
     follow(pending);
   };

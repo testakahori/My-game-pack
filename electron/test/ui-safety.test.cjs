@@ -22,7 +22,7 @@ function loadComponent(relative) {
   return compiled.exports;
 }
 const source = relative => fs.readFileSync(path.resolve(__dirname, '../../src', relative), 'utf8');
-const { stopConfirmMessage, stopState, keepLastKnown, runningLabel } = loadTs('stopSafety.ts');
+const { stopConfirmMessage, stopState, keepLastKnown, runningLabel, runStop } = loadTs('stopSafety.ts');
 const { parseListInput, formatListInput, sameList, listInputOnBlur, hasJapaneseComma, COMMA_ONLY } = loadTs('listInput.ts');
 const { commandOptionLabel } = loadTs('commandLabel.ts');
 
@@ -83,6 +83,32 @@ test('停止パネル: 状態をまだ取得できていなくてもパネルを
   } finally {
     delete globalThis.window;
   }
+});
+
+test('停止パネル: BRIDGE停止はサーバーに触れず、押したボタンを出どころとして渡す', async () => {
+  // 2026-10-10、BRIDGE停止だけを押したはずがサーバーも止まった（原因は未特定）。どのボタンが何を呼ぶかをここで固定する。
+  const panel = source('components/StopPanel.tsx');
+  for (const [target, label] of [['all', '一括停止'], ['bridge', 'BRIDGE停止'], ['server', 'サーバー停止']]) {
+    assert.match(panel, new RegExp(`onClick=\\{\\(\\) => stop\\("${target}"\\)\\}>■ ${label}</button>`), label);
+  }
+  assert.match(panel, /runStop\(api, target, state\.serverRunning\)/);
+  const run = async (target, serverRunning) => {
+    const calls = [];
+    const api = { bridgeStop: async origin => { calls.push(`bridgeStop ${origin}`); }, serverStop: async origin => { calls.push(`serverStop ${origin}`); } };
+    const notice = await runStop(api, target, serverRunning);
+    return { calls, notice };
+  };
+  for (const serverRunning of [true, null, false]) {
+    assert.deepEqual((await run('bridge', serverRunning)).calls, ['bridgeStop stop-panel:bridge'], `サーバー: ${serverRunning}`);
+  }
+  assert.deepEqual((await run('all', true)).calls, ['bridgeStop stop-panel:all', 'serverStop stop-panel:all']);
+  assert.deepEqual((await run('all', null)).calls, ['bridgeStop stop-panel:all', 'serverStop stop-panel:all'], '不明なら動いているものとして止める');
+  assert.deepEqual((await run('all', false)).calls, ['bridgeStop stop-panel:all'], '止まっている・アプリ外のサーバーは呼ばない');
+  assert.deepEqual((await run('server', null)).calls, ['serverStop stop-panel:server']);
+  assert.deepEqual((await run('bridge', true)).notice, { type: 'ok', text: '停止しました。' });
+
+  const failing = { bridgeStop: async () => { throw new Error('止まらない'); }, serverStop: async () => {} };
+  assert.deepEqual(await runStop(failing, 'all', true), { type: 'error', text: '停止が完了していません。BRIDGE停止: 止まらない' });
 });
 
 test('停止パネル: 「不明」は取得に失敗して前回の値もない項目だけ', () => {

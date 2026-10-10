@@ -555,6 +555,48 @@ test('server stop: a save timeout leaves the process alive and reports incomplet
   assert.equal(child.exitCode, null);
 });
 
+test('停止の記録: BRIDGE停止はサーバーへ stop を書かず、どちらの停止も出どころを残してから止める', async t => {
+  // 2026-10-10、停止パネルの BRIDGE停止だけを押したはずがサーバーも止まった。次に起きたときに出どころを追えるようにする。
+  const { EventEmitter } = require('node:events');
+  const app = loadApp(t);
+  const logFile = path.join(app.root, 'logs', 'stop-requests.log');
+  const logLines = () => fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8').trimEnd().split('\n') : [];
+  // 動いているサーバー。stdin に書かれたものと、書かれた時点の記録を控える。
+  const writes = [];
+  const server = new EventEmitter();
+  Object.assign(server, { pid: 123456, exitCode: null, signalCode: null, stdin: { writable: true, write: text => { writes.push({ text, logged: logLines() }); } } });
+  app.setServer(server);
+  // 動いている BRIDGE。shutdown を受けたら終わる。
+  fs.writeFileSync(path.join(app.root, 'bridge', 'index.js'), '');
+  app.mockServerSpawn(() => {
+    const child = new EventEmitter();
+    Object.assign(child, { pid: 23456, stdout: new EventEmitter(), stderr: new EventEmitter(), connected: true, exitCode: null, signalCode: null,
+      send: () => setImmediate(() => { child.exitCode = 0; child.emit('exit', 0); }) });
+    return child;
+  });
+
+  await app.invoke('bridge:launch');
+  await app.invoke('bridge:stop', 'stop-panel:bridge');
+  assert.deepEqual(writes, [], 'BRIDGE停止ではサーバーに何も書かない');
+  assert.equal(logLines().length, 1);
+  assert.match(logLines()[0], /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} BRIDGE停止 ← 停止パネルのBRIDGE停止$/);
+  assert.ok((await app.invoke('bridge:logs')).lines.some(line => line.includes('[BRIDGE] 停止します（停止パネルのBRIDGE停止）')));
+
+  // 画面から文字列以外の出どころが来ても、停止は最後まで行う。
+  await app.invoke('bridge:launch');
+  assert.equal((await app.invoke('bridge:stop', { toString: 'x' })).ok, true);
+  assert.match(logLines().at(-1), /BRIDGE停止 ← 不明な出どころ$/);
+
+  const stopping = app.invoke('server:stop', 'stop-panel:all');
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].text, 'stop\n');
+  assert.match(writes[0].logged.at(-1), /サーバー停止 ← 停止パネルの一括停止$/, 'stop を書く前に記録する');
+  server.exitCode = 0; server.emit('exit', 0);
+  assert.equal((await stopping).graceful, true);
+  assert.ok((await app.invoke('server:logs')).lines.some(line => line.includes('[SERVER] ワールドを保存して停止します（停止パネルの一括停止）')));
+  assert.equal(logLines().length, 3);
+});
+
 test('server startup: legacy automatic backup setting never creates a MAP save', async t => {
   const app = loadApp(t); await app.invoke('app:config:write', { serverFolder: app.root, autoBackupOnServerStart: true });
   const world = path.join(app.root, 'world'); fs.mkdirSync(world); fs.writeFileSync(path.join(world, 'level.dat'), 'original');
