@@ -1,4 +1,5 @@
 // 配信中に「止めたいときに止められる」「うっかり止めない」ための画面側の判定。
+import type { StopOrigin } from "../types/electron";
 
 export type StopTarget = "all" | "bridge" | "server";
 /** null は状態を取得できていない（不明）。動いているかもしれないものとして扱う。 */
@@ -64,4 +65,29 @@ export function stopConfirmMessage(target: StopTarget, state: RunningState): str
       ? "Minecraftサーバーを停止します。ワールドを保存してから止め、接続中のMinecraftは切断されます。"
       : "BRIDGEとMinecraftサーバーをまとめて停止します。ギフト・いいねはゲームに届かなくなり、Minecraftは切断されます。";
   return `${live}${note}${what}\n一括停止しますか？`;
+}
+
+export type StopNotice = { type: "ok" | "error"; text: string };
+type StopApi = { bridgeStop: (origin: StopOrigin) => Promise<unknown>; serverStop: (origin: StopOrigin) => Promise<unknown> };
+
+function errorText(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * 停止パネルのボタンの処理。serverRunning は stopState の値（null は不明）。
+ * 押したボタンを出どころとして main に渡し、ログ欄と logs/stop-requests.log に残す。
+ */
+export async function runStop(api: StopApi, target: StopTarget, serverRunning: boolean | null): Promise<StopNotice> {
+  const errors: string[] = [];
+  const origin: StopOrigin = `stop-panel:${target}`;
+  // 一括停止は配信ホームと同じく BRIDGE → サーバーの順（先にギフトの受付を止め、そのあとワールドを保存して止める）。
+  if (target !== "server") {
+    try { await api.bridgeStop(origin); } catch (error) { errors.push(`BRIDGE停止: ${errorText(error)}`); }
+  }
+  // BRIDGE停止ではサーバーに触れない。アプリの外で起動したサーバーは server:stop が断るので呼ばない（止まっているとわかっているときも呼ばない）。
+  if (target !== "bridge" && serverRunning !== false) {
+    try { await api.serverStop(origin); } catch (error) { errors.push(`サーバー停止: ${errorText(error)}`); }
+  }
+  return errors.length ? { type: "error", text: `停止が完了していません。${errors.join(" ")}` } : { type: "ok", text: "停止しました。" };
 }

@@ -10,8 +10,9 @@ const { ENGINE_PORTS, checkEngine, getSpeakers, flattenSpeakers, synthesize } = 
 const { validateBridgeConfig } = require("./config_schema.cjs");
 const { RestartPolicy } = require("./restart_policy.cjs");
 const { runProc } = require("./process_runner.cjs");
-// サーバー・BRIDGE の停止を、どのボタン・操作から来たか付きで logs/stop-requests.log に残す。
-const stopRequests = require("./stop_requests.cjs").createStopRequestLog({ file: () => path.join(app.getPath("userData"), "logs", "stop-requests.log") });
+// サーバー・BRIDGE の停止を、出どころ（どのボタン・操作から来たか）付きで logs/stop-requests.log に残す。
+const { createStopRequestLog, isConsoleStop } = require("./stop_requests.cjs");
+const stopRequests = createStopRequestLog({ file: () => path.join(app.getPath("userData"), "logs", "stop-requests.log") });
 const { createSettingsBackups, atomicWrite, validCommand } = require("./settings_backups.cjs");
 const { prepareRoulette, createRouletteRunner } = require("../bridge/roulette.cjs");
 const { commandFileProblem } = require("../bridge/command_files.cjs");
@@ -1399,7 +1400,7 @@ ipcMain.handle("server:command", async (_event, command) => {
   if (/[\r\n]/.test(cmd)) throw new Error("コマンドは1行で入力してください");
   if (!serverProcRef?.stdin?.writable) throw new Error("Minecraftサーバーが起動していません");
   appendServerLog(`> ${cmd}`);
-  if (/^stop(\s|$)/i.test(cmd)) stopRequests.record("server", "console");
+  if (isConsoleStop(cmd)) stopRequests.record("server", "console");
   serverProcRef.stdin.write(cmd + "\n");
   return { ok: true };
 });
