@@ -1,3 +1,36 @@
+### 2026-10-10（夕）：PR #60〜#63 のマージと、BRIDGE停止でサーバーも止まった件の再現（再現せず）
+
+#### やったこと
+
+- **PR #60・#62・#61・#63 をマージした**（ユーザーの許可あり）。マージコミットは順に `7afdb1e`・`2fbf4ff`・`55e1c32`・`3e32128`。
+  - #61 は #60 と同じ `electron/main.cjs` を変えていて、#61 の CI は #60 が入る前の main で走っていた。そこで #60・#62 を含む main と #61 を手元で合わせ、`npm run verify` が終了コード0で通ることを確かめてからマージした。
+  - マージ後の main の CI（3回）はすべて成功。
+- worktree `wt-stoplog` は、ジャンクション3つを外してから消した。本体の node_modules は残っている。
+- **開発版で再現を試みた。結果は再現せず**（main `3e32128` を `npm run build`、`electron:dev`。採掘に切り替えて一括起動。TikTok に接続した状態）
+  - 停止パネルの「BRIDGE停止」：止まったのは BRIDGE だけで、サーバーは動き続けた。`stop-requests.log` には `17:28:58.698 BRIDGE停止 ← 停止パネルのBRIDGE停止` の1行だけが出た。
+  - ホームの「BRIDGE停止」：止まったのは BRIDGE だけ（`18:40:10.086 BRIDGE停止 ← 配信ホームのBRIDGE停止`）。
+  - ホームの「一括停止」（環境を戻すためにサーバーを止める手順を兼ねた）：BRIDGE の `Stopping...` が 18:42:34.454、サーバーの `Stopping the server` が 18:42:35.276 で、**0.82秒差**。前回（BRIDGE停止だけを押したはずのとき）は 03:44:00.893 → 03:44:01.662 で **0.77秒差**。
+  - BRIDGE は `Stopping...` を出した直後に `process.exit(0)` で終わる。一括停止は BRIDGE の終了を待ってから、すぐサーバーに `stop` を送る。前回の間隔は、この一括停止の流れとほぼ同じ長さだった。
+  - 結論：今のコードでは、どちらの BRIDGE停止でも再現しない。前回の原因が押し間違い（停止パネルの「一括停止」は「BRIDGE停止」の左隣）なのか、当時の `dist`（ビルドした版が分からない）の別の経路なのかは判別できない。今はサーバー・BRIDGE の停止がすべて出どころ付きで `%APPDATA%\tiktok-bridge-ui\logs\stop-requests.log` に残るので、もう一度起きたらこのログで分かる。
+  - 前回と条件が違う点：前回は止める直前にサーバーが重く（`Can't keep up! … 5184ms`）、Minecraft が接続していた。
+- **手元の環境は、再現の前の状態に戻した**
+  - 退避：`MyGamePack02\back\実機確認_退避_20261010_昼`。退避したのは、サーバーの mods・`haihu_world`・`config`・`server.properties`・`douma-weather-timers.properties`、`.minecraft\mods`、userData（キャッシュ類を除く）。全件の SHA-256 は `_manifest_sha256.csv` にある（5,885件。退避した時点で元と一致）。
+  - 戻したもの：サーバーの mods（bridgemod-1.4.0・displaymod-1.1.0 に戻った）・ワールド・`config`（`bridgemod-token.txt` は消えた）・`server.properties`・`douma-weather-timers.properties`、`.minecraft\mods`、`profiles.json`（active=common）・`Local Storage`・`Session Storage`・`DIPS`。
+  - 戻したあと一覧と照合した：変わったファイル・消えたファイルとも0件。増えたのは `logs\stop-requests.log` だけで、調べるのに使うので残した。
+  - D 側：`git restore bridge/config.minecraft.json`。切替と BRIDGE が作った未追跡ファイル18件（`_op.txt`・`game_saikutu_*.txt` 14件・`stream-audience.json`・`stream-metrics.jsonl`・`stream-sessions.json`）は、退避フォルダーの `_D側の未追跡ファイル` へ移した（`git clean` は自動モードで止められた）。
+  - 残っているもの：切替でアプリが旧 mods を預けた `.mygamepack-mod-switch\df26f376-…`（サーバーと `.minecraft` の両方。17:23 の分）。中身は bridgemod-1.4.0 と displaymod-1.1.0 で、不要なら消してよい。
+- 退避の注意：userData の `bridge\node`・`bridge\node_modules`（BRIDGE の実行ファイル、約5,700件）まで写したので、退避に約15分かかった。朝の退避はこれを外していた。次からは外すとよい。robocopy は「コピーした」を終了コード1で返すので、スクリプトの終了コードが1でも失敗とは限らない。
+
+#### 次にやること
+
+1. BRIDGE停止の件は「再現せず。`stop-requests.log` で見張る」として閉じてよいか、ユーザーに確認する。もう一度起きたら、その時刻の `stop-requests.log`・サーバーの `latest.log`・`bridge/logs` を見比べる。
+2. 強さの上限をやめる設計書（`docs/superpowers/specs/`）。
+3. 2026-10-09 の「今月の項目」（「タグ別の同時存在数の上限」は取りやめ）。
+4. BridgeMOD の保護ブロック（全ゲーム共通）。
+5. `world:backup` の未定義の `reason` を直す（低）。
+
+---
+
 ### 2026-10-10（昼）：開発版の生成物の作り直し、PR #56 の後続、BRIDGE停止でサーバーも止まった件の調査と記録
 
 #### やったこと
