@@ -1,4 +1,4 @@
-// BridgeMOD・saikutuMOD の中で Minecraft に依存しない部品（認証・強さの上限・視聴者名・保護するブロック）を、javac だけで検証する。
+// BridgeMOD・saikutuMOD の中で Minecraft に依存しない部品（認証・ジャンプの高さ・視聴者名・保護するブロック）を、javac だけで検証する。
 // 視聴者名は Bridge（safeDisplayName）と同じ結果になることも、同じ入力を両方に通して確かめる。
 // CI の mod-build ジョブで実行する。
 const fs = require('node:fs');
@@ -15,14 +15,14 @@ try {
   const classes = path.join(temp, 'classes'), fixture = path.join(temp, 'fixture');
   fs.mkdirSync(classes); fs.mkdirSync(fixture);
   execFileSync(bin('javac'), ['-encoding', 'UTF-8', '-d', classes,
-    ...['BridgeAuth', 'EffectLimits', 'ListenerNames', 'api/ProtectedBlockIds'].map(name => main + name + '.java'),
-    ...['BridgeAuthContractTest', 'EffectLimitsContractTest', 'ListenerNamesContractTest', 'ListenerNamesParity', 'ProtectedBlockIdsContractTest'].map(name => contract + name + '.java'),
+    ...['BridgeAuth', 'JumpPhysics', 'ListenerNames', 'api/ProtectedBlockIds'].map(name => main + name + '.java'),
+    ...['BridgeAuthContractTest', 'JumpPhysicsContractTest', 'ListenerNamesContractTest', 'ListenerNamesParity', 'ProtectedBlockIdsContractTest'].map(name => contract + name + '.java'),
     saikutu + 'SaikutuLimits.java', saikutuContract + 'SaikutuLimitsContractTest.java'],
     { cwd: root, windowsHide: true, stdio: 'inherit' });
   const run = (name, ...args) => execFileSync(bin('java'), ['-Xmx64m', '-Dfile.encoding=UTF-8', '-Dstdout.encoding=UTF-8', '-cp', classes, name.includes('.') ? name : 'jp.douma.bridgemod.' + name, ...args],
     { cwd: root, windowsHide: true, stdio: 'inherit' });
   run('BridgeAuthContractTest', fixture);
-  run('EffectLimitsContractTest');
+  run('JumpPhysicsContractTest');
   run('ListenerNamesContractTest');
   run('ProtectedBlockIdsContractTest');
   run('jp.douma.saikutumod.SaikutuLimitsContractTest');

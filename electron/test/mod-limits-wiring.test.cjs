@@ -16,10 +16,11 @@ test('採掘MODのくり返しの上限は、待ち列が満杯でないと決�
   assert.match(offer, /request\.remaining = limited;/);
 });
 
-test('スーパージャンプは連続ジャンプの記録（JumpChain）で高さを重ねる', () => {
+test('BridgeMOD は大技の count を抑えず、スーパージャンプに上限も低速落下もない', () => {
   const source = read('BridgeMod/src/main/java/jp/douma/bridgemod/GiftEffects.java');
-  assert.match(source, /new EffectLimits\.JumpChain\(p\.getY\(\)\)/);
-  assert.match(source, /j\.chain\.stack\(count\)/);
-  assert.match(source, /j\.chain\.slowFallingTicks\(p\.getY\(\)\)/);
-  assert.doesNotMatch(source, /jumpTarget\(/, '基準の高さを呼び出し側で渡さない');
+  assert.doesNotMatch(source, /EffectLimits/, '上限のクラスを使わない');
+  assert.doesNotMatch(source, /SLOW_FALLING/, '低速落下を付けない（落下死してよい）');
+  assert.match(source, /j\.target = JumpPhysics\.stackTarget\(j\.target, count\);/);
+  assert.equal(fs.existsSync(path.resolve(__dirname, '../../BridgeMod/src/main/java/jp/douma/bridgemod/EffectLimits.java')), false);
+  assert.match(read('BridgeMod/gradle.properties'), /^mod_version=1\.7\.0\r?$/m);
 });
