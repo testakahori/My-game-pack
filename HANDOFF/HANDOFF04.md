@@ -1,3 +1,61 @@
+### 2026-10-11：保護ブロック（コマンドブロック3種）を実装してマージ。開発版で採掘のコマンドが動かない件も直した
+
+#### やったこと
+
+- **保護ブロックを実装した**（計画 `docs/superpowers/plans/2026-10-10-protected-blocks.md` を Native で実行）。
+  - PR #68：BridgeMOD 1.6.0（マージ `bf05807`）。
+    - 公開 API `jp.douma.bridgemod.api.BlockProtection`（`isProtectedBlock`・`canModifyBlock`・`runProtected`・`restoredTotal`）と `ProtectedBlockIds` を足した。
+    - BridgeMOD の tick ごとのキュー処理（BRIDGE の txt と `/bridge/exec`）を `runProtected` で包み、`GiftEffects.set` で `canModifyBlock` を呼ぶ。
+    - `/bridge/status` に `protectedBlockRestores`（戻した回数）を足した。
+    - `docs/ゲームMOD連携API_v1.4.md` に「保護ブロック API」の節を足した。
+  - PR #69：SaikutuMOD 1.0.3（マージ `566622f`）。
+    - 内蔵 txt のキュー処理を `runProtected` で包み、`SaikutuEffects.set` で `canModifyBlock` を呼ぶ。
+    - `mods.toml` の bridgemod を `[1.6.0,)` に上げ、`game.json` の jar 名もそろえた。
+  - 実機テスト `BridgeMod/test/protected-blocks.cjs`（使い捨ての Forge サーバー）：10件すべて成功。同じワールドで3回流しても成功した。実装前の 1.5.0／1.0.2 で同じテストが落ちることも確かめた。
+  - 実機テストで見つけて直したバグ
+    - 戻すときの NBT に `id` がなく、`loadStatic` が読めずに中身が空になっていた → `saveWithId` にした。
+    - 強制読み込み・プレイヤー・スポーンの周りは、チケットで2チャンク先まで読み込まれていて `fill` が届くのに、控える範囲から漏れていた → `LOADED_MARGIN=2` で広げた。
+  - レビュー（別のエージェント）で直したもの
+    - 信号の元もいっしょに壊れると、戻したコマンドブロックの powered が古いまま残り、MAP の次の合図を取りこぼしていた → 今の信号に合わせる。
+    - 戻せなかった場合も「restored」と数えていた → 確かめてから数える。
+    - 採掘の `randomtp` のあとに掘る txt が同じ tick で続くと、ワープ先のコマンドブロックが戻らなかった → プレイヤーのチャンクが変わったら、その tick の残りを次の tick に回す。
+- **開発版のアプリで確かめた**（BridgeMOD 1.6.0 + SaikutuMOD 1.0.3、サーバー `D:\新しいフォルダー (3)`）。
+  - テスト発火の床マグマ化：足元の床に置いた3種のコマンドブロックが、同じコマンドのまま残った。インパルス型は再実行されず、リピート型は動き続けた。戻した回数は 0→3。
+  - 採掘の落とし穴（RCON の `/saikutu otosiana`）：穴はあき、コマンドブロックは残った。戻した回数は 3→6。
+  - 退避 `back\実機確認_退避_20261011` から戻し、一覧と照合して差分0件（`stop-requests.log` だけ残した）。D 側の未追跡ファイルは退避フォルダーの `_D側の未追跡ファイル` へ移した。
+- **開発版のテスト発火で採掘のコマンドが動かない件を直した**（PR #70、BridgeMOD 1.6.1、マージ `f3b74ab`）。
+  - 原因：開発版は、ゲームの切替が振り分けファイル（`game_saikutu_*.txt`）をリポジトリの `bridge/commands/minecraft` に書く。一方 BridgeMOD は、サーバーフォルダーの `bridge/commands/minecraft` を読んでいた。そのため「`game_saikutu_otosiana: file not found`」になっていた。インストール版では、どちらもサーバーフォルダーなので起きない。
+  - 直し方：開発版がサーバーを起動するときだけ、環境変数 `BRIDGE_MOD_COMMANDS_DIR` にリポジトリの置き場所を渡す。BridgeMOD は、それが実在するフォルダーならそこを読む。インストール版では渡さない。
+  - 使い捨てのサーバーで確かめた：変数なしでは file not found（症状の再現）、変数ありでは落とし穴が実行された。
+  - `.gitignore` に `bridge/commands/minecraft/game_*.txt`・`_op.txt` を足した。
+
+#### ユーザーへ報告すること（依頼の3点）
+
+- **どの処理に判定を足したか**：BridgeMOD のキュー処理（BRIDGE の txt・`/bridge/exec`）、`GiftEffects.set`、SaikutuMOD のキュー処理（内蔵 txt）、`SaikutuEffects.set`。
+- **どのブロックを守るか**：`minecraft:command_block`・`chain_command_block`・`repeating_command_block`。爆発・ウィザー・落下ブロックでは、もともと壊れない。
+- **ゲーム MOD から使えるか**：使える。`BlockProtection.canModifyBlock`（Java の書き換えの前）と `runProtected`（コマンドを包む）を使う。mods.toml で bridgemod を `[1.6.0,)` 以上にする。
+
+#### 気をつけること
+
+- すでにアプリを使っている人は、アプリを更新しても、ホームで採掘を選び直すまで SaikutuMOD 1.0.2 のまま。アプリの更新で入れ替わるのは BridgeMOD・DisplayMOD だけ。次の配布のリリースノートに「採掘を選び直す」と書く。
+- サーバーの `latest.log` には、MOD の標準出力（`[BlockProtection] restored` や `[Bridge]` の行）が入らない。戻した回数は `/bridge/status` の `protectedBlockRestores` で見る。
+
+#### 次にやること
+
+1. 強さの上限をやめる設計書（TNT大爆発を N 倍の半径で1回、`EffectLimits`・`SaikutuLimits` を外す）。地形を削る処理は `BlockProtection.canModifyBlock` を通す。
+2. 保護ブロックの見送った指摘（どれも今の txt では起きにくい。詳しくは PR #68・#69・#70 の説明）
+   - 同じ状態での上書きとレッドストーンが重なると、インパルス型が再実行されうる（2段階で戻し、新しい実行予約を消す）。
+   - 向きの違うコマンドブロックで、NBT 付きで上書きされると、新しいコマンドが残る（文書の「守れない範囲」に書く）。
+   - Forge のチャンクローダーが控える範囲に入らない。
+   - キューが止まっている間も、毎 tick 控える処理が走る（BridgeMOD・SaikutuMOD とも）。
+   - メインスレッド以外から `runProtected` を呼ぶと何も守らない。`restoredTotal` が volatile でない。
+   - 実機テストの細部：`--saikutu-only` が0件で成功する、TNT のテストのコメントの誤り、流し直したときの otosiana の地形の確認。
+   - 開発版のコマンドの置き場所：今どこを読んでいるかをログや `/bridge/status` に出す。アプリの外や、前に起動したサーバーとのずれを警告する。
+3. 2026-10-09 の「今月の項目」（「タグ別の同時存在数の上限」は取りやめ）。
+4. `world:backup` の未定義の `reason` を直す（低）。
+
+---
+
 ### 2026-10-10（夜）〜10-11：BRIDGE停止の件を閉じた。保護ブロックの設計書と実装計画をマージ（実装はこれから）
 
 #### やったこと
