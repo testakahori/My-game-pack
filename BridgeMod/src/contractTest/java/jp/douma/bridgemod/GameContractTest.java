@@ -16,6 +16,15 @@ public class GameContractTest {
         }
         check(CommandRouting.resolve(root,"../outside")==null);
         check(CommandRouting.resolve(root,"otosiana")==null);
+        // 開発版のアプリが渡すコマンドの置き場所（BRIDGE_MOD_COMMANDS_DIR）。実在するフォルダーだけを使い、それ以外は今までどおり。
+        check(root.toAbsolutePath().normalize().equals(CommandRouting.overrideDir(root.toString())));
+        check(root.toAbsolutePath().normalize().equals(CommandRouting.overrideDir("  " + root + "  ")));
+        check(CommandRouting.overrideDir(null)==null);
+        check(CommandRouting.overrideDir("")==null);
+        check(CommandRouting.overrideDir("   ")==null);
+        check(CommandRouting.overrideDir(root.resolve("missing").toString())==null);
+        check(CommandRouting.overrideDir(root.resolve("zombie.txt").toString())==null);
+        check(CommandRouting.overrideDir("bad\u0000path")==null);
         RequestLedger ledger = new RequestLedger(2);
         check(!ledger.alreadyAccepted("gift:1","same"));
         ledger.accepted("gift:1","same"); check(ledger.alreadyAccepted("gift:1","same"));

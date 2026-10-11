@@ -1346,11 +1346,17 @@ async function startServer(resumeAfterMap = false) {
       }
     }
   } catch { /* 設定に失敗しても起動は続行 */ }
+  // 開発版（パッケージ前）は、BRIDGE とゲームの切替がリポジトリの bridge/commands/minecraft を使う。
+  // BridgeMOD はふだんサーバーフォルダーの bridge/commands/minecraft を読むので、同じ場所を環境変数で教える。
+  // インストール版はどちらもサーバーフォルダーなので渡さない（利用者の環境に残っていても消す）。
+  const serverEnv = { ...process.env, NO_PAUSE: "1" };
+  if (app.isPackaged) delete serverEnv.BRIDGE_MOD_COMMANDS_DIR;
+  else serverEnv.BRIDGE_MOD_COMMANDS_DIR = path.join(getBridgeBatDir(), "commands", "minecraft");
   const proc = spawn("cmd.exe", ["/c", bat], {
     cwd: dir,
     windowsHide: true,
     stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env, NO_PAUSE: "1" },
+    env: serverEnv,
   });
   serverProcRef = proc;
   serverPid = proc.pid;

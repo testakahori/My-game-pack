@@ -74,8 +74,8 @@ test('BridgeMOD の Java の書き換え（GiftEffects.set）は canModifyBlock 
   assert.match(set, /o\.level\.getBlockEntity\(p\) == null/, '今の判定（BlockEntity がある位置は飛ばす）も残す');
 });
 
-test('BridgeMOD は 1.6.0（保護ブロック API を足した版）', () => {
-  assert.match(read('BridgeMod/gradle.properties'), /^mod_version=1\.6\.0$/m);
+test('BridgeMOD は 1.6 系（保護ブロック API は 1.6.0 から）', () => {
+  assert.match(read('BridgeMod/gradle.properties'), /^mod_version=1\.6\.\d+$/m);
 });
 
 test('SaikutuMOD は tick ごとのキュー処理（内蔵 txt）を runProtected で包み、set で canModifyBlock を通す', () => {

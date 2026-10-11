@@ -10,6 +10,20 @@ final class CommandRouting {
     static String publicKey(String filename) {
         return filename.replaceFirst("(?i)\\.txt$", "").replaceFirst("^game_(?:saikutu|umetate|run)_", "");
     }
+    /**
+     * 開発版のアプリ（パッケージ前）が渡すコマンドの置き場所（環境変数 BRIDGE_MOD_COMMANDS_DIR）。
+     * 開発版は BRIDGE とゲームの切替がリポジトリの bridge を使うので、BridgeMOD にも同じ場所を読ませる。
+     * 空・実在しないフォルダー・不正なパスなら null（インストール版は渡さないので、今までどおりサーバーフォルダーを読む）。
+     */
+    static Path overrideDir(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        try {
+            Path dir = Path.of(raw.trim()).toAbsolutePath().normalize();
+            return Files.isDirectory(dir) ? dir : null;
+        } catch (InvalidPathException e) {
+            return null;
+        }
+    }
     static Path resolve(Path directory, String key) {
         String stem = key.replaceFirst("(?i)\\.txt$", "");
         if (!stem.matches("[A-Za-z0-9_-]+")) return null;
