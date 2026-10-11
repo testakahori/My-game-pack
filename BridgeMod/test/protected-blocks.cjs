@@ -39,6 +39,8 @@ const KINDS = {
 };
 const spec = (kind, tag) => `${KINDS[kind].id}[facing=up]{auto:1b,Command:"scoreboard players add ${KINDS[kind].score}${tag} qa_protect ${kind === 'chain' ? 0 : 1}"}`;
 async function placeTrio(tag, positions) {
+  // 同じワールドで流し直すと前回戻したコマンドブロックが残っていて、同じ状態の setblock は何もしない。先に空気にする。
+  for (const [x, y, z] of Object.values(positions)) await cmd(`setblock ${x} ${y} ${z} minecraft:air`);
   for (const [kind, [x, y, z]] of Object.entries(positions)) assert.match(await cmd(`setblock ${x} ${y} ${z} ${spec(kind, tag)} replace`), /Changed the block/, `${tag} ${kind} placed`);
   await sleep(500);
   return { imp: await score('#imp_' + tag) };
@@ -83,14 +85,16 @@ async function test(group, name, fn) {
     const pos = { impulse: [cx + 2, 63, 0], repeating: [cx - 2, 63, 0], chain: [cx + 4, 64, 4] };
     const before = await placeTrio('lavafloor', pos);
     // Review Focus 3：常時実行でない、レッドストーンで動かすインパルス型。真下の赤石ブロックで1回だけ実行される。
+    await cmd(`setblock ${cx} 62 -2 minecraft:air`);   // 流し直したときに前回の赤石ブロックが残らないようにする
     await cmd(`setblock ${cx} 63 -2 minecraft:command_block[facing=up]{Command:"scoreboard players add #pow qa_protect 1"} replace`);
+    const pow0 = await score('#pow');
     await cmd(`setblock ${cx} 62 -2 minecraft:redstone_block replace`); await sleep(500);
-    const pow = await score('#pow'); assert.equal(pow, 1, 'powered impulse runs once when powered');
+    const pow = await score('#pow'); assert.equal(pow, pow0 + 1, 'powered impulse runs once when powered');
     const restoresBefore = await restores();
     await post('lavafloor'); await idle(); await sleep(300);
     await assertTrio('lavafloor', pos, before);
     assert.ok(await isBlock(cx, 63, -2, 'minecraft:command_block[facing=up]'), 'powered impulse stays');
-    assert.equal(await score('#pow'), 1, 'powered impulse must not run again after restore');
+    assert.equal(await score('#pow'), pow0 + 1, 'powered impulse must not run again after restore');
     assert.ok(await isBlock(cx + 1, 63, 1, 'minecraft:magma_block'), 'the rest of the floor still becomes magma');
     const restored = (await restores()) - restoresBefore; assert.ok(restored >= 4, 'restored ' + restored);
     return { restored };
@@ -163,6 +167,66 @@ async function test(group, name, fn) {
     await assertTrio('far', pos, before);
     const restored = (await restores()) - restoresBefore; assert.ok(restored >= 3, 'restored ' + restored);
     await cmd(`forceload remove ${far} 0`);
+    return { restored };
+  });
+
+  // 採掘の内蔵 txt は SaikutuMOD が自分で実行する。アプリと同じ形の振り分けファイルを書いて、BRIDGE の経路から送る。
+  if (only !== 'bridge') {
+    const dir = path.join(root, 'bridge', 'commands', 'minecraft');
+    for (const key of ['otosiana', 'maguma_jigoku', 'fissure', 'tntdaibakuhatu'])
+      fs.writeFileSync(path.join(dir, `game_saikutu_${key}.txt`), `# GAME_MOD: saikutumod\n# GAME_KEY: ${key}\n# COUNT_MODE: aggregate\n# DISPLAY_OWNER: game\nsaikutu ${key} {Count} {ListenerName}\n`);
+  }
+
+  await test('saikutu', 'otosiana: 足元の 3×3×3 を空気にしても残り、穴はあく', async () => {
+    const cx = -3501; await prepare(cx);
+    const pos = { impulse: [cx + 1, 63, 0], repeating: [cx - 1, 62, 0], chain: [cx, 61, 1] };
+    const before = await placeTrio('otosiana', pos);
+    const restoresBefore = await restores();
+    await post('otosiana'); await idle(); await sleep(300);
+    await assertTrio('otosiana', pos, before);
+    assert.ok(await isBlock(cx, 62, 0, 'minecraft:air'), 'the pit still opens');
+    const restored = (await restores()) - restoresBefore; assert.ok(restored >= 3, 'restored ' + restored);
+    return { restored };
+  });
+
+  await test('saikutu', 'maguma_jigoku: 頭上を溶岩で埋めても残り、溶岩は出る', async () => {
+    const cx = -3601; await prepare(cx);
+    const pos = { impulse: [cx + 2, 66, 0], repeating: [cx - 2, 70, 0], chain: [cx, 74, 3] };
+    const before = await placeTrio('magma', pos);
+    const restoresBefore = await restores();
+    await post('maguma_jigoku'); await idle(); await sleep(300);
+    await assertTrio('magma', pos, before);
+    assert.ok(await isBlock(cx, 68, 0, 'minecraft:lava'), 'lava still fills the space');
+    const restored = (await restores()) - restoresBefore; assert.ok(restored >= 3, 'restored ' + restored);
+    await cmd(`fill ${cx - 6} 65 -6 ${cx + 6} 76 6 air replace minecraft:lava`);
+    return { restored };
+  });
+
+  await test('saikutu', 'fissure: 地割れの fill で空気にしても残り、地割れはできる', async () => {
+    const cx = -3701; await prepare(cx, true);
+    const pos = { impulse: [cx + 1, 63, 1], repeating: [cx - 1, 58, 0], chain: [cx, 55, -2] };
+    const before = await placeTrio('fissure', pos);
+    const restoresBefore = await restores();
+    await post('fissure'); await idle(); await sleep(300);
+    await assertTrio('fissure', pos, before);
+    assert.ok(await isBlock(cx, 60, 0, 'minecraft:air'), 'the fissure still opens');
+    const restored = (await restores()) - restoresBefore; assert.ok(restored >= 3, 'restored ' + restored);
+    return { restored };
+  });
+
+  await test('saikutu', 'tntdaibakuhatu: TNT で埋めても残る（爆発の前に TNT を片付ける）', async () => {
+    const cx = -3801; await prepare(cx);
+    const pos = { impulse: [cx + 3, 80, 3], repeating: [cx - 3, 90, -3], chain: [cx, 70, 0] };
+    const before = await placeTrio('tnt', pos);
+    const restoresBefore = await restores();
+    await post('tntdaibakuhatu'); await idle();
+    // 赤石ブロックで最下段の TNT に火が付く（4秒）。連鎖すると検証サーバーが固まるので、確かめる前に片付ける。
+    await cmd('kill @e[type=minecraft:tnt]');
+    assert.ok(await isBlock(cx + 6, 100, 6, 'minecraft:tnt'), 'tnt still fills the sky');
+    await cmd(`fill ${cx - 7} 69 -7 ${cx + 7} 101 7 air replace minecraft:tnt`);
+    await cmd(`setblock ${cx} 68 0 air`);
+    await assertTrio('tnt', pos, before);
+    const restored = (await restores()) - restoresBefore; assert.ok(restored >= 3, 'restored ' + restored);
     return { restored };
   });
 

@@ -2,6 +2,7 @@ package jp.douma.saikutumod;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import jp.douma.bridgemod.api.BlockProtection;
 import jp.douma.bridgemod.api.GameEvents;
 import jp.douma.bridgemod.api.RequestLedger;
 import net.minecraft.commands.CommandSourceStack;
@@ -107,16 +108,35 @@ public final class SaikutuMod {
     }
     @SubscribeEvent public void tick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END || server == null) return;
-        int budget = 52;
-        budget -= process("gift", budget); process("other", budget); process("like", 8);
+        // 内蔵 txt の fill などは、実行のあとで変わったコマンドブロックを中身ごと戻す（BridgeMOD の BlockProtection）。
+        if (queues.values().stream().anyMatch(queue -> !queue.isEmpty())) BlockProtection.runProtected(server, "saikutumod", this::processQueues);
         effects.get("gift").tick(server, 12, 384);
         effects.get("other").tick(server, 2, 64);
         effects.get("like").tick(server, 2, 64);
         updateStatus();
     }
+    private void processQueues() {
+        wrapChunks = playerChunks();
+        int budget = 52;
+        budget -= process("gift", budget); process("other", budget); process("like", 8);
+    }
+    // 包みを始めたときの各プレイヤーの居場所（ディメンションとチャンク）。runProtected はここを中心に控えるので、
+    // randomtp などで別のチャンクへ移ったあとに地形を変えると、移った先のコマンドブロックは戻らない。
+    // 移ったら、残りは次の tick（移った先を中心に控え直す）に回す。
+    private Map<UUID, String> wrapChunks = Map.of();
+    private Map<UUID, String> playerChunks() {
+        Map<UUID, String> chunks = new HashMap<>();
+        for (ServerPlayer player : server.getPlayerList().getPlayers())
+            chunks.put(player.getUUID(), player.level().dimension().location() + ":" + player.chunkPosition().toLong());
+        return chunks;
+    }
+    private boolean playersMoved() {
+        return !playerChunks().equals(wrapChunks);
+    }
     private int process(String type, int budget) {
         var queue = queues.get(type); var engine = effects.get(type); int used = 0;
         while (used < budget && !queue.isEmpty()) {
+            if (playersMoved()) break;
             Request request = queue.peekFirst();
             ServerPlayer player = request.player == null ? server.getPlayerList().getPlayers().stream().filter(p -> p.isAlive() && !p.isSpectator()).findFirst().orElse(null)
                 : server.getPlayerList().getPlayer(request.player);

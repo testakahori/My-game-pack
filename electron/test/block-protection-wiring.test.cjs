@@ -77,3 +77,28 @@ test('BridgeMOD の Java の書き換え（GiftEffects.set）は canModifyBlock 
 test('BridgeMOD は 1.6.0（保護ブロック API を足した版）', () => {
   assert.match(read('BridgeMod/gradle.properties'), /^mod_version=1\.6\.0$/m);
 });
+
+test('SaikutuMOD は tick ごとのキュー処理（内蔵 txt）を runProtected で包み、set で canModifyBlock を通す', () => {
+  const mod = read('SaikutuMod/src/main/java/jp/douma/saikutumod/SaikutuMod.java');
+  const tick = mod.slice(mod.indexOf('public void tick(TickEvent.ServerTickEvent event)'), mod.indexOf('private int process('));
+  assert.match(tick, /BlockProtection\.runProtected\(server, "saikutumod", this::processQueues\)/);
+  assert.doesNotMatch(tick.slice(0, tick.indexOf('private void processQueues()')), /process\("gift"/, 'キューを包みの外で処理しない');
+  assert.match(tick, /private void processQueues\(\) \{\s*wrapChunks = playerChunks\(\);\s*int budget = 52;\s*budget -= process\("gift", budget\); process\("other", budget\); process\("like", 8\);\s*\}/);
+  // randomtp などでプレイヤーが別のチャンクへ移ったら、控えた範囲の外を掘りうるので、残りは次の tick（移った先で控え直す）に回す（PR #69 のレビュー I1）。
+  const process = mod.slice(mod.indexOf('private int process('));
+  assert.match(process, /while \(used < budget && !queue\.isEmpty\(\)\) \{\s*if \(playersMoved\(\)\) break;/);
+  assert.match(mod, /private boolean playersMoved\(\) \{\s*return !playerChunks\(\)\.equals\(wrapChunks\);\s*\}/);
+  assert.match(mod, /player\.level\(\)\.dimension\(\)\.location\(\) \+ ":" \+ player\.chunkPosition\(\)\.toLong\(\)/, 'ディメンションとチャンクで比べる');
+  const effects = read('SaikutuMod/src/main/java/jp/douma/saikutumod/SaikutuEffects.java');
+  const set = effects.slice(effects.indexOf('private void set(Origin o'), effects.indexOf('private void summon(Origin o'));
+  assert.match(set, /BlockProtection\.canModifyBlock\(o\.level, p\)/);
+});
+
+test('SaikutuMOD 1.0.3 は BridgeMOD 1.6.0 以上を要求し、ゲームパックの jar 名もそろえる', () => {
+  assert.match(read('SaikutuMod/gradle.properties'), /^mod_version=1\.0\.3$/m);
+  const toml = read('SaikutuMod/src/main/resources/META-INF/mods.toml');
+  assert.match(toml, /\[\[dependencies\.saikutumod\]\]\s*modId="bridgemod"\s*mandatory=true\s*versionRange="\[1\.6\.0,\)"/);
+  const pack = JSON.parse(read('game-packs/saikutu/game.json'));
+  assert.equal(pack.serverJar, 'saikutumod-1.0.3.jar');
+  assert.equal(pack.clientJar, 'saikutumod-1.0.3.jar');
+});
