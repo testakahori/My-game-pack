@@ -1,5 +1,6 @@
 package jp.douma.saikutumod;
 
+import jp.douma.bridgemod.api.BlockProtection;
 import jp.douma.bridgemod.api.GameEvents;
 import jp.douma.bridgemod.api.EnvironmentOverrides;
 
@@ -135,7 +136,8 @@ final class SaikutuEffects {
     }
     private boolean loaded(Origin o, int x, int z) { return o.level.hasChunkAt(new BlockPos(x, 0, z)); }
     private void set(Origin o, BlockPos p, net.minecraft.world.level.block.state.BlockState state) {
-        if (o.allowed(p) && o.level.getBlockEntity(p) == null && !o.level.getBlockState(p).is(Blocks.BEDROCK)) o.level.setBlock(p, state, 3);
+        if (o.allowed(p) && BlockProtection.canModifyBlock(o.level, p) && o.level.getBlockEntity(p) == null
+                && !o.level.getBlockState(p).is(Blocks.BEDROCK)) o.level.setBlock(p, state, 3);
     }
     private void summon(Origin o, String entity, double x, double y, double z, String nbt) {
         BlockPos p = BlockPos.containing(x, y, z);

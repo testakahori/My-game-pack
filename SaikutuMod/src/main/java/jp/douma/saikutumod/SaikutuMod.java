@@ -2,6 +2,7 @@ package jp.douma.saikutumod;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import jp.douma.bridgemod.api.BlockProtection;
 import jp.douma.bridgemod.api.GameEvents;
 import jp.douma.bridgemod.api.RequestLedger;
 import net.minecraft.commands.CommandSourceStack;
@@ -107,12 +108,16 @@ public final class SaikutuMod {
     }
     @SubscribeEvent public void tick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END || server == null) return;
-        int budget = 52;
-        budget -= process("gift", budget); process("other", budget); process("like", 8);
+        // 内蔵 txt の fill などは、実行のあとで変わったコマンドブロックを中身ごと戻す（BridgeMOD の BlockProtection）。
+        if (queues.values().stream().anyMatch(queue -> !queue.isEmpty())) BlockProtection.runProtected(server, "saikutumod", this::processQueues);
         effects.get("gift").tick(server, 12, 384);
         effects.get("other").tick(server, 2, 64);
         effects.get("like").tick(server, 2, 64);
         updateStatus();
+    }
+    private void processQueues() {
+        int budget = 52;
+        budget -= process("gift", budget); process("other", budget); process("like", 8);
     }
     private int process(String type, int budget) {
         var queue = queues.get(type); var engine = effects.get(type); int used = 0;
