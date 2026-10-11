@@ -33,8 +33,12 @@ final class Shockwave {
         return Math.sqrt(h + (double) dy * dy / ((double) depth * depth));
     }
 
-    /** 距離 s の生き物を、殻 (from, to] の先端が通ったか。最初の殻（from が 0）は爆心も入る。殻の内側は前の殻で済んでいる。 */
-    static boolean crossed(double s, double from, double to) { return s <= to && (from <= 0 || s > from); }
+    /**
+     * 距離 s の生き物を、殻 (from, to] の先端で爆発させるか。最初の殻（from が 0）は爆心も入る。
+     * 殻の内側は前の殻で済んでいるので、あとから来た生き物は爆発させない。ただし衝撃波が始まったときにいた生き物（present）は、
+     * 足場が先にえぐられて先端の内側へ落ちることがあるので、先端が来たら爆発させる（PR #75 再レビュー）。
+     */
+    static boolean hits(double s, double from, double to, boolean present) { return s <= to && (from <= 0 || s > from || present); }
 
     boolean finished() { return reached >= end; }
     double reached() { return reached; }

@@ -54,13 +54,15 @@ public final class ShockwaveContractTest {
         check(ticksToFinish(new Shockwave(100000, 544, 400, 400)) < 100000, "N=100000 ends");
     }
 
-    // 生き物を爆発させるのは、その殻で先端が通った所（from より外・to まで）だけ。最初の殻は爆心（0）も入る。
+    // 生き物を爆発させるのは、その殻で先端が通った所（from より外・to まで）。最初の殻は爆心（0）も入る。
+    // 衝撃波が始まったときにいた生き物は、足場がえぐられて先端の内側へ落ちても、先端が来たら爆発させる（PR #75 再レビュー）。
     private static void crossed() {
-        check(Shockwave.crossed(0, 0, 0.04), "the centre is crossed by the first shell");
-        check(Shockwave.crossed(0.5, 0.48, 0.5), "on the outer edge of the shell");
-        check(!Shockwave.crossed(0.48, 0.48, 0.5), "the inner edge belongs to the previous shell");
-        check(!Shockwave.crossed(0.2, 0.48, 0.5), "behind the front is not hit again");
-        check(!Shockwave.crossed(0.51, 0.48, 0.5), "ahead of the front is not hit yet");
+        check(Shockwave.hits(0, 0, 0.04, false), "the centre is crossed by the first shell");
+        check(Shockwave.hits(0.5, 0.48, 0.5, false), "on the outer edge of the shell");
+        check(!Shockwave.hits(0.48, 0.48, 0.5, false), "the inner edge belongs to the previous shell");
+        check(!Shockwave.hits(0.2, 0.48, 0.5, false), "a newcomer behind the front is not hit");
+        check(Shockwave.hits(0.2, 0.48, 0.5, true), "a mob that was there at the start and fell behind the front is hit");
+        check(!Shockwave.hits(0.51, 0.48, 0.5, false) && !Shockwave.hits(0.51, 0.48, 0.5, true), "ahead of the front is not hit yet");
     }
 
     // 触ってよいのは、周りのチャンクまで読み込み済みの所だけ。読み込まれていないチャンクに触ると、サーバーがその場で読み込む（PR #75 レビュー）。
@@ -77,6 +79,10 @@ public final class ShockwaveContractTest {
         check(area.around(-1, -96, 0) && !area.around(-1, -96, 1), "negative coordinates use floor chunks");
         check(!area.around(-200, 0, 0), "outside the looked-up square counts as unloaded");
         check(area.around(0, 0, 20), "a margin wider than a chunk checks every chunk it covers");
+        // 余白16は「その列のチャンクと周り8チャンク」、32は「周り2チャンクまで」と同じ（チャンクの中のどこでも）。
+        check(area.around(16, 0, 16) && area.around(31, 0, 16), "margin 16: a column in chunk 1 needs chunks 0..2, all loaded");
+        check(!area.around(32, 0, 16) && !area.around(47, 0, 16), "margin 16: a column in chunk 2 needs chunk 3, not loaded");
+        check(area.around(0, 0, 32) && !area.around(0, 80, 32), "margin 32 = two chunks around");
         // x・z とも -30〜10（チャンク -2〜0）。穴のチャンク (-1, -1) は四隅でなく真ん中にある。
         check(!new LoadedArea(0, 0, 100, (cx, cz) -> !(cx == -1 && cz == -1)).around(-10, -10, 20), "a hole in the middle is found");
     }

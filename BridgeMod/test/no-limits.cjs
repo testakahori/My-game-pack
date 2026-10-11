@@ -86,6 +86,13 @@ async function test(group, name, fn) {
     // ゾンビは昼の日光で燃えて体力が減るので、燃えないハスクで「衝撃波に巻き込まれたか」を見る。
     await cmd('kill @e[type=minecraft:husk,tag=qa_wave]');
     await cmd(`summon minecraft:husk ${cx + 30} 64 0.5 {NoAI:1b,PersistenceRequired:1b,Tags:["qa_wave"]}`);
+    // 地面より20ブロック上の柱の上のハスク。柱（足場）が先にえぐられて落ちても、衝撃波の爆発は当たる（PR #75 再レビュー）。
+    // 柱は頭上の TNT（爆心の ±7）の外に、葉で作る。先端の輪の爆発は葉を地面とみなさない高さ（ハスクの20ブロック下）で起きるので届かず、
+    // 低速落下で落下ダメージも受けない。体力が減るのは、ハスクの位置での衝撃波の爆発だけ。
+    // NoAI の生き物には重力がかからず落ちないので、AI はそのままにして移動速度を0にする（歩き回らずに落ちる）。
+    await cmd('kill @e[type=minecraft:husk,tag=qa_pillar]');
+    await cmd(`fill ${cx + 10} 64 0 ${cx + 10} 83 0 minecraft:oak_leaves[persistent=true]`);
+    await cmd(`summon minecraft:husk ${cx + 10.5} 84 0.5 {PersistenceRequired:1b,Tags:["qa_pillar"],Attributes:[{Name:"generic.movement_speed",Base:0.0d}],ActiveEffects:[{Id:28,Amplifier:0b,Duration:12000,ShowParticles:0b}]}`);
     await cmd(`tp QANoLimit ${cx + 0.5} 64 0.5`); await sleep(1500);
     await post('tntdaibakuhatu', 2);
     // 頭上の TNT の連鎖は重いので、置かれたらすぐ片付けて、衝撃波（40 tick 後に始まる）だけを測る。
@@ -110,7 +117,12 @@ async function test(group, name, fn) {
       husk = Number((await cmd('data get entity @e[type=minecraft:husk,tag=qa_wave,limit=1] Health')).match(/([\d.]+)f/)?.[1]);
       assert.ok(husk < 20, 'husk hurt: ' + husk);
     }
-    return { depth: at, husk };
+    let pillar = 'dead';
+    if (/Test passed/.test(await cmd('execute if entity @e[type=minecraft:husk,tag=qa_pillar]'))) {
+      pillar = Number((await cmd('data get entity @e[type=minecraft:husk,tag=qa_pillar,limit=1] Health')).match(/([\d.]+)f/)?.[1]);
+      assert.ok(pillar < 20, 'the husk on the pillar is hit even though it fell as the pillar was carved: ' + pillar);
+    }
+    return { depth: at, husk, pillar };
   });
 
   await test('saikutu', '洪水 count=5 はドラウンド 30×5＝150体（以前は3で止まり90体）', async () => {
@@ -119,7 +131,8 @@ async function test(group, name, fn) {
     await killCount('minecraft:drowned');
     await post('flood', 5); await idle(180000); await sleep(3000);
     const drowned = await killCount('minecraft:drowned');
-    assert.equal(drowned, 150);
+    // 洪水のウーパールーパーはドラウンドを襲うので、待つ間に数体減ることがある。上限があったころは90体で止まった。
+    assert.ok(drowned >= 140 && drowned <= 150, 'drowned ' + drowned);
     return { drowned };
   });
 
