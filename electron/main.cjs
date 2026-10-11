@@ -1744,6 +1744,7 @@ async function fireBridgeEventMaybeRoulette(payload, bridgeCfg, commandsDir, out
   // 送られた回数だけ回す（2026-10-11 ユーザーの決定）。回すたびに演出して当たりを決める。
   const spins = rouletteSpins(payload.count);
   for (let spin = 1; spin <= spins; spin++) {
+    animationError = null;   // 演出を送れなかったかは回ごとに見る
     const round = prepareRoulette(bridgeCfg.roulette, commandsDir);
     const winner = await animateTestRoulette(round, payload.listenerName, item => fire({
       ...payload, key: item.commandFile.replace(/\.txt$/i, ""), count: item.repeat, announce: false,
@@ -1771,7 +1772,7 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
   const fired = [];
   testEventRunning = true;
   try {
-    for (const step of plan.steps) {
+    for (const [stepIndex, step] of plan.steps.entries()) {
       const payload = {
         type: step.type === "like" ? "like" : ["gift", "mapped_gift", "unmapped_gift"].includes(step.type) ? "gift" : "other",
         key: step.commandFile.replace(/\.txt$/i, ""), count: step.count, listenerName: plan.sender,
@@ -1793,7 +1794,8 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
           + (outcome.animationError ? `（ルーレットの演出は送れませんでした: ${outcome.animationError}）` : "") }));
       if (failure) rows.push({ commandFile: payload.key + ".txt", count: step.count, ok: false, message: failure.message });
       for (const result of rows) {
-        const row = { at: new Date().toISOString(), source: "test", type: step.type, sender: plan.sender, ...result };
+        // 1つの手順から何行も出るので、画面が手順ごとにまとめられるよう手順の番号を持たせる（PR #79 レビュー）。
+        const row = { at: new Date().toISOString(), source: "test", type: step.type, sender: plan.sender, stepIndex, ...result };
         appendOperationsHistory(row, historyPath);
         fired.push(row);
       }

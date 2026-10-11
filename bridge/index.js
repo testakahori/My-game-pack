@@ -1377,24 +1377,32 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       console.warn("[Roulette] 演出を送れなかったため、演出を省いて当選を発火します:", error?.message || error);
     },
   });
-  // 送られた回数（count）だけ回す（2026-10-11 ユーザーの決定）。回すたびに演出して当たりを決め、runner が順番に並べる。
-  function runRoulette(rl, triggerName, historyType, count = 1) {
+  // 送られた回数（count）だけ回す（2026-10-11 ユーザーの決定）。回すたびに演出して当たりを決める。
+  // 次の回は前の回が終わってから、その時の設定（getConfig）で当たりを決めて並べる。N 回分を先に全部決めると、
+  // 大きな N で Bridge が止まり、途中で設定を変えても古い当たりが出る。1回ずつ並べれば、あとから来たデスルーレットも間に入れる。
+  function runRoulette(getConfig, triggerName, historyType, count = 1) {
     if (!bridgeMod) return false;
-    for (let spin = 0; spin < rouletteSpins(count); spin++) {
+    const spins = rouletteSpins(count);
+    const spin = done => {
+      const rl = getConfig();
+      if (!rl?.enabled) return;
+      let round;
       try {
-        const round = prepareRoulette(rl, commandsDirAbs);
-        animateRoulette(round, triggerName, winner => {
-          enqueueMod({
-            type: "other", historyType: historyType || "roulette",
-            commandFile: winner.commandFile, count: winner.repeat,
-            listenerName: triggerName || "roulette", announce: false,
-          });
-        }).catch(error => console.error("[Roulette] 演出・発火に失敗:", error.message));
+        round = prepareRoulette(rl, commandsDirAbs);
       } catch (error) {
         console.error("[Roulette]", error.message);
-        break;
+        return;
       }
-    }
+      animateRoulette(round, triggerName, winner => {
+        enqueueMod({
+          type: "other", historyType: historyType || "roulette",
+          commandFile: winner.commandFile, count: winner.repeat,
+          listenerName: triggerName || "roulette", announce: false,
+        });
+      }).catch(error => console.error("[Roulette] 演出・発火に失敗:", error.message))
+        .then(() => { if (done + 1 < spins) spin(done + 1); });
+    };
+    spin(0);
     // 無効な項目を旧 roulette.txt へ流して成功扱いにしない。
     return true;
   }
@@ -1404,7 +1412,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     if (
       rouletteCfg?.enabled &&
       commandFileToBridgeKey(event.commandFile) === "roulette" &&
-      runRoulette(rouletteCfg, event.listenerName, event.historyType || "roulette", event.count)
+      runRoulette(() => rouletteCfg, event.listenerName, event.historyType || "roulette", event.count)
     ) {
       return;
     }
@@ -1420,7 +1428,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const every = clampInt(rl.everyDeaths ?? 1, 1, 1000, 1);
     if (deathRouletteMatches(rl, deaths)) {
       console.log(`[DeathRoulette] deaths=${deaths}（${every}回ごと）→ ルーレット始動`);
-      runRoulette(rl, String(status.player || "player"), "death_roulette");
+      runRoulette(() => rl, String(status.player || "player"), "death_roulette");
     }
   };
 

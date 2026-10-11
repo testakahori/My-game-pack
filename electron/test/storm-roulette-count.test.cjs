@@ -27,6 +27,28 @@ test('ルーレットを回す回数は、送られた回数（数でなけれ�
   assert.equal(rouletteSpins(1.5), 2, '時限倍率の端数は四捨五入');
 });
 
+test('Bridge のルーレットは、前の回が終わってから次の回をその時の設定で決めて並べる（PR #79 レビュー）', () => {
+  // N 回分を先に全部決めると、大きな N で Bridge が止まり、途中で設定を変えても古い当たりが出る。
+  // 1回ずつ並べれば、あとから来たデスルーレットも間に入れる。
+  const source = read('bridge/index.js');
+  const run = source.slice(source.indexOf('function runRoulette('), source.indexOf('function dispatchBridgeEvent('));
+  assert.match(run, /const rl = getConfig\(\);\s*if \(!rl\?\.enabled\) return;/, '途中で無効にしたら残りは回さない');
+  assert.match(run, /round = prepareRoulette\(rl, commandsDirAbs\);/);
+  assert.match(run, /\.then\(\(\) => \{ if \(done \+ 1 < spins\) spin\(done \+ 1\); \}\);/);
+  assert.match(source, /runRoulette\(\(\) => rouletteCfg, event\.listenerName, event\.historyType \|\| "roulette", event\.count\)/);
+  assert.match(source, /runRoulette\(\(\) => rl, String\(status\.player \|\| "player"\), "death_roulette"\)/, 'デスルーレットは1回');
+});
+
+test('テスト発火のルーレットは、演出を送れなかった印を回ごとに消す（PR #79 レビュー）', () => {
+  const main = read('electron/main.cjs');
+  const loop = main.slice(main.indexOf('for (let spin = 1; spin <= spins; spin++) {'), main.indexOf('outcomes.push({ key: winner.commandFile'));
+  assert.match(loop, /animationError = null;/);
+});
+
+test('嵐の txt の説明は N 倍に合わせる', () => {
+  assert.match(read('bridge/commands/minecraft/storm.txt'), /^\/\/ 1個で雷20連発・雨3分の暴風雨。N 個なら雷も雨も N 倍/m);
+});
+
 test('ギフトでルーレットが3回分送られたら、3回回して当選を3回送る', async t => {
   const bridge = await startBridgeFixture(t, {
     commands: { qa: '# TITLE: qa\nsay test\n', roulette: '# TITLE: roulette\n' },
