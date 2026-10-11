@@ -3,6 +3,7 @@ package jp.douma.bridgemod;
 import com.mojang.brigadier.CommandDispatcher;
 import jp.douma.bridgemod.api.GameEvents;
 import jp.douma.bridgemod.api.EnvironmentOverrides;
+import jp.douma.bridgemod.api.BlockProtection;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
@@ -163,17 +164,26 @@ public class BridgeMod {
         if (event.phase != TickEvent.Phase.END || activeServer == null) return;
 
         likeCod.tick();
-        // Gift work is independent. Likes cannot borrow unused gift budget and cause a burst.
-        int budget = MAX_COMMANDS_PER_TICK - LIKE_RESERVED_COMMANDS_PER_TICK;
-        budget -= processQueue(activeServer, giftQueue, budget);
-        budget -= processQueue(activeServer, otherQueue, budget);
-        processQueue(activeServer, likeQueue, LIKE_RESERVED_COMMANDS_PER_TICK);
+        // 妨害のコマンド（txt と /bridge/exec）は、実行のあとで変わったコマンドブロックを中身ごと戻す（BlockProtection）。
+        if (hasQueuedEvents()) BlockProtection.runProtected(activeServer, "bridgemod", this::processQueues);
         giftEffects.tick(activeServer);
         environment.apply(activeServer, giftEffects);
         if (++statusBroadcastTicks >= 20) {
             statusBroadcastTicks = 0;
             broadcastWebSocket(buildStatusJson());
         }
+    }
+
+    private void processQueues() {
+        // Gift work is independent. Likes cannot borrow unused gift budget and cause a burst.
+        int budget = MAX_COMMANDS_PER_TICK - LIKE_RESERVED_COMMANDS_PER_TICK;
+        budget -= processQueue(activeServer, giftQueue, budget);
+        budget -= processQueue(activeServer, otherQueue, budget);
+        processQueue(activeServer, likeQueue, LIKE_RESERVED_COMMANDS_PER_TICK);
+    }
+
+    private synchronized boolean hasQueuedEvents() {
+        return !giftQueue.isEmpty() || !otherQueue.isEmpty() || !likeQueue.isEmpty();
     }
 
     private void register(CommandDispatcher<CommandSourceStack> d) {
@@ -417,6 +427,7 @@ public class BridgeMod {
             + ",\"effectsError\":\"" + jsonEscape(giftEffects.lastError()) + "\""
             + ",\"deaths\":" + playerDeaths
             + ",\"protectedSkips\":" + protectedSkips
+            + ",\"protectedBlockRestores\":" + BlockProtection.restoredTotal()
             + ",\"lastError\":\"" + jsonEscape(lastError) + "\",\"tps\":" + String.format(Locale.ROOT, "%.2f", tps)
             + ",\"tickMs\":" + String.format(Locale.ROOT, "%.2f", tickMs)
             + ",\"player\":{\"online\":" + (player != null) + ",\"x\":" + String.format(Locale.ROOT, "%.2f", x)

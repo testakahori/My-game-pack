@@ -35,3 +35,24 @@ test('控える範囲は、プレイヤーの描画距離・強制読み込み�
   assert.match(capture, /getChunkNow\(/);
   assert.doesNotMatch(capture, /getChunk\(/, '読み込まれていないチャンクを読み込まない');
 });
+
+test('BridgeMOD は tick ごとのキュー処理（txt と /bridge/exec）を runProtected で包む', () => {
+  const source = read('BridgeMod/src/main/java/jp/douma/bridgemod/BridgeMod.java');
+  const tick = source.slice(source.indexOf('public void onServerTick('), source.indexOf('private void processQueues()'));
+  assert.match(tick, /if \(hasQueuedEvents\(\)\) BlockProtection\.runProtected\(activeServer, "bridgemod", this::processQueues\);/);
+  assert.doesNotMatch(tick, /processQueue\(activeServer/, 'キューを包みの外で処理しない');
+  const queues = source.slice(source.indexOf('private void processQueues()'));
+  for (const name of ['giftQueue', 'otherQueue', 'likeQueue']) assert.match(queues.slice(0, 600), new RegExp('processQueue\\(activeServer, ' + name));
+  assert.match(source, /",\\"protectedBlockRestores\\":" \+ BlockProtection\.restoredTotal\(\)/);
+});
+
+test('BridgeMOD の Java の書き換え（GiftEffects.set）は canModifyBlock を通す', () => {
+  const source = read('BridgeMod/src/main/java/jp/douma/bridgemod/GiftEffects.java');
+  const set = source.slice(source.indexOf('private void set(Origin o'), source.indexOf('private void summon(Origin o'));
+  assert.match(set, /BlockProtection\.canModifyBlock\(o\.level, p\)/);
+  assert.match(set, /o\.level\.getBlockEntity\(p\) == null/, '今の判定（BlockEntity がある位置は飛ばす）も残す');
+});
+
+test('BridgeMOD は 1.6.0（保護ブロック API を足した版）', () => {
+  assert.match(read('BridgeMod/gradle.properties'), /^mod_version=1\.6\.0$/m);
+});
