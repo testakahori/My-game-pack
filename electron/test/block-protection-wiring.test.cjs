@@ -22,6 +22,19 @@ test('保護ブロックは loadStatic で戻し、常時実行のインパル�
   assert.ok(place > 0 && entity > place && notify > entity, '置く → BlockEntity → 通知 の順にする');
 });
 
+test('戻したあとの powered は今の信号に合わせる（信号の元も壊れたとき、次の合図を取りこぼさない）', () => {
+  const restore = protection().slice(protection().indexOf('private static int restore('));
+  assert.match(restore, /if \(entity instanceof CommandBlockEntity commandBlock\) commandBlock\.setPowered\(k\.level\.hasNeighborSignal\(k\.pos\)\);/);
+  assert.ok(restore.indexOf('setPowered(') < restore.indexOf('setBlockEntity('), 'BlockEntity を置く前にそろえる（置いてからだと通知で実行が予約されうる）');
+});
+
+test('戻せたことを確かめてから数え、戻せなければ失敗としてログに出す', () => {
+  const restore = protection().slice(protection().indexOf('private static int restore('));
+  const check = restore.indexOf('if (entity == null || k.level.getBlockState(k.pos) != k.state || k.level.getBlockEntity(k.pos) != entity)');
+  assert.ok(check > restore.indexOf('blockUpdated(') && check < restore.indexOf('restored++'), '置いて通知したあと、数える前に確かめる');
+  assert.match(restore.slice(check, restore.indexOf('restored++')), /restore failed[\s\S]*continue;/);
+});
+
 test('runProtected は処理が例外を投げても戻し、入れ子では控え直さない', () => {
   const source = protection();
   const run = source.slice(source.indexOf('public static int runProtected('), source.indexOf('private static List<Kept> capture('));

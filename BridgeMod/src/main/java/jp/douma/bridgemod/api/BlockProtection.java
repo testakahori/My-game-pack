@@ -13,6 +13,7 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.CommandBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 
@@ -117,9 +118,21 @@ public final class BlockProtection {
                 k.level.setBlock(k.pos, k.state, Block.UPDATE_CLIENTS);
                 // loadStatic は level が null の状態で読み込むので、auto=true でも実行を予約しない（ワールドの読み込みと同じ）。
                 BlockEntity entity = BlockEntity.loadStatic(k.pos, k.state, nbt);
-                if (entity != null) { k.level.setBlockEntity(entity); entity.setChanged(); }
-                // powered を戻してから周りへ通知し、レッドストーンや比較器の状態をそろえる。
+                if (entity != null) {
+                    // 信号の元もいっしょに置き換えられていると、控えた powered は古い。今の信号に合わせる（実行は予約しない）。
+                    // 古い true のままだと、MAP が次に出す合図を取りこぼす。
+                    if (entity instanceof CommandBlockEntity commandBlock) commandBlock.setPowered(k.level.hasNeighborSignal(k.pos));
+                    k.level.setBlockEntity(entity);
+                    entity.setChanged();
+                }
+                // powered をそろえてから周りへ通知し、レッドストーンや比較器の状態をそろえる。
                 k.level.blockUpdated(k.pos, k.state.getBlock());
+                // 戻せたことを確かめてから数える（id のない NBT で中身が空のまま「restored」と出たことがある）。
+                if (entity == null || k.level.getBlockState(k.pos) != k.state || k.level.getBlockEntity(k.pos) != entity) {
+                    System.err.println("[BlockProtection] restore failed at " + k.pos.getX() + "," + k.pos.getY() + "," + k.pos.getZ()
+                        + " in " + k.level.dimension().location() + " (" + label + "): block entity was not restored");
+                    continue;
+                }
                 restored++;
                 System.out.println("[BlockProtection] restored " + BuiltInRegistries.BLOCK.getKey(k.state.getBlock()) + " at "
                     + k.pos.getX() + "," + k.pos.getY() + "," + k.pos.getZ() + " in " + k.level.dimension().location() + " (" + label + ")");

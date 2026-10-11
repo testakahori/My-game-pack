@@ -96,6 +96,23 @@ async function test(group, name, fn) {
     return { restored };
   });
 
+  await test('bridge', '信号の元もいっしょに置き換えられても、次の合図でインパルス型が動く（レビュー M3）', async () => {
+    const cx = -3901; await prepare(cx);
+    // 床（y=63）に、常時実行でないインパルス型と、その横の赤石ブロック（信号の元）を並べる。lavafloor は両方を置き換える。
+    await cmd(`setblock ${cx + 1} 63 0 minecraft:command_block[facing=up]{Command:"scoreboard players add #src qa_protect 1"} replace`);
+    const start = await score('#src');
+    await cmd(`setblock ${cx + 2} 63 0 minecraft:redstone_block replace`); await sleep(500);
+    assert.equal(await score('#src'), start + 1, 'runs once when the source is placed');
+    await post('lavafloor'); await idle(); await sleep(300);
+    assert.ok(await isBlock(cx + 1, 63, 0, 'minecraft:command_block[facing=up]'), 'impulse stays');
+    assert.ok(await isBlock(cx + 2, 63, 0, 'minecraft:magma_block'), 'the source was replaced');
+    assert.equal(await score('#src'), start + 1, 'restore does not run it');
+    // MAP が次の合図を出す（赤石ブロックを置き直す）。powered が古いまま true だと、この合図を取りこぼす。
+    await cmd(`setblock ${cx + 2} 63 0 minecraft:redstone_block replace`); await sleep(500);
+    assert.equal(await score('#src'), start + 2, 'the next signal runs it again');
+    return { runs: (await score('#src')) - start };
+  });
+
   await test('bridge', 'husk_watertower: setblock の水で置き換えても残り、ハスクは出る', async () => {
     const cx = -3101; await prepare(cx);
     const pos = { chain: [cx, 74, 0] };
