@@ -83,7 +83,12 @@ test('SaikutuMOD は tick ごとのキュー処理（内蔵 txt）を runProtect
   const tick = mod.slice(mod.indexOf('public void tick(TickEvent.ServerTickEvent event)'), mod.indexOf('private int process('));
   assert.match(tick, /BlockProtection\.runProtected\(server, "saikutumod", this::processQueues\)/);
   assert.doesNotMatch(tick.slice(0, tick.indexOf('private void processQueues()')), /process\("gift"/, 'キューを包みの外で処理しない');
-  assert.match(tick, /private void processQueues\(\) \{\s*int budget = 52;\s*budget -= process\("gift", budget\); process\("other", budget\); process\("like", 8\);\s*\}/);
+  assert.match(tick, /private void processQueues\(\) \{\s*wrapChunks = playerChunks\(\);\s*int budget = 52;\s*budget -= process\("gift", budget\); process\("other", budget\); process\("like", 8\);\s*\}/);
+  // randomtp などでプレイヤーが別のチャンクへ移ったら、控えた範囲の外を掘りうるので、残りは次の tick（移った先で控え直す）に回す（PR #69 のレビュー I1）。
+  const process = mod.slice(mod.indexOf('private int process('));
+  assert.match(process, /while \(used < budget && !queue\.isEmpty\(\)\) \{\s*if \(playersMoved\(\)\) break;/);
+  assert.match(mod, /private boolean playersMoved\(\) \{\s*return !playerChunks\(\)\.equals\(wrapChunks\);\s*\}/);
+  assert.match(mod, /player\.level\(\)\.dimension\(\)\.location\(\) \+ ":" \+ player\.chunkPosition\(\)\.toLong\(\)/, 'ディメンションとチャンクで比べる');
   const effects = read('SaikutuMod/src/main/java/jp/douma/saikutumod/SaikutuEffects.java');
   const set = effects.slice(effects.indexOf('private void set(Origin o'), effects.indexOf('private void summon(Origin o'));
   assert.match(set, /BlockProtection\.canModifyBlock\(o\.level, p\)/);

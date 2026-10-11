@@ -116,12 +116,27 @@ public final class SaikutuMod {
         updateStatus();
     }
     private void processQueues() {
+        wrapChunks = playerChunks();
         int budget = 52;
         budget -= process("gift", budget); process("other", budget); process("like", 8);
+    }
+    // 包みを始めたときの各プレイヤーの居場所（ディメンションとチャンク）。runProtected はここを中心に控えるので、
+    // randomtp などで別のチャンクへ移ったあとに地形を変えると、移った先のコマンドブロックは戻らない。
+    // 移ったら、残りは次の tick（移った先を中心に控え直す）に回す。
+    private Map<UUID, String> wrapChunks = Map.of();
+    private Map<UUID, String> playerChunks() {
+        Map<UUID, String> chunks = new HashMap<>();
+        for (ServerPlayer player : server.getPlayerList().getPlayers())
+            chunks.put(player.getUUID(), player.level().dimension().location() + ":" + player.chunkPosition().toLong());
+        return chunks;
+    }
+    private boolean playersMoved() {
+        return !playerChunks().equals(wrapChunks);
     }
     private int process(String type, int budget) {
         var queue = queues.get(type); var engine = effects.get(type); int used = 0;
         while (used < budget && !queue.isEmpty()) {
+            if (playersMoved()) break;
             Request request = queue.peekFirst();
             ServerPlayer player = request.player == null ? server.getPlayerList().getPlayers().stream().filter(p -> p.isAlive() && !p.isSpectator()).findFirst().orElse(null)
                 : server.getPlayerList().getPlayer(request.player);
