@@ -75,9 +75,9 @@ final class GiftEffects {
         }
     }
     private static final class Jump {
-        // 着地するまで同じ Jump を使う。高さの上限は chain が、連続ジャンプを始めた高さを基準に掛ける。
-        final ServerLevel level; final EffectLimits.JumpChain chain; double liftY; boolean coasting; int age;
-        Jump(ServerPlayer p) { level = p.serverLevel(); chain = new EffectLimits.JumpChain(p.getY()); liftY = p.getY(); }
+        // 着地するまで同じ Jump を使う。高さの上限はなく、低速落下も付けない（落下死してよい。2026-10-11 ユーザーの決定）。
+        final ServerLevel level; double target, liftY; boolean coasting; int age;
+        Jump(ServerPlayer p) { level = p.serverLevel(); target = liftY = p.getY(); }
     }
 
     void load(MinecraftServer server) {
@@ -150,9 +150,7 @@ final class GiftEffects {
 
     int start(CommandSourceStack source, String key, int count, Protection protection) throws Exception {
         if (!KEYS.contains(key)) throw new IllegalArgumentException("Unknown effect: " + key);
-        int limited = EffectLimits.clamp(key, count);
-        if (limited != count) System.out.println("[Bridge effects] " + key + " の count を " + count + " から上限の " + limited + " に抑えました");
-        count = limited;
+        // count は抑えない。送られた数どおりに出す（2026-10-10 ユーザーの決定）。
         ServerLevel level = source.getLevel();
         Origin o = new Origin(level, source.getPosition(), protection == null ? NONE : protection);
         switch (key) {
@@ -537,30 +535,28 @@ final class GiftEffects {
     private void jump(ServerPlayer p, int count) {
         Jump j = jumps.computeIfAbsent(p.getUUID(), id -> new Jump(p));
         if (j.level != p.serverLevel()) { j = new Jump(p); jumps.put(p.getUUID(), j); }
-        j.chain.stack(count); j.liftY = p.getY(); j.coasting = false; j.age = 0;
+        // 浮遊などで古い目標より上にいるときは、今の位置から数える。
+        j.target = JumpPhysics.stackTarget(Math.max(j.target, p.getY()), count); j.liftY = p.getY(); j.coasting = false; j.age = 0;
         p.removeEffect(MobEffects.JUMP); p.removeEffect(MobEffects.LEVITATION);
-        p.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, j.chain.slowFallingTicks(p.getY()), 0, false, false));
         p.setOnGround(false);
     }
     private void tickJumps(MinecraftServer server) {
         for (Iterator<Map.Entry<UUID, Jump>> it = jumps.entrySet().iterator(); it.hasNext();) {
             var entry = it.next(); Jump j = entry.getValue(); ServerPlayer p = server.getPlayerList().getPlayer(entry.getKey());
             if (p == null || !p.isAlive() || p.serverLevel() != j.level || (j.age++ > 5 && p.onGround())) { it.remove(); continue; }
+            // 頂点を過ぎたあと、水・溶岩・はしご・乗り物・飛行では着地扱いにならない。残すと次のジャンプが古い頂点に足されて打ち上がりすぎる。
+            if (j.coasting && (p.isInWater() || p.isInLava() || p.onClimbable() || p.isPassenger() || p.getAbilities().flying || p.isFallFlying())) { it.remove(); continue; }
             if (!j.coasting) {
                 // Drive ascent from the server's trajectory, so latency and packet velocity caps
                 // cannot change the promised height. Horizontal steering stays with the player.
-                double left = Math.max(0, j.chain.target() - j.liftY);
+                double left = Math.max(0, j.target - j.liftY);
                 double step = Math.min(left, Math.min(3.2, Math.max(0.12, JumpPhysics.velocityForHeight(left))));
                 j.liftY += step;
                 p.teleportTo(p.getX(), j.liftY, p.getZ());
                 motion(p, 0);
                 p.fallDistance = 0;
-                if (j.liftY >= j.chain.target()) j.coasting = true;
+                if (j.liftY >= j.target) j.coasting = true;
             }
-            // 着地するまで低速落下を切らさない（牛乳などで消えても、高い所から落ちて死なないようにする）。
-            MobEffectInstance falling = p.getEffect(MobEffects.SLOW_FALLING);
-            if (falling == null || (!falling.isInfiniteDuration() && falling.getDuration() < 40))
-                p.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, 200, 0, false, false));
         }
     }
 }

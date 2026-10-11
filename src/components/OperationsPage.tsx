@@ -406,6 +406,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
                 </FieldLabel>
                 <FieldLabel label="個別最大コマンド数">
                   <input type="number" value={o.maxCommandsPerGift ?? 200} onChange={(event) => setOption("maxCommandsPerGift", Number(event.target.value) || 0)} />
+                  <small className="mt-1 block text-[11px] leading-relaxed text-slate-400">Minecraft（BridgeMOD）では使いません。RCON・Telnet で送るゲームの、1回あたりのコマンド数の上限です。</small>
                 </FieldLabel>
               </div>
               {/* ニックネームでもミュートするので、読点の入った名前（例：ゆき、だよ）を分けないよう半角カンマだけで区切る */}
