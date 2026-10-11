@@ -95,11 +95,12 @@ test('SaikutuMOD は tick ごとのキュー処理（内蔵 txt）を runProtect
   assert.match(set, /BlockProtection\.canModifyBlock\(o\.level, p\)/);
 });
 
-test('SaikutuMOD 1.0.3 は BridgeMOD 1.6.0 以上を要求し、ゲームパックの jar 名もそろえる', () => {
-  assert.match(read('SaikutuMod/gradle.properties'), /^mod_version=1\.0\.3$/m);
+test('SaikutuMOD 1.0.3 以上は BridgeMOD 1.6.0 以上を要求し、ゲームパックの jar 名もそろえる', () => {
+  const [minor, patch] = read('SaikutuMod/gradle.properties').match(/^mod_version=1\.(\d+)\.(\d+)\r?$/m).slice(1).map(Number);
+  assert.ok(minor > 0 || patch >= 3, 'SaikutuMOD 1.0.3 以上');
   const toml = read('SaikutuMod/src/main/resources/META-INF/mods.toml');
   assert.match(toml, /\[\[dependencies\.saikutumod\]\]\s*modId="bridgemod"\s*mandatory=true\s*versionRange="\[1\.6\.0,\)"/);
   const pack = JSON.parse(read('game-packs/saikutu/game.json'));
-  assert.equal(pack.serverJar, 'saikutumod-1.0.3.jar');
-  assert.equal(pack.clientJar, 'saikutumod-1.0.3.jar');
+  assert.equal(pack.serverJar, pack.clientJar);
+  assert.match(pack.serverJar, /^saikutumod-\d+\.\d+\.\d+\.jar$/);
 });

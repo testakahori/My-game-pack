@@ -17,7 +17,6 @@ try {
   execFileSync(bin('javac'), ['-encoding', 'UTF-8', '-d', classes,
     ...['BridgeAuth', 'JumpPhysics', 'ListenerNames', 'api/ProtectedBlockIds'].map(name => main + name + '.java'),
     ...['BridgeAuthContractTest', 'JumpPhysicsContractTest', 'ListenerNamesContractTest', 'ListenerNamesParity', 'ProtectedBlockIdsContractTest'].map(name => contract + name + '.java'),
-    saikutu + 'SaikutuLimits.java', saikutuContract + 'SaikutuLimitsContractTest.java',
     saikutu + 'Shockwave.java', saikutuContract + 'ShockwaveContractTest.java'],
     { cwd: root, windowsHide: true, stdio: 'inherit' });
   const run = (name, ...args) => execFileSync(bin('java'), ['-Xmx64m', '-Dfile.encoding=UTF-8', '-Dstdout.encoding=UTF-8', '-cp', classes, name.includes('.') ? name : 'jp.douma.bridgemod.' + name, ...args],
@@ -26,7 +25,6 @@ try {
   run('JumpPhysicsContractTest');
   run('ListenerNamesContractTest');
   run('ProtectedBlockIdsContractTest');
-  run('jp.douma.saikutumod.SaikutuLimitsContractTest');
   run('jp.douma.saikutumod.ShockwaveContractTest');
   // 視聴者名の規則は Bridge（bridge/tiktok_events.cjs の safeDisplayName）と MOD（ListenerNames）の2か所にある。
   // 境目になりやすい名前を両方に通し、1つでも結果が違えば失敗にする（Bridge は空なら次の候補の ID へ、MOD は viewer にする）。

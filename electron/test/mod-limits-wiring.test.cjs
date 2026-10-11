@@ -1,19 +1,17 @@
-// MOD の上限が実際の処理につながっていることを、ソースで確かめる（Minecraft なしでは動かせない部分）。
-// 上限そのものの値は scripts/ の契約テストで確かめる。
+// 強さの上限をなくしたこと（2026-10-11）と、TNT大爆発の衝撃波が実際の処理につながっていることを、ソースで確かめる（Minecraft なしでは動かせない部分）。
+// 衝撃波の形そのものは scripts/test-bridge-contracts.cjs の ShockwaveContractTest で確かめる。
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const read = file => fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
+const effects = () => read('SaikutuMod/src/main/java/jp/douma/saikutumod/SaikutuEffects.java');
 
-test('採掘MODのくり返しの上限は、待ち列が満杯でないと決まってから掛ける', () => {
-  const source = read('SaikutuMod/src/main/java/jp/douma/saikutumod/SaikutuMod.java');
-  const offer = source.slice(source.indexOf('private int offer('), source.indexOf('public void register('));
-  const full = offer.indexOf('if (queue.size() >= limit) return GameEvents.WAIT;');
-  const cap = offer.indexOf('SaikutuLimits.scriptRepeat(');
-  const add = offer.indexOf('queue.addLast(request)');
-  assert.ok(full > 0 && cap > full && add > cap, '満杯の判定 → 上限 → 積む の順にする');
-  assert.match(offer, /request\.remaining = limited;/);
+test('採掘MODは大技の倍率もくり返し回数も抑えない', () => {
+  const mod = read('SaikutuMod/src/main/java/jp/douma/saikutumod/SaikutuMod.java');
+  assert.doesNotMatch(mod, /SaikutuLimits/);
+  assert.doesNotMatch(effects(), /SaikutuLimits/);
+  assert.equal(fs.existsSync(path.resolve(__dirname, '../../SaikutuMod/src/main/java/jp/douma/saikutumod/SaikutuLimits.java')), false);
 });
 
 test('BridgeMOD は大技の count を抑えず、スーパージャンプに上限も低速落下もない', () => {
@@ -38,4 +36,52 @@ test('開発メモに、なくした上限が残っていない', () => {
   assert.doesNotMatch(doc, /EffectLimits/);
   assert.doesNotMatch(doc, /320ブロック）まで/);
   assert.match(doc, /強さの上限はない（BridgeMOD 1\.7\.0/);
+  assert.doesNotMatch(doc, /採掘MOD 側の変更でなくす/, '採掘MOD も 1.1.0 でなくした');
+  assert.match(read('docs/採掘MODと統一コマンド.md'), /TNT大爆発は、N 個で横 48×N・上下 11×N/);
+});
+
+test('TNT大爆発は大技で、頭上の TNT は N に関係なく1回、衝撃波は N 倍', () => {
+  const source = effects();
+  assert.match(source, /static final Set<String> KEYS = Set\.of\([^)]*"tntdaibakuhatu"/);
+  assert.match(source, /case "tntdaibakuhatu" -> tntBlast\(source, o, count\);/);
+  const blast = source.slice(source.indexOf('private void tntBlast('), source.indexOf('private void tickWaves('));
+  assert.match(blast, /for \(String line : TNT_CANOPY\) o\.level\.getServer\(\)\.getCommands\(\)\.performPrefixedCommand\(source, line\);/);
+  assert.match(blast, /new Shockwave\(count, limit\)/);
+  assert.match(blast, /\(o\.level\.getServer\(\)\.getPlayerList\(\)\.getViewDistance\(\) \+ 2\) \* 16/);
+  assert.match(blast, /ticks \+ WAVE_DELAY_TICKS/);
+  const tick = source.slice(source.indexOf('void tick(MinecraftServer server'), source.indexOf('private void rain('));
+  assert.match(tick, /tickWaves\(server\);/);
+  // txt はメタ情報だけ（コマンドの行は Java の TNT_CANOPY に移した）。
+  const txt = read('SaikutuMod/src/main/resources/commands/tntdaibakuhatu.txt');
+  assert.deepEqual(txt.split(/\r?\n/).filter(line => line.trim() && !/^\s*(#|\/\/)/.test(line)), []);
+  assert.match(txt, /^# TITLE: TNT大爆発\r?$/m);
+});
+
+test('衝撃波は set() と同じ判定でえぐり、チャンクを読み込ませない（Review Focus 1）', () => {
+  const source = effects();
+  const carve = source.slice(source.indexOf('private boolean carve('), source.indexOf('private void front('));
+  const allowed = carve.indexOf('o.allowed(p)'), state = carve.indexOf('getBlockState(p)');
+  assert.ok(allowed > 0 && allowed < state, '読み込み済みかを先に確かめる');
+  assert.match(carve, /BlockPos at = p\.immutable\(\);\s*set\(o, at, Blocks\.AIR\.defaultBlockState\(\)\);/);
+  const front = source.slice(source.indexOf('private void front('));
+  assert.match(front, /!loaded\(w\.origin, x, z\)\) continue;/, '先端の爆発も読み込み済みの所だけ');
+  assert.match(front, /Level\.ExplosionInteraction\.NONE/, '爆発で地形を壊さない（えぐるのは carve だけ）');
+});
+
+test('衝撃波の予算は全部の衝撃波で 1 tick に1回だけ戻り、止めたら捨てる（Review Focus 2・3）', () => {
+  const source = effects();
+  assert.match(source, /static final int WAVE_BLOCK_BUDGET = 50_000;/);
+  assert.match(source, /private static long waveBudgetTick = -1;/);
+  assert.match(source, /if \(waveBudgetTick != now\) \{ waveBudgetTick = now; waveBudgetLeft = WAVE_BLOCK_BUDGET; \}/);
+  assert.match(source, /long now = server\.getTickCount\(\);/);
+  const stop = source.slice(source.indexOf('void stop()'), source.indexOf('int start('));
+  assert.match(stop, /waves\.clear\(\)/);
+  assert.match(source, /int pendingJobs\(\) \{ return jobs\.size\(\) \+ waves\.size\(\); \}/);
+});
+
+test('SaikutuMOD 1.1.0 とゲームパックの jar 名', () => {
+  assert.match(read('SaikutuMod/gradle.properties'), /^mod_version=1\.1\.0\r?$/m);
+  const pack = JSON.parse(read('game-packs/saikutu/game.json'));
+  assert.equal(pack.serverJar, 'saikutumod-1.1.0.jar');
+  assert.equal(pack.clientJar, 'saikutumod-1.1.0.jar');
 });

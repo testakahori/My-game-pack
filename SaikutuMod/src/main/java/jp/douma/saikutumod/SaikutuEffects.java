@@ -41,7 +41,32 @@ import java.util.function.IntConsumer;
 
 /** Mining terrain effects, with separate instances and budgets for gift / like / other. */
 final class SaikutuEffects {
-    static final Set<String> KEYS = Set.of("skytrap", "cataclysm", "iceage", "flood");
+    static final Set<String> KEYS = Set.of("skytrap", "cataclysm", "iceage", "flood", "tntdaibakuhatu");
+    // TNT大爆発（2026-10-11 ユーザーの決定）。頭上の TNT は今の txt と同じ6行を N に関係なく1回だけ実行する
+    // （2行目の赤石ブロックは、1行目で頭上が TNT になるので動かない。見た目を変えないため、そのまま残す）。
+    static final List<String> TNT_CANOPY = List.of(
+        "execute at @p if block ~ ~30 ~ air run fill ~7 ~37 ~-7 ~-7 ~5 ~7 minecraft:tnt",
+        "execute at @p if block ~ ~30 ~ air run fill ~ ~4 ~ ~ ~4 ~ minecraft:redstone_block",
+        "execute at @p unless block ~ ~30 ~ air run summon tnt ~2 ~ ~ {Fuse:40}",
+        "execute at @p unless block ~ ~30 ~ air run summon tnt ~-2 ~ ~ {Fuse:40}",
+        "execute at @p unless block ~ ~30 ~ air run summon tnt ~ ~ ~2 {Fuse:40}",
+        "execute at @p unless block ~ ~30 ~ air run summon tnt ~ ~ ~-2 {Fuse:40}");
+    // 足元の TNT（Fuse:40）が爆発するときに衝撃波を始める。
+    static final int WAVE_DELAY_TICKS = 40;
+    // 衝撃波が 1 tick に空気へ変えるブロックの数。gift・like・other の衝撃波で合わせてこの数まで（実機テストで調整）。
+    // 使い切ったら次の tick に続きをえぐる（範囲は削らない）。
+    static final int WAVE_BLOCK_BUDGET = 50_000;
+    private static long waveBudgetTick = -1;
+    private static int waveBudgetLeft;
+    private final List<Wave> waves = new ArrayList<>();
+    private static final class Wave {
+        final Origin origin; final BlockPos centre; final Shockwave shape; final long startTick;
+        final Set<UUID> hit = new HashSet<>();
+        double from, to = -1; long cursor; int ring;
+        Wave(Origin origin, BlockPos centre, Shockwave shape, long startTick) {
+            this.origin = origin; this.centre = centre; this.shape = shape; this.startTick = startTick;
+        }
+    }
     private final String owner;
     private final List<Job> jobs = new ArrayList<>();
     private final Map<String, Blizzard> blizzards = new HashMap<>();
@@ -50,7 +75,7 @@ final class SaikutuEffects {
     private long ticks;
     private int failures;
     SaikutuEffects(String type) { owner = "saikutumod:" + type; }
-    int pendingJobs() { return jobs.size(); }
+    int pendingJobs() { return jobs.size() + waves.size(); }
     int failures() { return failures; }
     private void fail(Exception error) { failures++; System.err.println("[saikutu effects] " + error); }
     record Protection(boolean enabled, double x1, double x2, double z1, double z2) {
@@ -81,19 +106,17 @@ final class SaikutuEffects {
     }
     void stop() {
         weatherLevels.forEach(level -> EnvironmentOverrides.releaseWeather(level, owner));
-        weatherLevels.clear(); jobs.clear(); blizzards.clear(); icePrisons.clear(); ticks = 0; failures = 0;
+        weatherLevels.clear(); jobs.clear(); waves.clear(); blizzards.clear(); icePrisons.clear(); ticks = 0; failures = 0;
     }
     int start(CommandSourceStack source, String key, int count, Protection protection) throws Exception {
-        // count は数の倍率（天変地異なら TNT 100×count 個）。上限は SaikutuLimits にまとめてある。
-        int limited = SaikutuLimits.effectCount(key, count);
-        if (limited != count) System.out.println("[saikutu] " + key + " の count を " + count + " から上限の " + limited + " に抑えました");
-        count = limited;
+        // count は数の倍率（天変地異なら TNT 100×count 個）。上限はない（2026-10-11 ユーザーの決定）。
         Origin o = new Origin(source.getLevel(), source.getPosition(), protection == null ? NONE : protection);
         switch (key) {
             case "skytrap" -> skytrap(source.getPlayerOrException());
             case "flood" -> flood(o, 30 * count);
             case "iceage" -> { iceage(o); fallingIce(o, source.getPlayerOrException(), count); }
             case "cataclysm" -> cataclysm(o, count, source.getPlayerOrException());
+            case "tntdaibakuhatu" -> tntBlast(source, o, count);
             default -> throw new IllegalArgumentException("Unknown mining effect: " + key);
         }
         return 1;
@@ -120,11 +143,84 @@ final class SaikutuEffects {
             o.level.sendParticles(ParticleTypes.SNOWFLAKE, o.pos.x, o.pos.y + 8, o.pos.z, 300, 48, 10, 48, 0.2);
             o.level.sendParticles(ParticleTypes.CLOUD, o.pos.x, o.pos.y + 2, o.pos.z, 50, 32, 3, 32, 0.3);
         }
+        tickWaves(server);
     }
     private void rain(ServerLevel level, int seconds) {
         level.setWeatherParameters(0, seconds * 20, true, true);
         EnvironmentOverrides.holdWeather(level, owner, System.currentTimeMillis() + seconds * 1000L);
         weatherLevels.add(level);
+    }
+    private void tntBlast(CommandSourceStack source, Origin o, int count) {
+        for (String line : TNT_CANOPY) o.level.getServer().getCommands().performPrefixedCommand(source, line);
+        // 横に調べるのは、プレイヤーの周りに読み込まれている範囲まで（チケットの届く2チャンクを足す）。
+        int limit = (o.level.getServer().getPlayerList().getViewDistance() + 2) * 16;
+        waves.add(new Wave(o, BlockPos.containing(o.pos), new Shockwave(count, limit), ticks + WAVE_DELAY_TICKS));
+    }
+    private void tickWaves(MinecraftServer server) {
+        if (waves.isEmpty()) return;
+        long now = server.getTickCount();
+        if (waveBudgetTick != now) { waveBudgetTick = now; waveBudgetLeft = WAVE_BLOCK_BUDGET; }
+        for (Iterator<Wave> it = waves.iterator(); it.hasNext();) {
+            Wave w = it.next();
+            if (ticks < w.startTick) continue;
+            try {
+                if (stepWave(w) && w.shape.finished()) it.remove();
+            } catch (Exception e) { fail(e); it.remove(); }
+        }
+    }
+    // 1 tick 分の殻をえぐる。予算が尽きたら false を返し、次の tick に同じ殻の続きの列から再開する（列の途中では止めない）。
+    private boolean stepWave(Wave w) {
+        if (w.to < 0) { w.from = w.shape.reached(); w.to = w.shape.nextReach(); w.cursor = 0; front(w); }
+        int reach = w.shape.columnReach(w.to), side = reach * 2 + 1;
+        long columns = (long) side * side;
+        BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
+        while (w.cursor < columns) {
+            if (waveBudgetLeft <= 0) return false;
+            int dx = (int) (w.cursor / side) - reach, dz = (int) (w.cursor % side) - reach;
+            w.cursor++;
+            int[] band = w.shape.verticalBand(dx, dz, w.from, w.to);
+            if (band == null) continue;
+            for (int a = band[0]; a <= band[1]; a++) {
+                p.set(w.centre.getX() + dx, w.centre.getY() + a, w.centre.getZ() + dz);
+                if (carve(w.origin, p)) waveBudgetLeft--;
+                if (a != 0) {
+                    p.set(w.centre.getX() + dx, w.centre.getY() - a, w.centre.getZ() + dz);
+                    if (carve(w.origin, p)) waveBudgetLeft--;
+                }
+            }
+        }
+        w.shape.advanceTo(w.to); w.to = -1;
+        return true;
+    }
+    // set() と同じ判定で空気にする。読み込み済みかを先に確かめ、チャンクを読み込ませない。実際に変えたら true（予算を数えるため）。
+    private boolean carve(Origin o, BlockPos p) {
+        if (!o.allowed(p) || o.level.getBlockState(p).isAir()) return false;
+        // 呼び出し側は使い回しの MutableBlockPos を渡すので、書き換える位置だけ固定した BlockPos にする。
+        BlockPos at = p.immutable();
+        set(o, at, Blocks.AIR.defaultBlockState());
+        return o.level.getBlockState(at).isAir();
+    }
+    // 先端の輪で地形を壊さない爆発（見た目・音・吹き飛ばし）を最大16か所。先端が届いた生き物は、その位置でも1回爆発させる。
+    private void front(Wave w) {
+        ServerLevel level = w.origin.level;
+        double r = w.to * w.shape.radius;
+        for (int i = 0; i < 16; i++) {
+            double angle = Math.PI * 2 * (i + (w.ring % 4) * 0.25) / 16;
+            int x = w.centre.getX() + (int) Math.round(Math.cos(angle) * r), z = w.centre.getZ() + (int) Math.round(Math.sin(angle) * r);
+            if (Math.abs(x - w.centre.getX()) > w.shape.limit || Math.abs(z - w.centre.getZ()) > w.shape.limit || !loaded(w.origin, x, z)) continue;
+            level.explode(null, x + 0.5, surface(w.origin, x, z), z + 0.5, 4f, Level.ExplosionInteraction.NONE);
+        }
+        w.ring++;
+        double hr = Math.min(r, w.shape.limit) + 2, vr = w.to * w.shape.depth + 2;
+        AABB box = new AABB(w.centre.getX() - hr, w.centre.getY() - vr, w.centre.getZ() - hr,
+            w.centre.getX() + hr + 1, w.centre.getY() + vr + 1, w.centre.getZ() + hr + 1);
+        for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, box)) {
+            if (w.hit.contains(e.getUUID())) continue;
+            int dx = e.getBlockX() - w.centre.getX(), dy = e.getBlockY() - w.centre.getY(), dz = e.getBlockZ() - w.centre.getZ();
+            if (w.shape.distance(dx, dy, dz) > w.to) continue;
+            w.hit.add(e.getUUID());
+            level.explode(null, e.getX(), e.getY(), e.getZ(), 4f, Level.ExplosionInteraction.NONE);
+        }
     }
     private void common(Origin o, ServerPlayer target, String key, int count) {
         GameEvents.commonEffect(target.createCommandSourceStack().withLevel(o.level).withPosition(o.pos).withPermission(4).withSuppressedOutput(), key, count,
