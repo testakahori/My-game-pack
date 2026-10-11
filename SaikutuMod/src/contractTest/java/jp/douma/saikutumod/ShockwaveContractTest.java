@@ -32,7 +32,7 @@ public final class ShockwaveContractTest {
         for (int[] c : new int[][] { {0, 0}, {10, 5}, {30, 20}, {47, 0}, {48, 0}, {0, 48}, {34, 34} }) coverage(wave(1, 1000), c[0], c[1]);
         for (int[] c : new int[][] { {0, 0}, {60, 30}, {95, 0} }) coverage(wave(2, 1000), c[0], c[1]);
         reachEnd();
-        crossed();
+        hits();
         loadedArea();
         System.out.println("Shockwave contract: " + checks + " checks passed");
     }
@@ -56,8 +56,8 @@ public final class ShockwaveContractTest {
 
     // 生き物を爆発させるのは、その殻で先端が通った所（from より外・to まで）。最初の殻は爆心（0）も入る。
     // 衝撃波が始まったときにいた生き物は、足場がえぐられて先端の内側へ落ちても、先端が来たら爆発させる（PR #75 再レビュー）。
-    private static void crossed() {
-        check(Shockwave.hits(0, 0, 0.04, false), "the centre is crossed by the first shell");
+    private static void hits() {
+        check(Shockwave.hits(0, 0, 0.04, false), "the centre is hit by the first shell");
         check(Shockwave.hits(0.5, 0.48, 0.5, false), "on the outer edge of the shell");
         check(!Shockwave.hits(0.48, 0.48, 0.5, false), "the inner edge belongs to the previous shell");
         check(!Shockwave.hits(0.2, 0.48, 0.5, false), "a newcomer behind the front is not hit");

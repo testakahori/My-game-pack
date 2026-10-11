@@ -131,8 +131,8 @@ async function test(group, name, fn) {
     await killCount('minecraft:drowned');
     await post('flood', 5); await idle(180000); await sleep(3000);
     const drowned = await killCount('minecraft:drowned');
-    // 洪水のウーパールーパーはドラウンドを襲うので、待つ間に数体減ることがある。上限があったころは90体で止まった。
-    assert.ok(drowned >= 140 && drowned <= 150, 'drowned ' + drowned);
+    // 洪水のウーパールーパー（45匹）はドラウンドを襲うので、待つ間に減ることがある。上限があったころは90体で止まったので、それを超えたかを見る。
+    assert.ok(drowned >= 120 && drowned <= 150, 'drowned ' + drowned);
     return { drowned };
   });
 
