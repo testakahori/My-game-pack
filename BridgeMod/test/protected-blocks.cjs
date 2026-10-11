@@ -178,7 +178,7 @@ async function test(group, name, fn) {
   }
 
   await test('bridge', 'volcano: 足元を溶岩の床に変えても、壊せないブロック（バリア・エンドポータルの枠）は残る', async () => {
-    const cx = -4600; await prepare(cx);
+    const cx = -4700; await prepare(cx);
     // 火山は足元の高さ（y=63）の 21×21 を溶岩にする。壊せないブロックは岩盤と同じく残す（2026-10-11 ユーザーの決定）。
     await cmd(`setblock ${cx + 3} 63 3 minecraft:barrier`);
     await cmd(`setblock ${cx - 3} 63 -3 minecraft:end_portal_frame`);
@@ -237,7 +237,6 @@ async function test(group, name, fn) {
     await wait(async () => isBlock(cx + 6, 100, 6, 'minecraft:tnt'), 20000);
     await cmd('kill @e[type=minecraft:tnt]');
     await cmd(`fill ${cx - 7} 69 -7 ${cx + 7} 101 7 air replace minecraft:tnt`);
-    await cmd(`setblock ${cx} 68 0 air`);
     await idle();
     await assertTrio('tnt', pos, before);
     const restored = (await restores()) - restoresBefore; assert.ok(restored >= 3, 'restored ' + restored);

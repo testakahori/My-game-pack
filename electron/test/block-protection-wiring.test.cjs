@@ -86,10 +86,14 @@ test('地形の効果は、岩盤を含む壊せないブロック（硬さが�
     assert.match(set, /o\.level\.getBlockState\(p\)\.getDestroySpeed\(o\.level, p\) >= 0/, file);
     assert.doesNotMatch(set, /Blocks\.BEDROCK/, file + '：岩盤も硬さが負なので、同じ判定で残る');
   }
-  assert.match(read('BridgeMod/gradle.properties'), /^mod_version=1\.7\.1\r?$/m);
-  assert.match(read('SaikutuMod/gradle.properties'), /^mod_version=1\.1\.1\r?$/m);
+  // 壊せないブロックを残すのは BridgeMOD 1.7.1・SaikutuMOD 1.1.1 から。
+  const version = file => read(file).match(/^mod_version=(\d+)\.(\d+)\.(\d+)\r?$/m).slice(1).map(Number);
+  const atLeast = (v, min) => v[0] !== min[0] ? v[0] > min[0] : v[1] !== min[1] ? v[1] > min[1] : v[2] >= min[2];
+  assert.ok(atLeast(version('BridgeMod/gradle.properties'), [1, 7, 1]), 'BridgeMOD 1.7.1 以上');
+  const saikutu = version('SaikutuMod/gradle.properties');
+  assert.ok(atLeast(saikutu, [1, 1, 1]), 'SaikutuMOD 1.1.1 以上');
   const pack = JSON.parse(read('game-packs/saikutu/game.json'));
-  assert.equal(pack.serverJar, 'saikutumod-1.1.1.jar');
+  assert.equal(pack.serverJar, `saikutumod-${saikutu.join('.')}.jar`);
 });
 
 test('SaikutuMOD は tick ごとのキュー処理（内蔵 txt）を runProtected で包み、set で canModifyBlock を通す', () => {

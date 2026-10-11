@@ -75,7 +75,7 @@ async function test(group, name, fn) {
       fs.writeFileSync(path.join(dir, `game_saikutu_${key}.txt`), `# GAME_MOD: saikutumod\n# GAME_KEY: ${key}\n# COUNT_MODE: aggregate\n# DISPLAY_OWNER: game\nsaikutu ${key} {Count} {ListenerName}\n`);
   }
 
-  await test('saikutu', 'TNT大爆発 count=2 は、横96・深さ22の楕円体の衝撃波でえぐり、コマンドブロックは残る', async () => {
+  await test('saikutu', 'TNT大爆発 count=2 は、横96・深さ22の楕円体の衝撃波でえぐり、コマンドブロックと壊せないブロックは残る', async () => {
     const cx = -3000, R = 104;
     await cmd('gamemode creative QANoLimit'); await cmd(`tp QANoLimit ${cx + 0.5} 120 0.5`); await sleep(4000);
     // 石の台（半径104・y=0〜63）。fill は1回32,768ブロックまで。
