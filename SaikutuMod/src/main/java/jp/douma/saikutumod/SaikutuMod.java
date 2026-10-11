@@ -70,13 +70,7 @@ public final class SaikutuMod {
         if (!queues.containsKey(type)) type = "other";
         var queue = queues.get(type); int limit = type.equals("gift") ? 600 : type.equals("like") ? 120 : 280;
         if (queue.size() >= limit) return GameEvents.WAIT;
-        if (!SaikutuEffects.KEYS.contains(request.key)) {
-            // スクリプトは count 回くり返す。TNT大爆発などは回数を抑える（大技の倍率は SaikutuEffects.start で抑える）。
-            // 待ち列が満杯の間は Bridge が同じ要求を再送するので、受け付けると決まってから抑えてログを出す。
-            int limited = SaikutuLimits.scriptRepeat(request.key, request.total);
-            if (limited != request.total) System.out.println("[saikutu] " + request.key + " のくり返しを " + request.total + " 回から上限の " + limited + " 回に抑えました");
-            request.remaining = limited;
-        }
+        // スクリプトは count 回くり返し、大技は count を倍率にする。どちらも抑えない（2026-10-11 ユーザーの決定）。
         queue.addLast(request); requests.accepted(request.requestId, request.fingerprint); return GameEvents.ACCEPTED;
     }
     @SubscribeEvent public void register(RegisterCommandsEvent event) {

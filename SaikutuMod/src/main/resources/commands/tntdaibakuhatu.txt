@@ -1,14 +1,5 @@
 # TITLE: TNT大爆発
 # SUBTITLE: とにかくドッカン
 # CATEGORY: 妨害系
-// 超大量のTNTで周囲一帯が吹き飛ぶ
-
-
-
-
-execute at @p if block ~ ~30 ~ air run fill ~7 ~37 ~-7 ~-7 ~5 ~7 minecraft:tnt
-execute at @p if block ~ ~30 ~ air run fill ~ ~4 ~ ~ ~4 ~ minecraft:redstone_block
-execute at @p unless block ~ ~30 ~ air run summon tnt ~2 ~ ~ {Fuse:40}
-execute at @p unless block ~ ~30 ~ air run summon tnt ~-2 ~ ~ {Fuse:40}
-execute at @p unless block ~ ~30 ~ air run summon tnt ~ ~ ~2 {Fuse:40}
-execute at @p unless block ~ ~30 ~ air run summon tnt ~ ~ ~-2 {Fuse:40}
+// 超大量のTNTが降ってきて爆発し、そのあと衝撃波が広がって地形をえぐる（N 個で半径 N 倍）。
+// コマンドは SaikutuEffects.TNT_CANOPY と衝撃波（Shockwave）に移した。
