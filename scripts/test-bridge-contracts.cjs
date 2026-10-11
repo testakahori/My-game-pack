@@ -1,4 +1,4 @@
-// BridgeMOD・saikutuMOD の中で Minecraft に依存しない部品（認証・ジャンプの高さ・視聴者名・保護するブロック）を、javac だけで検証する。
+// BridgeMOD・saikutuMOD の中で Minecraft に依存しない部品（認証・ジャンプの高さ・視聴者名・保護するブロック・衝撃波の形）を、javac だけで検証する。
 // 視聴者名は Bridge（safeDisplayName）と同じ結果になることも、同じ入力を両方に通して確かめる。
 // CI の mod-build ジョブで実行する。
 const fs = require('node:fs');
@@ -17,7 +17,8 @@ try {
   execFileSync(bin('javac'), ['-encoding', 'UTF-8', '-d', classes,
     ...['BridgeAuth', 'JumpPhysics', 'ListenerNames', 'api/ProtectedBlockIds'].map(name => main + name + '.java'),
     ...['BridgeAuthContractTest', 'JumpPhysicsContractTest', 'ListenerNamesContractTest', 'ListenerNamesParity', 'ProtectedBlockIdsContractTest'].map(name => contract + name + '.java'),
-    saikutu + 'SaikutuLimits.java', saikutuContract + 'SaikutuLimitsContractTest.java'],
+    saikutu + 'SaikutuLimits.java', saikutuContract + 'SaikutuLimitsContractTest.java',
+    saikutu + 'Shockwave.java', saikutuContract + 'ShockwaveContractTest.java'],
     { cwd: root, windowsHide: true, stdio: 'inherit' });
   const run = (name, ...args) => execFileSync(bin('java'), ['-Xmx64m', '-Dfile.encoding=UTF-8', '-Dstdout.encoding=UTF-8', '-cp', classes, name.includes('.') ? name : 'jp.douma.bridgemod.' + name, ...args],
     { cwd: root, windowsHide: true, stdio: 'inherit' });
@@ -26,6 +27,7 @@ try {
   run('ListenerNamesContractTest');
   run('ProtectedBlockIdsContractTest');
   run('jp.douma.saikutumod.SaikutuLimitsContractTest');
+  run('jp.douma.saikutumod.ShockwaveContractTest');
   // 視聴者名の規則は Bridge（bridge/tiktok_events.cjs の safeDisplayName）と MOD（ListenerNames）の2か所にある。
   // 境目になりやすい名前を両方に通し、1つでも結果が違えば失敗にする（Bridge は空なら次の候補の ID へ、MOD は viewer にする）。
   // 片割れのサロゲートも壊さずに渡せるよう、UTF-16 の1単位ごとの16進数で受け渡す。
