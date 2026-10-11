@@ -27,16 +27,34 @@ test('ルーレットを回す回数は、送られた回数（数でなけれ�
   assert.equal(rouletteSpins(1.5), 2, '時限倍率の端数は四捨五入');
 });
 
-test('Bridge のルーレットは、前の回が終わってから次の回をその時の設定で決めて並べる（PR #79 レビュー）', () => {
-  // N 回分を先に全部決めると、大きな N で Bridge が止まり、途中で設定を変えても古い当たりが出る。
-  // 1回ずつ並べれば、あとから来たデスルーレットも間に入れる。
+test('Bridge のルーレットは来た順にまとめて回し、当たりは回す直前にその時の設定で決める（2026-10-12 ユーザーの決定）', () => {
+  // N 回分を先に全部決めると、大きな N で Bridge が止まり、途中で設定を変えても古い当たりが出る（PR #79 レビュー）。
   const source = read('bridge/index.js');
   const run = source.slice(source.indexOf('function runRoulette('), source.indexOf('function dispatchBridgeEvent('));
-  assert.match(run, /const rl = getConfig\(\);\s*if \(!rl\?\.enabled\) return;/, '途中で無効にしたら残りは回さない');
+  assert.match(run, /rouletteRequests\.push\(\{ getConfig, triggerName, historyType, spins: rouletteSpins\(count\), done: 0 \}\);/);
+  assert.match(run, /const rl = request\.getConfig\(\);/);
+  assert.match(run, /if \(request\.done > 0\) console\.warn\(`\[Roulette\] ルーレットが無効になったため、残り\$\{request\.spins - request\.done\}回を取りやめました`\);/,
+    '途中で無効にしたら残りは回さず、取りやめた回数をログに出す（PR #79 再レビュー）');
   assert.match(run, /round = prepareRoulette\(rl, commandsDirAbs\);/);
-  assert.match(run, /\.then\(\(\) => \{ if \(done \+ 1 < spins\) spin\(done \+ 1\); \}\);/);
+  assert.match(run, /request\.done\+\+;\s*if \(request\.done < request\.spins\) nextRouletteSpin\(\); else finish\(\);/, '同じ依頼を全部回してから次の依頼');
+  assert.match(run, /Promise\.resolve\(\)\.then\(nextRouletteSpin\)/, '取りやめが続いても呼び出しを深く重ねない');
   assert.match(source, /runRoulette\(\(\) => rouletteCfg, event\.listenerName, event\.historyType \|\| "roulette", event\.count\)/);
   assert.match(source, /runRoulette\(\(\) => rl, String\(status\.player \|\| "player"\), "death_roulette"\)/, 'デスルーレットは1回');
+});
+
+test('同時に来た2人のルーレットは、来た順にまとめて回す（AAA BBB）', async t => {
+  const bridge = await startBridgeFixture(t, {
+    commands: { qa: '# TITLE: qa\nsay test\n', roulette: '# TITLE: roulette\n' },
+    config: {
+      roulette: { enabled: true, items: [{ commandFile: 'qa.txt', label: 'QA', weight: 1, repeat: 1 }] },
+      mappings: [{ giftId: '7', name: 'ルーレット', commandFile: 'roulette.txt', repeat: 3 }],
+    },
+    respond: (payload, url) => url === '/bridge/exec' ? 429 : 202,
+  });
+  const gift = name => bridge.emit('WebcastGiftMessage', { giftId: '7', gift: { name: 'g7' }, repeatCount: 1, repeatEnd: 1, user: { uniqueId: name, nickname: name } });
+  await gift('alice'); await gift('bob');
+  await bridge.until(() => bridge.requests.filter(x => x.key === 'qa').length >= 6, '6 winners');
+  assert.deepEqual(bridge.requests.filter(x => x.key === 'qa').map(x => x.listenerName), ['alice', 'alice', 'alice', 'bob', 'bob', 'bob']);
 });
 
 test('テスト発火のルーレットは、演出を送れなかった印を回ごとに消す（PR #79 レビュー）', () => {

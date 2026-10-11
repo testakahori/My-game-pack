@@ -736,6 +736,7 @@ test("テスト発火のルーレット: 数を3にすると3回回し、当選�
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.deepEqual(events.map(event => [event.key, event.count]), [["qa", 2], ["qa", 2], ["qa", 2]]);
   assert.equal(result.fired.map(row => row.commandFile + "×" + row.count).join(","), "qa.txt×2,qa.txt×2,qa.txt×2", "当選ごとに記録する");
+  assert.equal(result.fired.map(row => row.stepIndex).join(","), "0,0,0", "どれも手順0の記録（画面は手順ごとにまとめる）");
   assert.match(result.fired[2].message, /ルーレット 3回目\/3/);
 });
 
