@@ -46,7 +46,6 @@ test('TNT大爆発は大技で、頭上の TNT は N に関係なく1回、衝�
   assert.match(source, /case "tntdaibakuhatu" -> tntBlast\(source, o, count\);/);
   const blast = source.slice(source.indexOf('private void tntBlast('), source.indexOf('private void tickWaves('));
   assert.match(blast, /for \(String line : TNT_CANOPY\) o\.level\.getServer\(\)\.getCommands\(\)\.performPrefixedCommand\(source, line\);/);
-  assert.match(blast, /new Shockwave\(count, limit\)/);
   assert.match(blast, /\(o\.level\.getServer\(\)\.getPlayerList\(\)\.getViewDistance\(\) \+ 2\) \* 16/);
   assert.match(blast, /ticks \+ WAVE_DELAY_TICKS/);
   const tick = source.slice(source.indexOf('void tick(MinecraftServer server'), source.indexOf('private void rain('));
@@ -57,15 +56,33 @@ test('TNT大爆発は大技で、頭上の TNT は N に関係なく1回、衝�
   assert.match(txt, /^# TITLE: TNT大爆発\r?$/m);
 });
 
-test('衝撃波は set() と同じ判定でえぐり、チャンクを読み込ませない（Review Focus 1）', () => {
+test('衝撃波は set() と同じ判定でえぐり、周りのチャンクまで読み込み済みの所だけを触る（Review Focus 1・PR #75 レビュー）', () => {
   const source = effects();
   const carve = source.slice(source.indexOf('private boolean carve('), source.indexOf('private void front('));
   const allowed = carve.indexOf('o.allowed(p)'), state = carve.indexOf('getBlockState(p)');
   assert.ok(allowed > 0 && allowed < state, '読み込み済みかを先に確かめる');
   assert.match(carve, /BlockPos at = p\.immutable\(\);\s*set\(o, at, Blocks\.AIR\.defaultBlockState\(\)\);/);
+  // 読み込まれていないチャンクのブロックを読むと、サーバーがその場で読み込む。周りへの通知は隣のブロックに届くので、
+  // tick ごとに FULL のチャンクを調べ直し、隣のチャンクまで読み込み済みの列だけをえぐる。
+  const step = source.slice(source.indexOf('private boolean stepWave('), source.indexOf('private boolean carve('));
+  assert.match(step, /LoadedArea area = new LoadedArea\(w\.centre\.getX\(\), w\.centre\.getZ\(\), w\.shape\.limit \+ 16,\s*\(cx, cz\) -> w\.origin\.level\.getChunkSource\(\)\.getChunkNow\(cx, cz\) != null\);/);
+  const check = step.indexOf('if (!area.around(x, z, 1)) continue;'), carving = step.indexOf('carve(w.origin, p)');
+  assert.ok(check > 0 && check < carving, '列を調べてからえぐる');
+  // 爆発の光線は約7ブロック届くので、8ブロック先まで読み込み済みの所だけで爆発させる。
+  assert.match(source, /static final int EXPLOSION_MARGIN = 8;/);
   const front = source.slice(source.indexOf('private void front('));
-  assert.match(front, /!loaded\(w\.origin, x, z\)\) continue;/, '先端の爆発も読み込み済みの所だけ');
+  assert.match(front, /!area\.around\(x, z, EXPLOSION_MARGIN\)\) continue;/, '先端の輪の爆発');
+  assert.match(front, /if \(!area\.around\(e\.getBlockX\(\), e\.getBlockZ\(\), EXPLOSION_MARGIN\)\) continue;/, '生き物の位置の爆発');
+  assert.doesNotMatch(front, /loaded\(w\.origin/, '爆発の中心のチャンクだけを見る判定は使わない');
   assert.match(front, /Level\.ExplosionInteraction\.NONE/, '爆発で地形を壊さない（えぐるのは carve だけ）');
+});
+
+test('生き物を爆発させるのは先端が通った所だけで、調べる範囲をえぐり終えたら衝撃波を終える（PR #75 レビュー）', () => {
+  const source = effects();
+  const front = source.slice(source.indexOf('private void front('));
+  assert.match(front, /if \(!Shockwave\.crossed\(w\.shape\.distance\(dx, dy, dz\), w\.from, w\.to\)\) continue;/);
+  const blast = source.slice(source.indexOf('private void tntBlast('), source.indexOf('private void tickWaves('));
+  assert.match(blast, /new Shockwave\(count, limit, o\.level\.getMaxBuildHeight\(\) - 1 - centre\.getY\(\), centre\.getY\(\) - o\.level\.getMinBuildHeight\(\)\)/);
 });
 
 test('衝撃波の予算は全部の衝撃波で 1 tick に1回だけ戻り、止めたら捨てる（Review Focus 2・3）', () => {

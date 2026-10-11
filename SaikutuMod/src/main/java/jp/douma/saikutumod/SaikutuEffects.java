@@ -56,6 +56,8 @@ final class SaikutuEffects {
     // 衝撃波が 1 tick に空気へ変えるブロックの数。gift・like・other の衝撃波で合わせてこの数まで（実機テストで調整）。
     // 使い切ったら次の tick に続きをえぐる（範囲は削らない）。
     static final int WAVE_BLOCK_BUDGET = 50_000;
+    // 先端の爆発（威力4）の光線は約7ブロック届く。8ブロック先まで読み込み済みの所だけで爆発させる（PR #75 レビュー）。
+    static final int EXPLOSION_MARGIN = 8;
     private static long waveBudgetTick = -1;
     private static int waveBudgetLeft;
     private final List<Wave> waves = new ArrayList<>();
@@ -154,7 +156,10 @@ final class SaikutuEffects {
         for (String line : TNT_CANOPY) o.level.getServer().getCommands().performPrefixedCommand(source, line);
         // 横に調べるのは、プレイヤーの周りに読み込まれている範囲まで（チケットの届く2チャンクを足す）。
         int limit = (o.level.getServer().getPlayerList().getViewDistance() + 2) * 16;
-        waves.add(new Wave(o, BlockPos.containing(o.pos), new Shockwave(count, limit), ticks + WAVE_DELAY_TICKS));
+        BlockPos centre = BlockPos.containing(o.pos);
+        // 上下は建築できる高さまで。そこまでえぐり終えたら、大きな N でも衝撃波を終える（PR #75 レビュー）。
+        Shockwave shape = new Shockwave(count, limit, o.level.getMaxBuildHeight() - 1 - centre.getY(), centre.getY() - o.level.getMinBuildHeight());
+        waves.add(new Wave(o, centre, shape, ticks + WAVE_DELAY_TICKS));
     }
     private void tickWaves(MinecraftServer server) {
         if (waves.isEmpty()) return;
@@ -170,7 +175,11 @@ final class SaikutuEffects {
     }
     // 1 tick 分の殻をえぐる。予算が尽きたら false を返し、次の tick に同じ殻の続きの列から再開する（列の途中では止めない）。
     private boolean stepWave(Wave w) {
-        if (w.to < 0) { w.from = w.shape.reached(); w.to = w.shape.nextReach(); w.cursor = 0; front(w); }
+        // 読み込み済み（FULL）のチャンクを tick ごとに調べ直す。プレイヤーが動けば読み込まれている範囲も動く。
+        // 読み込まれていないチャンクのブロックを読むと、サーバーがその場で読み込む（PR #75 レビュー）。
+        LoadedArea area = new LoadedArea(w.centre.getX(), w.centre.getZ(), w.shape.limit + 16,
+            (cx, cz) -> w.origin.level.getChunkSource().getChunkNow(cx, cz) != null);
+        if (w.to < 0) { w.from = w.shape.reached(); w.to = w.shape.nextReach(); w.cursor = 0; front(w, area); }
         int reach = w.shape.columnReach(w.to), side = reach * 2 + 1;
         long columns = (long) side * side;
         BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
@@ -180,11 +189,14 @@ final class SaikutuEffects {
             w.cursor++;
             int[] band = w.shape.verticalBand(dx, dz, w.from, w.to);
             if (band == null) continue;
+            int x = w.centre.getX() + dx, z = w.centre.getZ() + dz;
+            // 周りへの通知は隣のブロックに届くので、隣のチャンクまで読み込み済みの列だけをえぐる。
+            if (!area.around(x, z, 1)) continue;
             for (int a = band[0]; a <= band[1]; a++) {
-                p.set(w.centre.getX() + dx, w.centre.getY() + a, w.centre.getZ() + dz);
+                p.set(x, w.centre.getY() + a, z);
                 if (carve(w.origin, p)) waveBudgetLeft--;
                 if (a != 0) {
-                    p.set(w.centre.getX() + dx, w.centre.getY() - a, w.centre.getZ() + dz);
+                    p.set(x, w.centre.getY() - a, z);
                     if (carve(w.origin, p)) waveBudgetLeft--;
                 }
             }
@@ -200,14 +212,15 @@ final class SaikutuEffects {
         set(o, at, Blocks.AIR.defaultBlockState());
         return o.level.getBlockState(at).isAir();
     }
-    // 先端の輪で地形を壊さない爆発（見た目・音・吹き飛ばし）を最大16か所。先端が届いた生き物は、その位置でも1回爆発させる。
-    private void front(Wave w) {
+    // 先端の輪で地形を壊さない爆発（見た目・音・吹き飛ばし）を最大16か所。先端が通った生き物は、その位置でも1回爆発させる。
+    private void front(Wave w, LoadedArea area) {
         ServerLevel level = w.origin.level;
         double r = w.to * w.shape.radius;
         for (int i = 0; i < 16; i++) {
             double angle = Math.PI * 2 * (i + (w.ring % 4) * 0.25) / 16;
             int x = w.centre.getX() + (int) Math.round(Math.cos(angle) * r), z = w.centre.getZ() + (int) Math.round(Math.sin(angle) * r);
-            if (Math.abs(x - w.centre.getX()) > w.shape.limit || Math.abs(z - w.centre.getZ()) > w.shape.limit || !loaded(w.origin, x, z)) continue;
+            if (Math.abs(x - w.centre.getX()) > w.shape.limit || Math.abs(z - w.centre.getZ()) > w.shape.limit
+                    || !area.around(x, z, EXPLOSION_MARGIN)) continue;
             level.explode(null, x + 0.5, surface(w.origin, x, z), z + 0.5, 4f, Level.ExplosionInteraction.NONE);
         }
         w.ring++;
@@ -217,7 +230,9 @@ final class SaikutuEffects {
         for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, box)) {
             if (w.hit.contains(e.getUUID())) continue;
             int dx = e.getBlockX() - w.centre.getX(), dy = e.getBlockY() - w.centre.getY(), dz = e.getBlockZ() - w.centre.getZ();
-            if (w.shape.distance(dx, dy, dz) > w.to) continue;
+            // 先端が通った所（この殻）にいる生き物だけ。先端が過ぎたあとに来た生き物は爆発させない（PR #75 レビュー）。
+            if (!Shockwave.crossed(w.shape.distance(dx, dy, dz), w.from, w.to)) continue;
+            if (!area.around(e.getBlockX(), e.getBlockZ(), EXPLOSION_MARGIN)) continue;
             w.hit.add(e.getUUID());
             level.explode(null, e.getX(), e.getY(), e.getZ(), 4f, Level.ExplosionInteraction.NONE);
         }

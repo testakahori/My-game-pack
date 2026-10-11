@@ -132,6 +132,26 @@ async function test(group, name, fn) {
     return { logs };
   });
 
+  await test('saikutu', 'TNT大爆発 count=1000 は、調べる範囲をえぐり終えたら衝撃波を終える（以前は端まで 24,000 tick ≒ 20分続いた）', async () => {
+    // フラットワールドの地表（草は y=-61）。描画距離10なら、横は192ブロック、上下は建築できる高さ（y=-64〜319）まで調べる。
+    const cx = -8000;
+    await cmd('gamemode creative QANoLimit'); await cmd(`tp QANoLimit ${cx + 0.5} -60 0.5`); await sleep(4000);
+    const started = Date.now();
+    await post('tntdaibakuhatu', 1000);
+    await wait(async () => /Test passed/.test(await cmd(`execute if block ${cx} -30 0 minecraft:tnt`)), 20000);
+    await cmd('kill @e[type=minecraft:tnt]');
+    await cmd(`fill ${cx - 7} -55 -7 ${cx + 7} -23 7 minecraft:air replace minecraft:tnt`);
+    await idle(240000);
+    const seconds = Math.round((Date.now() - started) / 1000);
+    // 衝撃波が終わったあとに来た生き物は爆発させない（燃えないハスクで見る）。
+    await cmd('kill @e[type=minecraft:husk,tag=qa_after]');
+    await cmd(`summon minecraft:husk ${cx + 3} -63 0.5 {NoAI:1b,PersistenceRequired:1b,Tags:["qa_after"]}`);
+    await sleep(3000);
+    const health = Number((await cmd('data get entity @e[type=minecraft:husk,tag=qa_after,limit=1] Health')).match(/([\d.]+)f/)?.[1]);
+    assert.equal(health, 20, 'a husk that arrives after the wave is not blown up');
+    return { seconds, health };
+  });
+
   fs.writeFileSync(path.join(root, 'no-limits-results.json'), JSON.stringify({ results }, null, 2));
   if (results.length === 0) throw Error('no tests ran');
   console.log(`no limits: ${results.length} tests passed`);

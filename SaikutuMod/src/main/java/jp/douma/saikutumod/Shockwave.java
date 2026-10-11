@@ -11,14 +11,20 @@ final class Shockwave {
     static final double BLOCKS_PER_TICK = 2.0;
 
     final int radius, depth, limit;
+    // 調べる範囲（横 limit・上 up・下 down）の一番遠い角までの距離。ここまでえぐったら、もうえぐる所も先端が通る所もない。
+    private final double end;
     private double reached;
 
-    /** count は送られた TNT大爆発の数（1 未満は 1）。limit は横に調べる最大の距離（読み込まれている範囲）。 */
-    Shockwave(int count, int limit) {
+    /**
+     * count は送られた TNT大爆発の数（1 未満は 1）。limit は横に調べる最大の距離（読み込まれている範囲）。
+     * up・down は爆心から建築できる高さの上端・下端までのブロック数。大きな N で、えぐる所がないのに端（R/2 tick）まで続けない。
+     */
+    Shockwave(int count, int limit, int up, int down) {
         int n = Math.max(1, count);
         radius = Math.multiplyExact(BASE_RADIUS, n);
         depth = Math.multiplyExact(BASE_DEPTH, n);
         this.limit = Math.max(0, limit);
+        end = Math.min(1, distance(this.limit, Math.max(0, Math.max(up, down)), this.limit));
     }
 
     /** 爆心からの正規化した距離。1 以下が楕円体の内側。 */
@@ -27,7 +33,10 @@ final class Shockwave {
         return Math.sqrt(h + (double) dy * dy / ((double) depth * depth));
     }
 
-    boolean finished() { return reached >= 1; }
+    /** 距離 s の生き物を、殻 (from, to] の先端が通ったか。最初の殻（from が 0）は爆心も入る。殻の内側は前の殻で済んでいる。 */
+    static boolean crossed(double s, double from, double to) { return s <= to && (from <= 0 || s > from); }
+
+    boolean finished() { return reached >= end; }
     double reached() { return reached; }
 
     /** 次の殻の外側。1 tick に 2/R ずつ進み、1 で止まる。足し算を積み重ねると端の手前に誤差が残るので、何殻目かから計算する。 */
