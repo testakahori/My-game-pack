@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useUnsavedGuard } from '../UnsavedChanges';
 import { commandOptionLabel } from '../lib/commandLabel';
+import { stepStatus, type FiredRow } from '../lib/testResult';
 
 const EVENTS = [
   ['gift', '🎁 ギフト（コマンド直接）'], ['mapped_gift', '🎁 設定済みギフト'], ['unmapped_gift', '🎁 未設定ギフト'],
@@ -9,7 +10,7 @@ const EVENTS = [
   ['combo', '⚡ コンボ'], ['like_milestone', '🏁 いいねマイルストーン'], ['follow_milestone', '🏁 フォローマイルストーン'],
   ['comment_command', '⌨ コメントコマンド'], ['poll', '🗳 コメント投票の当選'],
 ];
-type Result = { ok: boolean; message: string; notes?: string[]; preview?: boolean; steps?: Array<{ label: string; commandFile: string; count: number }>; fired?: Array<{ ok: boolean; message: string }> };
+type Result = { ok: boolean; message: string; notes?: string[]; preview?: boolean; steps?: Array<{ label: string; commandFile: string; count: number }>; fired?: FiredRow[] };
 
 export default function EventTestPanel({ onTested }: { onTested: () => Promise<void> }) {
   const api = window.mygamepack;
@@ -66,6 +67,6 @@ export default function EventTestPanel({ onTested }: { onTested: () => Promise<v
       <div className="ops-action-row"><button type="button" disabled={hasChanges} className="ops-small-button" onClick={() => fire(true)}>条件だけ確認</button><button type="button" disabled={hasChanges} className="ops-primary-button ops-primary-button--cyan" onClick={() => fire(false)}>{busy ? '確認中…' : type === 'gift' ? '🎁 ギフト発火' : type === 'like' ? '♥ いいね発火' : 'テスト発火'}</button></div>
     </fieldset>
     <p className="ops-test-note">{hasChanges ? '未保存の変更があります。保存してからテストしてください。' : '条件確認はサーバー停止中でも利用できます。発火にはMinecraftサーバーが必要です。実際にコマンドが動きますが、テスト履歴は配信統計に加算しません。'}</p>
-    {result ? <div className="event-test-result" role="status"><b className={result.ok ? 'ok' : 'bad'}>{result.message}</b>{result.notes?.map((note, i) => <p key={i}>{note}</p>)}{result.steps?.map((step, i) => <p key={i}>{step.label} → {step.commandFile} ×{step.count}{result.fired?.[i] ? ` / ${result.fired[i].ok ? '送信済み' : result.fired[i].message}` : ' / 未送信'}</p>)}</div> : null}
+    {result ? <div className="event-test-result" role="status"><b className={result.ok ? 'ok' : 'bad'}>{result.message}</b>{result.notes?.map((note, i) => <p key={i}>{note}</p>)}{result.steps?.map((step, i) => <p key={i}>{step.label} → {step.commandFile} ×{step.count} / {stepStatus(result.fired, i)}</p>)}</div> : null}
   </section>;
 }

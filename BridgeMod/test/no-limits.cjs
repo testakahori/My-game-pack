@@ -68,6 +68,21 @@ async function test(group, name, fn) {
     return { rose: Math.round(maxY - startY), slowFalling };
   });
 
+  await test('bridge', '嵐 count=2 は雨6分、雨が残っているうちに count=1 が来たら残りに3分足す（以前は1個ぶんの3分で上書き）', async () => {
+    // 雨が止む時刻は、サーバーのフォルダーの douma-weather-timers.properties に保存される（ミリ秒）。
+    const rainEnd = () => Number(fs.readFileSync(path.join(root, 'douma-weather-timers.properties'), 'utf8').match(/overworld=(\d+)/)?.[1] || 0);
+    await post('clearweather', 1); await idle();
+    const before = Date.now();
+    await post('storm', 2); await idle();
+    const first = rainEnd();
+    assert.ok(Math.abs(first - before - 360000) < 20000, 'two storms rain 6 minutes: ' + Math.round((first - before) / 1000) + 's');
+    await post('storm', 1); await idle();
+    const second = rainEnd();
+    assert.ok(Math.abs(second - first - 180000) < 1000, 'one more storm adds 3 minutes: ' + Math.round((second - first) / 1000) + 's');
+    await post('clearweather', 1); await idle();
+    return { firstSeconds: Math.round((first - before) / 1000), addedSeconds: Math.round((second - first) / 1000) };
+  });
+
   // 採掘のゲームの振り分けファイル（アプリの切替と同じ形）。
   if (only !== 'bridge') {
     const dir = path.join(root, 'bridge', 'commands', 'minecraft');

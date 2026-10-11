@@ -30,7 +30,7 @@ const { TikTokLiveConnection } = require("tiktok-live-connector");
 const { connectionOptions, redactSecrets, retryDelay } = require('./tiktok_connection.cjs');
 const { Rcon } = require("rcon-client");
 const { validateBridgeConfig } = require("./config_schema");
-const { prepareRoulette, createRouletteRunner } = require("./roulette.cjs");
+const { prepareRoulette, createRouletteRunner, rouletteSpins } = require("./roulette.cjs");
 const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require("./mod_event_delivery.cjs");
 const { commandFileProblem } = require("./command_files.cjs");
 const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("./bridge_mod_token.cjs");
@@ -1377,22 +1377,49 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       console.warn("[Roulette] 演出を送れなかったため、演出を省いて当選を発火します:", error?.message || error);
     },
   });
-  function runRoulette(rl, triggerName, historyType) {
+  // 送られた回数（count）だけ回す（2026-10-11 ユーザーの決定）。回すたびに演出して当たりを決める。
+  // 別の人のルーレットとは来た順にまとめて回す：前のルーレットを全部回し終えてから次（デスルーレットも並ぶ。2026-10-12 ユーザーの決定）。
+  // 当たりは回す直前に、その時の設定（getConfig）で決める。N 回分を先に全部決めると、大きな N で Bridge が止まり、
+  // 途中で設定を変えても古い当たりが出る（PR #79 レビュー）。途中で無効にしたら、その依頼の残りは取りやめる。
+  const rouletteRequests = [];
+  let rouletteBusy = false;
+  function runRoulette(getConfig, triggerName, historyType, count = 1) {
     if (!bridgeMod) return false;
-    try {
-      const round = prepareRoulette(rl, commandsDirAbs);
-      animateRoulette(round, triggerName, winner => {
-        enqueueMod({
-          type: "other", historyType: historyType || "roulette",
-          commandFile: winner.commandFile, count: winner.repeat,
-          listenerName: triggerName || "roulette", announce: false,
-        });
-      }).catch(error => console.error("[Roulette] 演出・発火に失敗:", error.message));
-    } catch (error) {
-      console.error("[Roulette]", error.message);
-    }
+    rouletteRequests.push({ getConfig, triggerName, historyType, spins: rouletteSpins(count), done: 0 });
+    if (!rouletteBusy) nextRouletteSpin();
     // 無効な項目を旧 roulette.txt へ流して成功扱いにしない。
     return true;
+  }
+  function nextRouletteSpin() {
+    const request = rouletteRequests[0];
+    if (!request) { rouletteBusy = false; return; }
+    rouletteBusy = true;
+    // 依頼を終えて次へ。取りやめが続いても呼び出しを深く重ねない。
+    const finish = () => { rouletteRequests.shift(); Promise.resolve().then(nextRouletteSpin); };
+    const rl = request.getConfig();
+    if (!rl?.enabled) {
+      if (request.done > 0) console.warn(`[Roulette] ルーレットが無効になったため、残り${request.spins - request.done}回を取りやめました`);
+      return finish();
+    }
+    let round;
+    try {
+      round = prepareRoulette(rl, commandsDirAbs);
+    } catch (error) {
+      const left = request.spins - request.done;
+      console.error("[Roulette]", error.message + (left > 1 ? `（残り${left}回を取りやめました）` : ""));
+      return finish();
+    }
+    animateRoulette(round, request.triggerName, winner => {
+      enqueueMod({
+        type: "other", historyType: request.historyType || "roulette",
+        commandFile: winner.commandFile, count: winner.repeat,
+        listenerName: request.triggerName || "roulette", announce: false,
+      });
+    }).catch(error => console.error("[Roulette] 演出・発火に失敗:", error.message))
+      .then(() => {
+        request.done++;
+        if (request.done < request.spins) nextRouletteSpin(); else finish();
+      });
   }
 
   // Mod への発火を一元化：commandFile が roulette（仮想コマンド）ならルーレットに差し替える
@@ -1400,7 +1427,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     if (
       rouletteCfg?.enabled &&
       commandFileToBridgeKey(event.commandFile) === "roulette" &&
-      runRoulette(rouletteCfg, event.listenerName, event.historyType || "roulette")
+      runRoulette(() => rouletteCfg, event.listenerName, event.historyType || "roulette", event.count)
     ) {
       return;
     }
@@ -1416,7 +1443,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const every = clampInt(rl.everyDeaths ?? 1, 1, 1000, 1);
     if (deathRouletteMatches(rl, deaths)) {
       console.log(`[DeathRoulette] deaths=${deaths}（${every}回ごと）→ ルーレット始動`);
-      runRoulette(rl, String(status.player || "player"), "death_roulette");
+      runRoulette(() => rl, String(status.player || "player"), "death_roulette");
     }
   };
 

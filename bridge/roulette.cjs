@@ -86,4 +86,11 @@ function createRouletteRunner({ sendFrame, sleep = ms => new Promise(resolve => 
   };
 }
 
-module.exports = { commandPath, prepareRoulette, createRouletteRunner };
+// ルーレットを回す回数。送られた回数（ギフトの数×割当の回数など）だけ回す（2026-10-11 ユーザーの決定）。
+// 時限倍率の端数は四捨五入し、数でなければ1回。
+function rouletteSpins(count) {
+  const spins = Math.round(Number(count));
+  return Number.isFinite(spins) && spins >= 1 ? spins : 1;
+}
+
+module.exports = { commandPath, prepareRoulette, createRouletteRunner, rouletteSpins };

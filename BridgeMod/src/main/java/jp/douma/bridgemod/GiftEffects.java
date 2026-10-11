@@ -155,7 +155,7 @@ final class GiftEffects {
         Origin o = new Origin(level, source.getPosition(), protection == null ? NONE : protection);
         switch (key) {
             case "clearweather" -> clearWeather(level);
-            case "storm" -> { rain(level, 180); lightning(o, 20); }
+            case "storm" -> storm(o, level, count);
             case "superjump" -> jump(source.getPlayerOrException(), count);
             case "bullettime" -> bullets(o, 240 * count);
             case "anvildrop" -> anvils(o, 100 * count);
@@ -198,12 +198,17 @@ final class GiftEffects {
         }
     }
 
-    private void rain(ServerLevel level, int seconds) {
+    // 嵐は送られた数だけ起こす：雷も雨も N 倍（2026-10-11 ユーザーの決定）。雨が残っているうちに次の嵐が来たら、残りに足す。
+    private void storm(Origin o, ServerLevel level, int count) {
         level.getServer().getCommands().performPrefixedCommand(level.getServer().createCommandSourceStack().withSuppressedOutput(),
             "execute if score #storm douma_storm matches 1.. run scoreboard players set #storm douma_storm 0");
-        level.setWeatherParameters(0, seconds * 20, true, true);
-        weatherEnds.put(level.dimension().location().toString(), System.currentTimeMillis() + seconds * 1000L);
+        String id = level.dimension().location().toString();
+        long now = System.currentTimeMillis();
+        long end = StormPlan.rainEnd(now, weatherEnds.get(id), count);
+        level.setWeatherParameters(0, StormPlan.rainTicks(now, end), true, true);
+        weatherEnds.put(id, end);
         saveWeather();
+        lightning(o, StormPlan.bolts(count));
     }
     private void clearWeather(ServerLevel level) {
         level.setWeatherParameters(6000, 0, false, false);
