@@ -58,3 +58,12 @@ Java 17でBridgeModの通常のbuildに加えて、明示的に `environmentProb
 ## ゲーム連携の再送・リセット・表示時間
 
 `environmentProbeJar`には配布しない`gameprobe`も含みます。専用の使い捨てForge 47.4.10サーバーへ配置し、同じGIFT_QA_SERVERを指定して `node game-integration.cjs` を実行します。count=150の無分割転送、別送信者の分離、待機中と実行済みの再送抑止、3キューの旧要求失効、遅延再送、一時停止、終了、引数検証、実開始時だけのタイトルと0/120/20 tickの表示パケットを検証します。DisplayMODなしの専用起動ではGIFT_QA_NO_DISPLAY=1を指定します。
+
+## 保護ブロック（コマンドブロック3種）
+
+`node protected-blocks.cjs` は、妨害のコマンドでコマンドブロックが置き換えられても、同じ向き・同じコマンドで残ること、常時実行のインパルス型が再実行されないこと、リピート型が動き続けることを確かめます。上と同じマーカー・ポート・GIFT_QA_SERVER に加えて、server.properties に `enable-command-block=true` が必要です。
+
+- BridgeMOD の分（`--bridge-only`）：lavafloor・husk_watertower・`/bridge/exec` の fill、同じ種類のコマンドブロックでの上書き、プレイヤーから遠い forceload のチャンク。
+- 採掘の分（`--saikutu-only`）：SaikutuMOD を入れたサーバーで実行します。テストが `bridge/commands/minecraft/game_saikutu_*.txt` を書きます。
+
+結果はサーバールートの `protected-blocks-results.json` に保存します。
