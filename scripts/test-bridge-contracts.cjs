@@ -15,8 +15,8 @@ try {
   const classes = path.join(temp, 'classes'), fixture = path.join(temp, 'fixture');
   fs.mkdirSync(classes); fs.mkdirSync(fixture);
   execFileSync(bin('javac'), ['-encoding', 'UTF-8', '-d', classes,
-    ...['BridgeAuth', 'JumpPhysics', 'ListenerNames', 'api/ProtectedBlockIds'].map(name => main + name + '.java'),
-    ...['BridgeAuthContractTest', 'JumpPhysicsContractTest', 'ListenerNamesContractTest', 'ListenerNamesParity', 'ProtectedBlockIdsContractTest'].map(name => contract + name + '.java'),
+    ...['BridgeAuth', 'JumpPhysics', 'ListenerNames', 'StormPlan', 'api/ProtectedBlockIds'].map(name => main + name + '.java'),
+    ...['BridgeAuthContractTest', 'JumpPhysicsContractTest', 'ListenerNamesContractTest', 'ListenerNamesParity', 'StormPlanContractTest', 'ProtectedBlockIdsContractTest'].map(name => contract + name + '.java'),
     saikutu + 'Shockwave.java', saikutu + 'LoadedArea.java', saikutuContract + 'ShockwaveContractTest.java'],
     { cwd: root, windowsHide: true, stdio: 'inherit' });
   const run = (name, ...args) => execFileSync(bin('java'), ['-Xmx64m', '-Dfile.encoding=UTF-8', '-Dstdout.encoding=UTF-8', '-cp', classes, name.includes('.') ? name : 'jp.douma.bridgemod.' + name, ...args],
@@ -24,6 +24,7 @@ try {
   run('BridgeAuthContractTest', fixture);
   run('JumpPhysicsContractTest');
   run('ListenerNamesContractTest');
+  run('StormPlanContractTest');
   run('ProtectedBlockIdsContractTest');
   run('jp.douma.saikutumod.ShockwaveContractTest');
   // 視聴者名の規則は Bridge（bridge/tiktok_events.cjs の safeDisplayName）と MOD（ListenerNames）の2か所にある。

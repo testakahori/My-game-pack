@@ -30,7 +30,7 @@ const { TikTokLiveConnection } = require("tiktok-live-connector");
 const { connectionOptions, redactSecrets, retryDelay } = require('./tiktok_connection.cjs');
 const { Rcon } = require("rcon-client");
 const { validateBridgeConfig } = require("./config_schema");
-const { prepareRoulette, createRouletteRunner } = require("./roulette.cjs");
+const { prepareRoulette, createRouletteRunner, rouletteSpins } = require("./roulette.cjs");
 const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require("./mod_event_delivery.cjs");
 const { commandFileProblem } = require("./command_files.cjs");
 const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("./bridge_mod_token.cjs");
@@ -1377,19 +1377,23 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       console.warn("[Roulette] 演出を送れなかったため、演出を省いて当選を発火します:", error?.message || error);
     },
   });
-  function runRoulette(rl, triggerName, historyType) {
+  // 送られた回数（count）だけ回す（2026-10-11 ユーザーの決定）。回すたびに演出して当たりを決め、runner が順番に並べる。
+  function runRoulette(rl, triggerName, historyType, count = 1) {
     if (!bridgeMod) return false;
-    try {
-      const round = prepareRoulette(rl, commandsDirAbs);
-      animateRoulette(round, triggerName, winner => {
-        enqueueMod({
-          type: "other", historyType: historyType || "roulette",
-          commandFile: winner.commandFile, count: winner.repeat,
-          listenerName: triggerName || "roulette", announce: false,
-        });
-      }).catch(error => console.error("[Roulette] 演出・発火に失敗:", error.message));
-    } catch (error) {
-      console.error("[Roulette]", error.message);
+    for (let spin = 0; spin < rouletteSpins(count); spin++) {
+      try {
+        const round = prepareRoulette(rl, commandsDirAbs);
+        animateRoulette(round, triggerName, winner => {
+          enqueueMod({
+            type: "other", historyType: historyType || "roulette",
+            commandFile: winner.commandFile, count: winner.repeat,
+            listenerName: triggerName || "roulette", announce: false,
+          });
+        }).catch(error => console.error("[Roulette] 演出・発火に失敗:", error.message));
+      } catch (error) {
+        console.error("[Roulette]", error.message);
+        break;
+      }
     }
     // 無効な項目を旧 roulette.txt へ流して成功扱いにしない。
     return true;
@@ -1400,7 +1404,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     if (
       rouletteCfg?.enabled &&
       commandFileToBridgeKey(event.commandFile) === "roulette" &&
-      runRoulette(rouletteCfg, event.listenerName, event.historyType || "roulette")
+      runRoulette(rouletteCfg, event.listenerName, event.historyType || "roulette", event.count)
     ) {
       return;
     }

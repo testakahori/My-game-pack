@@ -14,7 +14,7 @@ const { runProc } = require("./process_runner.cjs");
 const { createStopRequestLog, isConsoleStop } = require("./stop_requests.cjs");
 const stopRequests = createStopRequestLog({ file: () => path.join(app.getPath("userData"), "logs", "stop-requests.log") });
 const { createSettingsBackups, atomicWrite, validCommand } = require("./settings_backups.cjs");
-const { prepareRoulette, createRouletteRunner } = require("../bridge/roulette.cjs");
+const { prepareRoulette, createRouletteRunner, rouletteSpins } = require("../bridge/roulette.cjs");
 const { commandFileProblem } = require("../bridge/command_files.cjs");
 const { bridgeModTokenPath, withBridgeModToken } = require("../bridge/bridge_mod_token.cjs");
 const { runPreflight } = require("./preflight.cjs");
@@ -1713,7 +1713,8 @@ ipcMain.handle("mod:status", async () => {
   try { return { online: true, ...(await requestBridgeMod("GET", "/bridge/status")) }; }
   catch (e) { return { online: false, authFailed: e?.authFailed === true, error: e.message }; }
 });
-async function fireBridgeEventMaybeRoulette(payload, bridgeCfg, commandsDir) {
+// 送った分を outcomes に1件ずつ足す。途中で失敗しても、それまでに送った分は呼び出し元に残る。
+async function fireBridgeEventMaybeRoulette(payload, bridgeCfg, commandsDir, outcomes) {
   const send = (method, route, body) => requestBridgeMod(method, route, body, bridgeCfg);
   const fire = async event => {
     // Test clicks have no upstream queue. Freeze the game round before sending/animating.
@@ -1734,16 +1735,22 @@ async function fireBridgeEventMaybeRoulette(payload, bridgeCfg, commandsDir) {
   });
   if (payload.key !== "roulette") {
     await fire(payload);
-    return { key: payload.key, count: payload.count, roulette: false };
+    outcomes.push({ key: payload.key, count: payload.count, roulette: false });
+    return;
   }
   if (bridgeCfg?.roulette?.enabled !== true) {
     throw new Error("ルーレットが無効です。イベント設定②で有効にして保存してください。");
   }
-  const round = prepareRoulette(bridgeCfg.roulette, commandsDir);
-  const winner = await animateTestRoulette(round, payload.listenerName, item => fire({
-    ...payload, key: item.commandFile.replace(/\.txt$/i, ""), count: item.repeat, announce: false,
-  }));
-  return { key: winner.commandFile.replace(/\.txt$/i, ""), count: winner.repeat, roulette: true, label: winner.label, ...(animationError ? { animationError } : {}) };
+  // 送られた回数だけ回す（2026-10-11 ユーザーの決定）。回すたびに演出して当たりを決める。
+  const spins = rouletteSpins(payload.count);
+  for (let spin = 1; spin <= spins; spin++) {
+    const round = prepareRoulette(bridgeCfg.roulette, commandsDir);
+    const winner = await animateTestRoulette(round, payload.listenerName, item => fire({
+      ...payload, key: item.commandFile.replace(/\.txt$/i, ""), count: item.repeat, announce: false,
+    }));
+    outcomes.push({ key: winner.commandFile.replace(/\.txt$/i, ""), count: winner.repeat, roulette: true, label: winner.label, spin, spins,
+      ...(animationError ? { animationError } : {}) });
+  }
 }
 
 let testEventRunning = false;
@@ -1773,18 +1780,23 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
         protectX1: Number(protection.x1 || 0), protectX2: Number(protection.x2 || 0),
         protectZ1: Number(protection.z1 || 0), protectZ2: Number(protection.z2 || 0),
       };
-      let outcome = { key: payload.key, count: step.count };
-      let result;
+      const outcomes = [];
+      let failure = null;
       try {
-        outcome = await fireBridgeEventMaybeRoulette(payload, step.roulette ? { ...bridgeCfg, roulette: step.roulette } : bridgeCfg, commandsDir);
+        await fireBridgeEventMaybeRoulette(payload, step.roulette ? { ...bridgeCfg, roulette: step.roulette } : bridgeCfg, commandsDir, outcomes);
         if (step.extras?.length) await requestBridgeMod("POST", "/bridge/exec", { listenerName: plan.sender, commands: step.extras }, bridgeCfg);
-        result = { ok: true, message: step.label + " → " + outcome.key + ".txt × " + outcome.count + " をModへ送信済み"
-          + (outcome.animationError ? `（ルーレットの演出は送れませんでした: ${outcome.animationError}）` : "") };
-      } catch (error) { result = { ok: false, message: error.message }; }
-      const row = { at: new Date().toISOString(), source: "test", type: step.type, sender: plan.sender,
-        commandFile: outcome.key + ".txt", count: outcome.count, ...result };
-      appendOperationsHistory(row, historyPath);
-      fired.push(row);
+      } catch (error) { failure = error; }
+      // 送れた分（ルーレットは当選ごと）を1行ずつ記録し、失敗したらその理由も1行足す。
+      const rows = outcomes.map(outcome => ({ commandFile: outcome.key + ".txt", count: outcome.count, ok: true,
+        message: step.label + " → " + outcome.key + ".txt × " + outcome.count + " をModへ送信済み"
+          + (outcome.spins > 1 ? `（ルーレット ${outcome.spin}回目/${outcome.spins}）` : "")
+          + (outcome.animationError ? `（ルーレットの演出は送れませんでした: ${outcome.animationError}）` : "") }));
+      if (failure) rows.push({ commandFile: payload.key + ".txt", count: step.count, ok: false, message: failure.message });
+      for (const result of rows) {
+        const row = { at: new Date().toISOString(), source: "test", type: step.type, sender: plan.sender, ...result };
+        appendOperationsHistory(row, historyPath);
+        fired.push(row);
+      }
     }
     const succeeded = fired.filter(row => row.ok).length;
     return { ok: succeeded === fired.length, matched: true, fired, steps: details, notes: plan.notes,

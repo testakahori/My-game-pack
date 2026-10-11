@@ -711,6 +711,34 @@ test('ゲーム選択IPC: サバイバルでは残った採掘TXTをルーレッ
   await assert.rejects(app.invoke('config:write', config), /使えないコマンド/);
 });
 
+test("テスト発火のルーレット: 数を3にすると3回回し、当選を3回送って1回ずつ記録する（2026-10-11 ユーザーの決定）", async t => {
+  const http = require("node:http");
+  const events = [];
+  const server = http.createServer((req, res) => {
+    let body = ""; req.on("data", chunk => body += chunk); req.on("end", () => {
+      if (req.url === "/bridge/event") events.push(JSON.parse(body));
+      res.writeHead(req.url === "/bridge/exec" ? 429 : 202, { "Content-Type": "application/json" });
+      res.end(req.url === "/bridge/exec" ? '{"ok":false,"error":"queue_full"}' : '{"ok":true}');
+    });
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const app = loadApp(t);
+  const cfg = JSON.parse(fs.readFileSync(app.configPath));
+  cfg.roulette = { enabled: true, items: [{ commandFile: "qa.txt", label: "QA", weight: 1, repeat: 2 }] };
+  cfg.options.bridgeModPort = server.address().port;
+  fs.writeFileSync(app.configPath, JSON.stringify(cfg));
+  const dir = path.join(app.root, "bridge", "commands", "minecraft"); fs.mkdirSync(dir, { recursive: true });
+  for (const file of ["qa.txt", "roulette.txt"]) fs.writeFileSync(path.join(dir, file), "say test");
+  const tokenFile = path.join(app.root, "server", "Douma_Craft", "config", "bridgemod-token.txt");
+  fs.mkdirSync(path.dirname(tokenFile), { recursive: true }); fs.writeFileSync(tokenFile, "qa-token\n");
+  const result = await app.invoke("mod:testEvent", { type: "gift", commandFile: "roulette.txt", count: 3 });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(events.map(event => [event.key, event.count]), [["qa", 2], ["qa", 2], ["qa", 2]]);
+  assert.equal(result.fired.map(row => row.commandFile + "×" + row.count).join(","), "qa.txt×2,qa.txt×2,qa.txt×2", "当選ごとに記録する");
+  assert.match(result.fired[2].message, /ルーレット 3回目\/3/);
+});
+
 test("テスト発火のルーレット: 演出だけ送れなくても当選は送り、演出を送れなかった理由を結果に書く", async t => {
   const http = require("node:http");
   const received = [];
