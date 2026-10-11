@@ -12,6 +12,9 @@ test('保護ブロックは loadStatic で戻し、常時実行のインパル�
   const restore = source.slice(source.indexOf('private static int restore('));
   assert.match(restore, /BlockEntity\.loadStatic\(k\.pos, k\.state, nbt\)/);
   assert.doesNotMatch(source, /\.load\(nbt\)/, 'level のある BlockEntity に load すると実行が予約される');
+  // loadStatic は NBT の id で種類を決める。id のない saveWithoutMetadata だと null が返り、中身が空のまま残る（2026-10-11 の実機テストで発覚）。
+  assert.match(restore, /CompoundTag nbt = k\.entity\.saveWithId\(\);/);
+  assert.doesNotMatch(source, /saveWithoutMetadata\(\)/, 'id のない NBT は loadStatic で読めない');
   // 通知なしで置く → BlockEntity を置く → 周りへ通知、の順。
   const place = restore.indexOf('Block.UPDATE_CLIENTS');
   const entity = restore.indexOf('setBlockEntity(');
@@ -34,6 +37,11 @@ test('控える範囲は、プレイヤーの描画距離・強制読み込み�
   assert.match(capture, /getSharedSpawnPos\(\)/);
   assert.match(capture, /getChunkNow\(/);
   assert.doesNotMatch(capture, /getChunk\(/, '読み込まれていないチャンクを読み込まない');
+  // チケットは周り2チャンクまで読み込むので、fill が届く。強制読み込み・プレイヤー・スポーンのどれも2チャンク広げる（2026-10-11 の実機テストで発覚）。
+  assert.match(source, /static final int LOADED_MARGIN = 2;/);
+  assert.match(capture, /for \(long forced : level\.getForcedChunks\(\)\) addSquare\(chunks, new ChunkPos\(forced\), LOADED_MARGIN\);/);
+  assert.match(capture, /addSquare\(chunks, player\.chunkPosition\(\), view \+ LOADED_MARGIN\)/);
+  assert.match(capture, /SPAWN_CHUNK_RADIUS \+ LOADED_MARGIN\)/);
 });
 
 test('BridgeMOD は tick ごとのキュー処理（txt と /bridge/exec）を runProtected で包む', () => {

@@ -31,6 +31,8 @@ import java.util.List;
 public final class BlockProtection {
     /** オーバーワールドのスポーン地点の周りで常に読み込まれている範囲（ServerLevel.setDefaultSpawnPos の TicketType.START と同じ半径）。 */
     static final int SPAWN_CHUNK_RADIUS = 11;
+    /** チケットは中心から2チャンク先までを読み込むので、そこまでは fill などが届く。控える範囲をこの分広げる。 */
+    static final int LOADED_MARGIN = 2;
     private static int depth;
     private static long restoredTotal;
 
@@ -75,15 +77,16 @@ public final class BlockProtection {
         return restored;
     }
 
-    // プレイヤーの描画距離・強制読み込み・スポーンチャンクのうち、読み込み済みのチャンクにある保護ブロックを控える。
-    // NBT は戻すときだけ取り出す（取り除かれた BlockEntity にも値は残っている）。
+    // プレイヤーの描画距離・強制読み込み・スポーンチャンク（それぞれ LOADED_MARGIN 広げる）のうち、
+    // 読み込み済みのチャンクにある保護ブロックを控える。NBT は戻すときだけ取り出す（取り除かれた BlockEntity にも値は残っている）。
     private static List<Kept> capture(MinecraftServer server) {
         List<Kept> kept = new ArrayList<>();
         int view = server.getPlayerList().getViewDistance();
         for (ServerLevel level : server.getAllLevels()) {
-            LongSet chunks = new LongOpenHashSet(level.getForcedChunks());
-            for (ServerPlayer player : level.players()) addSquare(chunks, player.chunkPosition(), view);
-            if (level.dimension() == Level.OVERWORLD) addSquare(chunks, new ChunkPos(level.getSharedSpawnPos()), SPAWN_CHUNK_RADIUS);
+            LongSet chunks = new LongOpenHashSet();
+            for (long forced : level.getForcedChunks()) addSquare(chunks, new ChunkPos(forced), LOADED_MARGIN);
+            for (ServerPlayer player : level.players()) addSquare(chunks, player.chunkPosition(), view + LOADED_MARGIN);
+            if (level.dimension() == Level.OVERWORLD) addSquare(chunks, new ChunkPos(level.getSharedSpawnPos()), SPAWN_CHUNK_RADIUS + LOADED_MARGIN);
             for (long packed : chunks) {
                 LevelChunk chunk = level.getChunkSource().getChunkNow(ChunkPos.getX(packed), ChunkPos.getZ(packed));
                 if (chunk == null) continue;
@@ -108,7 +111,8 @@ public final class BlockProtection {
         for (Kept k : kept) {
             try {
                 if (k.level.getBlockState(k.pos) == k.state && k.level.getBlockEntity(k.pos) == k.entity) continue;
-                CompoundTag nbt = k.entity.saveWithoutMetadata();
+                // loadStatic は id で種類を決めるので、id 付きで取り出す。
+                CompoundTag nbt = k.entity.saveWithId();
                 // 周りへ通知せずに置く。通知すると、空の BlockEntity（powered=false）のまま隣の信号で実行が予約される。
                 k.level.setBlock(k.pos, k.state, Block.UPDATE_CLIENTS);
                 // loadStatic は level が null の状態で読み込むので、auto=true でも実行を予約しない（ワールドの読み込みと同じ）。

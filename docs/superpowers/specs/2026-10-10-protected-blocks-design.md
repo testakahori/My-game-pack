@@ -122,6 +122,7 @@ public final class BlockProtection {
 - 各プレイヤーの周り：描画距離（`PlayerList.getViewDistance()`）内のチャンク
 - 強制読み込みのチャンク（`ServerLevel.getForcedChunks()`）
 - オーバーワールドのスポーン地点から半径11チャンク（`ServerLevel.setDefaultSpawnPos` の `TicketType.START` と同じ半径）
+- 上の3つとも、さらに2チャンク広げる（`LOADED_MARGIN`）。チケットは中心から2チャンク先までを読み込むので、`fill` はそこまで届く。2026-10-11 の実機テストで、強制読み込みのチャンクの隣にあるコマンドブロックが戻らないことが分かって足した。
 
 チャンクは `ServerChunkCache.getChunkNow` で、読み込み済みのものだけを取る（読み込みを起こさない）。そのチャンクの `getBlockEntities()` から、ブロックの状態が保護対象のものを控える。控えるのは、位置・ディメンション・`BlockState`・BlockEntity のインスタンスの3つ。NBT は戻すときだけ取り出す。
 
@@ -138,7 +139,7 @@ public final class BlockProtection {
 
 ### 4.5 戻し方
 
-1. 控えた BlockEntity から `saveWithoutMetadata()` で NBT を取り出す（取り除かれた BlockEntity でも、値はそのまま残っている）。
+1. 控えた BlockEntity から `saveWithId()` で NBT を取り出す（取り除かれた BlockEntity でも、値はそのまま残っている）。`loadStatic` は NBT の `id` で種類を決めるので、`id` のない `saveWithoutMetadata()` では読めない（2026-10-11 の実機テストで発覚）。
 2. `level.setBlock(pos, 控えた BlockState, Block.UPDATE_CLIENTS)` で、周りへ通知せずに置く。
 3. `BlockEntity.loadStatic(pos, state, nbt)` で BlockEntity を作り、`level.setBlockEntity` で置く。`loadStatic` は level が null の状態で読み込むので、`setAutomatic` が実行を予約しない。そのため、常時実行のインパルス型がもう一度実行されることはない（ワールドの読み込みと同じ）。コマンド・成功回数・名前・最後の出力・`powered`・`auto`・`conditionMet` も戻る。
 4. `level.blockUpdated(pos, block)` で周りへ通知し、レッドストーンや比較器の状態をそろえる。BlockEntity の `powered` は戻してあるので、自分への `neighborChanged` で実行が予約されることはない。
