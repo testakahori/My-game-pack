@@ -41,9 +41,10 @@ async function test(group, name, fn) {
   await test('bridge', 'chickenrain count=5 は 200×5＝1000羽（以前は3で止まり600羽）', async () => {
     await cmd('gamemode creative QANoLimit'); await cmd('tp QANoLimit -1000.5 64 0.5'); await sleep(2000);
     await cmd('fill -1016 63 -16 -984 63 16 minecraft:stone');
+    // 新しく生成されたチャンクには鶏が自然に湧くことがあるので、雨で降らせた鶏（douma_chickenrain）だけを数える。
     await killCount('minecraft:chicken');
     await post('chickenrain', 5); await idle(); await sleep(2000);
-    const chickens = await killCount('minecraft:chicken');
+    const chickens = await killCount('minecraft:chicken,tag=douma_chickenrain');
     assert.equal(chickens, 1000);
     return { chickens };
   });

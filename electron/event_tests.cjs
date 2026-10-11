@@ -31,7 +31,8 @@ function planTestEvent(config, input, commandsDir) {
     if (commandFile.toLowerCase() === 'roulette.txt' && !roulette) throw new Error('ルーレットが未設定です。');
     if (roulette) prepareRoulette(roulette, commandsDir);
     else if (!fs.existsSync(path.join(commandsDir, commandFile))) throw new Error(`コマンドが見つかりません: ${commandFile}`);
-    let amount = boundedInt(count, 1, 100, 1);
+    // 回数は BridgeMOD が受け付ける範囲（100000）まで。ギフト数×割当の回数が100を超えても黙って抑えない。
+    let amount = boundedInt(count, 1, 100000, 1);
     // 本番の Bridge と同じく「個別最大コマンド数」で回数を抑える。ゲームMODのコマンドは count の意味をゲームが決めるので除く。
     if (!roulette && amount > maxCount && !/^\s*#\s*GAME_MOD:/mi.test(fs.readFileSync(path.join(commandsDir, commandFile), 'utf8'))) {
       notes.push(`${label}: 個別最大コマンド数（${maxCount}）により、${amount}回を${maxCount}回に減らします。`);

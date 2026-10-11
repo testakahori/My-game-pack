@@ -20,7 +20,22 @@ test('BridgeMOD は大技の count を抑えず、スーパージャンプに上
   const source = read('BridgeMod/src/main/java/jp/douma/bridgemod/GiftEffects.java');
   assert.doesNotMatch(source, /EffectLimits/, '上限のクラスを使わない');
   assert.doesNotMatch(source, /SLOW_FALLING/, '低速落下を付けない（落下死してよい）');
-  assert.match(source, /j\.target = JumpPhysics\.stackTarget\(j\.target, count\);/);
+  assert.match(source, /j\.target = JumpPhysics\.stackTarget\(Math\.max\(j\.target, p\.getY\(\)\), count\);/);
   assert.equal(fs.existsSync(path.resolve(__dirname, '../../BridgeMod/src/main/java/jp/douma/bridgemod/EffectLimits.java')), false);
   assert.match(read('BridgeMod/gradle.properties'), /^mod_version=1\.7\.0\r?$/m);
+});
+
+test('頂点を過ぎて水・溶岩・はしご・乗り物・飛行に入ったジャンプは外し、次のジャンプを古い頂点に足さない（PR #74 レビュー）', () => {
+  const source = read('BridgeMod/src/main/java/jp/douma/bridgemod/GiftEffects.java');
+  const tick = source.slice(source.indexOf('private void tickJumps('));
+  assert.match(tick, /if \(j\.coasting && \(p\.isInWater\(\) \|\| p\.isInLava\(\) \|\| p\.onClimbable\(\) \|\| p\.isPassenger\(\) \|\| p\.getAbilities\(\)\.flying \|\| p\.isFallFlying\(\)\)\) \{ it\.remove\(\); continue; \}/);
+  // 今の位置が古い目標より上（浮遊など）なら、今の位置から数える。
+  assert.match(source, /j\.target = JumpPhysics\.stackTarget\(Math\.max\(j\.target, p\.getY\(\)\), count\);/);
+});
+
+test('開発メモに、なくした上限が残っていない', () => {
+  const doc = read('docs/BridgeMODとゲーム切替.md');
+  assert.doesNotMatch(doc, /EffectLimits/);
+  assert.doesNotMatch(doc, /320ブロック）まで/);
+  assert.match(doc, /強さの上限はない（BridgeMOD 1\.7\.0/);
 });

@@ -46,6 +46,15 @@ test('テスト発火も、BridgeMOD 経由なら回数を抑えず、RCON・Tel
   assert.equal(game.steps[0].count, 30, 'ゲームMODのコマンドは count の意味をゲームが決めるので抑えない');
 });
 
+test('テスト発火は、ギフト数×割当の回数が100を超えても、BridgeMOD 経由なら黙って抑えない（PR #74 レビュー）', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'count-limit-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'zombie.txt'), 'say test\n');
+  const config = { options: { commandTransport: 'bridge_mod' }, mappings: [{ giftId: '9', name: '紙吹雪', commandFile: 'zombie.txt', repeat: 20 }] };
+  const plan = planTestEvent(config, { type: 'mapped_gift', giftId: '9', count: 10 }, dir);
+  assert.equal(plan.steps[0].count, 200, '10個×20回＝200回');
+});
+
 test('運用センターの「個別最大コマンド数」に、Minecraft では使わないことを書く', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../../src/components/OperationsPage.tsx'), 'utf8');
   assert.match(page, /Minecraft（BridgeMOD）では使いません。RCON・Telnet で送るゲームの、1回あたりのコマンド数の上限です。/);

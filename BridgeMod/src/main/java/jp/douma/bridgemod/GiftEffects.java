@@ -535,7 +535,8 @@ final class GiftEffects {
     private void jump(ServerPlayer p, int count) {
         Jump j = jumps.computeIfAbsent(p.getUUID(), id -> new Jump(p));
         if (j.level != p.serverLevel()) { j = new Jump(p); jumps.put(p.getUUID(), j); }
-        j.target = JumpPhysics.stackTarget(j.target, count); j.liftY = p.getY(); j.coasting = false; j.age = 0;
+        // 浮遊などで古い目標より上にいるときは、今の位置から数える。
+        j.target = JumpPhysics.stackTarget(Math.max(j.target, p.getY()), count); j.liftY = p.getY(); j.coasting = false; j.age = 0;
         p.removeEffect(MobEffects.JUMP); p.removeEffect(MobEffects.LEVITATION);
         p.setOnGround(false);
     }
@@ -543,6 +544,8 @@ final class GiftEffects {
         for (Iterator<Map.Entry<UUID, Jump>> it = jumps.entrySet().iterator(); it.hasNext();) {
             var entry = it.next(); Jump j = entry.getValue(); ServerPlayer p = server.getPlayerList().getPlayer(entry.getKey());
             if (p == null || !p.isAlive() || p.serverLevel() != j.level || (j.age++ > 5 && p.onGround())) { it.remove(); continue; }
+            // 頂点を過ぎたあと、水・溶岩・はしご・乗り物・飛行では着地扱いにならない。残すと次のジャンプが古い頂点に足されて打ち上がりすぎる。
+            if (j.coasting && (p.isInWater() || p.isInLava() || p.onClimbable() || p.isPassenger() || p.getAbilities().flying || p.isFallFlying())) { it.remove(); continue; }
             if (!j.coasting) {
                 // Drive ascent from the server's trajectory, so latency and packet velocity caps
                 // cannot change the promised height. Horizontal steering stays with the player.
