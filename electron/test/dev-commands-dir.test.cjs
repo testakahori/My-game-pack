@@ -15,6 +15,8 @@ test('BridgeMOD は BRIDGE_MOD_COMMANDS_DIR があればそこを読み、なけ
   assert.match(base.slice(override, direct), /if \(override != null\) return override;/);
 });
 
-test('BridgeMOD は 1.6.1（開発版のコマンドの置き場所を読む版）', () => {
-  assert.match(read('BridgeMod/gradle.properties'), /^mod_version=1\.6\.1$/m);
+test('BridgeMOD は 1.6.1 以上（開発版のコマンドの置き場所を読む版）', () => {
+  // 完全一致にすると次の版で必ず壊れるので、1.6.1 以上かどうかで確かめる。
+  const [major, minor, patch] = read('BridgeMod/gradle.properties').match(/^mod_version=(\d+)\.(\d+)\.(\d+)\r?$/m).slice(1).map(Number);
+  assert.ok(major > 1 || (major === 1 && (minor > 6 || (minor === 6 && patch >= 1))), `mod_version ${major}.${minor}.${patch} must be >= 1.6.1`);
 });

@@ -614,10 +614,17 @@ test('server startup: 開発版は BridgeMOD にリポジトリのコマンド�
     return options.env;
   };
   const dev = loadApp(t);
-  assert.equal((await start(dev)).BRIDGE_MOD_COMMANDS_DIR, path.join(dev.root, 'bridge', 'commands', 'minecraft'));
+  const devEnv = await start(dev);
+  assert.equal(devEnv.BRIDGE_MOD_COMMANDS_DIR, path.join(dev.root, 'bridge', 'commands', 'minecraft'));
+  assert.equal(devEnv.NO_PAUSE, '1');
+  // 利用者の環境変数に別の値が残っていても、開発版はリポジトリの置き場所で上書きする。
+  const devAgain = loadApp(t);
+  assert.equal((await start(devAgain, path.join(devAgain.root, 'elsewhere'))).BRIDGE_MOD_COMMANDS_DIR, path.join(devAgain.root, 'bridge', 'commands', 'minecraft'));
   const installed = loadApp(t); installed.usePackagedPaths();
   // 利用者の環境変数に残っていても、インストール版のサーバーには渡さない。
-  assert.equal((await start(installed, path.join(installed.root, 'elsewhere'))).BRIDGE_MOD_COMMANDS_DIR, undefined);
+  const installedEnv = await start(installed, path.join(installed.root, 'elsewhere'));
+  assert.equal(installedEnv.BRIDGE_MOD_COMMANDS_DIR, undefined);
+  assert.equal(installedEnv.NO_PAUSE, '1');
 });
 
 test('server startup: legacy automatic backup setting never creates a MAP save', async t => {
