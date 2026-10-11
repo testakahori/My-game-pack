@@ -63,8 +63,8 @@ Java 17でBridgeModの通常のbuildに加えて、明示的に `environmentProb
 
 `node protected-blocks.cjs` は、妨害のコマンドでコマンドブロックが置き換えられても、同じ向き・同じコマンドで残ること、常時実行のインパルス型が再実行されないこと、リピート型が動き続けることを確かめます。上と同じマーカー・ポート・GIFT_QA_SERVER に加えて、server.properties に `enable-command-block=true` が必要です。
 
-- BridgeMOD の分（`--bridge-only`）：lavafloor・husk_watertower・`/bridge/exec` の fill、同じ種類のコマンドブロックでの上書き、プレイヤーから遠い forceload のチャンク。
-- 採掘の分（`--saikutu-only`）：SaikutuMOD を入れたサーバーで実行します。テストが `bridge/commands/minecraft/game_saikutu_*.txt` を書きます。
+- BridgeMOD の分（`--bridge-only`）：lavafloor・husk_watertower・`/bridge/exec` の fill、同じ種類のコマンドブロックでの上書き、プレイヤーから遠い forceload のチャンク、火山の溶岩の床でも壊せないブロック（バリア・エンドポータルの枠）が残ること（BridgeMOD 1.7.1 から）。
+- 採掘の分（`--saikutu-only`）：SaikutuMOD を入れたサーバーで実行します。テストが `bridge/commands/minecraft/game_saikutu_*.txt` を書きます。TNT大爆発は、頭上の TNT が置かれたらすぐ片付けます（SaikutuMOD 1.1.0 から、待つと足元の TNT が連鎖を始める）。
 
 結果はサーバールートの `protected-blocks-results.json` に保存します。
 
@@ -73,6 +73,6 @@ Java 17でBridgeModの通常のbuildに加えて、明示的に `environmentProb
 `node no-limits.cjs` は、上限をやめたことを確かめます。上と同じマーカー・ポート・GIFT_QA_SERVER を使います。
 
 - BridgeMOD の分（`--bridge-only`）：鶏の雨 count=5 が1000羽になる。スーパージャンプ count=20 が640ブロック上がり、低速落下が付かない。
-- 採掘の分（`--saikutu-only`）：SaikutuMOD を入れたサーバーで実行します。TNT大爆発 count=2 の衝撃波の穴、洪水 count=5、木 count=210、TNT大爆発 count=1000 が調べる範囲をえぐり終えたら終わること。穴を爆心から100ブロック先まで測るので、server.properties の `view-distance=10` にしておきます（6だと端のチャンクが読み込まれない）。テストが `bridge/commands/minecraft/game_saikutu_*.txt` を書きます。
+- 採掘の分（`--saikutu-only`）：SaikutuMOD を入れたサーバーで実行します。TNT大爆発 count=2 の衝撃波の穴（コマンドブロックと壊せないブロックは残る）、洪水 count=5、木 count=210、TNT大爆発 count=1000 が調べる範囲をえぐり終えたら終わること。穴を爆心から100ブロック先まで測るので、server.properties の `view-distance=10` にしておきます（6だと端のチャンクが読み込まれない）。テストが `bridge/commands/minecraft/game_saikutu_*.txt` を書きます。
 
 結果はサーバールートの `no-limits-results.json` に保存します。

@@ -263,9 +263,10 @@ final class SaikutuEffects {
         return o.level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
     }
     private boolean loaded(Origin o, int x, int z) { return o.level.hasChunkAt(new BlockPos(x, 0, z)); }
+    // 壊せないブロック（硬さが負：岩盤・バリア・エンドポータルの枠など）は残す（2026-10-11 ユーザーの決定）。
     private void set(Origin o, BlockPos p, net.minecraft.world.level.block.state.BlockState state) {
         if (o.allowed(p) && BlockProtection.canModifyBlock(o.level, p) && o.level.getBlockEntity(p) == null
-                && !o.level.getBlockState(p).is(Blocks.BEDROCK)) o.level.setBlock(p, state, 3);
+                && o.level.getBlockState(p).getDestroySpeed(o.level, p) >= 0) o.level.setBlock(p, state, 3);
     }
     private void summon(Origin o, String entity, double x, double y, double z, String nbt) {
         BlockPos p = BlockPos.containing(x, y, z);

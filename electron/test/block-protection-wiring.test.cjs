@@ -79,6 +79,23 @@ test('BridgeMOD は 1.6.0 以上（保護ブロック API は 1.6.0 から）', 
   assert.ok(major > 1 || (major === 1 && minor >= 6), `mod_version ${major}.${minor} must be >= 1.6`);
 });
 
+test('地形の効果は、岩盤を含む壊せないブロック（硬さが負：バリア・エンドポータルの枠など）を残す（2026-10-11 ユーザーの決定）', () => {
+  for (const file of ['BridgeMod/src/main/java/jp/douma/bridgemod/GiftEffects.java', 'SaikutuMod/src/main/java/jp/douma/saikutumod/SaikutuEffects.java']) {
+    const source = read(file);
+    const set = source.slice(source.indexOf('private void set(Origin o'), source.indexOf('private void summon(Origin o'));
+    assert.match(set, /o\.level\.getBlockState\(p\)\.getDestroySpeed\(o\.level, p\) >= 0/, file);
+    assert.doesNotMatch(set, /Blocks\.BEDROCK/, file + '：岩盤も硬さが負なので、同じ判定で残る');
+  }
+  // 壊せないブロックを残すのは BridgeMOD 1.7.1・SaikutuMOD 1.1.1 から。
+  const version = file => read(file).match(/^mod_version=(\d+)\.(\d+)\.(\d+)\r?$/m).slice(1).map(Number);
+  const atLeast = (v, min) => v[0] !== min[0] ? v[0] > min[0] : v[1] !== min[1] ? v[1] > min[1] : v[2] >= min[2];
+  assert.ok(atLeast(version('BridgeMod/gradle.properties'), [1, 7, 1]), 'BridgeMOD 1.7.1 以上');
+  const saikutu = version('SaikutuMod/gradle.properties');
+  assert.ok(atLeast(saikutu, [1, 1, 1]), 'SaikutuMOD 1.1.1 以上');
+  const pack = JSON.parse(read('game-packs/saikutu/game.json'));
+  assert.equal(pack.serverJar, `saikutumod-${saikutu.join('.')}.jar`);
+});
+
 test('SaikutuMOD は tick ごとのキュー処理（内蔵 txt）を runProtected で包み、set で canModifyBlock を通す', () => {
   const mod = read('SaikutuMod/src/main/java/jp/douma/saikutumod/SaikutuMod.java');
   const tick = mod.slice(mod.indexOf('public void tick(TickEvent.ServerTickEvent event)'), mod.indexOf('private int process('));

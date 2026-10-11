@@ -11,6 +11,7 @@
   - スーパージャンプは1個で32ブロック、重ねた分だけ上がる。高さの上限も低速落下もなく、頂点からは普通に落ちる。頂点を過ぎて水・溶岩・はしご・乗り物・飛行に入ったら、そのジャンプは終わり（次のジャンプは今の位置から数える）。
   - Bridge の運用センターの「個別最大コマンド数」は、Minecraft（BridgeMOD 経由）とテスト発火では使わない。RCON・Telnet で送るゲームの1回あたりのコマンド数の上限としてだけ使う。
   - 採掘MOD も 1.1.0 で上限をなくした。TNT大爆発は N 個で半径 N 倍の衝撃波を1回にした（[採掘MODと統一コマンド](採掘MODと統一コマンド.md)）。
+- 地形を書き換える大技（流星群の穴・火山・金床など、Java で書き換えるもの）は、保護ブロック・BlockEntity・壊せないブロック（硬さが負：岩盤・バリア・エンドポータルの枠など）を残す（BridgeMOD 1.7.1・採掘MOD 1.1.1、2026-10-11 ユーザーの決定。それまでは岩盤だけ）。txt の `fill`・`setblock` と、採掘MOD の TNT大爆発の頭上の TNT（Java から出すバニラの `fill`）は、この判定を通らない。
 - HTTPは`/bridge/event`、`/bridge/exec`、`/bridge/status`。ポートは従来と同じ。変更する場合は`BRIDGE_MOD_PORT`。
 - BridgeMOD 1.5.0 から、HTTP と WebSocket はこのPCの Bridge・アプリだけが使える。サーバー起動ごとに乱数トークンを `<サーバーフォルダー>/config/bridgemod-token.txt` に書き、HTTP は `X-Bridge-Token` ヘッダー、WebSocket は `ws://127.0.0.1:<ポート+1>/?token=<トークン>` で送る。次の要求は 403 で拒否する：トークンなし・不一致、`Origin` ヘッダーあり（ブラウザー）、`Host` が `127.0.0.1:<ポート>` / `localhost:<ポート>` 以外。POST の本文は `application/json` に限る（違えば 415）。WebSocket は送信専用（状態・死亡通知）で、受信したイベントは実行しない。アプリは Bridge 起動時に環境変数 `BRIDGE_MOD_TOKEN_FILE` でトークンの場所を渡す。
 - アプリ・BRIDGE・コマンド一覧・同梱txtも新名称を使用。旧`/douma`コマンドと旧HTTP入口は登録しない。
