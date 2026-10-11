@@ -92,3 +92,40 @@ Minecraft 1.20.1／Forge 47.4.10／通常のForge Server／サーバーJava 21�
 - DisplayMODの未導入／導入済み／表示APIの例外／リンク不一致を契約テストで確認。
 
 StackingGame-EventsとOBSMODの本体は今回のリポジトリにありません。今回作ったのは相手側から利用できる受け口・サンプル・検証用MODです。そうてんもんさん側の本体を接続済み、動作確認済みとはしていません。OBSMODは今までどおり、ゲームの実開始時にゲームMODから独立して呼び出してください。
+
+## 保護ブロック API（BridgeMOD 1.6.0 から）
+
+MAP の進行に使うコマンドブロック（`minecraft:command_block`・`minecraft:chain_command_block`・`minecraft:repeating_command_block`）を、妨害の自動処理から守るための API です。プレイヤー自身がブロックを壊すことは止めません。
+
+### BridgeMOD が守るもの
+
+- BRIDGE の txt（`bridge/commands/minecraft/*.txt`）と `/bridge/exec` のコマンド：tick ごとのキュー処理の前後で、近くのコマンドブロックを控え、変わったものを中身ごと戻します。
+- BridgeMOD の大技（流星群・火山など）の Java の書き換え：保護ブロックの位置は書き換えません。
+- 爆発・ウィザー・落下ブロックでは、バニラの時点でコマンドブロックは壊れません。
+
+### ゲーム MOD からの使い方
+
+`mods.toml` で bridgemod の `versionRange` を `[1.6.0,)` 以上にしてください。古い BridgeMOD と組み合わせると、起動時に `NoClassDefFoundError` で止まります。
+
+```java
+import jp.douma.bridgemod.api.BlockProtection;
+
+// Java でブロックを書き換える前に呼ぶ。保護ブロックなら飛ばす（処理全体は止めない）。
+if (BlockProtection.canModifyBlock(level, pos)) level.setBlock(pos, state, 3);
+
+// fill・setblock などのコマンドを実行するときは包む。実行のあとで、変わった保護ブロックを中身ごと戻す。
+BlockProtection.runProtected(server, "mygame", () -> {
+    server.getCommands().performPrefixedCommand(source, "fill ~-3 ~-1 ~-3 ~3 ~-1 ~3 minecraft:air");
+});
+```
+
+- `isProtectedBlock(level, pos)`・`isProtectedBlock(state)`：保護ブロックかどうか。
+- `runProtected(server, label, action)`：戻した数を返します。サーバーのログに `[BlockProtection] restored … (label)` を出します。サーバーのメインスレッドから呼んでください。入れ子で呼んでも、外側がまとめて戻します。
+- 戻すときは、ワールドの読み込みと同じ方法で中身を戻すので、常時実行のインパルス型がもう一度実行されることはありません。リピート型は動き続けます。
+
+### 守れない範囲
+
+- 置き換えられた瞬間の、周りへの通知（隣のレッドストーンの更新など）は起きます。同じ tick の中で戻るので、見た目は変わりません。
+- 控えるのは、プレイヤーの描画距離内・強制読み込み（`/forceload`）・オーバーワールドのスポーンチャンク（どれも周り2チャンクまで）の、読み込み済みのチャンクだけです。
+- `runProtected` も `canModifyBlock` も使わずにゲーム MOD が行う処理は守れません。
+- `/data` で中身だけを書き換えた場合は戻しません。
