@@ -39,6 +39,8 @@ const KINDS = {
 };
 const spec = (kind, tag) => `${KINDS[kind].id}[facing=up]{auto:1b,Command:"scoreboard players add ${KINDS[kind].score}${tag} qa_protect ${kind === 'chain' ? 0 : 1}"}`;
 async function placeTrio(tag, positions) {
+  // 同じワールドで流し直すと前回戻したコマンドブロックが残っていて、同じ状態の setblock は何もしない。先に空気にする。
+  for (const [x, y, z] of Object.values(positions)) await cmd(`setblock ${x} ${y} ${z} minecraft:air`);
   for (const [kind, [x, y, z]] of Object.entries(positions)) assert.match(await cmd(`setblock ${x} ${y} ${z} ${spec(kind, tag)} replace`), /Changed the block/, `${tag} ${kind} placed`);
   await sleep(500);
   return { imp: await score('#imp_' + tag) };
@@ -83,14 +85,16 @@ async function test(group, name, fn) {
     const pos = { impulse: [cx + 2, 63, 0], repeating: [cx - 2, 63, 0], chain: [cx + 4, 64, 4] };
     const before = await placeTrio('lavafloor', pos);
     // Review Focus 3：常時実行でない、レッドストーンで動かすインパルス型。真下の赤石ブロックで1回だけ実行される。
+    await cmd(`setblock ${cx} 62 -2 minecraft:air`);   // 流し直したときに前回の赤石ブロックが残らないようにする
     await cmd(`setblock ${cx} 63 -2 minecraft:command_block[facing=up]{Command:"scoreboard players add #pow qa_protect 1"} replace`);
+    const pow0 = await score('#pow');
     await cmd(`setblock ${cx} 62 -2 minecraft:redstone_block replace`); await sleep(500);
-    const pow = await score('#pow'); assert.equal(pow, 1, 'powered impulse runs once when powered');
+    const pow = await score('#pow'); assert.equal(pow, pow0 + 1, 'powered impulse runs once when powered');
     const restoresBefore = await restores();
     await post('lavafloor'); await idle(); await sleep(300);
     await assertTrio('lavafloor', pos, before);
     assert.ok(await isBlock(cx, 63, -2, 'minecraft:command_block[facing=up]'), 'powered impulse stays');
-    assert.equal(await score('#pow'), 1, 'powered impulse must not run again after restore');
+    assert.equal(await score('#pow'), pow0 + 1, 'powered impulse must not run again after restore');
     assert.ok(await isBlock(cx + 1, 63, 1, 'minecraft:magma_block'), 'the rest of the floor still becomes magma');
     const restored = (await restores()) - restoresBefore; assert.ok(restored >= 4, 'restored ' + restored);
     return { restored };
