@@ -885,6 +885,10 @@ public class BridgeMod {
     private Path findCommandsBase(MinecraftServer server) {
         Path serverDir = server.getServerDirectory().toPath().toAbsolutePath().normalize();
 
+        // 開発版のアプリは、BRIDGE とゲームの切替が使うリポジトリの commands を環境変数で渡す（インストール版は渡さない）。
+        Path override = CommandRouting.overrideDir(System.getenv("BRIDGE_MOD_COMMANDS_DIR"));
+        if (override != null) return override;
+
         // 本番: セットアップフォルダ直下を最優先で確認
         Path direct = serverDir.resolve("bridge").resolve("commands").resolve("minecraft");
         if (Files.isDirectory(direct)) return direct;

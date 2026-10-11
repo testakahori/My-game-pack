@@ -597,6 +597,36 @@ test('停止の記録: BRIDGE停止はサーバーへ stop を書かず、どち
   assert.equal(logLines().length, 3);
 });
 
+test('server startup: 開発版は BridgeMOD にリポジトリのコマンドの置き場所を渡し、インストール版は渡さない', async t => {
+  // 開発版はゲームの切替がリポジトリの bridge/commands/minecraft に書く。BridgeMOD がサーバーフォルダーを読むと、採掘のコマンドが「file not found」になっていた。
+  const start = async (app, inherited) => {
+    await app.invoke('app:config:write', { serverFolder: app.root, setupComplete: true });
+    fs.writeFileSync(path.join(app.root, 'server.properties'), 'level-name=world\nserver-port=39971\n');
+    fs.writeFileSync(path.join(app.root, 'run.bat'), 'must never execute');
+    const child = new (require('node:events').EventEmitter)();
+    Object.assign(child, { pid: 123457, stdout: new (require('node:stream').PassThrough)(), stderr: new (require('node:stream').PassThrough)() });
+    let options; app.mockServerSpawn((_cmd, _args, opts) => { options = opts; return child; });
+    const before = process.env.BRIDGE_MOD_COMMANDS_DIR;
+    if (inherited) process.env.BRIDGE_MOD_COMMANDS_DIR = inherited;
+    try { assert.equal((await app.invoke('server:start')).ok, true); } finally {
+      if (before === undefined) delete process.env.BRIDGE_MOD_COMMANDS_DIR; else process.env.BRIDGE_MOD_COMMANDS_DIR = before;
+    }
+    return options.env;
+  };
+  const dev = loadApp(t);
+  const devEnv = await start(dev);
+  assert.equal(devEnv.BRIDGE_MOD_COMMANDS_DIR, path.join(dev.root, 'bridge', 'commands', 'minecraft'));
+  assert.equal(devEnv.NO_PAUSE, '1');
+  // 利用者の環境変数に別の値が残っていても、開発版はリポジトリの置き場所で上書きする。
+  const devAgain = loadApp(t);
+  assert.equal((await start(devAgain, path.join(devAgain.root, 'elsewhere'))).BRIDGE_MOD_COMMANDS_DIR, path.join(devAgain.root, 'bridge', 'commands', 'minecraft'));
+  const installed = loadApp(t); installed.usePackagedPaths();
+  // 利用者の環境変数に残っていても、インストール版のサーバーには渡さない。
+  const installedEnv = await start(installed, path.join(installed.root, 'elsewhere'));
+  assert.equal(installedEnv.BRIDGE_MOD_COMMANDS_DIR, undefined);
+  assert.equal(installedEnv.NO_PAUSE, '1');
+});
+
 test('server startup: legacy automatic backup setting never creates a MAP save', async t => {
   const app = loadApp(t); await app.invoke('app:config:write', { serverFolder: app.root, autoBackupOnServerStart: true });
   const world = path.join(app.root, 'world'); fs.mkdirSync(world); fs.writeFileSync(path.join(world, 'level.dat'), 'original');

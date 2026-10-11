@@ -30,6 +30,9 @@ bridge/logs/
 bridge/operations-history.json
 bridge/runtime-status.json
 bridge/presets/
+# 開発版でゲームを切り替える・OP を付与するとできるファイル（配布物に紛れ込ませない）
+bridge/commands/minecraft/game_*.txt
+bridge/commands/minecraft/_op.txt
 
 # Minecraft Mod build outputs (source in src/ is kept)
 BridgeMod/build/
