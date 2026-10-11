@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require('../bridge/feature_engine.js');
-const { boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras } = require('../bridge/event_rules.cjs');
+const { boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport } = require('../bridge/event_rules.cjs');
 const { prepareRoulette } = require('../bridge/roulette.cjs');
 const { commandFileProblem } = require('../bridge/command_files.cjs');
 const { createMuteMatcher } = require('../bridge/tiktok_events.cjs');
@@ -18,8 +18,9 @@ function planTestEvent(config, input, commandsDir) {
   // 本番の Bridge・MOD と同じく、絵文字を割らないよう文字（コードポイント）単位で40文字までにする。
   const sender = Array.from(String(input.listenerName || 'テスト視聴者').replace(/[\r\n]/g, ' ')).slice(0, 40).join('');
   const steps = [], notes = [];
+  // 「個別最大コマンド数」は RCON・Telnet で送るゲームだけ（本番の Bridge と同じ）。Minecraft（BridgeMOD 経路）では掛けない。
   // 既定値は Bridge・アプリの初期設定・運用センターの表示と同じ 200。
-  const maxCount = boundedInt(config.options?.maxCommandsPerGift ?? 200, 1, 10000, 200);
+  const maxCount = isBridgeModTransport(config.options?.commandTransport) ? Infinity : boundedInt(config.options?.maxCommandsPerGift ?? 200, 1, 10000, 200);
   const push = (file, count, label, eventType = type, extras = []) => {
     const commandFile = commandName(file);
     // 本番の Bridge と同じく、BridgeMOD が拒否する名前はその1件だけ送らずに理由を残す（ほかの設定は続けて確認する）。
