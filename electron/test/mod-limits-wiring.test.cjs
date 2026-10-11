@@ -20,7 +20,7 @@ test('BridgeMOD は大技の count を抑えず、スーパージャンプに上
   assert.doesNotMatch(source, /SLOW_FALLING/, '低速落下を付けない（落下死してよい）');
   assert.match(source, /j\.target = JumpPhysics\.stackTarget\(Math\.max\(j\.target, p\.getY\(\)\), count\);/);
   assert.equal(fs.existsSync(path.resolve(__dirname, '../../BridgeMod/src/main/java/jp/douma/bridgemod/EffectLimits.java')), false);
-  assert.match(read('BridgeMod/gradle.properties'), /^mod_version=1\.7\.0\r?$/m);
+  assert.match(read('BridgeMod/gradle.properties'), /^mod_version=1\.7\.\d+\r?$/m);
 });
 
 test('頂点を過ぎて水・溶岩・はしご・乗り物・飛行に入ったジャンプは外し、次のジャンプを古い頂点に足さない（PR #74 レビュー）', () => {
@@ -104,9 +104,10 @@ test('衝撃波の予算は全部の衝撃波で 1 tick に1回だけ戻り、�
   assert.match(source, /int pendingJobs\(\) \{ return jobs\.size\(\) \+ waves\.size\(\); \}/);
 });
 
-test('SaikutuMOD 1.1.0 とゲームパックの jar 名', () => {
-  assert.match(read('SaikutuMod/gradle.properties'), /^mod_version=1\.1\.0\r?$/m);
+test('SaikutuMOD 1.1 以上（衝撃波は 1.1.0 から）とゲームパックの jar 名がそろう', () => {
+  const version = read('SaikutuMod/gradle.properties').match(/^mod_version=(1\.1\.\d+)\r?$/m)?.[1];
+  assert.ok(version, 'SaikutuMOD 1.1.x');
   const pack = JSON.parse(read('game-packs/saikutu/game.json'));
-  assert.equal(pack.serverJar, 'saikutumod-1.1.0.jar');
-  assert.equal(pack.clientJar, 'saikutumod-1.1.0.jar');
+  assert.equal(pack.serverJar, `saikutumod-${version}.jar`);
+  assert.equal(pack.clientJar, `saikutumod-${version}.jar`);
 });

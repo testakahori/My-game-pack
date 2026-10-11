@@ -83,6 +83,9 @@ async function test(group, name, fn) {
       await cmd(`fill ${x} ${y} ${z} ${Math.min(x + 31, cx + R)} ${Math.min(y + 31, 63)} ${Math.min(z + 31, R)} minecraft:stone`);
     await cmd(`fill ${cx - 16} 64 -16 ${cx + 16} 110 16 minecraft:air`);
     await cmd(`setblock ${cx + 60} 55 0 minecraft:command_block{Command:"say keep"} replace`);
+    // 壊せないブロック（硬さが負）は、岩盤と同じく残す（2026-10-11 ユーザーの決定）。穴の内側に置く。
+    await cmd(`setblock ${cx + 20} 55 0 minecraft:barrier replace`);
+    await cmd(`setblock ${cx - 20} 55 0 minecraft:end_portal_frame replace`);
     // ゾンビは昼の日光で燃えて体力が減るので、燃えないハスクで「衝撃波に巻き込まれたか」を見る。
     await cmd('kill @e[type=minecraft:husk,tag=qa_wave]');
     await cmd(`summon minecraft:husk ${cx + 30} 64 0.5 {NoAI:1b,PersistenceRequired:1b,Tags:["qa_wave"]}`);
@@ -111,6 +114,8 @@ async function test(group, name, fn) {
     assert.ok(Math.abs(at[90] - 7) <= 1, 'depth at 90: ' + at[90]);
     assert.equal(at[100], 0, 'outside the rim stays');
     assert.match(await cmd(`execute if block ${cx + 60} 55 0 minecraft:command_block`), /Test passed/, 'protected command block stays');
+    assert.match(await cmd(`execute if block ${cx + 20} 55 0 minecraft:barrier`), /Test passed/, 'barrier stays');
+    assert.match(await cmd(`execute if block ${cx - 20} 55 0 minecraft:end_portal_frame`), /Test passed/, 'end portal frame stays');
     // 衝撃波に巻き込まれたハスクは、死んだか体力が減っている（最大20）。
     let husk = 'dead';
     if (/Test passed/.test(await cmd('execute if entity @e[type=minecraft:husk,tag=qa_wave]'))) {

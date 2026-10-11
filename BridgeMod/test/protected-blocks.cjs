@@ -177,6 +177,18 @@ async function test(group, name, fn) {
       fs.writeFileSync(path.join(dir, `game_saikutu_${key}.txt`), `# GAME_MOD: saikutumod\n# GAME_KEY: ${key}\n# COUNT_MODE: aggregate\n# DISPLAY_OWNER: game\nsaikutu ${key} {Count} {ListenerName}\n`);
   }
 
+  await test('bridge', 'volcano: 足元を溶岩の床に変えても、壊せないブロック（バリア・エンドポータルの枠）は残る', async () => {
+    const cx = -4600; await prepare(cx);
+    // 火山は足元の高さ（y=63）の 21×21 を溶岩にする。壊せないブロックは岩盤と同じく残す（2026-10-11 ユーザーの決定）。
+    await cmd(`setblock ${cx + 3} 63 3 minecraft:barrier`);
+    await cmd(`setblock ${cx - 3} 63 -3 minecraft:end_portal_frame`);
+    await post('volcano'); await idle();
+    assert.ok(await isBlock(cx + 5, 63, 0, 'minecraft:lava'), 'the floor became lava');
+    assert.ok(await isBlock(cx + 3, 63, 3, 'minecraft:barrier'), 'barrier stays');
+    assert.ok(await isBlock(cx - 3, 63, -3, 'minecraft:end_portal_frame'), 'end portal frame stays');
+    return {};
+  });
+
   await test('saikutu', 'otosiana: 足元の 3×3×3 を空気にしても残り、穴はあく', async () => {
     const cx = -3501; await prepare(cx);
     const pos = { impulse: [cx + 1, 63, 0], repeating: [cx - 1, 62, 0], chain: [cx, 61, 1] };
@@ -219,12 +231,14 @@ async function test(group, name, fn) {
     const pos = { impulse: [cx + 3, 80, 3], repeating: [cx - 3, 90, -3], chain: [cx, 70, 0] };
     const before = await placeTrio('tnt', pos);
     const restoresBefore = await restores();
-    await post('tntdaibakuhatu'); await idle();
-    // 赤石ブロックで最下段の TNT に火が付く（4秒）。連鎖すると検証サーバーが固まるので、確かめる前に片付ける。
+    await post('tntdaibakuhatu');
+    // SaikutuMOD 1.1.0 から、頭上の TNT は大技で置き、40 tick 後に衝撃波が始まる。足元の TNT（Fuse:40）が頭上の TNT に
+    // 火を付けて連鎖すると検証サーバーが固まるので、TNT が置かれたらすぐ片付けてから、衝撃波が終わるのを待つ。
+    await wait(async () => isBlock(cx + 6, 100, 6, 'minecraft:tnt'), 20000);
     await cmd('kill @e[type=minecraft:tnt]');
-    assert.ok(await isBlock(cx + 6, 100, 6, 'minecraft:tnt'), 'tnt still fills the sky');
     await cmd(`fill ${cx - 7} 69 -7 ${cx + 7} 101 7 air replace minecraft:tnt`);
     await cmd(`setblock ${cx} 68 0 air`);
+    await idle();
     await assertTrio('tnt', pos, before);
     const restored = (await restores()) - restoresBefore; assert.ok(restored >= 3, 'restored ' + restored);
     return { restored };

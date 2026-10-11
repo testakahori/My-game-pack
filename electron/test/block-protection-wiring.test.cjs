@@ -79,6 +79,19 @@ test('BridgeMOD は 1.6.0 以上（保護ブロック API は 1.6.0 から）', 
   assert.ok(major > 1 || (major === 1 && minor >= 6), `mod_version ${major}.${minor} must be >= 1.6`);
 });
 
+test('地形の効果は、岩盤を含む壊せないブロック（硬さが負：バリア・エンドポータルの枠など）を残す（2026-10-11 ユーザーの決定）', () => {
+  for (const file of ['BridgeMod/src/main/java/jp/douma/bridgemod/GiftEffects.java', 'SaikutuMod/src/main/java/jp/douma/saikutumod/SaikutuEffects.java']) {
+    const source = read(file);
+    const set = source.slice(source.indexOf('private void set(Origin o'), source.indexOf('private void summon(Origin o'));
+    assert.match(set, /o\.level\.getBlockState\(p\)\.getDestroySpeed\(o\.level, p\) >= 0/, file);
+    assert.doesNotMatch(set, /Blocks\.BEDROCK/, file + '：岩盤も硬さが負なので、同じ判定で残る');
+  }
+  assert.match(read('BridgeMod/gradle.properties'), /^mod_version=1\.7\.1\r?$/m);
+  assert.match(read('SaikutuMod/gradle.properties'), /^mod_version=1\.1\.1\r?$/m);
+  const pack = JSON.parse(read('game-packs/saikutu/game.json'));
+  assert.equal(pack.serverJar, 'saikutumod-1.1.1.jar');
+});
+
 test('SaikutuMOD は tick ごとのキュー処理（内蔵 txt）を runProtected で包み、set で canModifyBlock を通す', () => {
   const mod = read('SaikutuMod/src/main/java/jp/douma/saikutumod/SaikutuMod.java');
   const tick = mod.slice(mod.indexOf('public void tick(TickEvent.ServerTickEvent event)'), mod.indexOf('private int process('));
