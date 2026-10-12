@@ -102,9 +102,10 @@ public final class SaikutuMod {
         effects.values().forEach(SaikutuEffects::stop); queues.values().forEach(Deque::clear);
         server = null; started = completed = failed = duplicates = 0; requests.clear(); startedByKey.clear(); updateStatus();
     }
-    // 衝撃波でえぐっている間に出たアイテム（支えを失った花・たいまつなど）は出さない。チャンクの読み込みで戻ってくるアイテムはそのまま。
-    @SubscribeEvent public void noDropsWhileCarving(EntityJoinLevelEvent event) {
-        if (SaikutuEffects.carving() && !event.getLevel().isClientSide() && !event.loadedFromDisk() && event.getEntity() instanceof ItemEntity) event.setCanceled(true);
+    // 地形を書き換えている間（衝撃波・天変地異の穴と地割れ・氷河期の地面）に出たアイテム（支えを失った花・たいまつなど）は出さない。
+    // チャンクの読み込みで戻ってくるアイテムはそのまま。
+    @SubscribeEvent public void noDropsWhileReshaping(EntityJoinLevelEvent event) {
+        if (SaikutuEffects.noDrops() && !event.getLevel().isClientSide() && !event.loadedFromDisk() && event.getEntity() instanceof ItemEntity) event.setCanceled(true);
     }
     @SubscribeEvent public void tick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END || server == null) return;

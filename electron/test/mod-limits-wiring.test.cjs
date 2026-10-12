@@ -61,8 +61,8 @@ test('衝撃波は set() と同じ判定でえぐり、周りのチャンクま�
   const carve = source.slice(source.indexOf('private boolean carve('), source.indexOf('private void front('));
   const allowed = carve.indexOf('o.allowed(p)'), state = carve.indexOf('getBlockState(p)');
   assert.ok(allowed > 0 && allowed < state, '読み込み済みかを先に確かめる');
-  // あいだに、落ちるアイテムを出さない印（SaikutuMOD 1.1.3）が入る。
-  assert.match(carve, /BlockPos at = p\.immutable\(\);\s*(?:\/\/[^\n]*\s*)*boolean was = carving;\s*carving = true;\s*try \{ set\(o, at, Blocks\.AIR\.defaultBlockState\(\)\); \}/);
+  // setNoDrops（SaikutuMOD 1.1.4〜。1.1.3 は carve の中に同じ印）は set と同じ判定で、書き換える間だけ落ちるアイテムを出さない印を立てる。
+  assert.match(carve, /BlockPos at = p\.immutable\(\);\s*(?:\/\/[^\n]*\s*)*setNoDrops\(o, at, Blocks\.AIR\.defaultBlockState\(\)\);/);
   // 読み込まれていないチャンクのブロックを読むと、サーバーがその場で読み込む。tick ごとに FULL のチャンクを調べ直す。
   // 周りの反応（溶岩・つる・柵・扉など）は数ブロック先を読むので、バニラがブロックを動かすのと同じく、周り1チャンクまで読み込み済みの列だけをえぐる。
   const step = source.slice(source.indexOf('private boolean stepWave('), source.indexOf('private boolean carve('));

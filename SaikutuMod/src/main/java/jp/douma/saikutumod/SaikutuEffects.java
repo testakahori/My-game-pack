@@ -28,6 +28,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.entity.projectile.Arrow;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.LiquidBlock;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -217,16 +218,13 @@ final class SaikutuEffects {
         if (!o.allowed(p) || o.level.getBlockState(p).isAir()) return false;
         // 呼び出し側は使い回しの MutableBlockPos を渡すので、書き換える位置だけ固定した BlockPos にする。
         BlockPos at = p.immutable();
-        // 支えを失った花・たいまつなどは set の中で壊れてアイテムになる。その間だけ印を立て、SaikutuMod が出さない（2026-10-12 ユーザーの決定）。
-        boolean was = carving;
-        carving = true;
-        try { set(o, at, Blocks.AIR.defaultBlockState()); } finally { carving = was; }
+        setNoDrops(o, at, Blocks.AIR.defaultBlockState());
         return o.level.getBlockState(at).isAir();
     }
-    // えぐっている最中か。立てるのはサーバーのスレッドだけで、gift・other・like の3つの SaikutuEffects で共通。
+    // 地形を書き換えている最中か。立てるのはサーバーのスレッドだけで、gift・other・like の3つの SaikutuEffects で共通。
     // 1人プレイではクライアントにも同じイベントが来るので、見る側（SaikutuMod）はサーバーの世界に限る。
-    private static boolean carving;
-    static boolean carving() { return carving; }
+    private static boolean noDrops;
+    static boolean noDrops() { return noDrops; }
     // 衝撃波が始まったときに、調べる範囲（横 limit・上下は建築できる高さ）にいた生き物。
     private Set<UUID> presentAt(Wave w) {
         int h = w.shape.limit + 2;
@@ -270,8 +268,15 @@ final class SaikutuEffects {
         return o.level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
     }
     private boolean loaded(Origin o, int x, int z) { return o.level.hasChunkAt(new BlockPos(x, 0, z)); }
+    // set と同じ判定で書き換え、その間に壊れたブロック（支えを失った花・たいまつ、氷の上に残れない花など）のアイテムは出さない。
+    // 衝撃波・天変地異の穴と地割れ・氷河期の地面で使う（2026-10-12 ユーザーの決定）。
+    private void setNoDrops(Origin o, BlockPos p, BlockState state) {
+        boolean was = noDrops;
+        noDrops = true;
+        try { set(o, p, state); } finally { noDrops = was; }
+    }
     // 壊せないブロック（硬さが負：岩盤・バリア・エンドポータルの枠など）は残す（2026-10-11 ユーザーの決定）。
-    private void set(Origin o, BlockPos p, net.minecraft.world.level.block.state.BlockState state) {
+    private void set(Origin o, BlockPos p, BlockState state) {
         if (o.allowed(p) && BlockProtection.canModifyBlock(o.level, p) && o.level.getBlockEntity(p) == null
                 && o.level.getBlockState(p).getDestroySpeed(o.level, p) >= 0) o.level.setBlock(p, state, 3);
     }
@@ -336,9 +341,9 @@ final class SaikutuEffects {
             if (!loaded(o, x, z)) return;
             int y = surface(o, x, z);
             BlockPos ground = new BlockPos(x, y - 1, z);
-            if (!o.level.getBlockState(ground).isAir()) set(o, ground, Blocks.PACKED_ICE.defaultBlockState());
+            if (!o.level.getBlockState(ground).isAir()) setNoDrops(o, ground, Blocks.PACKED_ICE.defaultBlockState());
             BlockPos snow = ground.above();
-            if (o.level.getBlockState(snow).isAir()) set(o, snow, Blocks.SNOW.defaultBlockState());
+            if (o.level.getBlockState(snow).isAir()) setNoDrops(o, snow, Blocks.SNOW.defaultBlockState());
         });
     }
     private void fallingIce(Origin o, ServerPlayer player, int count) {
@@ -398,7 +403,7 @@ final class SaikutuEffects {
             int dx = column % 13 - 6, dz = column / 13 - 6;
             int y = top - i / floors.length;
             if (dx * dx + dz * dz <= 43 && y >= floors[column])
-                set(o, new BlockPos(centreX + dx, y, centreZ + dz), Blocks.AIR.defaultBlockState());
+                setNoDrops(o, new BlockPos(centreX + dx, y, centreZ + dz), Blocks.AIR.defaultBlockState());
         });
     }
 
@@ -415,7 +420,7 @@ final class SaikutuEffects {
             if (!loaded(o, x, z)) return;
             int top = surface(o, x, z), depth = 5 + o.level.random.nextInt(14);
             for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) for (int y = top; y >= top - depth; y--)
-                set(o, new BlockPos(x + dx, y, z + dz), Blocks.AIR.defaultBlockState());
+                setNoDrops(o, new BlockPos(x + dx, y, z + dz), Blocks.AIR.defaultBlockState());
         });
         UUID targetId = target.getUUID();
         // Start pouring only after excavation/freezing; neither may erase the lava sources.
