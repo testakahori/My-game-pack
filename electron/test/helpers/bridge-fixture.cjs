@@ -25,7 +25,7 @@ async function until(check, label) {
  */
 async function startBridgeFixture(t, { commands = {}, config = {}, env = {}, respond = () => 202 } = {}) {
   const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-fixture-')));
-  const requests = [], logs = [], timers = new Set(), watchers = [];
+  const requests = [], logs = [], timers = new Set(), watchers = [], streams = [];
   const server = http.createServer((req, res) => {
     let body = ''; req.on('data', chunk => body += chunk); req.on('end', () => {
       const payload = JSON.parse(body); requests.push(payload);
@@ -54,7 +54,8 @@ async function startBridgeFixture(t, { commands = {}, config = {}, env = {}, res
   }
   const fakeProcess = Object.assign(new EventEmitter(), { argv: ['node', source], env, platform: process.platform, cwd: () => dir,
     exit: code => { throw Error('unexpected exit ' + code); } });
-  const testFs = { ...fs, watch: (...args) => { const w = fs.watch(...args); watchers.push(w); return w; } };
+  const testFs = { ...fs, watch: (...args) => { const w = fs.watch(...args); watchers.push(w); return w; },
+    createWriteStream: (...args) => { const s = fs.createWriteStream(...args); streams.push(s); return s; } };
   const context = { module: { exports: {} }, exports: {}, __dirname: dir, __filename: source, process: fakeProcess, Buffer, URL,
     console: Object.fromEntries(['log', 'warn', 'error'].map(name => [name, (...args) => logs.push(args.join(' '))])),
     setTimeout: (fn, ms, ...args) => { const timer = setTimeout(fn, ms, ...args); timers.add(timer); return timer; }, clearTimeout,
@@ -63,6 +64,8 @@ async function startBridgeFixture(t, { commands = {}, config = {}, env = {}, res
   vm.runInNewContext(fs.readFileSync(source, 'utf8') + '\nmodule.exports.startFixture=main;', context, { filename: source });
   await context.module.exports.startFixture();
   await until(() => logs.some(x => x.includes('[TikTok] Connected.')), 'connected');
+  // Bridge はログファイルを少しあとに開く。開く前にテストが終わると、後片付けで消したフォルダーに開こうとして例外になる（PR #85 の ubuntu CI）。
+  await until(() => streams.length > 0 && streams.every(s => !s.pending), 'log file opened');
   let msg = 100;
   const emit = async (type, fields) => {
     const message = { ...proto[type].decode(new Uint8Array()), ...fields,

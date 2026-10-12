@@ -57,9 +57,6 @@ test('音・粒子とイベントの両方が失敗したら、両方の理由�
 
 test('起動ログの「個別最大コマンド数」には、BridgeMOD 経由では使わないことを書く', async t => {
   const bridge = await startBridgeFixture(t, { commands: { zombie: '# TITLE: zombie\nsay test\n' } });
-  // Bridge はログファイルを少しあとに開く。開く前にテストが終わると、後片付けで消えたフォルダーに開こうとして例外になる（ubuntu の CI で発覚）。
-  const logs = path.join(bridge.dir, 'logs');
-  await bridge.until(() => fs.existsSync(logs) && fs.readdirSync(logs).length > 0, 'log file');
   assert.ok(bridge.logs.some(line => /maxCommandsPerGift: \d+（BridgeMOD 経由では使わない）/.test(line)), bridge.logs.filter(l => /maxCommands/.test(l)).join('\n'));
 });
 
