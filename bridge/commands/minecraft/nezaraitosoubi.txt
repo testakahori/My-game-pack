@@ -1,10 +1,7 @@
 # TITLE: ネザーライト装備！
 # SUBTITLE: ネザーライト装備が手に入る
 # CATEGORY: お助け系
-// 最強のネザライト装備一式をプレゼント
+# COUNT_MODE: aggregate
+// 最強のネザライト装備一式をプレゼント（今の防具は持ち物へ）
 
-
-item replace entity @p armor.head with minecraft:netherite_helmet
-item replace entity @p armor.chest with minecraft:netherite_chestplate
-item replace entity @p armor.legs with minecraft:netherite_leggings
-item replace entity @p armor.feet with minecraft:netherite_boots
+execute as @p at @s run bridgeeffect netheritearmor {Count}

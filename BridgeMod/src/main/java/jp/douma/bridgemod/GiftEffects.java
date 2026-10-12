@@ -16,6 +16,10 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.boss.wither.WitherBoss;
@@ -39,7 +43,12 @@ import java.util.function.IntConsumer;
 /** Server-thread effects. Large gifts are spread across ticks instead of spawning everything in one tick. */
 final class GiftEffects {
     static final Set<String> KEYS = Set.of("bullettime", "anvildrop", "chickenrain", "meteor",
-        "superjump", "volcano", "zombiewave", "storm", "clearweather", "meteorshower", "witherhunt", "heavygravity");
+        "superjump", "volcano", "zombiewave", "storm", "clearweather", "meteorshower", "witherhunt", "heavygravity",
+        "diamondarmor", "netheritearmor");
+    // 着せる防具（頭・胴・脚・足の順。EQUIP_SLOTS と同じ並び）。
+    private static final EquipmentSlot[] EQUIP_SLOTS = { EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET };
+    private static final Item[] DIAMOND_ARMOR = { Items.DIAMOND_HELMET, Items.DIAMOND_CHESTPLATE, Items.DIAMOND_LEGGINGS, Items.DIAMOND_BOOTS };
+    private static final Item[] NETHERITE_ARMOR = { Items.NETHERITE_HELMET, Items.NETHERITE_CHESTPLATE, Items.NETHERITE_LEGGINGS, Items.NETHERITE_BOOTS };
     private final List<Job> jobs = new ArrayList<>();
     private final List<MeteorFlight> meteorFlights = new ArrayList<>();
     private final Map<UUID, Jump> jumps = new HashMap<>();
@@ -166,8 +175,22 @@ final class GiftEffects {
             case "heavygravity" -> heavyGravity(source.getPlayerOrException());
             case "volcano" -> volcano(o, 50 * count);
             case "zombiewave" -> zombies(o, 50 * count);
+            case "diamondarmor" -> equip(source.getPlayerOrException(), DIAMOND_ARMOR, count);
+            case "netheritearmor" -> equip(source.getPlayerOrException(), NETHERITE_ARMOR, count);
         }
         return 1;
+    }
+
+    // 防具を着せる。今着ている防具は消さずに持ち物へ移し、入らなければ足元に落とす（2026-10-12 ユーザーの決定）。
+    // N 個なら N 回着せる（2回目からは、前に着せた防具が持ち物へ移る）。
+    private void equip(ServerPlayer p, Item[] armor, int count) {
+        for (int n = 0; n < Math.max(1, count); n++)
+            for (int i = 0; i < EQUIP_SLOTS.length; i++) {
+                EquipmentSlot slot = EQUIP_SLOTS[i];
+                ItemStack old = p.getItemBySlot(slot);
+                p.setItemSlot(slot, new ItemStack(armor[i]));
+                if (!old.isEmpty() && !p.getInventory().add(old)) p.drop(old, false);
+            }
     }
 
     void tick(MinecraftServer server) {
