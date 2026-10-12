@@ -160,30 +160,47 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     if (fs.existsSync(journalFile())) restore(readJson(journalFile()));
     return list();
   }
-  async function activate(id) {
-    if (!GAMES.some(g => g.id === id)) throw new Error('ゲームを選択してください');
-    if (fs.existsSync(journalFile())) throw new Error('前回の切替を復旧してから切り替えてください');
-    await ensureStopped();
-    const dirs = targets(), current = state();
-    const pack = id === 'common' ? null : packageFor(current, id);
+  // BridgeMOD・DisplayMOD（全ゲームの標準装備）の jar。
+  function commonModFiles() {
     const commonPath = bridgeJar(), commonBytes = plainFile(commonPath);
     if (!jarModIds(commonBytes).includes('bridgemod')) throw new Error('BridgeMODのビルド済みjarが必要です');
     const commonName = path.basename(commonPath);
     if (!safeName(commonName) || !commonName.endsWith('.jar')) throw new Error('BridgeMODのjarファイル名が不正です');
     const commonFiles = { [commonName]: commonBytes }, displayPath = displayJar();
     if (!displayPath) throw new Error('標準装備のDisplayMODがありません。表示MODのビルド済みjarが必要です');
-    if (displayPath) {
-      const bytes = plainFile(displayPath), name = path.basename(displayPath);
-      if (!safeName(name) || !name.endsWith('.jar') || name.toLowerCase() === commonName.toLowerCase() || !jarModIds(bytes).includes('displaymod')) throw new Error('DisplayMODのjarを確認してください');
-      commonFiles[name] = bytes;
-    }
-    const before = fs.readFileSync(configPath(), 'utf8'), config = JSON.parse(before);
-    const commandDir = path.join(path.dirname(configPath()), 'commands', 'minecraft');
-    const gameFiles = Object.fromEntries((pack?.manifest.commands || []).map(c => [`game_${id}_${c.key}.txt`, `# TITLE: ${c.title}\n# CATEGORY: ${c.category}\n${c.destructive ? '# DESTRUCTIVE: true\n' : ''}# DISPLAY_OWNER: ${c.commonDisplay === true ? 'bridge' : 'game'}\n${c.command.includes('{Count}') ? '# COUNT_MODE: aggregate\n' : ''}${pack.manifest.bridgeEventApi === 1 ? `# GAME_MOD: ${pack.manifest.modId}\n# GAME_KEY: ${c.key}\n` : ''}${c.command}\n`]));
+    const bytes = plainFile(displayPath), name = path.basename(displayPath);
+    if (!safeName(name) || !name.endsWith('.jar') || name.toLowerCase() === commonName.toLowerCase() || !jarModIds(bytes).includes('displaymod')) throw new Error('DisplayMODのjarを確認してください');
+    commonFiles[name] = bytes;
+    return commonFiles;
+  }
+  // サーバー（side 0）と Minecraft（side 1）の mods に置く jar：標準装備とゲームMOD。
+  function modFiles(pack, commonFiles, side) {
+    const files = { ...commonFiles };
+    if (pack) { const name = pack.manifest[side === 0 ? 'serverJar' : 'clientJar']; if (Object.keys(files).some(n => n.toLowerCase() === name.toLowerCase())) throw new Error('ゲームMODと共通MODのファイル名が重複しています'); files[name] = pack.files[name]; }
+    return files;
+  }
+  const commandFolder = () => path.join(path.dirname(configPath()), 'commands', 'minecraft');
+  // ゲームのコマンド（game_<id>_<key>.txt）の中身。
+  function gameCommandFiles(id, pack) {
+    return Object.fromEntries((pack?.manifest.commands || []).map(c => [`game_${id}_${c.key}.txt`, `# TITLE: ${c.title}\n# CATEGORY: ${c.category}\n${c.destructive ? '# DESTRUCTIVE: true\n' : ''}# DISPLAY_OWNER: ${c.commonDisplay === true ? 'bridge' : 'game'}\n${c.command.includes('{Count}') ? '# COUNT_MODE: aggregate\n' : ''}${pack.manifest.bridgeEventApi === 1 ? `# GAME_MOD: ${pack.manifest.modId}\n# GAME_KEY: ${c.key}\n` : ''}${c.command}\n`]));
+  }
+  function assertGameCommandKeys(pack, commandDir) {
     for (const command of pack?.manifest.commands || []) {
       if (!saikutu.FILES.has(command.key + '.txt') && fs.existsSync(path.join(commandDir, command.key + '.txt')))
         throw new Error('共通コマンドとゲームコマンドのkeyが重複しています: ' + command.key);
     }
+  }
+  async function activate(id) {
+    if (!GAMES.some(g => g.id === id)) throw new Error('ゲームを選択してください');
+    if (fs.existsSync(journalFile())) throw new Error('前回の切替を復旧してから切り替えてください');
+    await ensureStopped();
+    const dirs = targets(), current = state();
+    const pack = id === 'common' ? null : packageFor(current, id);
+    const commonFiles = commonModFiles();
+    const before = fs.readFileSync(configPath(), 'utf8'), config = JSON.parse(before);
+    const commandDir = commandFolder();
+    const gameFiles = gameCommandFiles(id, pack);
+    assertGameCommandKeys(pack, commandDir);
     const oldNames = fs.existsSync(commandDir) ? fs.readdirSync(commandDir).filter(n => /^game_(umetate|run|saikutu)_[a-z0-9_]+\.txt$/.test(n)) : [];
     const next = clone(current);
     next.profiles[current.active] = { ...Object.fromEntries(PROFILE_KEYS.filter(k => Object.hasOwn(config, k)).map(k => [k, config[k]])),
@@ -217,8 +234,7 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     // Prepare and verify both sides before moving either current mods folder.
     for (const [i, dir] of dirs.entries()) {
       const staged = path.join(dir, '.mygamepack-mod-switch', operation, 'next'); fs.mkdirSync(staged, { recursive: true });
-      const files = { ...commonFiles };
-      if (pack) { const name = pack.manifest[i === 0 ? 'serverJar' : 'clientJar']; if (Object.keys(files).some(n => n.toLowerCase() === name.toLowerCase())) throw new Error('ゲームMODと共通MODのファイル名が重複しています'); files[name] = pack.files[name]; }
+      const files = modFiles(pack, commonFiles, i);
       for (const [name, bytes] of Object.entries(files)) { fs.writeFileSync(path.join(staged, name), bytes); if (hash(fs.readFileSync(path.join(staged, name))) !== hash(bytes)) throw new Error('MODコピーの確認に失敗しました'); }
     }
     writeJson(journalFile(), journal);
@@ -246,7 +262,64 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
       throw new Error(`切替に失敗したため元へ戻しました: ${error.message}`);
     }
   }
-  return { list, install, activate, recover };
+  // アプリを更新したあと、今のゲームの MOD（BridgeMOD・DisplayMOD・ゲームMOD）の jar だけを、両側で新しい版に入れ替え、
+  // ゲームのコマンドも新しくする。ほかの MOD やファイルには触らない（2026-10-13 ユーザーの決定。「保存」は mods を丸ごと退避する）。
+  // 入れ替えた古い jar は .mygamepack-mod-switch/<処理ID>/replaced へ退避する。途中で失敗したら両側を元に戻す。
+  async function refreshMods() {
+    if (fs.existsSync(journalFile())) throw new Error('前回の切替が途中で止まっています。ホームで切替前の状態に戻してください');
+    if (!list().applied) throw new Error('ゲームがまだ保存されていません');
+    await ensureStopped();
+    const dirs = targets(), current = state(), id = current.active;
+    const pack = id === 'common' ? null : packageFor(current, id);
+    const commonFiles = commonModFiles(), commandDir = commandFolder(), commands = gameCommandFiles(id, pack);
+    assertGameCommandKeys(pack, commandDir);
+    // アプリが置く MOD かは、jar の中の MOD ID で見分ける（名前を変えた古い版も見つける）。
+    const own = new Set(['bridgemod', 'doumacmd', 'displaymod', ...(pack ? [pack.manifest.modId] : [])]);
+    const plans = dirs.map((dir, side) => {
+      const mods = path.join(dir, 'mods'), files = modFiles(pack, commonFiles, side);
+      const names = fs.existsSync(mods) ? fs.readdirSync(mods) : [];
+      const same = name => { try { return hash(plainFile(path.join(mods, name))) === hash(files[name]); } catch { return false; } };
+      const ours = name => { if (!/\.jar$/i.test(name)) return false; try { return jarModIds(plainFile(path.join(mods, name))).some(m => own.has(m)); } catch { return false; } };
+      const stale = names.filter(name => ours(name) && !(Object.hasOwn(files, name) && same(name)));
+      const missing = Object.keys(files).filter(name => !(names.includes(name) && same(name)));
+      return { dir, mods, files, stale, missing };
+    });
+    const changed = plans.some(p => p.stale.length || p.missing.length);
+    const operation = crypto.randomUUID(), undo = [];
+    try {
+      if (changed) for (const p of plans) {
+        const replaced = path.join(p.dir, '.mygamepack-mod-switch', operation, 'replaced');
+        fs.mkdirSync(p.mods, { recursive: true });
+        const putAside = name => {
+          fs.mkdirSync(replaced, { recursive: true });
+          fs.renameSync(path.join(p.mods, name), path.join(replaced, name));
+          undo.push(() => fs.renameSync(path.join(replaced, name), path.join(p.mods, name)));
+        };
+        for (const name of p.stale) putAside(name);
+        for (const name of p.missing) {
+          const file = path.join(p.mods, name);
+          // 同じ名前でアプリの MOD と分からないファイル（壊れた jar など）も、上書きせずに退避する（PR #91 再レビュー）。
+          if (!p.stale.includes(name) && fs.existsSync(file) && fs.lstatSync(file).isFile()) putAside(name);
+          atomicWrite(file, p.files[name]);
+          undo.push(() => fs.rmSync(file, { force: true }));
+          if (hash(fs.readFileSync(file)) !== hash(p.files[name])) throw new Error('MODコピーの確認に失敗しました');
+        }
+      }
+      // ゲームのコマンドも、書けなかったら MOD ごと元に戻せるよう、前の中身を覚えてから書く（PR #91 再レビュー）。
+      for (const [name, text] of Object.entries(commands)) {
+        const file = path.join(commandDir, name), before = fs.existsSync(file) && fs.lstatSync(file).isFile() ? fs.readFileSync(file) : null;
+        atomicWrite(file, text);
+        undo.push(() => before === null ? fs.rmSync(file, { force: true }) : atomicWrite(file, before));
+      }
+    } catch (error) {
+      let left = 0;
+      for (const step of undo.reverse()) { try { step(); } catch { left++; } }
+      if (left) throw new Error(`MODを入れ替えられず、${left}件を元に戻せませんでした。サーバーとMinecraftの .mygamepack-mod-switch/${operation}/replaced を確認してください（原因: ${error.message}）`);
+      throw new Error(`MODを入れ替えられなかったため元へ戻しました: ${error.message}`);
+    }
+    return { changed, game: id };
+  }
+  return { list, install, activate, recover, refreshMods };
 }
 
 module.exports = { GAMES, PROFILE_KEYS, jarModIds, inspectPackage, createGameProfiles };

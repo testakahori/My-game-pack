@@ -799,3 +799,18 @@ test("テスト発火のルーレット: 演出だけ送れなくても当選は
   // 以前は演出が出なかった理由がどこにも残らず、結果は「成功」とだけ表示された。
   assert.match(result.fired[0].message, /ルーレットの演出は送れませんでした/);
 });
+
+test('ホームのゲーム一覧に、アプリの更新でMODが古いままかと、その理由を出す（2026-10-13）', async t => {
+  const app = loadApp(t);
+  assert.equal((await app.invoke('games:list')).modsOutdatedAfterUpdate, false);
+  const file = path.join(app.root, 'app-config.json');
+  const current = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+  // この版（テストでは "test"）で入れ替えられなかった記録。
+  fs.writeFileSync(file, JSON.stringify({ ...current, gameModsVersion: 'old', gameModsRefreshFailed: 'test', gameModsRefreshError: 'Minecraftを終了してから切り替えてください' }));
+  const status = await app.invoke('games:list');
+  assert.equal(status.modsOutdatedAfterUpdate, true);
+  assert.equal(status.modsRefreshError, 'Minecraftを終了してから切り替えてください');
+  // 次の版では、前の版の失敗の記録は出さない。
+  fs.writeFileSync(file, JSON.stringify({ ...current, gameModsVersion: 'old', gameModsRefreshFailed: 'previous', gameModsRefreshError: 'x' }));
+  assert.equal((await app.invoke('games:list')).modsOutdatedAfterUpdate, false);
+});

@@ -25,6 +25,7 @@ const { EULA_URL, inspectSetup, inspectForgeClient, launchForgeInstaller, prepar
 const { migrateRetiredCommands } = require("./command_migration.cjs");
 const { exportStreamStatsMarkdown } = require("./stats_export.cjs");
 const { createGameProfiles } = require('./game_profiles.cjs');
+const { refreshGameModsAfterUpdate, gameModsOutdated } = require('./game_mods_refresh.cjs');
 const { availableGameCommands, assertGameCommands } = require('./game_command_scope.cjs');
 const { discoverMinecraftLocations, validateMinecraftFolder } = require('./minecraft_locations.cjs');
 const { tasklistNames, minecraftProcesses, readJavaCommandLines, switchBlockedMessage } = require('./minecraft_processes.cjs');
@@ -67,14 +68,36 @@ async function gameProfileOperation(action) {
   gameProfileBusy = true;
   try { return await action(); } finally { gameProfileBusy = false; }
 }
-ipcMain.handle('games:list', () => gameProfiles.list());
-ipcMain.handle('games:activate', (_event, id) => gameProfileOperation(() => gameProfiles.activate(id)));
-ipcMain.handle('games:recover', () => gameProfileOperation(() => gameProfiles.recover()));
+// ホームのゲームの状態。どの応答にも、アプリの更新で MOD が古いままかとその理由を含める（PR #91 再レビュー）。
+function gamesStatus() {
+  const cfg = readAppConfig();
+  return { ...gameProfiles.list(), modsOutdatedAfterUpdate: gameModsOutdated(cfg, app.getVersion()), modsRefreshError: cfg.gameModsRefreshError || '' };
+}
+ipcMain.handle('games:list', () => gamesStatus());
+ipcMain.handle('games:activate', (_event, id) => gameProfileOperation(async () => {
+  const result = await gameProfiles.activate(id);
+  // 「保存」で今の版の MOD を置いたので、アプリ更新後の入れ替えは済んだことにする（2026-10-13）。
+  // 開発版は配布版とアプリ設定の場所が同じなので書かない。書けなくても切替は成功として返す（PR #91 レビュー）。
+  if (app.isPackaged) {
+    try { writeAppConfig({ gameModsVersion: app.getVersion(), gameModsRefreshFailed: '', gameModsRefreshError: '' }); }
+    catch (e) { console.warn("[games] アプリ更新後の入れ替えの記録を書けませんでした:", e?.message || e); }
+  }
+  return { ...result, ...gamesStatus() };
+}));
+ipcMain.handle('games:recover', () => gameProfileOperation(async () => { await gameProfiles.recover(); return gamesStatus(); }));
 ipcMain.handle('games:install', () => gameProfileOperation(async () => {
   const selected = await dialog.showOpenDialog({ title: 'ゲームパックを登録', properties: ['openDirectory'] });
   if (selected.canceled) return { canceled: true };
-  return gameProfiles.install(selected.filePaths[0]);
+  await gameProfiles.install(selected.filePaths[0]);
+  return gamesStatus();
 }));
+// ホームの「今すぐ入れ替える」：アプリの更新に合わせた入れ替えを、もう一度試す。「保存」と違ってほかの MOD を退避しない（PR #91 再レビュー）。
+ipcMain.handle('games:refreshMods', async () => {
+  if (!app.isPackaged) throw new Error('開発版では使えません。ゲームを「保存」してください');
+  const result = await refreshGameModsAfterUpdate({ version: app.getVersion(), readConfig: readAppConfig, writeConfig: writeAppConfig, profiles: gameProfiles, run: gameProfileOperation });
+  if (result.state === 'failed') throw new Error(result.error);
+  return gamesStatus();
+});
 ipcMain.handle('games:clientFolders', () => discoverMinecraftLocations(minecraftLocationOptions()));
 async function saveMinecraftFolder(value, requireCandidate) {
   const options = minecraftLocationOptions();
@@ -1149,12 +1172,36 @@ async function refreshBridgeModJar(serverFolder) {
 function scheduleBridgeSync() {
   if (!app.isPackaged) return;
   setTimeout(() => {
-    ensureBridgeExtracted().catch((e) => {
-      const message = e?.message || String(e);
-      console.error("[main] bridge background sync failed:", message);
-      setBridgeSyncState({ state: "error", phase: "failed", error: message });
-    });
+    ensureBridgeExtracted()
+      .then(() => refreshGameModsOnStartup())
+      .catch((e) => {
+        const message = e?.message || String(e);
+        console.error("[main] bridge background sync failed:", message);
+        setBridgeSyncState({ state: "error", phase: "failed", error: message });
+      });
   }, 1000);
+}
+
+// アプリを更新したあと、今選んでいるゲームの MOD（サーバーと Minecraft の両方）とコマンドを、ホームの「保存」と同じ処理で新しくする。
+// 入れ替えられないときは何も変えず、次の起動でもう一度試す。どちらでもホームへ知らせて、ゲームの状態を読み直させる（2026-10-13 ユーザーの決定）。
+// 手動インストール（更新も含む）では初期セットアップをやり直すので、そのときはセットアップを終えたとき（app:config:write）に呼ぶ。
+async function refreshGameModsOnStartup() {
+  if (!app.isPackaged) return;
+  const cfg = readAppConfig();
+  if (!cfg.setupComplete || !cfg.serverFolder) return;
+  let result;
+  try {
+    result = await refreshGameModsAfterUpdate({ version: app.getVersion(), readConfig: readAppConfig, writeConfig: writeAppConfig, profiles: gameProfiles, run: gameProfileOperation });
+  } catch (e) {
+    // ゲームの状態が読めないときなど。BRIDGE の展開の失敗とは分けて、ログに残すだけにする。
+    console.warn("[games] アプリの更新に合わせたMODの入れ替えを確かめられませんでした:", e?.message || e);
+    return;
+  }
+  if (result.state === "done") console.log("[games] アプリの更新に合わせて、選んでいるゲームのMODを新しくしました:", result.game);
+  else if (result.state === "failed") console.warn("[games] アプリの更新に合わせたMODの入れ替えをやめました（次の起動でもう一度試す）:", result.error);
+  if (result.state === "done" || result.state === "failed") {
+    for (const win of BrowserWindow.getAllWindows()) win.webContents.send("games:changed", { state: result.state, changed: result.changed === true });
+  }
 }
 
 async function ensureBridgeExtracted() {
@@ -2484,7 +2531,10 @@ ipcMain.handle("app:config:write", async (_event, data) => {
   if (data && ('serverFolder' in data || 'world' in data)) { assertMapIdle(); if (serverStarting) throw new Error('サーバーの起動中は保存先を変更できません。'); }
   if (typeof data !== "object" || data === null) throw new Error("data must be an object");
   if (Object.hasOwn(data, "autoBackupOnServerStart") && data.autoBackupOnServerStart !== readAppConfig().autoBackupOnServerStart && fs.existsSync(getConfigPath())) settingsBackups.create("automatic");
+  const wasSetupComplete = readAppConfig().setupComplete === true;
   writeAppConfig(sanitizeRendererAppConfigUpdate(data));
+  // 手動インストール（更新も含む）のあとは初期セットアップをやり直す。終えたら、アプリの更新に合わせて MOD を入れ替える（PR #91 レビュー）。
+  if (!wasSetupComplete && readAppConfig().setupComplete === true) setTimeout(() => { refreshGameModsOnStartup().catch(e => console.warn("[games]", e?.message || e)); }, 0);
   return { ok: true };
 });
 

@@ -22,6 +22,30 @@ export default function GameSelector({ onChanged, onStatus }: { onChanged: () =>
       .catch((e: Error) => { if (!disposed) { setError(e.message); onStatus(null); } });
     return () => { disposed = true; };
   }, [onStatus]);
+  // アプリの更新に合わせて MOD を入れ替えた（または入れ替えられなかった）ら、ゲームの状態を読み直す（選びかけのゲームはそのまま）。
+  useEffect(() => {
+    let alive = true;
+    const off = api?.onGamesChanged?.(result => {
+      api.gamesList().then((next: GameStatus) => { if (!alive) return; setStatus(next); onStatus(next); }).catch(() => {});
+      // 設定は書き換えないので読み直さない（読み直すと画面ごと作り直され、知らせが消える。PR #91 再レビュー）。
+      if (result?.state === 'done' && result.changed) setMessage('アプリの更新に合わせて、ゲームのMODを新しい版に入れ替えました。');
+    });
+    return () => { alive = false; off?.(); };
+  }, [onStatus]);
+  // 「今すぐ入れ替える」：アプリの更新に合わせた入れ替えをもう一度試す。「保存」と違ってほかの MOD は退避しない。
+  async function refreshModsNow() {
+    if (busy || scanning) return;
+    setBusy(true); setError(''); setMessage('');
+    try {
+      const next = await api.gamesRefreshMods();
+      setStatus(next); onStatus(next);
+      setMessage('ゲームのMODを新しい版に入れ替えました。');
+    } catch (e: any) {
+      setError(e?.message || String(e));
+      try { const next = await api.gamesList(); setStatus(next); onStatus(next); } catch { /* 表示はそのまま */ }
+    }
+    finally { setBusy(false); }
+  }
   async function run(action: () => Promise<GameStatus | { canceled: true }>, changed = false, folderChanged = false) {
     if (busy || scanning || !confirmDiscard(guardId)) return;
     setBusy(true); setError(''); setMessage('');
@@ -66,6 +90,10 @@ export default function GameSelector({ onChanged, onStatus }: { onChanged: () =>
     <p>暗視・アイテムロストなし・昼・晴れは固定です。イベント中のみ時間・天候が一時的に変わります。</p>
     <p>コマンドの実行通知は非表示です。敵モブの自然発生は停止します。動物・魚の自然発生と、ギフト・コマンドでの召喚は有効です。</p>
     {status && <small>{status.applied ? `適用済み：${status.games.find(g => g.id === status.active)?.name}` : 'ゲームが未保存です。ゲームを選んで「保存」を押してください。'} ／ 切替はサーバー・Minecraft・BRIDGEの停止中に行います。</small>}
+    {status?.modsOutdatedAfterUpdate && <div role="alert" className="game-selector-pending">
+      <p>アプリの更新でMODが古いままです{status.modsRefreshError ? `（理由：${status.modsRefreshError}）` : ''}。サーバーと Minecraft を止めてから「今すぐ入れ替える」を押してください（ほかのMODはそのまま残ります。次にアプリを起動したときも自動で試します）。</p>
+      <button type="button" disabled={busy || scanning || status.recoveryRequired} onClick={refreshModsNow}>今すぐ入れ替える</button>
+    </div>}
     {status?.saikutuMigrationNeeded && <p role="status">採掘へ移したコマンド（落とし穴・採掘速度上昇など）が、今の割り当てに残っています。今のゲームのまま「保存」を押すと割り当てを整理し、採掘をまだ使っていなければ採掘へ引き継ぎます（すでに採掘の設定があるときは上書きせず、外した割り当ては退避に残ります）。</p>}
     <details><summary>Minecraftの保存先を探す・MODの保存先を確認</summary>
       <p>サーバー：{status?.serverMods || '未確認'}<br />Minecraft：{status?.clientMods || '未確認'}</p>
