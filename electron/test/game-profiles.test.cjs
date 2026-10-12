@@ -207,6 +207,33 @@ test('採掘は同梱パックから選べて既存のギフト・ルーレッ�
   await x.api.activate('saikutu'); assert.equal(JSON.parse(fs.readFileSync(x.config)).mappings[1].repeat,5);
   const saved = JSON.parse(fs.readFileSync(path.join(x.storage,'profiles.json'))); assert.equal(saved.legacySaikutuProfiles.common.mappings[1].commandFile,'otosiana.txt');
 });
+test('あとから採掘へ移したコマンドの引き継ぎでも、前の引き継ぎの退避を上書きしない（2026-10-12）', async t => {
+  let folder;
+  const x = fixture(t, { bundledPackages: () => folder ? [{ id:'saikutu',folder }] : [] });
+  folder = x.pack('saikutu');
+  const file = path.join(folder,'game.json'), manifest = JSON.parse(fs.readFileSync(file));
+  manifest.bridgeEventApi = 1; manifest.commands = [{ key:'otosiana',title:'落とし穴',command:'saikutu otosiana {Count} {ListenerName}' }];
+  fs.writeFileSync(file,JSON.stringify(manifest));
+  // 1回目：最初の14件（otosiana）の引き継ぎ。
+  const config = JSON.parse(fs.readFileSync(x.config));
+  config.mappings.push({ giftId:'rose',commandFile:'otosiana.txt',repeat:5 });
+  fs.writeFileSync(x.config,JSON.stringify(config));
+  await x.api.activate('saikutu');
+  await x.api.activate('common');
+  // 2回目：あとから移した採掘速度上昇（give_haste）をサバイバルで割り当てていた。
+  const survival = JSON.parse(fs.readFileSync(x.config));
+  survival.mappings.push({ giftId:'pass',commandFile:'give_haste.txt',repeat:1 });
+  fs.writeFileSync(x.config,JSON.stringify(survival));
+  await x.api.activate('saikutu');
+  const saved = JSON.parse(fs.readFileSync(path.join(x.storage,'profiles.json')));
+  assert.equal(saved.legacySaikutuProfiles.common.mappings.some(m => m.commandFile === 'otosiana.txt'), true, '1回目の退避は残る');
+  const later = Object.entries(saved.legacySaikutuProfiles).filter(([key]) => key.startsWith('common@'));
+  assert.equal(later.length, 1, '2回目の退避は別の名前で足す');
+  assert.equal(later[0][1].mappings.some(m => m.commandFile === 'give_haste.txt'), true);
+  await x.api.activate('common');
+  assert.equal(JSON.parse(fs.readFileSync(x.config)).mappings.some(m => m.commandFile === 'give_haste.txt'), false, 'サバイバルからは外す');
+});
+
 test('bridgeコマンド名が共通MODと重なるゲームは変更前に拒否する', async t => {
   const x = fixture(t), folder = x.pack('run'), file = path.join(folder,'game.json');
   const manifest = JSON.parse(fs.readFileSync(file)); manifest.commands[0].key = 'zombie'; fs.writeFileSync(file,JSON.stringify(manifest));

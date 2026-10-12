@@ -76,3 +76,9 @@ Java 17でBridgeModの通常のbuildに加えて、明示的に `environmentProb
 - 採掘の分（`--saikutu-only`）：SaikutuMOD を入れたサーバーで実行します。TNT大爆発 count=2 の衝撃波の穴（コマンドブロックと壊せないブロックは残る）、洪水 count=5、木 count=210、TNT大爆発 count=1000 が調べる範囲をえぐり終えたら終わること。穴を爆心から100ブロック先まで測るので、server.properties の `view-distance=10` にしておきます（6だと端のチャンクが読み込まれない）。テストが `bridge/commands/minecraft/game_saikutu_*.txt` を書きます。
 
 結果はサーバールートの `no-limits-results.json` に保存します。
+
+## 採掘へ移したコマンド（2026-10-12）
+
+`node saikutu-commands.cjs` は、採掘へ移した採掘速度上昇・低下（give_haste・give_fatigue）が SaikutuMOD の内蔵 txt から効くことを確かめます（SaikutuMOD 1.1.2 から）。SaikutuMOD を入れたサーバーで、上と同じマーカー・ポート・GIFT_QA_SERVER を使います。テストが `bridge/commands/minecraft/game_saikutu_*.txt` を書きます。
+
+結果はサーバールートの `saikutu-commands-results.json` に保存します。

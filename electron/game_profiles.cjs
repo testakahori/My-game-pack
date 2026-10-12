@@ -184,7 +184,9 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     for (const [profileId, profile] of Object.entries(next.profiles)) {
       if (saikutu.hasLegacy(profile)) {
         next.legacySaikutuProfiles ||= {};
-        next.legacySaikutuProfiles[profileId] = clone(profile);
+        // あとから採掘へ移したコマンド（2026-10-12 の give_haste など）の引き継ぎでも、前の退避は上書きせず別の名前で足す。
+        const backupId = Object.hasOwn(next.legacySaikutuProfiles, profileId) ? `${profileId}@${new Date().toISOString()}` : profileId;
+        next.legacySaikutuProfiles[backupId] = clone(profile);
         if (!next.profiles.saikutu) next.profiles.saikutu = saikutu.mapLegacy(profile);
         next.profiles[profileId] = profileId === 'saikutu' ? saikutu.mapLegacy(profile) : saikutu.withoutLegacy(profile);
       }

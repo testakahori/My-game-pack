@@ -24,7 +24,7 @@ import java.util.*;
 @Mod(SaikutuMod.MODID)
 public final class SaikutuMod {
     public static final String MODID = "saikutumod";
-    private static final List<String> KEYS = List.of("randomtp", "skytrap", "cataclysm", "iceage", "flood", "maguma_jigoku", "fissure", "otosiana", "tntdaibakuhatu", "get_ender_pearl", "get_iron_pickaxe", "get_tree", "get_water_backet", "pikkerubossyuu");
+    private static final List<String> KEYS = List.of("randomtp", "skytrap", "cataclysm", "iceage", "flood", "maguma_jigoku", "fissure", "otosiana", "tntdaibakuhatu", "get_ender_pearl", "get_iron_pickaxe", "get_tree", "get_water_backet", "pikkerubossyuu", "give_haste", "give_fatigue");
     private record Script(Map<String, String> metadata, List<String> commands) {}
     private static final Map<String, Script> SCRIPTS = loadScripts();
     private final Map<String, Deque<Request>> queues = new LinkedHashMap<>();

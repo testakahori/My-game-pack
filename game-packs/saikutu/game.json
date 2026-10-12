@@ -3,8 +3,8 @@
   "id": "saikutu",
   "modId": "saikutumod",
   "bridgeEventApi": 1,
-  "serverJar": "saikutumod-1.1.1.jar",
-  "clientJar": "saikutumod-1.1.1.jar",
+  "serverJar": "saikutumod-1.1.2.jar",
+  "clientJar": "saikutumod-1.1.2.jar",
   "commands": [
     {
       "key": "randomtp",
@@ -79,6 +79,16 @@
       "key": "pikkerubossyuu",
       "title": "ピッケル没収！",
       "command": "saikutu pikkerubossyuu {Count} {ListenerName}"
+    },
+    {
+      "key": "give_haste",
+      "title": "採掘速度上昇20秒！",
+      "command": "saikutu give_haste {Count} {ListenerName}"
+    },
+    {
+      "key": "give_fatigue",
+      "title": "採掘速度低下10秒！",
+      "command": "saikutu give_fatigue {Count} {ListenerName}"
     }
   ]
 }
