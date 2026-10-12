@@ -104,7 +104,7 @@ public final class SaikutuMod {
     }
     // 衝撃波でえぐっている間に出たアイテム（支えを失った花・たいまつなど）は出さない。チャンクの読み込みで戻ってくるアイテムはそのまま。
     @SubscribeEvent public void noDropsWhileCarving(EntityJoinLevelEvent event) {
-        if (SaikutuEffects.carving() && !event.loadedFromDisk() && event.getEntity() instanceof ItemEntity) event.setCanceled(true);
+        if (SaikutuEffects.carving() && !event.getLevel().isClientSide() && !event.loadedFromDisk() && event.getEntity() instanceof ItemEntity) event.setCanceled(true);
     }
     @SubscribeEvent public void tick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END || server == null) return;

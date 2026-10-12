@@ -172,6 +172,8 @@ async function test(group, name, fn) {
     await cmd('gamemode creative QANoLimit'); await cmd(`tp QANoLimit ${cx + 0.5} -60 0.5`); await sleep(4000);
     await cmd(`fill ${cx + 14} -60 -10 ${cx + 34} -60 10 minecraft:stone`);
     await cmd(`fill ${cx + 14} -59 -10 ${cx + 34} -59 10 minecraft:torch`);
+    // 数え方が働いていることを示す見本：衝撃波の届かない所（横 48 の外）のたいまつ1本。数えている間に、コマンドで下の石を消して1個落とす。
+    await cmd(`setblock ${cx - 60} -60 0 minecraft:stone`); await cmd(`setblock ${cx - 60} -59 0 minecraft:torch`);
     await cmd('kill @e[type=minecraft:item]');
     // 落ちたアイテムは先端の爆発で壊れることがあるので、残った数ではなく、出てきた数をボットに届く出現で数える。
     // 頭上の TNT の連鎖が爆心の近くで落とす分は数えない（爆心から横12ブロックより外だけ）。
@@ -183,14 +185,19 @@ async function test(group, name, fn) {
     await cmd('kill @e[type=minecraft:tnt]');
     await cmd(`fill ${cx - 7} -55 -7 ${cx + 7} -23 7 minecraft:air replace minecraft:tnt`);
     counting = true;
+    // 数え始めたときに、いちばん近いたいまつの下の石がまだ残っている（衝撃波が来る前から数えている。PR #87 レビュー）。
+    const armedInTime = /Test passed/.test(await cmd(`execute if block ${cx + 14} -60 0 minecraft:stone`));
+    await cmd(`setblock ${cx - 60} -60 0 minecraft:air`);
     await idle(180000); await sleep(2000);
     counting = false; bot.off('entitySpawn', onSpawn);
+    assert.ok(armedInTime, 'counting started before the shockwave reached the torches');
     // たいまつの下の石がえぐられたこと（衝撃波が届いた）も確かめる。
     const carved = /Test passed/.test(await cmd(`execute if block ${cx + 24} -60 0 minecraft:air`));
     assert.ok(carved, 'the stone under the torches was carved');
-    assert.equal(spawned, 0, 'no items appear while the shockwave carves');
+    // 見本の1個だけ（衝撃波でえぐった所からは0個）。
+    assert.equal(spawned, 1, 'only the control torch drops; none appear while the shockwave carves');
     await cmd('kill @e[type=minecraft:item]');
-    return { spawned, carved };
+    return { spawned, armedInTime, carved };
   });
 
   await test('saikutu', '洪水 count=5 はドラウンド 30×5＝150体（以前は3で止まり90体）', async () => {

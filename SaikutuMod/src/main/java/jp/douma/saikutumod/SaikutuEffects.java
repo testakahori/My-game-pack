@@ -218,11 +218,13 @@ final class SaikutuEffects {
         // 呼び出し側は使い回しの MutableBlockPos を渡すので、書き換える位置だけ固定した BlockPos にする。
         BlockPos at = p.immutable();
         // 支えを失った花・たいまつなどは set の中で壊れてアイテムになる。その間だけ印を立て、SaikutuMod が出さない（2026-10-12 ユーザーの決定）。
+        boolean was = carving;
         carving = true;
-        try { set(o, at, Blocks.AIR.defaultBlockState()); } finally { carving = false; }
+        try { set(o, at, Blocks.AIR.defaultBlockState()); } finally { carving = was; }
         return o.level.getBlockState(at).isAir();
     }
-    // えぐっている最中か（サーバーのスレッドだけで使う）。gift・other・like の3つの SaikutuEffects で共通。
+    // えぐっている最中か。立てるのはサーバーのスレッドだけで、gift・other・like の3つの SaikutuEffects で共通。
+    // 1人プレイではクライアントにも同じイベントが来るので、見る側（SaikutuMod）はサーバーの世界に限る。
     private static boolean carving;
     static boolean carving() { return carving; }
     // 衝撃波が始まったときに、調べる範囲（横 limit・上下は建築できる高さ）にいた生き物。
