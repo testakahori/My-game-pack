@@ -30,8 +30,12 @@ function commentExtras(rule) {
   if (rule.particle) commands.push(`execute at @a run particle ${id(rule.particle, 'minecraft:happy_villager')} ~ ~1 ~ 0.6 0.8 0.6 0.05 20 force`);
   return commands;
 }
-// BridgeMOD（HTTP）で送る設定か。空なら RCON。bridge/index.js とアプリのテスト発火で同じ判定を使う。
-function isBridgeModTransport(transport) {
-  return ['bridge_mod', 'douma_mod', 'doumamod', 'bridgemod', 'mod', 'http'].includes(String(transport || 'rcon').toLowerCase().trim());
+// BridgeMOD（HTTP）で送る設定か。判定は command_files.cjs の1か所にまとめ、ここからも同じものを出す（PR #74 レビュー）。
+const { isBridgeModTransport } = require('./command_files.cjs');
+// 時限倍率（例：1.5倍）を掛けたあとのギフトの回数。小数は四捨五入する（BridgeMOD は小数の回数を拒否する）。
+// 本番の Bridge とテスト発火で同じ丸め方をする（PR #85 レビュー）。
+function giftTimes(amount) {
+  const times = Math.round(Number(amount));
+  return Number.isFinite(times) && times >= 1 ? times : 1;
 }
-module.exports = { boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport };
+module.exports = { boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes };

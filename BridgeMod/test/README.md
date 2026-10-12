@@ -82,3 +82,9 @@ Java 17でBridgeModの通常のbuildに加えて、明示的に `environmentProb
 `node armor.cjs` は、ダイヤ装備・ネザライト装備が今着ている防具を消さずに持ち物へ移すことを確かめます（BridgeMOD 1.7.3 から）。上と同じマーカー・ポート・GIFT_QA_SERVER を使います。ネザライトを着た状態でダイヤ装備、続けてネザライト装備 count=2、持ち物がいっぱいのときに足元へ落ちること。クリエイティブで持ち物がいっぱいのときは、足元の防具にプレイヤーが触れるとバニラの決まりで消えるので、このテストはサバイバルで行います（2026-10-12 実機で確認）。
 
 結果はサーバールートの `armor-results.json` に保存します。
+
+## 採掘へ移したコマンド（2026-10-12）
+
+`node saikutu-commands.cjs` は、採掘へ移した採掘速度上昇・低下（give_haste・give_fatigue）が SaikutuMOD の内蔵 txt から効くことを確かめます（SaikutuMOD 1.1.2 から）。SaikutuMOD を入れたサーバーで、上と同じマーカー・ポート・GIFT_QA_SERVER を使います。テストが `bridge/commands/minecraft/game_saikutu_*.txt` を書きます。
+
+結果はサーバールートの `saikutu-commands-results.json` に保存します。

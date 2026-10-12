@@ -5,10 +5,15 @@
 const BRIDGE_COMMAND_KEY = /^[A-Za-z0-9_.-]{1,200}$/;
 const BRIDGE_MOD_TRANSPORTS = new Set(["bridge_mod", "douma_mod", "doumamod", "bridgemod", "mod", "http"]);
 
+// BridgeMOD（HTTP）で送る送り方か。空なら RCON。Bridge・アプリ（設定の確認・テスト発火）で、この1か所の判定を使う。
+function isBridgeModTransport(transport) {
+  return BRIDGE_MOD_TRANSPORTS.has(String(transport || "rcon").toLowerCase().trim());
+}
+
 // RCON/Telnet はファイルを直接読むので名前の制限はない。制限が必要なのは BridgeMOD 経由のときだけ。
 function usesBridgeModTransport(config) {
   const type = String(config?.target?.type || "minecraft").toLowerCase();
-  return type === "minecraft" && BRIDGE_MOD_TRANSPORTS.has(String(config?.options?.commandTransport || "rcon").toLowerCase().trim());
+  return type === "minecraft" && isBridgeModTransport(config?.options?.commandTransport);
 }
 
 function bridgeCommandKey(commandFile) {
@@ -72,4 +77,4 @@ function refKey(ref) {
   return `${ref.where}\n${ref.commandFile}`;
 }
 
-module.exports = { BRIDGE_COMMAND_KEY, usesBridgeModTransport, bridgeCommandKey, isBridgeCommandFile, commandFileProblem, commandFileRefs, invalidCommandFileRefs, refKey };
+module.exports = { BRIDGE_COMMAND_KEY, isBridgeModTransport, usesBridgeModTransport, bridgeCommandKey, isBridgeCommandFile, commandFileProblem, commandFileRefs, invalidCommandFileRefs, refKey };
