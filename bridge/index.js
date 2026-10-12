@@ -35,7 +35,7 @@ const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require(
 const { commandFileProblem } = require("./command_files.cjs");
 const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("./bridge_mod_token.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require("./feature_engine");
-const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport } = require("./event_rules.cjs");
+const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes } = require("./event_rules.cjs");
 const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter, createMuteMatcher } = require("./tiktok_events.cjs");
 let runtimeProtection = { enabled: false };
 let bridgeModWebSocket = null;
@@ -1701,7 +1701,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     let times = delta * baseRepeat;
     if (times <= 0) return; // 連打終了通知は追加ギフトではない（送信時の最小1への丸めも避ける）。
     // 時限倍率（例：1.5倍）で小数になったら四捨五入する。BridgeMOD は小数の回数を拒否し、ギフトが丸ごと消えていた。
-    times = Math.max(1, Math.round(featureEngine.recordGift({ giftId, sender, commandFile: mapping.commandFile, count: times })));
+    times = giftTimes(featureEngine.recordGift({ giftId, sender, commandFile: mapping.commandFile, count: times }));
 
     if (bridgeMod) {
       console.log(

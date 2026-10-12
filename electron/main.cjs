@@ -1790,7 +1790,7 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
       }
       try {
         await fireBridgeEventMaybeRoulette(payload, step.roulette ? { ...bridgeCfg, roulette: step.roulette } : bridgeCfg, commandsDir, outcomes);
-      } catch (error) { failure = error; }
+      } catch (error) { failure = failure ? new Error(failure.message + " ／ " + error.message) : error; }
       // 送れた分（ルーレットは当選ごと）を1行ずつ記録し、失敗したらその理由も1行足す。
       const rows = outcomes.map(outcome => ({ commandFile: outcome.key + ".txt", count: outcome.count, ok: true,
         message: step.label + " → " + outcome.key + ".txt × " + outcome.count + " をModへ送信済み"
@@ -2040,7 +2040,9 @@ ipcMain.handle("operations:stats", () => {
   let succeeded = 0;
   for (const row of rows) {
     if (row.ok) succeeded++;
-    const amount = Number(row.count || 1);
+    // 回数0の行（音・粒子だけ失敗）を1回と数えない（PR #85 レビュー。stream_statistics と同じ数え方）。
+    const count = Number(row.count);
+    const amount = Number.isFinite(count) && count >= 0 ? count : 1;
     byCommand[row.commandFile || "unknown"] = (byCommand[row.commandFile || "unknown"] || 0) + amount;
     bySender[row.sender || "unknown"] = (bySender[row.sender || "unknown"] || 0) + amount;
   }

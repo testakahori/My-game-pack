@@ -25,8 +25,10 @@ test('手順ごとに、その手順の記録だけを見て表示する', () =>
 test('1行なら「送信済み」、途中で失敗したら失敗の理由を出す', () => {
   assert.equal(stepStatus([{ stepIndex: 0, ok: true, message: 'x' }], 0), '送信済み');
   // 一部だけ送れたときは、送れた回数も出す（PR #79 再レビュー）。
-  assert.equal(stepStatus([{ stepIndex: 0, ok: true, message: 'x' }, { stepIndex: 0, ok: false, message: '演出の送信に失敗' }], 0), '送信済み（1回）・失敗: 演出の送信に失敗');
+  assert.equal(stepStatus([{ stepIndex: 0, ok: true, message: 'x' }, { stepIndex: 0, ok: false, message: '演出の送信に失敗' }], 0), '送信済み・失敗: 演出の送信に失敗');
   assert.equal(stepStatus([{ stepIndex: 0, ok: false, message: 'HTTP 400' }], 0), 'HTTP 400', '1回も送れなければ失敗の理由だけ');
+  // 当選ごとに行が出るのはルーレットだけ。送れた行が1つなら回数は出さない（音・粒子だけ失敗した手順が「1回」と読めてしまう。PR #85 レビュー）。
+  assert.equal(stepStatus([{ stepIndex: 0, ok: true, message: 'x' }, { stepIndex: 0, ok: true, message: 'y' }, { stepIndex: 0, ok: false, message: 'HTTP 400' }], 0), '送信済み（2回）・失敗: HTTP 400');
   assert.equal(stepStatus(undefined, 0), '未送信');
 });
 

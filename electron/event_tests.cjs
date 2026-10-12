@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require('../bridge/feature_engine.js');
-const { boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport } = require('../bridge/event_rules.cjs');
+const { boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes } = require('../bridge/event_rules.cjs');
 const { prepareRoulette } = require('../bridge/roulette.cjs');
 const { commandFileProblem } = require('../bridge/command_files.cjs');
 const { createMuteMatcher } = require('../bridge/tiktok_events.cjs');
@@ -70,7 +70,8 @@ function planTestEvent(config, input, commandsDir) {
       if (choices.length) { file = commandName(chooseWeighted(choices).commandFile); notes.push(`ランダム選択: ${file}（実行ごとに抽選）`); }
       const count = (number('count', 1, 100) || 1) * boundedInt(mapping.repeat ?? 1, 1, 100, 1);
       const actual = featureEngine.recordGift({ giftId: String(input.giftId), sender, commandFile: file, count });
-      if (type === 'mapped_gift') push(file, actual, `${mapping.name || input.giftId}の割当`, 'gift');
+      // 本番の Bridge と同じく、時限倍率のあとの回数は四捨五入する（PR #85 レビュー。以前は push の中で切り捨てていた）。
+      if (type === 'mapped_gift') push(file, giftTimes(actual), `${mapping.name || input.giftId}の割当`, 'gift');
       notes.push(`テスト用の新しいコンボとして判定。時限倍率: ${featureEngine.multiplier()}倍。`);
     }
   }

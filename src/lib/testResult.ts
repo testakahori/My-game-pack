@@ -8,7 +8,8 @@ export function stepStatus(fired: FiredRow[] | undefined, index: number): string
   if (!rows.length) return '未送信';
   const failed = rows.find(row => !row.ok);
   const sent = rows.filter(row => row.ok).length;
-  // 一部だけ送れたときは、送れた回数も出す（PR #79 再レビュー）。
-  if (failed) return sent ? `送信済み（${sent}回）・失敗: ${failed.message}` : failed.message;
+  // 一部だけ送れたときは、そのことも出す（PR #79 再レビュー）。当選ごとに行が出るルーレットだけ回数を添える。
+  // 送れた行が1つなら回数は出さない（音・粒子だけ失敗した手順が「1回」と読めてしまう。PR #85 レビュー）。
+  if (failed) return sent > 1 ? `送信済み（${sent}回）・失敗: ${failed.message}` : sent ? `送信済み・失敗: ${failed.message}` : failed.message;
   return rows.length > 1 ? `送信済み（${rows.length}回）` : '送信済み';
 }
