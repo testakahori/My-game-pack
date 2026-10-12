@@ -216,15 +216,19 @@ async function test(group, name, fn) {
     let spawned = 0, counting = true;
     const onSpawn = e => { if (counting && e.name === 'item' && Math.hypot(e.position.x - (cx + 0.5), e.position.z - 0.5) >= 8) spawned++; };
     bot.on('entitySpawn', onSpawn);
+    let frozen = false;
     try {
       await post('iceage', 1);
       await cmd(`setblock ${cx - 60} -61 0 minecraft:air`);
       await idle(180000); await sleep(2000);
-    } finally { counting = false; bot.off('entitySpawn', onSpawn); }
-    const frozen = /Test passed/.test(await cmd(`execute if block ${cx + 20} -61 0 minecraft:packed_ice`));
+      frozen = /Test passed/.test(await cmd(`execute if block ${cx + 20} -61 0 minecraft:packed_ice`));
+    } finally {
+      // 後片付けは失敗しても行う（PR #88 レビュー）。
+      counting = false; bot.off('entitySpawn', onSpawn);
+      await cmd('kill @e[type=minecraft:item]');
+    }
     assert.ok(frozen, 'the grass under the poppies froze');
     assert.equal(spawned, 1, 'only the control poppy drops; none appear while the ground freezes');
-    await cmd('kill @e[type=minecraft:item]');
     return { spawned, frozen };
   });
 
@@ -232,12 +236,17 @@ async function test(group, name, fn) {
     // 穴は足元の 13×13（中心からの距離の2乗が43以下）を、足の1つ上（y=-59）から下へえぐる。その高さの石の上のたいまつは、石がえぐられて支えを失う。
     // 中心の近く（距離の2乗が9未満）はボットが埋まるので置かない。
     const cx = -17000;
-    await cmd('gamemode creative QANoLimit'); await cmd(`tp QANoLimit ${cx + 0.5} -60 0.5`); await sleep(4000);
+    // チャンクを読み込むため、まず上空へ移す（前の回の穴に落ちないよう、地面に立たせるのは片付けのあと）。
+    await cmd('gamemode creative QANoLimit'); await cmd(`tp QANoLimit ${cx + 0.5} -30 0.5`); await sleep(4000);
     // 同じサーバーで2回目に動かしても同じ条件になるよう、前の回の穴・溶岩・氷・ウィザーなどを片付け、平らな地面に戻してから置く。
-    for (const sel of ['@e[tag=douma_cataclysm]', '@e[type=minecraft:wither]', '@e[type=minecraft:tnt]']) await cmd('kill ' + sel);
+    // 数える範囲の生き物（雷に打たれると肉や羽根を落とす）も先に消す（PR #88 レビュー）。
+    for (const sel of ['@e[tag=douma_cataclysm]', '@e[type=minecraft:wither]', '@e[type=minecraft:tnt]', `@e[type=!minecraft:player,x=${cx - 30},y=-64,z=-30,dx=60,dy=60,dz=60]`]) await cmd('kill ' + sel);
     await cmd(`fill ${cx - 12} -63 -12 ${cx + 12} -62 12 minecraft:dirt`);
     await cmd(`fill ${cx - 12} -61 -12 ${cx + 12} -61 12 minecraft:grass_block`);
     await cmd(`fill ${cx - 12} -60 -12 ${cx + 12} -40 12 minecraft:air`);
+    // 穴の深さはボットの足の高さで決まるので、地面（y=-60）に立っていることを確かめる。
+    await cmd(`tp QANoLimit ${cx + 0.5} -60 0.5`); await sleep(1500);
+    assert.ok(Math.abs(bot.entity.position.y + 60) < 0.5, 'the bot stands on the ground at y=-60: ' + bot.entity.position.y);
     let torches = 0;
     for (let dx = -6; dx <= 6; dx++) for (let dz = -6; dz <= 6; dz++) {
       const d2 = dx * dx + dz * dz;
@@ -260,10 +269,12 @@ async function test(group, name, fn) {
       await wait(async () => /Test passed/.test(await cmd(`execute if block ${cx + 2} -59 6 minecraft:air`)), 20000);
       carved = true;
       await sleep(500);
-    } finally { counting = false; bot.off('entitySpawn', onSpawn); }
-    // 後片付け（確かめる前に行う）：ウィザー・ゾンビピグリン・TNT・アイテムを消し、ほかのテストに持ち込まない。
-    await idle(240000);
-    for (const sel of ['@e[tag=douma_cataclysm]', '@e[type=minecraft:wither]', '@e[type=minecraft:tnt]', '@e[type=minecraft:item]']) await cmd('kill ' + sel);
+    } finally {
+      counting = false; bot.off('entitySpawn', onSpawn);
+      // 後片付けは失敗しても行う（PR #88 レビュー）：ウィザー・ゾンビピグリン・TNT・アイテムを消し、ほかのテストに持ち込まない。
+      await idle(240000).catch(() => {});
+      for (const sel of ['@e[tag=douma_cataclysm]', '@e[type=minecraft:wither]', '@e[type=minecraft:tnt]', '@e[type=minecraft:item]']) await cmd('kill ' + sel);
+    }
     assert.ok(carved, 'the crater was carved');
     assert.equal(spawned, 1, `only the control torch drops; none of the ${torches} torches in the crater appear as items`);
     return { spawned, torches, carved };

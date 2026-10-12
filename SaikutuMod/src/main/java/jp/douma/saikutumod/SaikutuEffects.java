@@ -276,7 +276,7 @@ final class SaikutuEffects {
         try { set(o, p, state); } finally { noDrops = was; }
     }
     // 壊せないブロック（硬さが負：岩盤・バリア・エンドポータルの枠など）は残す（2026-10-11 ユーザーの決定）。
-    private void set(Origin o, BlockPos p, net.minecraft.world.level.block.state.BlockState state) {
+    private void set(Origin o, BlockPos p, BlockState state) {
         if (o.allowed(p) && BlockProtection.canModifyBlock(o.level, p) && o.level.getBlockEntity(p) == null
                 && o.level.getBlockState(p).getDestroySpeed(o.level, p) >= 0) o.level.setBlock(p, state, 3);
     }
