@@ -740,6 +740,37 @@ test("テスト発火のルーレット: 数を3にすると3回回し、当選�
   assert.match(result.fired[2].message, /ルーレット 3回目\/3/);
 });
 
+test("テスト発火: 音・粒子は本番と同じく先に送り、ルーレットが途中で失敗したら残りの回数を記録する（見送った軽い点 2026-10-12）", async t => {
+  const http = require("node:http");
+  const order = [];
+  let events = 0;
+  // 音・粒子（指定した音の playsound）だけ受け付け、ルーレットの演出は断る。当選は2回目だけ失敗させる。
+  const server = http.createServer((req, res) => {
+    let body = ""; req.on("data", chunk => body += chunk); req.on("end", () => {
+      const payload = JSON.parse(body || "{}");
+      const extras = req.url === "/bridge/exec" && JSON.stringify(payload).includes("minecraft:block.anvil.land");
+      const status = req.url === "/bridge/exec" ? (extras ? 202 : 429) : (++events === 2 ? 400 : 202);
+      order.push(extras ? "extras" : req.url === "/bridge/event" ? "event" : "frame");
+      res.writeHead(status, { "Content-Type": "application/json" }); res.end(status < 300 ? '{"ok":true}' : '{"ok":false}');
+    });
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const app = loadApp(t);
+  const cfg = JSON.parse(fs.readFileSync(app.configPath));
+  cfg.roulette = { enabled: true, items: [{ commandFile: "qa.txt", label: "QA", weight: 1, repeat: 1 }] };
+  cfg.commentGifts = { enabled: true, rules: [{ match: "回して", commandFile: "roulette.txt", repeat: 3, enabled: true, sound: "minecraft:block.anvil.land" }] };
+  cfg.options.bridgeModPort = server.address().port;
+  fs.writeFileSync(app.configPath, JSON.stringify(cfg));
+  const dir = path.join(app.root, "bridge", "commands", "minecraft"); fs.mkdirSync(dir, { recursive: true });
+  for (const file of ["qa.txt", "roulette.txt"]) fs.writeFileSync(path.join(dir, file), "say test");
+  const tokenFile = path.join(app.root, "server", "Douma_Craft", "config", "bridgemod-token.txt");
+  fs.mkdirSync(path.dirname(tokenFile), { recursive: true }); fs.writeFileSync(tokenFile, "qa-token\n");
+  const result = await app.invoke("mod:testEvent", { type: "comment", comment: "回して" });
+  assert.equal(order[0], "extras", "音・粒子はルーレットを回す前に送る: " + order.join(","));
+  assert.equal(result.fired.map(row => (row.ok ? "ok" : "ng") + "×" + row.count).join(","), "ok×1,ng×2", "1回目は送れ、2回目で失敗。残りは2回");
+});
+
 test("テスト発火のルーレット: 演出だけ送れなくても当選は送り、演出を送れなかった理由を結果に書く", async t => {
   const http = require("node:http");
   const received = [];
