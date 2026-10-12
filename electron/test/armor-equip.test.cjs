@@ -22,8 +22,12 @@ test('BridgeMOD は今の防具を持ち物へ移してから着せ、持ち物�
   assert.match(source, /case "netheritearmor" -> equip\(source\.getPlayerOrException\(\), NETHERITE_ARMOR, count\);/);
   const equip = source.slice(source.indexOf('private void equip('));
   const take = equip.indexOf('ItemStack old = p.getItemBySlot(slot);'), wear = equip.indexOf('p.setItemSlot(slot, new ItemStack(armor[i]));');
-  const keep = equip.indexOf('if (!old.isEmpty() && !p.getInventory().add(old)) p.drop(old, false);');
-  assert.ok(take > 0 && wear > take && keep > wear, '外す → 着せる → 持ち物へ（入らなければ落とす）の順');
+  // 空きがなければ足元へ。クリエイティブでは空きがないと add が黙って消すので、先に空きを確かめる（PR #83 レビュー）。
+  const keep = equip.indexOf('if (!old.isEmpty() && (p.getInventory().getFreeSlot() < 0 || !p.getInventory().add(old))) dropAtFeet(p, old);');
+  assert.ok(take > 0 && wear > take && keep > wear, '外す → 着せる → 持ち物へ（入らなければ足元へ）の順');
+  // p.drop は Q キーと同じで、向いている方へ数ブロック投げる（溶岩や穴に落ちて失う）。足元に勢いなしで置く。
+  assert.doesNotMatch(equip, /p\.drop\(/);
+  assert.match(source, /private void dropAtFeet\(ServerPlayer p, ItemStack stack\) \{\s*ItemEntity item = new ItemEntity\(p\.level\(\), p\.getX\(\), p\.getY\(\), p\.getZ\(\), stack, 0, 0, 0\);/);
   assert.match(equip, /for \(int n = 0; n < Math\.max\(1, count\); n\+\+\)/, 'N 個なら N 回着せる（前のセットは持ち物へ）');
   assert.match(read('BridgeMod/gradle.properties'), /^mod_version=1\.7\.3\r?$/m);
 });

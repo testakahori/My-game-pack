@@ -22,6 +22,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.FallingBlockEntity;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.boss.wither.WitherBoss;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.Level;
@@ -45,8 +46,8 @@ final class GiftEffects {
     static final Set<String> KEYS = Set.of("bullettime", "anvildrop", "chickenrain", "meteor",
         "superjump", "volcano", "zombiewave", "storm", "clearweather", "meteorshower", "witherhunt", "heavygravity",
         "diamondarmor", "netheritearmor");
-    // 着せる防具（頭・胴・脚・足の順。EQUIP_SLOTS と同じ並び）。
     private static final EquipmentSlot[] EQUIP_SLOTS = { EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET };
+    // 着せる防具（頭・胴・脚・足の順。EQUIP_SLOTS と同じ並び）。
     private static final Item[] DIAMOND_ARMOR = { Items.DIAMOND_HELMET, Items.DIAMOND_CHESTPLATE, Items.DIAMOND_LEGGINGS, Items.DIAMOND_BOOTS };
     private static final Item[] NETHERITE_ARMOR = { Items.NETHERITE_HELMET, Items.NETHERITE_CHESTPLATE, Items.NETHERITE_LEGGINGS, Items.NETHERITE_BOOTS };
     private final List<Job> jobs = new ArrayList<>();
@@ -189,8 +190,14 @@ final class GiftEffects {
                 EquipmentSlot slot = EQUIP_SLOTS[i];
                 ItemStack old = p.getItemBySlot(slot);
                 p.setItemSlot(slot, new ItemStack(armor[i]));
-                if (!old.isEmpty() && !p.getInventory().add(old)) p.drop(old, false);
+                // 空きがなければ足元へ。クリエイティブでは空きがないと add が黙って消すので、先に空きを確かめる（PR #83 レビュー）。
+                if (!old.isEmpty() && (p.getInventory().getFreeSlot() < 0 || !p.getInventory().add(old))) dropAtFeet(p, old);
             }
+    }
+    // 足元に勢いなしで置く。p.drop は Q キーと同じで、向いている方へ数ブロック投げる（溶岩や穴に落ちて失う。PR #83 レビュー）。
+    private void dropAtFeet(ServerPlayer p, ItemStack stack) {
+        ItemEntity item = new ItemEntity(p.level(), p.getX(), p.getY(), p.getZ(), stack, 0, 0, 0);
+        p.level().addFreshEntity(item);
     }
 
     void tick(MinecraftServer server) {

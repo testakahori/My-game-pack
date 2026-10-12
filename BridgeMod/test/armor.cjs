@@ -35,18 +35,22 @@ async function test(name, fn) {
   rcon = await Rcon.connect({ host: '127.0.0.1', port: 25588, password: props['rcon.password'], timeout: 60000 });
   const bot = mineflayer.createBot({ host: '127.0.0.1', port: 25587, username: 'QAArmor', auth: 'offline', version: '1.20.1' });
   await new Promise((resolve, reject) => { bot.once('spawn', resolve); bot.once('kicked', reject); setTimeout(() => reject(Error('Spawn timeout')), 30000).unref(); });
-  await cmd('gamemode survival QAArmor'); await cmd('tp QAArmor -6000.5 64 0.5'); await sleep(1500);
-  await cmd('fill -6005 63 -5 -5995 63 5 minecraft:stone');
+  // フラットワールドの地面（草の上は y=-60）に立たせる。空中へ移すとサバイバルでは落ちて死に、初期地点に戻ってしまう。
+  await cmd('gamemode survival QAArmor'); await cmd('tp QAArmor -6000.5 -60 0.5'); await sleep(1500);
 
   await test('ネザライトを着ていてダイヤ装備が来たら、ネザライトは持ち物に残る（以前は消えた）', async () => {
     await cmd('clear QAArmor');
     for (const part of PARTS) await cmd(`item replace entity QAArmor armor.${part === 'helmet' ? 'head' : part === 'chestplate' ? 'chest' : part === 'leggings' ? 'legs' : 'feet'} with minecraft:netherite_${part}`);
+    // 実際の防具は傷んでいてエンチャントも付いている。持ち物へ移しても、そのまま残る（PR #83 レビュー）。
+    await cmd('item replace entity QAArmor armor.head with minecraft:netherite_helmet{Damage:100,Enchantments:[{id:"minecraft:protection",lvl:4s}]}');
     await post('daiyasoubi', 1); await idle(); await sleep(500);
     for (const part of PARTS) {
       assert.ok(await wearing(SLOTS[part], 'diamond_' + part), 'wearing diamond ' + part);
       assert.equal(await owned('netherite_' + part), 1, 'netherite ' + part + ' kept');
     }
-    return { wearing: 'diamond', kept: 'netherite x4' };
+    assert.match(await cmd('execute if entity @a[name=QAArmor,nbt={Inventory:[{id:"minecraft:netherite_helmet",tag:{Damage:100,Enchantments:[{id:"minecraft:protection"}]}}]}]'), /Test passed/,
+      'the damaged, enchanted helmet keeps its damage and enchantment');
+    return { wearing: 'diamond', kept: 'netherite x4 (helmet damaged and enchanted)' };
   });
 
   await test('ネザライト装備を数2で送ると2回着せ、前のセットは持ち物へ（持ち物はダイヤ1・ネザライト2、ネザライトを着る）', async () => {
@@ -63,13 +67,16 @@ async function test(name, fn) {
     await cmd('clear QAArmor'); await cmd('kill @e[type=minecraft:item]');
     for (const part of PARTS) await cmd(`item replace entity QAArmor armor.${part === 'helmet' ? 'head' : part === 'chestplate' ? 'chest' : part === 'leggings' ? 'legs' : 'feet'} with minecraft:netherite_${part}`);
     for (let slot = 0; slot < 36; slot++) await cmd(`item replace entity QAArmor container.${slot} with minecraft:stone 64`);
-    await cmd('gamerule doTileDrops true');
     await post('daiyasoubi', 1); await idle(); await sleep(500);
     for (const part of PARTS) assert.ok(await wearing(SLOTS[part], 'diamond_' + part), 'wearing diamond ' + part);
-    const dropped = (await cmd('execute as QAArmor at @s run kill @e[type=minecraft:item,distance=..4]')).match(/Killed (\d+)/);
-    assert.equal(dropped ? Number(dropped[1]) : 0, 4, 'four netherite pieces dropped at the feet');
+    // 投げずに足元（1ブロック以内）に置く。種類ごとに数える（kill は1体だけだと名前を返すので、execute if entity の count で数える）。
+    for (const part of PARTS) {
+      const found = (await cmd(`execute as QAArmor at @s if entity @e[type=minecraft:item,distance=..1,nbt={Item:{id:"minecraft:netherite_${part}"}}]`)).match(/count: (\d+)/);
+      assert.equal(found ? Number(found[1]) : 0, 1, 'netherite ' + part + ' at the feet');
+    }
+    await cmd('kill @e[type=minecraft:item]');
     await cmd('clear QAArmor');
-    return { dropped: 4 };
+    return { droppedAtFeet: 4 };
   });
 
   fs.writeFileSync(path.join(root, 'armor-results.json'), JSON.stringify({ results }, null, 2));
