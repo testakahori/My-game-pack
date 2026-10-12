@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { validateBridgeConfig } = require("./config_schema.cjs");
 const { validCommand } = require("./settings_backups.cjs");
+const { isBridgeModTransport } = require("../bridge/command_files.cjs");
 
 function bounded(action, timeoutMs = 6000) {
   let timer;
@@ -29,7 +30,7 @@ async function runPreflight(deps) {
   try { for (const line of fs.readFileSync(path.join(deps.serverRoot, "server.properties"), "utf8").split(/\r?\n/)) if (!line.startsWith("#") && line.includes("=")) { const i = line.indexOf("="); props[line.slice(0, i).trim()] = line.slice(i + 1).trim(); } } catch {}
   const world = props["level-name"];
   add("world", "配信ワールド", world && has(path.join(world, "level.dat")) ? "ok" : "warn", world && has(path.join(world, "level.dat")) ? world : "既存ワールドを確認できません。選択を確認してください（初回起動で生成する場合を除く）。", "dashboard");
-  const usesRcon = !['bridge_mod', 'douma_mod', 'bridgemod', 'doumamod', 'mod', 'http'].includes(cfg.options?.commandTransport);
+  const usesRcon = !isBridgeModTransport(cfg.options?.commandTransport);
   const rconOk = props["enable-rcon"] === "true" && Boolean(props["rcon.password"]) && props["rcon.password"] === cfg.rcon?.password && Number(props["rcon.port"] || 25575) === Number(cfg.rcon?.port || 25575);
   add("rcon", "RCON設定", rconOk ? "ok" : usesRcon ? "error" : "warn", rconOk ? "サーバーとBridgeの設定が一致しています。" : "RCONの有効化・ポート・パスワードの一致を確認してください。", "setup");
   const refs = new Set();

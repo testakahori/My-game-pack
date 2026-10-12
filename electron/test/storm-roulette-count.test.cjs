@@ -63,8 +63,10 @@ test('テスト発火のルーレットは、演出を送れなかった印を�
   assert.match(loop, /animationError = null;/);
 });
 
-test('嵐の txt の説明は N 倍に合わせる', () => {
-  assert.match(read('bridge/commands/minecraft/storm.txt'), /^\/\/ 1個で雷20連発・雨3分の暴風雨。N 個なら雷も雨も N 倍/m);
+test('嵐の txt の説明は N 倍に合わせ、ルーレットの字幕（36文字）に収める', () => {
+  const description = read('bridge/commands/minecraft/storm.txt').match(/^\/\/\s*(.+?)\s*$/m)[1];
+  assert.equal(description, '雷20連発と雨3分の暴風雨。N個ならN倍');
+  assert.ok(Array.from(description).length <= 36, '字幕で切れない');
 });
 
 test('ギフトでルーレットが3回分送られたら、3回回して当選を3回送る', async t => {

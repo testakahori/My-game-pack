@@ -30,8 +30,6 @@ function commentExtras(rule) {
   if (rule.particle) commands.push(`execute at @a run particle ${id(rule.particle, 'minecraft:happy_villager')} ~ ~1 ~ 0.6 0.8 0.6 0.05 20 force`);
   return commands;
 }
-// BridgeMOD（HTTP）で送る設定か。空なら RCON。bridge/index.js とアプリのテスト発火で同じ判定を使う。
-function isBridgeModTransport(transport) {
-  return ['bridge_mod', 'douma_mod', 'doumamod', 'bridgemod', 'mod', 'http'].includes(String(transport || 'rcon').toLowerCase().trim());
-}
+// BridgeMOD（HTTP）で送る設定か。判定は command_files.cjs の1か所にまとめ、ここからも同じものを出す（PR #74 レビュー）。
+const { isBridgeModTransport } = require('./command_files.cjs');
 module.exports = { boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport };

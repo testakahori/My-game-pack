@@ -24,7 +24,9 @@ test('手順ごとに、その手順の記録だけを見て表示する', () =>
 
 test('1行なら「送信済み」、途中で失敗したら失敗の理由を出す', () => {
   assert.equal(stepStatus([{ stepIndex: 0, ok: true, message: 'x' }], 0), '送信済み');
-  assert.equal(stepStatus([{ stepIndex: 0, ok: true, message: 'x' }, { stepIndex: 0, ok: false, message: '演出の送信に失敗' }], 0), '演出の送信に失敗');
+  // 一部だけ送れたときは、送れた回数も出す（PR #79 再レビュー）。
+  assert.equal(stepStatus([{ stepIndex: 0, ok: true, message: 'x' }, { stepIndex: 0, ok: false, message: '演出の送信に失敗' }], 0), '送信済み（1回）・失敗: 演出の送信に失敗');
+  assert.equal(stepStatus([{ stepIndex: 0, ok: false, message: 'HTTP 400' }], 0), 'HTTP 400', '1回も送れなければ失敗の理由だけ');
   assert.equal(stepStatus(undefined, 0), '未送信');
 });
 

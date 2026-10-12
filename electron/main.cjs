@@ -1783,16 +1783,23 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
       };
       const outcomes = [];
       let failure = null;
+      // 音・粒子は本番の Bridge と同じく先に送り、送れなくてもイベントは送る（ルーレットを回し終えるまで待たせない）。
+      if (step.extras?.length) {
+        try { await requestBridgeMod("POST", "/bridge/exec", { listenerName: plan.sender, commands: step.extras }, bridgeCfg); }
+        catch (error) { failure = new Error("音・粒子を送れませんでした: " + error.message); }
+      }
       try {
         await fireBridgeEventMaybeRoulette(payload, step.roulette ? { ...bridgeCfg, roulette: step.roulette } : bridgeCfg, commandsDir, outcomes);
-        if (step.extras?.length) await requestBridgeMod("POST", "/bridge/exec", { listenerName: plan.sender, commands: step.extras }, bridgeCfg);
       } catch (error) { failure = error; }
       // 送れた分（ルーレットは当選ごと）を1行ずつ記録し、失敗したらその理由も1行足す。
       const rows = outcomes.map(outcome => ({ commandFile: outcome.key + ".txt", count: outcome.count, ok: true,
         message: step.label + " → " + outcome.key + ".txt × " + outcome.count + " をModへ送信済み"
           + (outcome.spins > 1 ? `（ルーレット ${outcome.spin}回目/${outcome.spins}）` : "")
           + (outcome.animationError ? `（ルーレットの演出は送れませんでした: ${outcome.animationError}）` : "") }));
-      if (failure) rows.push({ commandFile: payload.key + ".txt", count: step.count, ok: false, message: failure.message });
+      // 失敗の行の回数は、送れなかった分（ルーレットは残りの回数）。
+      const spun = outcomes.find(outcome => outcome.roulette);
+      const left = spun ? spun.spins - outcomes.length : outcomes.length ? 0 : step.count;
+      if (failure) rows.push({ commandFile: payload.key + ".txt", count: left, ok: false, message: failure.message });
       for (const result of rows) {
         // 1つの手順から何行も出るので、画面が手順ごとにまとめられるよう手順の番号を持たせる（PR #79 レビュー）。
         const row = { at: new Date().toISOString(), source: "test", type: step.type, sender: plan.sender, stepIndex, ...result };

@@ -1226,7 +1226,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   console.log(`[Bridge] Mappings: ${mappingById.size} items`);
   console.log(`[Bridge] CommandsDir: ${commandsDirName}/`);
   console.log(`[Bridge] Cooldown: ${giftCooldownMs}ms`);
-  console.log(`[Bridge] maxCommandsPerGift: ${maxCommandsPerGift}`);
+  console.log(`[Bridge] maxCommandsPerGift: ${maxCommandsPerGift}${useBridgeModTransport ? "（BridgeMOD 経由では使わない）" : ""}`);
 
   if (targetType === "minecraft") {
     console.log(`[Bridge] Announce: ${announceEnabled ? "ON" : "OFF"} func=${ANNOUNCE_FUNCTION}`);
@@ -1700,7 +1700,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
     let times = delta * baseRepeat;
     if (times <= 0) return; // 連打終了通知は追加ギフトではない（送信時の最小1への丸めも避ける）。
-    times = featureEngine.recordGift({ giftId, sender, commandFile: mapping.commandFile, count: times });
+    // 時限倍率（例：1.5倍）で小数になったら四捨五入する。BridgeMOD は小数の回数を拒否し、ギフトが丸ごと消えていた。
+    times = Math.max(1, Math.round(featureEngine.recordGift({ giftId, sender, commandFile: mapping.commandFile, count: times })));
 
     if (bridgeMod) {
       console.log(

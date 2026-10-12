@@ -5,5 +5,7 @@
 # SOUND: entity.lightning_bolt.thunder
 # PARTICLE: minecraft:cloud
 # DESTRUCTIVE: true
-// 1個で雷20連発・雨3分の暴風雨。N 個なら雷も雨も N 倍（雨が残っていれば足す）。天候固定中も時間が来たら雨が止まる
+// 雷20連発と雨3分の暴風雨。N個ならN倍
+# 雨が残っているうちに次の暴風雨が来たら、残りに足す。天候固定中も時間が来たら雨が止まる
+# 説明の1行はルーレットの字幕（36文字）に収まる長さにする
 execute as @p at @s run bridgeeffect storm {Count}
