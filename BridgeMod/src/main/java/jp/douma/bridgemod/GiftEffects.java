@@ -191,6 +191,7 @@ final class GiftEffects {
                 ItemStack old = p.getItemBySlot(slot);
                 p.setItemSlot(slot, new ItemStack(armor[i]));
                 // 空きがなければ足元へ。クリエイティブでは空きがないと add が黙って消すので、先に空きを確かめる（PR #83 レビュー）。
+                // ただしクリエイティブで持ち物がいっぱいだと、足元に置いた防具にすぐ触れてしまい、バニラの決まりですぐ消える（2026-10-12 実機で確認。サバイバルでは残る）。
                 if (!old.isEmpty() && (p.getInventory().getFreeSlot() < 0 || !p.getInventory().add(old))) dropAtFeet(p, old);
             }
     }
@@ -224,7 +225,10 @@ final class GiftEffects {
         for (ServerLevel level : server.getAllLevels()) {
             String id = level.dimension().location().toString();
             Long end = weatherEnds.get(id);
+            // バニラの /weather clear などで雨が止んだら、覚えている終わりの時刻も忘れる。残すとその時刻に clearWeather が走り、
+            // 採掘の吹雪などの一時変更まで消す（PR #86 レビュー）。ネザー・エンドは雨の印がオーバーワールドのものなので、晴れていれば同じく忘れる。
             if (end != null && now >= end) clearWeather(level);
+            else if (end != null && !level.getLevelData().isRaining()) { weatherEnds.remove(id); saveWeather(); }
         }
     }
 
@@ -234,7 +238,9 @@ final class GiftEffects {
             "execute if score #storm douma_storm matches 1.. run scoreboard players set #storm douma_storm 0");
         String id = level.dimension().location().toString();
         long now = System.currentTimeMillis();
-        long end = StormPlan.rainEnd(now, weatherEnds.get(id), count);
+        // 実際に雨が降っていないとき（バニラの /weather clear のあとなど）は、覚えている残りに足さず今から数える。
+        // level.isRaining() は雨の強さで見るので降り始めの1秒ほどは false になる。降っているかの印（LevelData）で見る。
+        long end = StormPlan.rainEnd(now, level.getLevelData().isRaining() ? weatherEnds.get(id) : null, count);
         level.setWeatherParameters(0, StormPlan.rainTicks(now, end), true, true);
         weatherEnds.put(id, end);
         saveWeather();

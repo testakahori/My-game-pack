@@ -12,10 +12,15 @@ test('嵐は StormPlan で雷も雨も N 倍にし、雨は残りに足す', () 
   const source = read('BridgeMod/src/main/java/jp/douma/bridgemod/GiftEffects.java');
   assert.match(source, /case "storm" -> storm\(o, level, count\);/);
   const storm = source.slice(source.indexOf('private void storm('), source.indexOf('private void clearWeather('));
-  assert.match(storm, /long end = StormPlan\.rainEnd\(now, weatherEnds\.get\(id\), count\);/);
+  // 実際に雨が降っていないとき（バニラの /weather clear のあとなど）は、覚えている残りに足さず今から数える（見送った軽い点 2026-10-12）。
+  // level.isRaining() は雨の強さ（0.2 超）で見るので降り始めは false。続けて来た嵐を足せるよう、降っているかの印で見る。
+  assert.match(storm, /long end = StormPlan\.rainEnd\(now, level\.getLevelData\(\)\.isRaining\(\) \? weatherEnds\.get\(id\) : null, count\);/);
   assert.match(storm, /level\.setWeatherParameters\(0, StormPlan\.rainTicks\(now, end\), true, true\);/);
   assert.match(storm, /lightning\(o, StormPlan\.bolts\(count\)\);/);
   assert.doesNotMatch(source, /rain\(level, 180\)/, '1個ぶんの3分で上書きしない');
+  // 雨が止んだら覚えている終わりの時刻も忘れる。残すと、その時刻に clearWeather が走って採掘の吹雪などの一時変更まで消す（PR #86 レビュー）。
+  const tick = source.slice(source.indexOf('void tick(MinecraftServer server)'), source.indexOf('private void storm('));
+  assert.match(tick, /if \(end != null && now >= end\) clearWeather\(level\);\s*else if \(end != null && !level\.getLevelData\(\)\.isRaining\(\)\) \{ weatherEnds\.remove\(id\); saveWeather\(\); \}/);
 });
 
 test('ルーレットを回す回数は、送られた回数（数でなければ1回）', () => {

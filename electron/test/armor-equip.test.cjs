@@ -29,5 +29,6 @@ test('BridgeMOD は今の防具を持ち物へ移してから着せ、持ち物�
   assert.doesNotMatch(equip, /p\.drop\(/);
   assert.match(source, /private void dropAtFeet\(ServerPlayer p, ItemStack stack\) \{\s*ItemEntity item = new ItemEntity\(p\.level\(\), p\.getX\(\), p\.getY\(\), p\.getZ\(\), stack, 0, 0, 0\);/);
   assert.match(equip, /for \(int n = 0; n < Math\.max\(1, count\); n\+\+\)/, 'N 個なら N 回着せる（前のセットは持ち物へ）');
-  assert.match(read('BridgeMod/gradle.properties'), /^mod_version=1\.7\.3\r?$/m);
+  const [major, minor, patch] = read('BridgeMod/gradle.properties').match(/^mod_version=(\d+)\.(\d+)\.(\d+)\r?$/m).slice(1).map(Number);
+  assert.ok(major > 1 || (major === 1 && (minor > 7 || (minor === 7 && patch >= 3))), `mod_version ${major}.${minor}.${patch} must be >= 1.7.3`);
 });
