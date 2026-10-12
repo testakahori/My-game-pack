@@ -1,14 +1,9 @@
 # TITLE: ウォーデン
 # SUBTITLE: ウォーデンを召喚
-# CATEGORY: 妨害系|敵対MOB
+# CATEGORY: 敵対MOB
 // 最強モブのウォーデンが出現
 
-# 1. ウォーデンを召喚（上空が開いていれば頭上、塞がっていれば足元。視線に依存しない）
-execute at @p if block ~ ~3 ~ air run summon minecraft:warden ~ ~3 ~
-execute at @p unless block ~ ~3 ~ air run summon minecraft:warden ~ ~ ~
-# 2. 名前付きウォーデンにタグをつける
-execute as @e[type=warden] if data entity @s CustomName run tag @s add named
-# 3. 名前なしウォーデンにだけ名前をつける
-execute as @e[type=warden,tag=!named] run data merge entity @s {PersistenceRequired:1b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
-# 4. タグを削除（オプション）
-tag @e[type=warden,tag=named] remove named
+# ウォーデンを召喚する（上空が開いていれば頭上、塞がっていれば足元。視線に依存しない）。
+# 視聴者名は召喚するときに付ける。自然に湧いたウォーデンや、前に召喚したウォーデンの名前は変えない。
+execute at @p if block ~ ~3 ~ air run summon minecraft:warden ~ ~3 ~ {PersistenceRequired:1b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}
+execute at @p unless block ~ ~3 ~ air run summon minecraft:warden ~ ~ ~ {PersistenceRequired:1b,CustomNameVisible:1b,CustomName:"\"{ListenerName}\""}

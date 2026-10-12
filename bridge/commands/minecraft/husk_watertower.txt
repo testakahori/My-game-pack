@@ -1,6 +1,7 @@
 # TITLE: ハスクの滝
 # SUBTITLE: 滝と共に10体のハスクが降り注ぐ
 # CATEGORY: 妨害系
+# DESTRUCTIVE: true
 // 頭上に水流が発生してハスクが流れ落ちてくる
 
 execute at @p run setblock ~ ~10 ~ minecraft:water replace
