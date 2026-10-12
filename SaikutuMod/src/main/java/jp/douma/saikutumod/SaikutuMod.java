@@ -10,9 +10,11 @@ import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -99,6 +101,10 @@ public final class SaikutuMod {
     @SubscribeEvent public void stop(ServerStoppingEvent event) {
         effects.values().forEach(SaikutuEffects::stop); queues.values().forEach(Deque::clear);
         server = null; started = completed = failed = duplicates = 0; requests.clear(); startedByKey.clear(); updateStatus();
+    }
+    // 衝撃波でえぐっている間に出たアイテム（支えを失った花・たいまつなど）は出さない。チャンクの読み込みで戻ってくるアイテムはそのまま。
+    @SubscribeEvent public void noDropsWhileCarving(EntityJoinLevelEvent event) {
+        if (SaikutuEffects.carving() && !event.loadedFromDisk() && event.getEntity() instanceof ItemEntity) event.setCanceled(true);
     }
     @SubscribeEvent public void tick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END || server == null) return;

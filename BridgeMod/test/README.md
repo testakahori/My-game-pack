@@ -73,7 +73,9 @@ Java 17でBridgeModの通常のbuildに加えて、明示的に `environmentProb
 `node no-limits.cjs` は、上限をやめたことを確かめます。上と同じマーカー・ポート・GIFT_QA_SERVER を使います。
 
 - BridgeMOD の分（`--bridge-only`）：鶏の雨 count=5 が1000羽になる。スーパージャンプ count=20 が640ブロック上がり、低速落下が付かない。暴風雨 count=2 で雨6分、続けて count=1 で残りに3分足す（BridgeMOD 1.7.2 から）。
-- 採掘の分（`--saikutu-only`）：SaikutuMOD を入れたサーバーで実行します。TNT大爆発 count=2 の衝撃波の穴（コマンドブロックと壊せないブロックは残る）、洪水 count=5、木 count=210、TNT大爆発 count=1000 が調べる範囲をえぐり終えたら終わること。穴を爆心から100ブロック先まで測るので、server.properties の `view-distance=10` にしておきます（6だと端のチャンクが読み込まれない）。テストが `bridge/commands/minecraft/game_saikutu_*.txt` を書きます。
+- 採掘の分（`--saikutu-only`）：SaikutuMOD を入れたサーバーで実行します。TNT大爆発 count=2 の衝撃波の穴（コマンドブロックと壊せないブロックは残る）、TNT大爆発でえぐるときに支えを失ったたいまつがアイテムにならないこと（SaikutuMOD 1.1.3 から）、洪水 count=5、木 count=210、TNT大爆発 count=1000 が調べる範囲をえぐり終えたら終わること。穴を爆心から100ブロック先まで測るので、server.properties の `view-distance=10` にしておきます（6だと端のチャンクが読み込まれない）。テストが `bridge/commands/minecraft/game_saikutu_*.txt` を書きます。
+
+`--only=<名前の一部>` を付けると、名前にそれを含むテストだけを実行します（例：`--saikutu-only --only=たいまつ`）。
 
 結果はサーバールートの `no-limits-results.json` に保存します。
 

@@ -52,9 +52,10 @@ test('ゲーム選択の案内は件数を書かず、「保存」で整理さ�
   assert.match(line, /退避/);
 });
 
-test('SaikutuMOD 1.1.2 とゲームパックの jar 名', () => {
-  assert.match(read('SaikutuMod/gradle.properties'), /^mod_version=1\.1\.2\r?$/m);
+test('SaikutuMOD 1.1.2 以上とゲームパックの jar 名', () => {
+  const version = read('SaikutuMod/gradle.properties').match(/^mod_version=(1\.1\.(\d+))\r?$/m);
+  assert.ok(version && Number(version[2]) >= 2, 'mod_version ' + (version && version[1]) + ' must be >= 1.1.2');
   const pack = JSON.parse(read('game-packs/saikutu/game.json'));
-  assert.equal(pack.serverJar, 'saikutumod-1.1.2.jar');
-  assert.equal(pack.clientJar, 'saikutumod-1.1.2.jar');
+  assert.equal(pack.serverJar, `saikutumod-${version[1]}.jar`);
+  assert.equal(pack.clientJar, `saikutumod-${version[1]}.jar`);
 });
