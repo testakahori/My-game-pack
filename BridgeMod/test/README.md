@@ -72,13 +72,13 @@ Java 17でBridgeModの通常のbuildに加えて、明示的に `environmentProb
 
 `node no-limits.cjs` は、上限をやめたことを確かめます。上と同じマーカー・ポート・GIFT_QA_SERVER を使います。
 
-- BridgeMOD の分（`--bridge-only`）：鶏の雨 count=5 が1000羽になる。スーパージャンプ count=20 が640ブロック上がり、低速落下が付かない。暴風雨 count=2 で雨6分、続けて count=1 で残りに3分足す（BridgeMOD 1.7.2 から）。
+- BridgeMOD の分（`--bridge-only`）：鶏の雨 count=5 が1000羽になる。スーパージャンプ count=20 が640ブロック上がり、低速落下が付かず、頂点から落ちて落下ダメージを受ける。暴風雨 count=2 で雨6分、続けて count=1 で残りに3分足す（BridgeMOD 1.7.2 から）。/weather clear で止めたあとの count=1 は今から3分（BridgeMOD 1.7.4 から）。
 - 採掘の分（`--saikutu-only`）：SaikutuMOD を入れたサーバーで実行します。TNT大爆発 count=2 の衝撃波の穴（コマンドブロックと壊せないブロックは残る）、洪水 count=5、木 count=210、TNT大爆発 count=1000 が調べる範囲をえぐり終えたら終わること。穴を爆心から100ブロック先まで測るので、server.properties の `view-distance=10` にしておきます（6だと端のチャンクが読み込まれない）。テストが `bridge/commands/minecraft/game_saikutu_*.txt` を書きます。
 
 結果はサーバールートの `no-limits-results.json` に保存します。
 
 ## 防具（2026-10-12）
 
-`node armor.cjs` は、ダイヤ装備・ネザライト装備が今着ている防具を消さずに持ち物へ移すことを確かめます（BridgeMOD 1.7.3 から）。上と同じマーカー・ポート・GIFT_QA_SERVER を使います。ネザライトを着た状態でダイヤ装備、続けてネザライト装備 count=2、持ち物がいっぱいのときに足元へ落ちること。
+`node armor.cjs` は、ダイヤ装備・ネザライト装備が今着ている防具を消さずに持ち物へ移すことを確かめます（BridgeMOD 1.7.3 から）。上と同じマーカー・ポート・GIFT_QA_SERVER を使います。ネザライトを着た状態でダイヤ装備、続けてネザライト装備 count=2、持ち物がいっぱいのときに足元へ落ちること。クリエイティブで持ち物がいっぱいのときは、足元の防具にプレイヤーが触れるとバニラの決まりで消えるので、このテストはサバイバルで行います（2026-10-12 実機で確認）。
 
 結果はサーバールートの `armor-results.json` に保存します。

@@ -58,17 +58,23 @@ async function test(group, name, fn) {
       maxY = Math.max(maxY, bot.entity.position.y);
       if (Object.values(bot.entity.effects || {}).some(e => e.id === 28)) slowFalling = true;   // 28 = slow_falling
     }, 50);
+    // 低速落下がないので、頂点から落ちて落下ダメージを受ける（落下死してよい。2026-10-11 ユーザーの決定）。
+    let died = false;
+    const onDeath = () => { died = true; };
+    bot.on('death', onDeath);
     await post('superjump', 20);
     await wait(async () => maxY >= startY + 600, 120000).catch(() => {});
-    await sleep(3000);
-    clearInterval(watch);
+    await wait(async () => died || bot.health < 20, 120000).catch(() => {});
+    clearInterval(watch); bot.off('death', onDeath);
     assert.ok(maxY >= startY + 600, `rose to ${maxY - startY}`);
     assert.equal(slowFalling, false, 'no slow falling');
+    assert.ok(died || bot.health < 20, 'fall damage after the apex (health ' + bot.health + ')');
+    await sleep(2000);
     await cmd('gamemode creative QANoLimit'); await cmd('tp QANoLimit -1200.5 64 0.5');
-    return { rose: Math.round(maxY - startY), slowFalling };
+    return { rose: Math.round(maxY - startY), slowFalling, died };
   });
 
-  await test('bridge', '嵐 count=2 は雨6分、雨が残っているうちに count=1 が来たら残りに3分足す（以前は1個ぶんの3分で上書き）', async () => {
+  await test('bridge', '嵐 count=2 は雨6分、雨が残っているうちに count=1 が来たら残りに3分足す（以前は1個ぶんの3分で上書き）。/weather clear のあとは今から3分', async () => {
     // 雨が止む時刻は、サーバーのフォルダーの douma-weather-timers.properties に保存される（ミリ秒）。
     const rainEnd = () => Number(fs.readFileSync(path.join(root, 'douma-weather-timers.properties'), 'utf8').match(/overworld=(\d+)/)?.[1] || 0);
     await post('clearweather', 1); await idle();
@@ -79,8 +85,14 @@ async function test(group, name, fn) {
     await post('storm', 1); await idle();
     const second = rainEnd();
     assert.ok(Math.abs(second - first - 180000) < 1000, 'one more storm adds 3 minutes: ' + Math.round((second - first) / 1000) + 's');
+    // バニラの /weather clear で雨を止めたあとの嵐は、覚えている残り（約9分）に足さず今から3分（見送った軽い点 2026-10-12）。
+    await cmd('weather clear'); await sleep(1000);
+    const cleared = Date.now();
+    await post('storm', 1); await idle();
+    const third = rainEnd();
+    assert.ok(Math.abs(third - cleared - 180000) < 20000, 'a storm after /weather clear rains 3 minutes from now: ' + Math.round((third - cleared) / 1000) + 's');
     await post('clearweather', 1); await idle();
-    return { firstSeconds: Math.round((first - before) / 1000), addedSeconds: Math.round((second - first) / 1000) };
+    return { firstSeconds: Math.round((first - before) / 1000), addedSeconds: Math.round((second - first) / 1000), afterClearSeconds: Math.round((third - cleared) / 1000) };
   });
 
   // 採掘のゲームの振り分けファイル（アプリの切替と同じ形）。
