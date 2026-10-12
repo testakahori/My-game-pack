@@ -49,7 +49,7 @@ async function test(group, name, fn) {
     return { chickens };
   });
 
-  await test('bridge', 'スーパージャンプ count=20 は 640 ブロック上がり、低速落下は付かない', async () => {
+  await test('bridge', 'スーパージャンプ count=20 は 640 ブロック上がり、低速落下は付かず、頂点から落ちて落下死する', async () => {
     await cmd('tp QANoLimit -1200.5 64 0.5'); await sleep(2000);
     await cmd('fill -1216 63 -16 -1184 63 16 minecraft:stone');
     await cmd('gamemode survival QANoLimit'); await cmd('effect clear QANoLimit'); await sleep(500);
@@ -64,12 +64,14 @@ async function test(group, name, fn) {
     bot.on('death', onDeath);
     await post('superjump', 20);
     await wait(async () => maxY >= startY + 600, 120000).catch(() => {});
-    await wait(async () => died || bot.health < 20, 120000).catch(() => {});
+    await wait(async () => died, 120000).catch(() => {});
     clearInterval(watch); bot.off('death', onDeath);
     assert.ok(maxY >= startY + 600, `rose to ${maxY - startY}`);
     assert.equal(slowFalling, false, 'no slow falling');
-    assert.ok(died || bot.health < 20, 'fall damage after the apex (health ' + bot.health + ')');
-    await sleep(2000);
+    // 防具なしのサバイバルで 640 ブロック落ちれば必ず死ぬ。体力が減っただけでは、前の回で減ったままのこともあるので数えない（PR #86 レビュー）。
+    assert.ok(died, 'fell to death after the apex (health ' + bot.health + ')');
+    // 生き返る前に tp すると届かず、次のテストの @p にも入らない。生き返るまで待つ。
+    await wait(async () => bot.isAlive && bot.health > 0, 30000);
     await cmd('gamemode creative QANoLimit'); await cmd('tp QANoLimit -1200.5 64 0.5');
     return { rose: Math.round(maxY - startY), slowFalling, died };
   });
@@ -86,7 +88,10 @@ async function test(group, name, fn) {
     const second = rainEnd();
     assert.ok(Math.abs(second - first - 180000) < 1000, 'one more storm adds 3 minutes: ' + Math.round((second - first) / 1000) + 's');
     // バニラの /weather clear で雨を止めたあとの嵐は、覚えている残り（約9分）に足さず今から3分（見送った軽い点 2026-10-12）。
-    await cmd('weather clear'); await sleep(1000);
+    await cmd('weather clear');
+    // 雨が止んだら、覚えている終わりの時刻も忘れる。残すとその時刻に晴れへ戻す処理が走り、採掘の吹雪などの一時変更まで消す（PR #86 レビュー）。
+    await wait(async () => rainEnd() === 0, 10000).catch(() => {});
+    assert.equal(rainEnd(), 0, 'the remembered rain end is dropped after /weather clear');
     const cleared = Date.now();
     await post('storm', 1); await idle();
     const third = rainEnd();

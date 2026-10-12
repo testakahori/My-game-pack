@@ -191,7 +191,7 @@ final class GiftEffects {
                 ItemStack old = p.getItemBySlot(slot);
                 p.setItemSlot(slot, new ItemStack(armor[i]));
                 // 空きがなければ足元へ。クリエイティブでは空きがないと add が黙って消すので、先に空きを確かめる（PR #83 レビュー）。
-                // ただしクリエイティブで持ち物がいっぱいだと、足元の防具もプレイヤーが触れた時点でバニラの決まりで消える（2026-10-12 実機で確認。サバイバルでは残る）。
+                // ただしクリエイティブで持ち物がいっぱいだと、足元に置いた防具にすぐ触れてしまい、バニラの決まりですぐ消える（2026-10-12 実機で確認。サバイバルでは残る）。
                 if (!old.isEmpty() && (p.getInventory().getFreeSlot() < 0 || !p.getInventory().add(old))) dropAtFeet(p, old);
             }
     }
@@ -225,7 +225,10 @@ final class GiftEffects {
         for (ServerLevel level : server.getAllLevels()) {
             String id = level.dimension().location().toString();
             Long end = weatherEnds.get(id);
+            // バニラの /weather clear などで雨が止んだら、覚えている終わりの時刻も忘れる。残すとその時刻に clearWeather が走り、
+            // 採掘の吹雪などの一時変更まで消す（PR #86 レビュー）。ネザー・エンドは雨の印がオーバーワールドのものなので、晴れていれば同じく忘れる。
             if (end != null && now >= end) clearWeather(level);
+            else if (end != null && !level.getLevelData().isRaining()) { weatherEnds.remove(id); saveWeather(); }
         }
     }
 

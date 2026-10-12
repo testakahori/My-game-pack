@@ -18,6 +18,9 @@ test('嵐は StormPlan で雷も雨も N 倍にし、雨は残りに足す', () 
   assert.match(storm, /level\.setWeatherParameters\(0, StormPlan\.rainTicks\(now, end\), true, true\);/);
   assert.match(storm, /lightning\(o, StormPlan\.bolts\(count\)\);/);
   assert.doesNotMatch(source, /rain\(level, 180\)/, '1個ぶんの3分で上書きしない');
+  // 雨が止んだら覚えている終わりの時刻も忘れる。残すと、その時刻に clearWeather が走って採掘の吹雪などの一時変更まで消す（PR #86 レビュー）。
+  const tick = source.slice(source.indexOf('void tick(MinecraftServer server)'), source.indexOf('private void storm('));
+  assert.match(tick, /if \(end != null && now >= end\) clearWeather\(level\);\s*else if \(end != null && !level\.getLevelData\(\)\.isRaining\(\)\) \{ weatherEnds\.remove\(id\); saveWeather\(\); \}/);
 });
 
 test('ルーレットを回す回数は、送られた回数（数でなければ1回）', () => {
