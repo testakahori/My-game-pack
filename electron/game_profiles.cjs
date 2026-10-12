@@ -285,30 +285,38 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
       return { dir, mods, files, stale, missing };
     });
     const changed = plans.some(p => p.stale.length || p.missing.length);
-    if (changed) {
-      const operation = crypto.randomUUID(), undo = [];
-      try {
-        for (const p of plans) {
-          const replaced = path.join(p.dir, '.mygamepack-mod-switch', operation, 'replaced');
-          fs.mkdirSync(p.mods, { recursive: true });
-          for (const name of p.stale) {
-            fs.mkdirSync(replaced, { recursive: true });
-            fs.renameSync(path.join(p.mods, name), path.join(replaced, name));
-            undo.push(() => fs.renameSync(path.join(replaced, name), path.join(p.mods, name)));
-          }
-          for (const name of p.missing) {
-            const file = path.join(p.mods, name);
-            atomicWrite(file, p.files[name]);
-            undo.push(() => fs.rmSync(file, { force: true }));
-            if (hash(fs.readFileSync(file)) !== hash(p.files[name])) throw new Error('MODコピーの確認に失敗しました');
-          }
+    const operation = crypto.randomUUID(), undo = [];
+    try {
+      if (changed) for (const p of plans) {
+        const replaced = path.join(p.dir, '.mygamepack-mod-switch', operation, 'replaced');
+        fs.mkdirSync(p.mods, { recursive: true });
+        const putAside = name => {
+          fs.mkdirSync(replaced, { recursive: true });
+          fs.renameSync(path.join(p.mods, name), path.join(replaced, name));
+          undo.push(() => fs.renameSync(path.join(replaced, name), path.join(p.mods, name)));
+        };
+        for (const name of p.stale) putAside(name);
+        for (const name of p.missing) {
+          const file = path.join(p.mods, name);
+          // 同じ名前でアプリの MOD と分からないファイル（壊れた jar など）も、上書きせずに退避する（PR #91 再レビュー）。
+          if (!p.stale.includes(name) && fs.existsSync(file) && fs.lstatSync(file).isFile()) putAside(name);
+          atomicWrite(file, p.files[name]);
+          undo.push(() => fs.rmSync(file, { force: true }));
+          if (hash(fs.readFileSync(file)) !== hash(p.files[name])) throw new Error('MODコピーの確認に失敗しました');
         }
-      } catch (error) {
-        for (const step of undo.reverse()) { try { step(); } catch { /* 戻せなかった分は退避フォルダーに残る */ } }
-        throw new Error(`MODを入れ替えられなかったため元へ戻しました: ${error.message}`);
       }
+      // ゲームのコマンドも、書けなかったら MOD ごと元に戻せるよう、前の中身を覚えてから書く（PR #91 再レビュー）。
+      for (const [name, text] of Object.entries(commands)) {
+        const file = path.join(commandDir, name), before = fs.existsSync(file) && fs.lstatSync(file).isFile() ? fs.readFileSync(file) : null;
+        atomicWrite(file, text);
+        undo.push(() => before === null ? fs.rmSync(file, { force: true }) : atomicWrite(file, before));
+      }
+    } catch (error) {
+      let left = 0;
+      for (const step of undo.reverse()) { try { step(); } catch { left++; } }
+      if (left) throw new Error(`MODを入れ替えられず、${left}件を元に戻せませんでした。サーバーとMinecraftの .mygamepack-mod-switch/${operation}/replaced を確認してください（原因: ${error.message}）`);
+      throw new Error(`MODを入れ替えられなかったため元へ戻しました: ${error.message}`);
     }
-    for (const [name, text] of Object.entries(commands)) atomicWrite(path.join(commandDir, name), text);
     return { changed, game: id };
   }
   return { list, install, activate, recover, refreshMods };

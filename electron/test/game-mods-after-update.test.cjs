@@ -119,6 +119,30 @@ test('サーバーや Minecraft が動いていて入れ替えられないとき
   assert.equal(x.appConfig().gameModsRefreshError, '');
 });
 
+test('ゲームのコマンドを書けなかったら、入れ替えた MOD も元に戻す（PR #91 再レビュー）', async t => {
+  const x = fixture(t);
+  x.bundle('1.1.3', ['otosiana']);
+  await x.api.activate('saikutu');
+  x.bundle('1.1.4', ['otosiana']);
+  fs.rmSync(x.command('otosiana')); fs.mkdirSync(x.command('otosiana'));
+  const failed = await refreshGameModsAfterUpdate(x.options('1.0.1'));
+  assert.equal(failed.state, 'failed');
+  assert.match(failed.error, /元へ戻しました/);
+  for (const dir of [x.server, x.client]) assert.deepEqual(x.mods(dir), ['bridgemod-1.7.4.jar', 'displaymod-1.1.0.jar', 'saikutumod-1.1.3.jar']);
+});
+
+test('同じ名前でもアプリの MOD と分からないファイル（壊れた jar など）は、上書きせずに退避する（PR #91 再レビュー）', async t => {
+  const x = fixture(t);
+  x.bundle('1.1.3', ['otosiana']);
+  await x.api.activate('saikutu');
+  x.bundle('1.1.4', ['otosiana']);
+  fs.writeFileSync(path.join(x.client, 'mods', 'saikutumod-1.1.4.jar'), 'broken copy');
+  assert.equal((await refreshGameModsAfterUpdate(x.options('1.0.1'))).state, 'done');
+  assert.deepEqual(x.mods(x.client), ['bridgemod-1.7.4.jar', 'displaymod-1.1.0.jar', 'saikutumod-1.1.4.jar']);
+  const replaced = fs.readdirSync(path.join(x.client, '.mygamepack-mod-switch')).map(op => path.join(x.client, '.mygamepack-mod-switch', op, 'replaced')).filter(p => fs.existsSync(p));
+  assert.equal(fs.readFileSync(path.join(replaced[0], 'saikutumod-1.1.4.jar'), 'utf8'), 'broken copy');
+});
+
 test('MOD が新しい版と同じなら何も動かさず、コマンドだけそろえて済んだことにする', async t => {
   const x = fixture(t);
   x.bundle('1.1.4', ['otosiana']);
@@ -166,14 +190,25 @@ test('アプリの起動と、手動インストールのあとの初期セッ�
   assert.match(write, /const wasSetupComplete = readAppConfig\(\)\.setupComplete === true;/);
   assert.match(write, /if \(!wasSetupComplete && readAppConfig\(\)\.setupComplete === true\) setTimeout\(\(\) => \{ refreshGameModsOnStartup\(\)\.catch\(/);
   assert.match(read('electron/game_mods_refresh.cjs'), /await run\(\(\) => profiles\.refreshMods\(\)\);/, '「保存」の activate ではなく、jar だけを入れ替える');
-  assert.match(main, /ipcMain\.handle\('games:list', \(\) => \(\{ \.\.\.gameProfiles\.list\(\), modsOutdatedAfterUpdate: gameModsOutdated\(readAppConfig\(\), app\.getVersion\(\)\), modsRefreshError: readAppConfig\(\)\.gameModsRefreshError \|\| '' \}\)\);/);
+  // ホームのゲームの状態は、どの応答でも「MODが古いまま」とその理由を含める（PR #91 再レビュー）。
+  assert.match(main, /function gamesStatus\(\) \{\s*const cfg = readAppConfig\(\);\s*return \{ \.\.\.gameProfiles\.list\(\), modsOutdatedAfterUpdate: gameModsOutdated\(cfg, app\.getVersion\(\)\), modsRefreshError: cfg\.gameModsRefreshError \|\| '' \};/);
+  assert.match(main, /ipcMain\.handle\('games:list', \(\) => gamesStatus\(\)\);/);
   const activate = main.slice(main.indexOf("ipcMain.handle('games:activate'"), main.indexOf("ipcMain.handle('games:recover'"));
   assert.match(activate, /if \(app\.isPackaged\) \{\s*try \{ writeAppConfig\(\{ gameModsVersion: app\.getVersion\(\), gameModsRefreshFailed: '', gameModsRefreshError: '' \}\); \}/, '開発版では書かない。書けなくても切替は成功として返す');
+  assert.match(activate, /return \{ \.\.\.result, \.\.\.gamesStatus\(\) \};/);
+  // 「今すぐ入れ替える」：「保存」と違ってほかの MOD を退避しない、アプリの更新に合わせた入れ替えをもう一度試す（PR #91 再レビュー）。
+  const now = main.slice(main.indexOf("ipcMain.handle('games:refreshMods'"), main.indexOf("ipcMain.handle('games:clientFolders'"));
+  assert.match(now, /refreshGameModsAfterUpdate\(\{ version: app\.getVersion\(\), readConfig: readAppConfig, writeConfig: writeAppConfig, profiles: gameProfiles, run: gameProfileOperation \}\)/);
+  assert.match(now, /if \(result\.state === 'failed'\) throw new Error\(result\.error\);/);
+  assert.match(read('electron/preload.cjs'), /gamesRefreshMods: \(\) => ipcRenderer\.invoke\('games:refreshMods'\),/);
   assert.match(read('electron/preload.cjs'), /onGamesChanged: \(callback\) => \{\s*const listener = \(_event, result\) => callback\(result\);/);
   const selector = read('src/components/GameSelector.tsx');
   const listener = selector.slice(selector.indexOf('api?.onGamesChanged?.'), selector.indexOf('async function run('));
   assert.match(listener, /if \(!alive\) return;/, '画面を閉じたあとに届いた結果では書き換えない');
-  // 入れ替えたら、「保存」と同じく割り当ての一時保存を消して設定を読み直し、知らせる（コマンドが増えることがある）。
-  assert.match(listener, /if \(result\?\.state === 'done' && result\.changed\) \{\s*localStorage\.removeItem\('mc_tiktok_mappings_unified_v1'\); onChangedRef\.current\(\);\s*setMessage\('アプリの更新に合わせて、ゲームのMODを新しい版に入れ替えました。'\);/);
-  assert.match(selector, /status\?\.modsOutdatedAfterUpdate && <p role="alert">アプリの更新でMODが古いままです。サーバーと Minecraft を止めて「保存」を押してください。\{status\.modsRefreshError \? `（理由：\$\{status\.modsRefreshError\}）` : ''\}<\/p>/);
+  // 設定は書き換えないので読み直さない（読み直すと画面ごと作り直され、知らせが消える。PR #91 再レビュー）。
+  assert.match(listener, /if \(result\?\.state === 'done' && result\.changed\) setMessage\('アプリの更新に合わせて、ゲームのMODを新しい版に入れ替えました。'\);/);
+  assert.doesNotMatch(listener, /onChanged/);
+  assert.match(selector, /status\?\.modsOutdatedAfterUpdate && <div role="alert" className="game-selector-pending">/);
+  assert.match(selector, /サーバーと Minecraft を止めてから「今すぐ入れ替える」を押してください（ほかのMODはそのまま残ります。次にアプリを起動したときも自動で試します）。/);
+  assert.match(selector, /onClick=\{refreshModsNow\}>今すぐ入れ替える<\/button>/);
 });

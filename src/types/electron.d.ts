@@ -68,6 +68,7 @@ declare global {
       gamesActivate: (id: string) => Promise<GameStatus>;
       gamesInstall: () => Promise<GameStatus | { canceled: true }>;
       gamesRecover: () => Promise<GameStatus>;
+      gamesRefreshMods: () => Promise<GameStatus>;
       gamesClientFolder: () => Promise<GameStatus | { canceled: true }>;
       gamesClientFolders: () => Promise<MinecraftLocationDiscovery>;
       gamesSelectClientFolder: (folder: string) => Promise<GameStatus>;

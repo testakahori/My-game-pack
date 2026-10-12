@@ -68,7 +68,12 @@ async function gameProfileOperation(action) {
   gameProfileBusy = true;
   try { return await action(); } finally { gameProfileBusy = false; }
 }
-ipcMain.handle('games:list', () => ({ ...gameProfiles.list(), modsOutdatedAfterUpdate: gameModsOutdated(readAppConfig(), app.getVersion()), modsRefreshError: readAppConfig().gameModsRefreshError || '' }));
+// ホームのゲームの状態。どの応答にも、アプリの更新で MOD が古いままかとその理由を含める（PR #91 再レビュー）。
+function gamesStatus() {
+  const cfg = readAppConfig();
+  return { ...gameProfiles.list(), modsOutdatedAfterUpdate: gameModsOutdated(cfg, app.getVersion()), modsRefreshError: cfg.gameModsRefreshError || '' };
+}
+ipcMain.handle('games:list', () => gamesStatus());
 ipcMain.handle('games:activate', (_event, id) => gameProfileOperation(async () => {
   const result = await gameProfiles.activate(id);
   // 「保存」で今の版の MOD を置いたので、アプリ更新後の入れ替えは済んだことにする（2026-10-13）。
@@ -77,14 +82,22 @@ ipcMain.handle('games:activate', (_event, id) => gameProfileOperation(async () =
     try { writeAppConfig({ gameModsVersion: app.getVersion(), gameModsRefreshFailed: '', gameModsRefreshError: '' }); }
     catch (e) { console.warn("[games] アプリ更新後の入れ替えの記録を書けませんでした:", e?.message || e); }
   }
-  return result;
+  return { ...result, ...gamesStatus() };
 }));
-ipcMain.handle('games:recover', () => gameProfileOperation(() => gameProfiles.recover()));
+ipcMain.handle('games:recover', () => gameProfileOperation(async () => { await gameProfiles.recover(); return gamesStatus(); }));
 ipcMain.handle('games:install', () => gameProfileOperation(async () => {
   const selected = await dialog.showOpenDialog({ title: 'ゲームパックを登録', properties: ['openDirectory'] });
   if (selected.canceled) return { canceled: true };
-  return gameProfiles.install(selected.filePaths[0]);
+  await gameProfiles.install(selected.filePaths[0]);
+  return gamesStatus();
 }));
+// ホームの「今すぐ入れ替える」：アプリの更新に合わせた入れ替えを、もう一度試す。「保存」と違ってほかの MOD を退避しない（PR #91 再レビュー）。
+ipcMain.handle('games:refreshMods', async () => {
+  if (!app.isPackaged) throw new Error('開発版では使えません。ゲームを「保存」してください');
+  const result = await refreshGameModsAfterUpdate({ version: app.getVersion(), readConfig: readAppConfig, writeConfig: writeAppConfig, profiles: gameProfiles, run: gameProfileOperation });
+  if (result.state === 'failed') throw new Error(result.error);
+  return gamesStatus();
+});
 ipcMain.handle('games:clientFolders', () => discoverMinecraftLocations(minecraftLocationOptions()));
 async function saveMinecraftFolder(value, requireCandidate) {
   const options = minecraftLocationOptions();
