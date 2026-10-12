@@ -106,7 +106,7 @@ async function test(group, name, fn) {
   // 採掘のゲームの振り分けファイル（アプリの切替と同じ形）。
   if (only !== 'bridge') {
     const dir = path.join(root, 'bridge', 'commands', 'minecraft');
-    for (const key of ['tntdaibakuhatu', 'flood', 'get_tree'])
+    for (const key of ['tntdaibakuhatu', 'flood', 'get_tree', 'iceage', 'cataclysm'])
       fs.writeFileSync(path.join(dir, `game_saikutu_${key}.txt`), `# GAME_MOD: saikutumod\n# GAME_KEY: ${key}\n# COUNT_MODE: aggregate\n# DISPLAY_OWNER: game\nsaikutu ${key} {Count} {ListenerName}\n`);
   }
 
@@ -198,6 +198,75 @@ async function test(group, name, fn) {
     assert.equal(spawned, 1, 'only the control torch drops; none appear while the shockwave carves');
     await cmd('kill @e[type=minecraft:item]');
     return { spawned, armedInTime, carved };
+  });
+
+  await test('saikutu', '氷河期で地面を氷に変えるとき、氷の上に残れない花はアイテムにならない（2026-10-12 ユーザーの決定「氷河期も消す」）', async () => {
+    // フラットワールドの地表（草は y=-61）。中心から横 10〜30 の草の上にポピー（21×21）。氷河期は周り 97×97 の地面を氷に変えるので、直す前は全部アイテムになる。
+    const cx = -14000;
+    await cmd('gamemode creative QANoLimit'); await cmd(`tp QANoLimit ${cx + 0.5} -60 0.5`); await sleep(4000);
+    // 同じサーバーで2回目に動かしても同じ条件になるよう、前の回の氷・雪を草地に戻してから置く。
+    await cmd(`fill ${cx + 10} -61 -10 ${cx + 30} -61 10 minecraft:grass_block`);
+    await cmd(`fill ${cx + 10} -60 -10 ${cx + 30} -55 10 minecraft:air`);
+    await cmd(`fill ${cx + 10} -60 -10 ${cx + 30} -60 10 minecraft:poppy`);
+    // 数え方が働いていることを示す見本：氷河期の届かない所（横 48 の外）のポピー1本。数えている間に、コマンドで下の草を消して1個落とす。
+    await cmd(`setblock ${cx - 60} -61 0 minecraft:grass_block`);
+    await cmd(`setblock ${cx - 60} -60 0 minecraft:poppy`);
+    await cmd('kill @e[type=minecraft:item]');
+    // 頭上から落ちてくる氷の板（中心の 5×5）の分は数えない（中心から横8ブロックより外だけ）。
+    let spawned = 0, counting = true;
+    const onSpawn = e => { if (counting && e.name === 'item' && Math.hypot(e.position.x - (cx + 0.5), e.position.z - 0.5) >= 8) spawned++; };
+    bot.on('entitySpawn', onSpawn);
+    try {
+      await post('iceage', 1);
+      await cmd(`setblock ${cx - 60} -61 0 minecraft:air`);
+      await idle(180000); await sleep(2000);
+    } finally { counting = false; bot.off('entitySpawn', onSpawn); }
+    const frozen = /Test passed/.test(await cmd(`execute if block ${cx + 20} -61 0 minecraft:packed_ice`));
+    assert.ok(frozen, 'the grass under the poppies froze');
+    assert.equal(spawned, 1, 'only the control poppy drops; none appear while the ground freezes');
+    await cmd('kill @e[type=minecraft:item]');
+    return { spawned, frozen };
+  });
+
+  await test('saikutu', '天変地異の穴をえぐるとき、支えを失ったたいまつはアイテムにならない（2026-10-12 ユーザーの決定「天変地異も消す」）', async () => {
+    // 穴は足元の 13×13（中心からの距離の2乗が43以下）を、足の1つ上（y=-59）から下へえぐる。その高さの石の上のたいまつは、石がえぐられて支えを失う。
+    // 中心の近く（距離の2乗が9未満）はボットが埋まるので置かない。
+    const cx = -17000;
+    await cmd('gamemode creative QANoLimit'); await cmd(`tp QANoLimit ${cx + 0.5} -60 0.5`); await sleep(4000);
+    // 同じサーバーで2回目に動かしても同じ条件になるよう、前の回の穴・溶岩・氷・ウィザーなどを片付け、平らな地面に戻してから置く。
+    for (const sel of ['@e[tag=douma_cataclysm]', '@e[type=minecraft:wither]', '@e[type=minecraft:tnt]']) await cmd('kill ' + sel);
+    await cmd(`fill ${cx - 12} -63 -12 ${cx + 12} -62 12 minecraft:dirt`);
+    await cmd(`fill ${cx - 12} -61 -12 ${cx + 12} -61 12 minecraft:grass_block`);
+    await cmd(`fill ${cx - 12} -60 -12 ${cx + 12} -40 12 minecraft:air`);
+    let torches = 0;
+    for (let dx = -6; dx <= 6; dx++) for (let dz = -6; dz <= 6; dz++) {
+      const d2 = dx * dx + dz * dz;
+      if (d2 < 9 || d2 > 43) continue;
+      await cmd(`setblock ${cx + dx} -59 ${dz} minecraft:stone`); await cmd(`setblock ${cx + dx} -58 ${dz} minecraft:torch`); torches++;
+    }
+    // 見本：穴の外（距離の2乗が52）のたいまつ1本。数えている間に、コマンドで下の石を消して1個落とす。
+    await cmd(`setblock ${cx + 6} -59 4 minecraft:stone`); await cmd(`setblock ${cx + 6} -58 4 minecraft:torch`);
+    await cmd('kill @e[type=minecraft:item]');
+    // 天変地異は TNT・雷・溶岩なども降らせ、それらは普通にアイテムを落とす。数えるのは穴の中（中心から横7以内）で、
+    // 穴をえぐり終えるまで（TNT は出てから70 tick で爆発するので、それより前に終わる）。
+    let spawned = 0, counting = true;
+    const onSpawn = e => { if (counting && e.name === 'item' && Math.abs(e.position.x - (cx + 0.5)) <= 7.5 && Math.abs(e.position.z - 0.5) <= 7.5) spawned++; };
+    bot.on('entitySpawn', onSpawn);
+    let carved = false;
+    try {
+      await post('cataclysm', 1);
+      await cmd(`setblock ${cx + 6} -59 4 minecraft:air`);
+      // 穴は1段ずつ、北西の列から南東の列の順にえぐる。y=-59 の段のたいまつの列でいちばん最後（dx=2, dz=6）が空気になるまで数える。
+      await wait(async () => /Test passed/.test(await cmd(`execute if block ${cx + 2} -59 6 minecraft:air`)), 20000);
+      carved = true;
+      await sleep(500);
+    } finally { counting = false; bot.off('entitySpawn', onSpawn); }
+    // 後片付け（確かめる前に行う）：ウィザー・ゾンビピグリン・TNT・アイテムを消し、ほかのテストに持ち込まない。
+    await idle(240000);
+    for (const sel of ['@e[tag=douma_cataclysm]', '@e[type=minecraft:wither]', '@e[type=minecraft:tnt]', '@e[type=minecraft:item]']) await cmd('kill ' + sel);
+    assert.ok(carved, 'the crater was carved');
+    assert.equal(spawned, 1, `only the control torch drops; none of the ${torches} torches in the crater appear as items`);
+    return { spawned, torches, carved };
   });
 
   await test('saikutu', '洪水 count=5 はドラウンド 30×5＝150体（以前は3で止まり90体）', async () => {
