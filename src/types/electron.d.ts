@@ -2,6 +2,8 @@
 export {};
 export type GameStatus = {
   saikutuMigrationNeeded?: boolean; active: string; applied: boolean; displayBundled: boolean;
+  // アプリの更新に合わせて MOD を入れ替えられず、古いままのとき（2026-10-13）。
+  modsOutdatedAfterUpdate?: boolean;
   serverMods: string; clientMods: string; recoveryRequired: boolean;
   games: { id: string; name: string; modName: string; installed: boolean }[];
 };
@@ -129,6 +131,7 @@ declare global {
       // --------------------
       giftsRead: () => Promise<GiftsReadResult>;
       onGiftsUpdated?: (callback: (meta: GiftsMeta) => void) => () => void;
+      onGamesChanged?: (callback: () => void) => () => void;
       giftsUpdate: (username: string) => Promise<{ ok: true } | any>;
       giftsOpenFolder: () => Promise<{ ok: true } | any>;
       giftsOpenHtml: () => Promise<{ ok: true } | any>;

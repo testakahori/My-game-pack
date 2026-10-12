@@ -22,6 +22,10 @@ export default function GameSelector({ onChanged, onStatus }: { onChanged: () =>
       .catch((e: Error) => { if (!disposed) { setError(e.message); onStatus(null); } });
     return () => { disposed = true; };
   }, [onStatus]);
+  // アプリの更新に合わせて MOD を入れ替えた（または入れ替えられなかった）ら、ゲームの状態を読み直す（選びかけのゲームはそのまま）。
+  useEffect(() => api?.onGamesChanged?.(() => {
+    api.gamesList().then((next: GameStatus) => { setStatus(next); onStatus(next); }).catch(() => {});
+  }), [onStatus]);
   async function run(action: () => Promise<GameStatus | { canceled: true }>, changed = false, folderChanged = false) {
     if (busy || scanning || !confirmDiscard(guardId)) return;
     setBusy(true); setError(''); setMessage('');
@@ -66,7 +70,8 @@ export default function GameSelector({ onChanged, onStatus }: { onChanged: () =>
     <p>暗視・アイテムロストなし・昼・晴れは固定です。イベント中のみ時間・天候が一時的に変わります。</p>
     <p>コマンドの実行通知は非表示です。敵モブの自然発生は停止します。動物・魚の自然発生と、ギフト・コマンドでの召喚は有効です。</p>
     {status && <small>{status.applied ? `適用済み：${status.games.find(g => g.id === status.active)?.name}` : 'ゲームが未保存です。ゲームを選んで「保存」を押してください。'} ／ 切替はサーバー・Minecraft・BRIDGEの停止中に行います。</small>}
-    {status?.saikutuMigrationNeeded && <p role="status">採掘へ移したコマンド（落とし穴・採掘速度上昇など）が、今の割り当てに残っています。今のゲームのまま「保存」を押すと割り当てを整理し、採掘をまだ使っていなければ採掘へ引き継ぎます（すでに採掘の設定があるときは上書きせず、外した割り当ては退避に残ります）。</p>}
+    {status?.modsOutdatedAfterUpdate && <p role="alert">アプリの更新でMODが古いままです。サーバーと Minecraft を止めて「保存」を押してください。</p>}
+    {status?.saikutuMigrationNeeded &&<p role="status">採掘へ移したコマンド（落とし穴・採掘速度上昇など）が、今の割り当てに残っています。今のゲームのまま「保存」を押すと割り当てを整理し、採掘をまだ使っていなければ採掘へ引き継ぎます（すでに採掘の設定があるときは上書きせず、外した割り当ては退避に残ります）。</p>}
     <details><summary>Minecraftの保存先を探す・MODの保存先を確認</summary>
       <p>サーバー：{status?.serverMods || '未確認'}<br />Minecraft：{status?.clientMods || '未確認'}</p>
       <p>Minecraftを起動せずに、標準の保存先と公式ランチャーの起動構成から探せます。別のランチャーを使う場合や候補にない場合は、手動で指定してください。</p>

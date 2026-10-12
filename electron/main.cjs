@@ -25,6 +25,7 @@ const { EULA_URL, inspectSetup, inspectForgeClient, launchForgeInstaller, prepar
 const { migrateRetiredCommands } = require("./command_migration.cjs");
 const { exportStreamStatsMarkdown } = require("./stats_export.cjs");
 const { createGameProfiles } = require('./game_profiles.cjs');
+const { refreshGameModsAfterUpdate, gameModsOutdated } = require('./game_mods_refresh.cjs');
 const { availableGameCommands, assertGameCommands } = require('./game_command_scope.cjs');
 const { discoverMinecraftLocations, validateMinecraftFolder } = require('./minecraft_locations.cjs');
 const { tasklistNames, minecraftProcesses, readJavaCommandLines, switchBlockedMessage } = require('./minecraft_processes.cjs');
@@ -67,8 +68,13 @@ async function gameProfileOperation(action) {
   gameProfileBusy = true;
   try { return await action(); } finally { gameProfileBusy = false; }
 }
-ipcMain.handle('games:list', () => gameProfiles.list());
-ipcMain.handle('games:activate', (_event, id) => gameProfileOperation(() => gameProfiles.activate(id)));
+ipcMain.handle('games:list', () => ({ ...gameProfiles.list(), modsOutdatedAfterUpdate: gameModsOutdated(readAppConfig(), app.getVersion()) }));
+ipcMain.handle('games:activate', (_event, id) => gameProfileOperation(async () => {
+  const result = await gameProfiles.activate(id);
+  // 「保存」で今の版の MOD を置いたので、アプリ更新後の入れ替えは済んだことにする（2026-10-13）。
+  writeAppConfig({ gameModsVersion: app.getVersion(), gameModsRefreshFailed: '' });
+  return result;
+}));
 ipcMain.handle('games:recover', () => gameProfileOperation(() => gameProfiles.recover()));
 ipcMain.handle('games:install', () => gameProfileOperation(async () => {
   const selected = await dialog.showOpenDialog({ title: 'ゲームパックを登録', properties: ['openDirectory'] });
@@ -1149,12 +1155,34 @@ async function refreshBridgeModJar(serverFolder) {
 function scheduleBridgeSync() {
   if (!app.isPackaged) return;
   setTimeout(() => {
-    ensureBridgeExtracted().catch((e) => {
-      const message = e?.message || String(e);
-      console.error("[main] bridge background sync failed:", message);
-      setBridgeSyncState({ state: "error", phase: "failed", error: message });
-    });
+    ensureBridgeExtracted()
+      .then(() => refreshGameModsOnStartup())
+      .catch((e) => {
+        const message = e?.message || String(e);
+        console.error("[main] bridge background sync failed:", message);
+        setBridgeSyncState({ state: "error", phase: "failed", error: message });
+      });
   }, 1000);
+}
+
+// アプリを更新したあと、今選んでいるゲームの MOD（サーバーと Minecraft の両方）とコマンドを、ホームの「保存」と同じ処理で新しくする。
+// 入れ替えられないときは何も変えず、次の起動でもう一度試す。どちらでもホームへ知らせて、ゲームの状態を読み直させる（2026-10-13 ユーザーの決定）。
+async function refreshGameModsOnStartup() {
+  const cfg = readAppConfig();
+  if (!cfg.setupComplete || !cfg.serverFolder) return;
+  let result;
+  try {
+    result = await refreshGameModsAfterUpdate({ version: app.getVersion(), readConfig: readAppConfig, writeConfig: writeAppConfig, profiles: gameProfiles, run: gameProfileOperation });
+  } catch (e) {
+    // ゲームの状態が読めないときなど。BRIDGE の展開の失敗とは分けて、ログに残すだけにする。
+    console.warn("[games] アプリの更新に合わせたMODの入れ替えを確かめられませんでした:", e?.message || e);
+    return;
+  }
+  if (result.state === "done") console.log("[games] アプリの更新に合わせて、選んでいるゲームのMODを新しくしました:", result.game);
+  else if (result.state === "failed") console.warn("[games] アプリの更新に合わせたMODの入れ替えをやめました（次の起動でもう一度試す）:", result.error);
+  if (result.state === "done" || result.state === "failed") {
+    for (const win of BrowserWindow.getAllWindows()) win.webContents.send("games:changed");
+  }
 }
 
 async function ensureBridgeExtracted() {
