@@ -52,7 +52,7 @@ async function test(group, name, fn) {
     return { chickens };
   });
 
-  await test('bridge', 'スーパージャンプ count=20 は 640 ブロック上がり、低速落下は付かない', async () => {
+  await test('bridge', 'スーパージャンプ count=20 は 640 ブロック上がり、低速落下は付かず、頂点から落ちて落下死する', async () => {
     await cmd('tp QANoLimit -1200.5 64 0.5'); await sleep(2000);
     await cmd('fill -1216 63 -16 -1184 63 16 minecraft:stone');
     await cmd('gamemode survival QANoLimit'); await cmd('effect clear QANoLimit'); await sleep(500);
@@ -61,17 +61,25 @@ async function test(group, name, fn) {
       maxY = Math.max(maxY, bot.entity.position.y);
       if (Object.values(bot.entity.effects || {}).some(e => e.id === 28)) slowFalling = true;   // 28 = slow_falling
     }, 50);
+    // 低速落下がないので、頂点から落ちて落下ダメージを受ける（落下死してよい。2026-10-11 ユーザーの決定）。
+    let died = false;
+    const onDeath = () => { died = true; };
+    bot.on('death', onDeath);
     await post('superjump', 20);
     await wait(async () => maxY >= startY + 600, 120000).catch(() => {});
-    await sleep(3000);
-    clearInterval(watch);
+    await wait(async () => died, 120000).catch(() => {});
+    clearInterval(watch); bot.off('death', onDeath);
     assert.ok(maxY >= startY + 600, `rose to ${maxY - startY}`);
     assert.equal(slowFalling, false, 'no slow falling');
+    // 防具なしのサバイバルで 640 ブロック落ちれば必ず死ぬ。体力が減っただけでは、前の回で減ったままのこともあるので数えない（PR #86 レビュー）。
+    assert.ok(died, 'fell to death after the apex (health ' + bot.health + ')');
+    // 生き返る前に tp すると届かず、次のテストの @p にも入らない。生き返るまで待つ。
+    await wait(async () => bot.isAlive && bot.health > 0, 30000);
     await cmd('gamemode creative QANoLimit'); await cmd('tp QANoLimit -1200.5 64 0.5');
-    return { rose: Math.round(maxY - startY), slowFalling };
+    return { rose: Math.round(maxY - startY), slowFalling, died };
   });
 
-  await test('bridge', '嵐 count=2 は雨6分、雨が残っているうちに count=1 が来たら残りに3分足す（以前は1個ぶんの3分で上書き）', async () => {
+  await test('bridge', '嵐 count=2 は雨6分、雨が残っているうちに count=1 が来たら残りに3分足す（以前は1個ぶんの3分で上書き）。/weather clear のあとは今から3分', async () => {
     // 雨が止む時刻は、サーバーのフォルダーの douma-weather-timers.properties に保存される（ミリ秒）。
     const rainEnd = () => Number(fs.readFileSync(path.join(root, 'douma-weather-timers.properties'), 'utf8').match(/overworld=(\d+)/)?.[1] || 0);
     await post('clearweather', 1); await idle();
@@ -82,8 +90,17 @@ async function test(group, name, fn) {
     await post('storm', 1); await idle();
     const second = rainEnd();
     assert.ok(Math.abs(second - first - 180000) < 1000, 'one more storm adds 3 minutes: ' + Math.round((second - first) / 1000) + 's');
+    // バニラの /weather clear で雨を止めたあとの嵐は、覚えている残り（約9分）に足さず今から3分（見送った軽い点 2026-10-12）。
+    await cmd('weather clear');
+    // 雨が止んだら、覚えている終わりの時刻も忘れる。残すとその時刻に晴れへ戻す処理が走り、採掘の吹雪などの一時変更まで消す（PR #86 レビュー）。
+    await wait(async () => rainEnd() === 0, 10000).catch(() => {});
+    assert.equal(rainEnd(), 0, 'the remembered rain end is dropped after /weather clear');
+    const cleared = Date.now();
+    await post('storm', 1); await idle();
+    const third = rainEnd();
+    assert.ok(Math.abs(third - cleared - 180000) < 20000, 'a storm after /weather clear rains 3 minutes from now: ' + Math.round((third - cleared) / 1000) + 's');
     await post('clearweather', 1); await idle();
-    return { firstSeconds: Math.round((first - before) / 1000), addedSeconds: Math.round((second - first) / 1000) };
+    return { firstSeconds: Math.round((first - before) / 1000), addedSeconds: Math.round((second - first) / 1000), afterClearSeconds: Math.round((third - cleared) / 1000) };
   });
 
   // 採掘のゲームの振り分けファイル（アプリの切替と同じ形）。
