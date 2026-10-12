@@ -15,6 +15,14 @@ const hash = data => crypto.createHash('sha256').update(data).digest('hex');
 const readJson = (file, fallback) => fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : fallback;
 const writeJson = (file, value) => atomicWrite(file, JSON.stringify(value, null, 2));
 const clone = value => JSON.parse(JSON.stringify(value));
+// 指定したゲーム以外のゲーム専用コマンド（game_<id>_*.txt）を使う割り当てを外す。
+function withoutOtherGameCommands(value, gameId) {
+  const other = file => typeof file === 'string' && /^game_[a-z0-9]+_/.test(file) && !file.startsWith(`game_${gameId}_`);
+  if (!value || typeof value !== 'object') return value;
+  if (other(value.commandFile)) return undefined;
+  if (Array.isArray(value)) return value.map(item => withoutOtherGameCommands(item, gameId)).filter(item => item !== undefined);
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, withoutOtherGameCommands(item, gameId)]).filter(([, item]) => item !== undefined));
+}
 const safeName = name => typeof name === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,119}$/.test(name) && !name.includes('..');
 
 function plainFile(file, max = 256 * 1024 * 1024) {
@@ -187,7 +195,8 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
         // あとから採掘へ移したコマンド（2026-10-12 の give_haste など）の引き継ぎでも、前の退避は上書きせず別の名前で足す。
         const backupId = Object.hasOwn(next.legacySaikutuProfiles, profileId) ? `${profileId}@${new Date().toISOString()}` : profileId;
         next.legacySaikutuProfiles[backupId] = clone(profile);
-        if (!next.profiles.saikutu) next.profiles.saikutu = saikutu.mapLegacy(profile);
+        // 採掘のプロフィールを初めて作るとき、埋め立て・RUN など他のゲーム専用のコマンドは写さない（採掘では使えず、切り替えが止まる。PR #84 レビュー）。
+        if (!next.profiles.saikutu) next.profiles.saikutu = withoutOtherGameCommands(saikutu.mapLegacy(profile), 'saikutu');
         next.profiles[profileId] = profileId === 'saikutu' ? saikutu.mapLegacy(profile) : saikutu.withoutLegacy(profile);
       }
     }

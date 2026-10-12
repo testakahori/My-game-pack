@@ -45,6 +45,13 @@ test('サバイバルの割り当ては採掘へ引き継ぎ、古い txt は退
   assert.deepEqual(fs.readdirSync(path.join(root, '.retired-saikutu-commands', backups[0])).sort(), ['give_fatigue.txt', 'give_haste.txt']);
 });
 
+test('ゲーム選択の案内は件数を書かず、「保存」で整理されることと、採掘の設定があるときは退避に残ることを書く（PR #84 レビュー）', () => {
+  const line = read('src/components/GameSelector.tsx').split(/\r?\n/).find(l => l.includes('saikutuMigrationNeeded &&'));
+  assert.doesNotMatch(line, /14種類/, 'あとから2件足したので件数は書かない');
+  assert.match(line, /「保存」/);
+  assert.match(line, /退避/);
+});
+
 test('SaikutuMOD 1.1.2 とゲームパックの jar 名', () => {
   assert.match(read('SaikutuMod/gradle.properties'), /^mod_version=1\.1\.2\r?$/m);
   const pack = JSON.parse(read('game-packs/saikutu/game.json'));

@@ -234,6 +234,27 @@ test('あとから採掘へ移したコマンドの引き継ぎでも、前の�
   assert.equal(JSON.parse(fs.readFileSync(x.config)).mappings.some(m => m.commandFile === 'give_haste.txt'), false, 'サバイバルからは外す');
 });
 
+test('埋め立て・RUN のプロフィールから採掘のプロフィールを初めて作るとき、そのゲーム専用のコマンドは写さない（PR #84 レビュー）', async t => {
+  let folder;
+  const x = fixture(t, { bundledPackages: () => folder ? [{ id:'saikutu',folder }] : [] });
+  await x.api.install(x.pack('umetate'));
+  folder = x.pack('saikutu');
+  const file = path.join(folder,'game.json'), manifest = JSON.parse(fs.readFileSync(file));
+  manifest.bridgeEventApi = 1; manifest.commands = [{ key:'give_haste',title:'採掘速度上昇',command:'saikutu give_haste {Count} {ListenerName}' }];
+  fs.writeFileSync(file,JSON.stringify(manifest));
+  await x.api.activate('umetate');
+  // 埋め立てで、埋め立て専用のコマンドと、あとから採掘へ移した採掘速度上昇を割り当てていた。
+  const umetate = JSON.parse(fs.readFileSync(x.config));
+  umetate.mappings = [{ giftId:'rose',commandFile:'game_umetate_fill.txt',repeat:1 }, { giftId:'pass',commandFile:'give_haste.txt',repeat:2 }];
+  fs.writeFileSync(x.config,JSON.stringify(umetate));
+  await x.api.activate('saikutu');   // 以前は「保存済みの設定で使うコマンドがありません: game_umetate_fill.txt」で切り替えられなかった
+  const mining = JSON.parse(fs.readFileSync(x.config));
+  assert.deepEqual(mining.mappings.map(m => m.commandFile), ['game_saikutu_give_haste.txt']);
+  assert.equal(mining.mappings[0].repeat, 2);
+  await x.api.activate('umetate');
+  assert.deepEqual(JSON.parse(fs.readFileSync(x.config)).mappings.map(m => m.commandFile), ['game_umetate_fill.txt'], '埋め立ての専用コマンドは埋め立てに残る');
+});
+
 test('bridgeコマンド名が共通MODと重なるゲームは変更前に拒否する', async t => {
   const x = fixture(t), folder = x.pack('run'), file = path.join(folder,'game.json');
   const manifest = JSON.parse(fs.readFileSync(file)); manifest.commands[0].key = 'zombie'; fs.writeFileSync(file,JSON.stringify(manifest));
