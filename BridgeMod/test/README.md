@@ -85,6 +85,16 @@ Java 17でBridgeModの通常のbuildに加えて、明示的に `environmentProb
 
 結果はサーバールートの `armor-results.json` に保存します。
 
+## いいねの待ちを捨てる（2026-10-14）
+
+`node like-backlog.cjs` は、BridgeMOD 1.7.5 の `/bridge/control` でいいねの待ちを捨てられることを確かめます。上と同じマーカー・ポート・GIFT_QA_SERVER を使います。テストが `bridge/commands/minecraft/qa_like.txt` を書きます。
+
+- いいねを60件（1件100回）入れて待ちを作り、捨てると待ちが0になり、実行もそこで止まる（実行した回数はスコアボードで数える。実行中だった分の残りの最大8回を除く）。
+- 捨てたあとに来たいいねは、送った回数どおり実行する。
+- ギフト・そのほかの待ちは捨てない（400 を返す）。
+
+結果はサーバールートの `like-backlog-results.json` に保存します。
+
 ## 採掘へ移したコマンド（2026-10-12）
 
 `node saikutu-commands.cjs` は、採掘へ移した採掘速度上昇・低下（give_haste・give_fatigue）が SaikutuMOD の内蔵 txt から効くことを確かめます（SaikutuMOD 1.1.2 から）。SaikutuMOD を入れたサーバーで、上と同じマーカー・ポート・GIFT_QA_SERVER を使います。テストが `bridge/commands/minecraft/game_saikutu_*.txt` を書きます。

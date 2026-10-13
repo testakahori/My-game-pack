@@ -262,6 +262,7 @@ public class BridgeMod {
             bridgeServer.createContext("/bridge/event", exchange -> { if (authorize(exchange)) handleBridgeEvent(server, exchange); });
             bridgeServer.createContext("/bridge/exec", exchange -> { if (authorize(exchange)) handleBridgeExec(server, exchange); });
             bridgeServer.createContext("/bridge/status", exchange -> { if (authorize(exchange)) handleBridgeStatus(exchange); });
+            bridgeServer.createContext("/bridge/control", exchange -> { if (authorize(exchange)) handleBridgeControl(exchange); });
             bridgeServer.setExecutor(Executors.newSingleThreadExecutor(r -> {
                 Thread t = new Thread(r, "BridgeMod-BridgeHttp");
                 t.setDaemon(true);
@@ -384,6 +385,37 @@ public class BridgeMod {
         return new String(buf, StandardCharsets.UTF_8);
     }
 
+    // 待ち列への指示。今は「いいねの待ちを捨てる」だけ（配信が終わったとき。2026-10-14 ユーザーの決定）。
+    // ギフト・そのほかの待ちは捨てない（送られた数どおりに起こす）。
+    private void handleBridgeControl(HttpExchange exchange) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendHttp(exchange, 405, "{\"ok\":false,\"error\":\"method_not_allowed\"}");
+            return;
+        }
+        String action, type;
+        try {
+            com.google.gson.JsonObject data = com.google.gson.JsonParser.parseString(readHttpBody(exchange)).getAsJsonObject();
+            action = data.get("action").getAsString();
+            type = data.get("type").getAsString();
+        } catch (Exception e) {
+            sendHttp(exchange, 400, "{\"ok\":false,\"error\":\"bad_request\"}");
+            return;
+        }
+        if (!"discard".equals(action) || !"like".equals(type)) {
+            sendHttp(exchange, 400, "{\"ok\":false,\"error\":\"unsupported\"}");
+            return;
+        }
+        int discarded = discardLikeQueue();
+        System.out.println("[Bridge] discarded " + discarded + " queued like event(s)");
+        sendHttp(exchange, 200, "{\"ok\":true,\"discarded\":" + discarded + "}");
+    }
+    // 実行中のいいねも残りを0にして止める（実行中の1回分は終わる）。
+    private synchronized int discardLikeQueue() {
+        int discarded = likeQueue.size();
+        for (BridgeEvent event : likeQueue) event.remaining = 0;
+        likeQueue.clear();
+        return discarded;
+    }
     // キュー滞留の可視化用（Bridge側の診断ログやデバッグで使用）
     private void handleBridgeStatus(HttpExchange exchange) throws IOException {
         if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
@@ -583,7 +615,8 @@ public class BridgeMod {
 
             if (event.remaining <= 0) {
                 synchronized (this) {
-                    queue.pollFirst();
+                    // 実行中に待ちを捨てられた（/bridge/control）ときは、あとから入った別のイベントを取り出さない。
+                    if (queue.peekFirst() == event) queue.pollFirst();
                 }
             } else {
                 break; // 予算切れ：次tickで続きから
@@ -597,6 +630,8 @@ public class BridgeMod {
      * 実行したコマンド数を返す。event.remaining / event.announced を更新する。
      */
     private int executeEventSlice(MinecraftServer server, BridgeEvent event, int commandBudget) {
+        // 取り出したあとに /bridge/control で捨てられたイベントは実行しない（ゲームMODへ count=0 で渡さない）。
+        if (event.remaining <= 0) return 0;
         boolean pacedCod = "like".equals(event.type) && "cod".equals(event.key);
         if (pacedCod && !likeCod.canSpawn(server)) return 0;
         // /bridge/exec の生コマンド：演出フレームなので失敗は統計に計上しない

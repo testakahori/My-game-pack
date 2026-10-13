@@ -25,15 +25,22 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {}, 
         const job = lanes[lane][0];
         // A separate flag: a rejection value may itself be falsy.
         let failed = false, failure;
-        while (job.remaining > 0 && !failed) {
+        while (job.remaining > 0 && !failed && !job.discarded) {
           const count = job.event.gameMod ? Math.min(job.event.count, job.remaining) : Math.min(100, job.remaining);
           const chunk = { ...job.event, count, requestId: `${job.id}:${job.part}`, eventId: `${job.id}:${job.part}` };
           let attempts = 0;
           // Shared by every retry of this chunk, so diagnostics can count consecutive failures of one kind.
           const retryState = {};
+          // 送信中の分は、捨てる回数に数えない（応答が来れば送れた分になる）。
+          let sent = false;
           for (;;) {
-            try { await send(chunk); break; }
+            // 捨てたいいね（配信終了）は、再送の待ちが明けても送り直さない。
+            if (job.discarded) break;
+            try { job.inFlight = count; await send(chunk); sent = true; break; }
             catch (error) {
+              job.inFlight = 0;
+              // 送信中に捨てたいいねが送れなかったときは、再送を待たずに次へ進む（PR #94 再レビュー）。
+              if (job.discarded) break;
               attempts++;
               // A finite retry limit is only for explicit callers/tests, never the live dispatcher.
               if (isPermanentDeliveryFailure(error) || attempts > maxRetries) { failed = true; failure = error; break; }
@@ -41,11 +48,18 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {}, 
               await sleep(Math.min(3000, 250 * 2 ** Math.min(attempts - 1, 4)));
             }
           }
-          if (failed) break;
-          job.remaining -= count;
-          job.part++;
+          job.inFlight = 0;
+          // 捨てたあとに応答が来ても、送れた分は送れた分として数える（PR #94 レビュー）。
+          if (sent) { job.remaining -= count; job.part++; }
+          if (failed || !sent) break;
         }
         lanes[lane].shift();
+        if (job.discarded) {
+          const done = job.total - job.remaining;
+          if (done > 0) try { delivered({ ...job.event, count: done }); } catch { /* Recording failure must not affect gameplay delivery. */ }
+          job.resolve();
+          continue;
+        }
         if (failed) {
           report({ ...job.event, count: job.remaining }, failure);
           job.reject(failure);
@@ -78,14 +92,30 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {}, 
         void drain(lane);
       });
     },
-    pending() { return Object.fromEntries(Object.entries(lanes).map(([key, jobs]) => [key, jobs.reduce((n, job) => n + job.remaining, 0)])); },
+    pending() { return Object.fromEntries(Object.entries(lanes).map(([key, jobs]) => [key, jobs.reduce((n, job) => n + (job.discarded ? 0 : job.remaining), 0)])); },
+    // まだ送っていない分を捨て、捨てた回数を返す（配信が終わったときのいいね。2026-10-14 ユーザーの決定）。
+    // 送信中の1回は止められないので、その応答のあとで止まる。捨てた要求は失敗として記録しない。
+    discard(lane) {
+      if (!lanes[lane]) return 0;
+      let discarded = 0;
+      for (const job of lanes[lane]) {
+        if (job.discarded) continue;
+        discarded += job.remaining - (job.inFlight || 0);
+        job.discarded = true;
+      }
+      // 先頭以外は今すぐ外す。先頭は送信や再送の待ちの途中なので、drain が外す。
+      const head = running.has(lane) ? lanes[lane].slice(0, 1) : [];
+      for (const job of lanes[lane].slice(head.length)) job.resolve();
+      lanes[lane] = head;
+      return discarded;
+    },
   };
 }
 
 // Coalesce only adjacent identical requests; retain every repetition and sender in order.
 function createLikeBatcher({ dispatch, windowMs, schedule = setTimeout, prepare = event => event, failed = () => {} }) {
-  let pending = [], timer = null;
-  return (commandFile, count, sender, announce, triggers = 1) => {
+  let pending = [], timer = null, generation = 0;
+  const batch = (commandFile, count, sender, announce, triggers = 1) => {
     const event = prepare({ type: "like", commandFile, count, listenerName: sender, announce });
     if (event.gameMod) {
       // Keep each threshold crossing as a separate request; freeze its round before any wait.
@@ -99,16 +129,26 @@ function createLikeBatcher({ dispatch, windowMs, schedule = setTimeout, prepare 
     else pending.push(event);
     }
     if (timer !== null) return;
+    const mine = generation;
     timer = schedule(() => {
-      const batch = pending;
+      // 捨てたあとに、前の待ち時間が明けても何もしない（次のまとめは新しい待ち時間で送る）。
+      if (mine !== generation) return;
+      const events = pending;
       pending = []; timer = null;
       // Runs inside a timer: one failing event must not crash the process or drop the rest of the batch.
-      for (const event of batch) {
+      for (const event of events) {
         try { dispatch(event); }
         catch (error) { try { failed(event, error); } catch { /* Recording failure must not stop the batch. */ } }
       }
     }, windowMs);
   };
+  // まとめ送りを待っている分を捨て、捨てた回数を返す（配信が終わったときのいいね）。
+  batch.discard = () => {
+    const discarded = pending.reduce((n, event) => n + event.count * (event.repeatRequests || 1), 0);
+    pending = []; timer = null; generation++;
+    return discarded;
+  };
+  return batch;
 }
 
 // Capture the round at creation, not when the head eventually reaches the network.
