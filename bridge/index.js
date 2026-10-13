@@ -711,6 +711,29 @@ function sendBridgeModEvent({ host, port, type, commandFile, count, listenerName
   });
 }
 
+// BridgeMOD の待ち列への指示（/bridge/control、BridgeMOD 1.7.5 から）。今は「いいねの待ちを捨てる」だけ。捨てた件数を返す。
+function sendBridgeModControl({ host, port }, body) {
+  const payload = JSON.stringify(body);
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: host, port, path: "/bridge/control", method: "POST", timeout: 1500,
+      headers: withBridgeModToken(bridgeModTokenFile(), { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }),
+    }, (res) => {
+      let text = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => { text += chunk; });
+      res.on("end", () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) return reject(Object.assign(new Error(`BridgeMod HTTP ${res.statusCode}: ${text}`), { status: res.statusCode }));
+        try { resolve(Number(JSON.parse(text).discarded) || 0); } catch { resolve(0); }
+      });
+    });
+    req.on("timeout", () => req.destroy(new Error("BridgeMod HTTP timeout")));
+    req.on("error", reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
 // Minecraft の ID 系文字列（サウンド・パーティクル）を安全化。コマンド差し込み対策。
 function sanitizeMcId(value, fallback) {
   const v = String(value || "").trim().toLowerCase().replace(/[^a-z0-9_.:\-]/g, "");
@@ -1885,6 +1908,17 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     windowMs: LIKE_BATCH_MS, schedule: setTimeout, prepare: prepareGameEvent,
     dispatch: event => dispatchBridgeEvent("like:" + event.commandFile, event),
     failed: recordDeliveryRejection,
+  });
+
+  // 配信が終わったら、まだ実行していないいいね分を捨てる（2026-10-14 ユーザーの決定。配信のあとも妨害が続かないように）。
+  // 捨てるのは、まとめ送りの待ち・送信の待ち（再送の待ちを含む）・BridgeMOD の待ちの3か所。配信中のいいね・ギフト・テスト発火は変えない。
+  onTikTok("streamEnd", async () => {
+    if (!bridgeMod) return;
+    const inBridge = queueLikeEventBatched.discard() + modDelivery.discard("like");
+    let inMod = 0;
+    try { inMod = await sendBridgeModControl(bridgeMod, { action: "discard", type: "like" }); }
+    catch (error) { console.warn(`[Like] BridgeMOD のいいねの待ちを捨てられませんでした（BridgeMOD 1.7.5 より前は捨てられません）: ${error?.message || error}`); }
+    console.log(`[Like] 配信が終わったので、まだ実行していないいいね分を捨てました（BRIDGE ${inBridge}回分・BridgeMOD の待ち ${inMod}件）`);
   });
 
   onTikTok("like", async (data) => {

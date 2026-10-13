@@ -74,7 +74,8 @@ async function startBridgeFixture(t, { commands = {}, config = {}, env = {}, res
     if (fields.gift) message.gift = { ...proto.Gift.decode(new Uint8Array()), type: 1, ...fields.gift };
     await connection.processDecodedData({ type, data: proto[type].decode(proto[type].encode(message).finish()) });
   };
-  return { dir, requests, logs, emit, until, wait };
+  // 仮想の TikTok 接続そのもの。配信終了（streamEnd）など、メッセージを通らないイベントを出すときに使う。
+  return { dir, requests, logs, emit, until, wait, connection: () => connection };
 }
 
 module.exports = { startBridgeFixture };

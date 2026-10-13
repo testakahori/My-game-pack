@@ -162,3 +162,40 @@ test('再送のあいだ同じ要求には同じ状態を渡し、次の要求�
   assert.equal(states[0], states[1]);
   assert.notEqual(states[1], states[2]);
 });
+
+test('いいねの待ちを捨てると、待っているいいねも再送を待っているいいねも送らず、ギフトはそのまま送る（2026-10-14）', async () => {
+  const sent = [];
+  let likeTries = 0, wake;
+  const delivery = createModEventDelivery({
+    send: async event => {
+      if (event.type === 'like') { likeTries++; throw Object.assign(new Error('HTTP 429'), { status: 429 }); }
+      sent.push(event);
+    },
+    sleep: () => new Promise(resolve => { wake = resolve; }),
+  });
+  const likes = [delivery.enqueue({ type: 'like', commandFile: 'cod.txt', count: 3 }),
+    delivery.enqueue({ type: 'like', commandFile: 'cod.txt', count: 2 })];
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(likeTries, 1, '先頭のいいねは 429 で再送を待っている');
+  assert.equal(delivery.discard('like'), 5, '捨てた回数を返す');
+  wake();
+  await Promise.all(likes);
+  assert.equal(likeTries, 1, '捨てたあとは送り直さない');
+  assert.deepEqual(delivery.pending(), { gift: 0, like: 0, other: 0 });
+  await delivery.enqueue({ type: 'gift', commandFile: 'rose.txt', count: 1 });
+  assert.deepEqual(sent.map(e => e.type), ['gift']);
+});
+
+test('いいねのまとめ送りで待っている分も捨てられ、そのあとのいいねは送る（2026-10-14）', () => {
+  const dispatched = [];
+  let fire;
+  const batch = createLikeBatcher({ dispatch: event => dispatched.push(event), windowMs: 100, schedule: fn => { fire = fn; return 1; } });
+  batch('cod.txt', 2, 'A', false);
+  batch('cod.txt', 3, 'A', false);
+  assert.equal(batch.discard(), 5);
+  fire();
+  assert.deepEqual(dispatched, [], '捨てた分は時間が来ても送らない');
+  batch('cod.txt', 1, 'B', false);
+  fire();
+  assert.deepEqual(dispatched.map(event => [event.listenerName, event.count]), [['B', 1]]);
+});
