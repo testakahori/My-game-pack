@@ -1,0 +1,11 @@
+---
+config:
+  flowchart: { wrappingWidth: 320 }
+---
+flowchart TB
+  entry["ゲームMOD が runProtected を呼ぶ"]
+  keep["近くのコマンドブロックを控える"]
+  apply["処理（fill・setblock など）を実行する"]
+  back["変わったコマンドブロックを中身ごと戻す"]
+  count["戻した数を返す"]
+  entry --> keep --> apply --> back --> count

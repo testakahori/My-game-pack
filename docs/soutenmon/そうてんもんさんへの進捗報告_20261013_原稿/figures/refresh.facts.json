@@ -1,0 +1,2 @@
+{ "labels": ["アプリを更新する", "初期セットアップ", "保存", "今すぐ入れ替える", "MOD ID", "ほかの MOD はそのまま", "replaced"],
+  "edges": ["upd->when", "when->saved", "saved->none", "saved->stopped", "stopped->retry", "stopped->swap", "swap->keep"] }

@@ -1,0 +1,3 @@
+{ "labels": ["ギフト N 個", "BRIDGE", "BridgeMOD", "上限なし", "count = N", "ゲームMODが決める"],
+  "forbidden": ["3倍まで", "個別最大コマンド数"],
+  "edges": ["gift->bridge", "bridge->mod", "mod->std", "mod->game", "game->decide"] }

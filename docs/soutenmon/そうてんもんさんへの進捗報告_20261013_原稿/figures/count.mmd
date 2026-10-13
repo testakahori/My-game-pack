@@ -1,0 +1,10 @@
+---
+config:
+  flowchart: { wrappingWidth: 300 }
+---
+flowchart TB
+  gift["ギフト N 個"] --> bridge["BRIDGE（アプリ）"]
+  bridge --> mod["BridgeMOD"]
+  mod --> std["標準の効果<br/>N 倍で実行する（上限なし）"]
+  mod --> game["ゲームMOD<br/>count = N の1要求"]
+  game --> decide["上限を掛けるかは<br/>ゲームMODが決める"]
