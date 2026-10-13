@@ -1,0 +1,2 @@
+{ "labels": ["ゲームMOD", "runProtected", "控える", "fill・setblock", "中身ごと戻す", "戻した数"],
+  "edges": ["entry->keep", "keep->apply", "apply->back", "back->count"] }

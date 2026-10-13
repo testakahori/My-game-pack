@@ -1,0 +1,12 @@
+---
+config:
+  flowchart: { wrappingWidth: 480 }
+---
+flowchart TB
+  upd["アプリを更新する"] --> when["更新後の起動<br/>（手動インストールは初期セットアップを終えたとき）"]
+  when --> saved{"ゲームを一度でも<br/>「保存」した？"}
+  saved -->|いいえ| none["何もしない"]
+  saved -->|はい| stopped{"サーバーと Minecraft は<br/>止まっている？"}
+  stopped -->|いいえ| retry["何も変えない<br/>ホームに理由と「今すぐ入れ替える」を出す"]
+  stopped -->|はい| swap["jar の中の MOD ID で見分けて<br/>アプリが置いた jar だけ入れ替える"]
+  swap --> keep["ほかの MOD はそのまま<br/>古い jar は replaced へ退避"]

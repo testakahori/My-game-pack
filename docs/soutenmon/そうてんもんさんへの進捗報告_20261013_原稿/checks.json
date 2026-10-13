@@ -1,0 +1,39 @@
+{
+  "checks": [
+    {
+      "name": "mod-versions",
+      "cmd": "cd /d/Dev02/game_dev/MyGamePack02/My-game-pack-review && for m in BridgeMod SaikutuMod DisplayMod; do echo \"== $m\"; git log origin/main --first-parent --reverse --since=2026-10-03 --date=short --format='%ad %s' -p -- $m/gradle.properties | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2} |^\\+mod_version' | paste - - | sed 's/+mod_version=/→ /'; done",
+      "expect": ["== BridgeMod", "→ 1.4.0", "→ 1.5.0", "→ 1.6.0", "→ 1.7.0", "→ 1.7.1", "→ 1.7.4", "== SaikutuMod", "→ 1.0.1", "→ 1.1.0", "→ 1.1.1", "→ 1.1.4", "== DisplayMod", "→ 1.1.0"]
+    },
+    {
+      "name": "last-release",
+      "cmd": "cd /d/Dev02/game_dev/MyGamePack02/My-game-pack-review && gh release list --limit 1 && node -p \"require('./package.json').version\"",
+      "expect": ["v1.0.46", "1.0.46"]
+    },
+    {
+      "name": "api-example",
+      "cmd": "cd /d/Dev02/game_dev/MyGamePack02/My-game-pack-review && sed -n '/^import jp.douma.bridgemod.api.BlockProtection;/,/^});/p' 'docs/ゲームMOD連携API_v1.4.md' && grep -n 'versionRange' 'docs/ゲームMOD連携API_v1.4.md'",
+      "expect": ["import jp.douma.bridgemod.api.BlockProtection;", "BlockProtection.runProtected(server, \"mygame\", () -> {", "[1.6.0,)"]
+    },
+    {
+      "name": "listener-name",
+      "cmd": "cd /d/Dev02/game_dev/MyGamePack02/My-game-pack-review && grep -n -B1 'this.listenerName = ListenerNames.display(listenerName);' BridgeMod/src/main/java/jp/douma/bridgemod/BridgeMod.java",
+      "expect": ["表示・txt・ゲームMODで共通", "ListenerNames.display(listenerName)"]
+    },
+    {
+      "name": "weather-holds",
+      "cmd": "cd /d/Dev02/game_dev/MyGamePack02/My-game-pack-review && grep -n -A3 'private void clearWeather(ServerLevel level)' BridgeMod/src/main/java/jp/douma/bridgemod/GiftEffects.java && grep -n 'public static void clearWeather' BridgeMod/src/main/java/jp/douma/bridgemod/api/EnvironmentOverrides.java",
+      "expect": ["EnvironmentOverrides.clearWeather(level);", "WEATHER.remove(level)"]
+    },
+    {
+      "name": "refresh-modid",
+      "cmd": "cd /d/Dev02/game_dev/MyGamePack02/My-game-pack-review && grep -n \"const own = new Set\" electron/game_profiles.cjs",
+      "expect": ["'bridgemod', 'doumacmd', 'displaymod', ...(pack ? [pack.manifest.modId] : [])"]
+    },
+    {
+      "name": "unbreakable",
+      "cmd": "cd /d/Dev02/game_dev/MyGamePack02/My-game-pack-review && grep -n 'getDestroySpeed(o.level, p) >= 0' SaikutuMod/src/main/java/jp/douma/saikutumod/SaikutuEffects.java && grep -n 'getDestroySpeed' BridgeMod/src/main/java/jp/douma/bridgemod/GiftEffects.java",
+      "expect": ["getDestroySpeed(o.level, p) >= 0", "getDestroySpeed"]
+    }
+  ]
+}
