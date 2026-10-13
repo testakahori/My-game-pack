@@ -56,6 +56,8 @@ test('BRIDGE は配信終了で、いいねのまとめ送り・送信の待ち�
   const like = source.slice(source.indexOf('onTikTok("like"'), source.indexOf('onTikTok("like"') + 400);
   assert.match(like, /if \(likesClosed\) return;/);
   assert.match(source, /likeCounter\.reset\(\);\s*likesClosed = false;/, 'つながり直したら、いいねを受け付ける');
+  // 2秒のあいだに次の配信へつながったら、あとの捨て直しはしない（新しい配信のいいねを捨てない。PR #94 再レビュー）。
+  assert.match(handler, /setTimeout\(\(\) => \{\s*if \(!likesClosed\) return;/);
 });
 
 test('BridgeMOD 1.7.5 は /bridge/control でいいねの待ちを捨てる（トークンで確かめる）', () => {

@@ -245,3 +245,19 @@ test('捨てたあとに来たいいねは、捨てた先頭がまだ残って�
   assert.deepEqual(sent, [['like', 2]], '捨てたあとに来た2回だけを送る');
   assert.equal(delivery.discard('unknown'), 0);
 });
+
+test('送信中に捨てたいいねが送れなかったときは、再送を待たずに次へ進む（PR #94 再レビュー）', async () => {
+  let fail, sleeps = 0, retries = 0;
+  const delivery = createModEventDelivery({
+    send: event => event.type === 'like' ? new Promise((_, reject) => { fail = reject; }) : Promise.resolve(),
+    retry: () => { retries++; },
+    sleep: async () => { sleeps++; },
+  });
+  const job = delivery.enqueue({ type: 'like', commandFile: 'cod.txt', count: 3 });
+  await new Promise(resolve => setImmediate(resolve));
+  delivery.discard('like');
+  fail(Object.assign(new Error('HTTP 429'), { status: 429 }));
+  await job;
+  assert.equal(sleeps, 0, '捨てたいいねの再送は待たない（いいねの列を最大3秒止めない）');
+  assert.equal(retries, 0, '捨てたいいねの再送は診断にも出さない');
+});

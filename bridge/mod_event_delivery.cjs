@@ -39,6 +39,8 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {}, 
             try { job.inFlight = count; await send(chunk); sent = true; break; }
             catch (error) {
               job.inFlight = 0;
+              // 送信中に捨てたいいねが送れなかったときは、再送を待たずに次へ進む（PR #94 再レビュー）。
+              if (job.discarded) break;
               attempts++;
               // A finite retry limit is only for explicit callers/tests, never the live dispatcher.
               if (isPermanentDeliveryFailure(error) || attempts > maxRetries) { failed = true; failure = error; break; }

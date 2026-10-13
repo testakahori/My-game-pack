@@ -1930,7 +1930,11 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const inMod = await discardInMod();
     console.log(`[Like] 配信が終わったので、まだ実行していないいいね分を捨てました（BRIDGE ${inBridge}回分・BridgeMOD の待ち ${inMod}件）`);
     // 送信中だった分が、捨てたあとに BridgeMOD へ着くことがある（HTTP の時間切れは1.5秒）。少しあとにもう一度捨てさせる。
-    setTimeout(() => { discardInMod().then(late => { if (late > 0) console.log(`[Like] 配信終了のあとに BridgeMOD へ着いたいいね ${late}件も捨てました`); }); }, 2000);
+    // そのあいだに次の配信へつながっていたら、新しい配信のいいねを捨てないよう、捨て直さない。
+    setTimeout(() => {
+      if (!likesClosed) return;
+      discardInMod().then(late => { if (late > 0) console.log(`[Like] 配信終了のあとに BridgeMOD へ着いたいいね ${late}件も捨てました`); });
+    }, 2000);
   });
 
   onTikTok("like", async (data) => {
