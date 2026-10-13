@@ -1324,6 +1324,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     catch (error) { console.error(`[Bridge] ${type} イベントの処理でエラー（このイベントだけ飛ばして続行します）:`, error?.stack || error?.message || error); }
   });
   const likeCounter = createLikeCounter();
+  // 配信が終わってから次につながるまでは、いいねを使わない（配信のあとに妨害を起こさない。2026-10-14）。
+  let likesClosed = false;
   let connectedAt = 0;
   let tiktokConnectLoop = null;
   let tiktokReconnectTimer = null;
@@ -1528,6 +1530,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         const state = await tiktok.connect();
         connectedAt = Date.now();
         likeCounter.reset();
+        likesClosed = false;
         recordStream('connect', tiktokUsername, state.roomId);
         console.log(`[TikTok] Connected. roomId=${state.roomId}`);
         console.log(`[Bridge] connectedAt: ${connectedAt}`);
@@ -1914,15 +1917,25 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // 捨てるのは、まとめ送りの待ち・送信の待ち（再送の待ちを含む）・BridgeMOD の待ちの3か所。配信中のいいね・ギフト・テスト発火は変えない。
   onTikTok("streamEnd", async () => {
     if (!bridgeMod) return;
+    // 配信終了のあとに届いたいいね（同じ通知のまとまりに残っていた分など）も、次につながるまで使わない（PR #94 レビュー）。
+    likesClosed = true;
     const inBridge = queueLikeEventBatched.discard() + modDelivery.discard("like");
-    let inMod = 0;
-    try { inMod = await sendBridgeModControl(bridgeMod, { action: "discard", type: "like" }); }
-    catch (error) { console.warn(`[Like] BridgeMOD のいいねの待ちを捨てられませんでした（BridgeMOD 1.7.5 より前は捨てられません）: ${error?.message || error}`); }
+    const discardInMod = async () => {
+      try { return await sendBridgeModControl(bridgeMod, { action: "discard", type: "like" }); }
+      catch (error) {
+        console.warn(`[Like] BridgeMOD のいいねの待ちを捨てられませんでした（${error?.status === 404 ? "BridgeMOD 1.7.5 より前は捨てられません" : "BridgeMOD が止まっているか、応答がありません"}）: ${error?.message || error}`);
+        return 0;
+      }
+    };
+    const inMod = await discardInMod();
     console.log(`[Like] 配信が終わったので、まだ実行していないいいね分を捨てました（BRIDGE ${inBridge}回分・BridgeMOD の待ち ${inMod}件）`);
+    // 送信中だった分が、捨てたあとに BridgeMOD へ着くことがある（HTTP の時間切れは1.5秒）。少しあとにもう一度捨てさせる。
+    setTimeout(() => { discardInMod().then(late => { if (late > 0) console.log(`[Like] 配信終了のあとに BridgeMOD へ着いたいいね ${late}件も捨てました`); }); }, 2000);
   });
 
   onTikTok("like", async (data) => {
     data = normalizeTikTokEvent(data, 'like');
+    if (likesClosed) return;
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
     if (isMuted(data)) return;
     const progress = likeCounter.next(data);

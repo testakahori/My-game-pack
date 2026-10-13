@@ -385,7 +385,6 @@ public class BridgeMod {
         return new String(buf, StandardCharsets.UTF_8);
     }
 
-    // キュー滞留の可視化用（Bridge側の診断ログやデバッグで使用）
     // 待ち列への指示。今は「いいねの待ちを捨てる」だけ（配信が終わったとき。2026-10-14 ユーザーの決定）。
     // ギフト・そのほかの待ちは捨てない（送られた数どおりに起こす）。
     private void handleBridgeControl(HttpExchange exchange) throws IOException {
@@ -417,6 +416,7 @@ public class BridgeMod {
         likeQueue.clear();
         return discarded;
     }
+    // キュー滞留の可視化用（Bridge側の診断ログやデバッグで使用）
     private void handleBridgeStatus(HttpExchange exchange) throws IOException {
         if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
             sendHttp(exchange, 405, "{\"ok\":false,\"error\":\"method_not_allowed\"}");
@@ -630,6 +630,8 @@ public class BridgeMod {
      * 実行したコマンド数を返す。event.remaining / event.announced を更新する。
      */
     private int executeEventSlice(MinecraftServer server, BridgeEvent event, int commandBudget) {
+        // 取り出したあとに /bridge/control で捨てられたイベントは実行しない（ゲームMODへ count=0 で渡さない）。
+        if (event.remaining <= 0) return 0;
         boolean pacedCod = "like".equals(event.type) && "cod".equals(event.key);
         if (pacedCod && !likeCod.canSpawn(server)) return 0;
         // /bridge/exec の生コマンド：演出フレームなので失敗は統計に計上しない

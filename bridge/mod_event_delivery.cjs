@@ -31,11 +31,14 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {}, 
           let attempts = 0;
           // Shared by every retry of this chunk, so diagnostics can count consecutive failures of one kind.
           const retryState = {};
+          // 送信中の分は、捨てる回数に数えない（応答が来れば送れた分になる）。
+          let sent = false;
           for (;;) {
             // 捨てたいいね（配信終了）は、再送の待ちが明けても送り直さない。
             if (job.discarded) break;
-            try { await send(chunk); break; }
+            try { job.inFlight = count; await send(chunk); sent = true; break; }
             catch (error) {
+              job.inFlight = 0;
               attempts++;
               // A finite retry limit is only for explicit callers/tests, never the live dispatcher.
               if (isPermanentDeliveryFailure(error) || attempts > maxRetries) { failed = true; failure = error; break; }
@@ -43,12 +46,18 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {}, 
               await sleep(Math.min(3000, 250 * 2 ** Math.min(attempts - 1, 4)));
             }
           }
-          if (failed || job.discarded) break;
-          job.remaining -= count;
-          job.part++;
+          job.inFlight = 0;
+          // 捨てたあとに応答が来ても、送れた分は送れた分として数える（PR #94 レビュー）。
+          if (sent) { job.remaining -= count; job.part++; }
+          if (failed || !sent) break;
         }
         lanes[lane].shift();
-        if (job.discarded) { job.resolve(); continue; }
+        if (job.discarded) {
+          const done = job.total - job.remaining;
+          if (done > 0) try { delivered({ ...job.event, count: done }); } catch { /* Recording failure must not affect gameplay delivery. */ }
+          job.resolve();
+          continue;
+        }
         if (failed) {
           report({ ...job.event, count: job.remaining }, failure);
           job.reject(failure);
@@ -81,14 +90,15 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {}, 
         void drain(lane);
       });
     },
-    pending() { return Object.fromEntries(Object.entries(lanes).map(([key, jobs]) => [key, jobs.reduce((n, job) => n + job.remaining, 0)])); },
+    pending() { return Object.fromEntries(Object.entries(lanes).map(([key, jobs]) => [key, jobs.reduce((n, job) => n + (job.discarded ? 0 : job.remaining), 0)])); },
     // まだ送っていない分を捨て、捨てた回数を返す（配信が終わったときのいいね。2026-10-14 ユーザーの決定）。
     // 送信中の1回は止められないので、その応答のあとで止まる。捨てた要求は失敗として記録しない。
     discard(lane) {
+      if (!lanes[lane]) return 0;
       let discarded = 0;
-      for (const job of lanes[lane] || []) {
+      for (const job of lanes[lane]) {
         if (job.discarded) continue;
-        discarded += job.remaining;
+        discarded += job.remaining - (job.inFlight || 0);
         job.discarded = true;
       }
       // 先頭以外は今すぐ外す。先頭は送信や再送の待ちの途中なので、drain が外す。

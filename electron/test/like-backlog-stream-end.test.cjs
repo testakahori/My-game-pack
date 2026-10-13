@@ -29,10 +29,14 @@ test('配信が終わったら、BRIDGE に溜まったいいね分を送らず�
   await bridge.until(() => bridge.logs.some(line => line.includes('配信が終わったので、まだ実行していないいいね分を捨てました')), 'log');
 
   // 捨てたいいねは、BridgeMOD が受け付けるようになっても送り直さない（再送の待ちは最長3秒）。
-  const likeTries = bridge.requests.filter(x => x.type === 'like').length;
+  const likeTries = bridge.requests.filter(x => x.type === 'like' && !x.action).length;
   likesRejected = false;
+  // 配信終了のあとに届いたいいね（同じ通知のまとまりに残っていた分など）も、次につながるまで使わない（PR #94 レビュー）。
+  await bridge.emit('WebcastLikeMessage', { count: 20, total: '50' });
   await bridge.wait(3300);
-  assert.equal(bridge.requests.filter(x => x.type === 'like').length, likeTries);
+  assert.equal(bridge.requests.filter(x => x.type === 'like' && !x.action).length, likeTries);
+  // 送信中だった分があとから BridgeMOD に着いても捨てられるよう、少しあとにもう一度捨てさせる（PR #94 レビュー）。
+  assert.equal(bridge.requests.filter(x => x.action === 'discard').length, 2);
 
   await bridge.emit('WebcastGiftMessage', { giftId: '5655', gift: { name: 'バラ', diamondCount: 1 }, repeatCount: 1, repeatEnd: 1 });
   await bridge.until(() => bridge.requests.some(x => x.type === 'gift' && x.key === 'zombie'), 'gift still delivered');
@@ -44,8 +48,14 @@ test('配信が終わったら、BRIDGE に溜まったいいね分を送らず�
 test('BRIDGE は配信終了で、いいねのまとめ送り・送信の待ち・BridgeMOD の待ちの3か所を捨てる', () => {
   const source = read('bridge/index.js');
   const handler = source.slice(source.indexOf('onTikTok("streamEnd"'), source.indexOf('onTikTok("like"'));
+  assert.match(handler, /likesClosed = true;/);
   assert.match(handler, /const inBridge = queueLikeEventBatched\.discard\(\) \+ modDelivery\.discard\("like"\);/);
   assert.match(handler, /sendBridgeModControl\(bridgeMod, \{ action: "discard", type: "like" \}\)/);
+  // 失敗の理由は、古い BridgeMOD（404）とそれ以外（止まっている・トークン違いなど）で分けて出す。
+  assert.match(handler, /error\?\.status === 404 \? "BridgeMOD 1\.7\.5 より前は捨てられません" : /);
+  const like = source.slice(source.indexOf('onTikTok("like"'), source.indexOf('onTikTok("like"') + 400);
+  assert.match(like, /if \(likesClosed\) return;/);
+  assert.match(source, /likeCounter\.reset\(\);\s*likesClosed = false;/, 'つながり直したら、いいねを受け付ける');
 });
 
 test('BridgeMOD 1.7.5 は /bridge/control でいいねの待ちを捨てる（トークンで確かめる）', () => {
@@ -57,5 +67,7 @@ test('BridgeMOD 1.7.5 は /bridge/control でいいねの待ちを捨てる（�
   // 実行中のいいねは残りを0にして止める。捨てたあとに来た新しいいいねを、取り出しで消さない。
   assert.match(mod, /private synchronized int discardLikeQueue\(\) \{\s*int discarded = likeQueue\.size\(\);\s*for \(BridgeEvent event : likeQueue\) event\.remaining = 0;\s*likeQueue\.clear\(\);\s*return discarded;\s*\}/);
   assert.match(mod, /if \(queue\.peekFirst\(\) == event\) queue\.pollFirst\(\);/);
+  // 取り出したあとに捨てられたイベントは実行しない（ゲームMODへ count=0 で渡さない。PR #94 レビュー）。
+  assert.match(mod, /private int executeEventSlice\(MinecraftServer server, BridgeEvent event, int commandBudget\) \{\s*(?:\/\/[^\n]*\s*)*if \(event\.remaining <= 0\) return 0;/);
   assert.match(read('BridgeMod/gradle.properties'), /^mod_version=1\.7\.5\r?$/m);
 });

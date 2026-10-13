@@ -199,3 +199,49 @@ test('いいねのまとめ送りで待っている分も捨てられ、その�
   fire();
   assert.deepEqual(dispatched.map(event => [event.listenerName, event.count]), [['B', 1]]);
 });
+
+test('送信中のいいねは、捨てたあとに届いても送れた分として記録し、捨てた回数に数えない（PR #94 レビュー）', async () => {
+  const delivered = [];
+  let finish, likeCalls = 0;
+  const delivery = createModEventDelivery({
+    send: event => {
+      if (event.type !== 'like') return Promise.resolve();
+      likeCalls++;
+      // 2回目（101〜200回目）の送信の途中で捨てる。
+      return likeCalls === 2 ? new Promise(resolve => { finish = resolve; }) : Promise.resolve();
+    },
+    delivered: event => delivered.push(event.count),
+    sleep: async () => {},
+  });
+  const job = delivery.enqueue({ type: 'like', commandFile: 'cod.txt', count: 250 });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(likeCalls, 2);
+  assert.equal(delivery.discard('like'), 50, '送信中の100回は数えない');
+  assert.deepEqual(delivery.pending(), { gift: 0, like: 0, other: 0 }, '捨てた分は待ちに数えない');
+  finish();
+  await job;
+  assert.equal(likeCalls, 2, '残りの50回は送らない');
+  assert.deepEqual(delivered, [200], '送れた200回は記録する');
+});
+
+test('捨てたあとに来たいいねは、捨てた先頭がまだ残っていても送る。知らない種類を捨てても何もしない（PR #94 レビュー）', async () => {
+  const sent = [];
+  let wake;
+  let rejectLikes = true;
+  const delivery = createModEventDelivery({
+    send: async event => {
+      if (event.type === 'like' && rejectLikes) throw Object.assign(new Error('HTTP 429'), { status: 429 });
+      sent.push([event.type, event.count]);
+    },
+    sleep: () => new Promise(resolve => { wake = resolve; }),
+  });
+  const old = delivery.enqueue({ type: 'like', commandFile: 'cod.txt', count: 4 });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(delivery.discard('like'), 4);
+  const fresh = delivery.enqueue({ type: 'like', commandFile: 'cod.txt', count: 2 });
+  rejectLikes = false;
+  wake();
+  await Promise.all([old, fresh]);
+  assert.deepEqual(sent, [['like', 2]], '捨てたあとに来た2回だけを送る');
+  assert.equal(delivery.discard('unknown'), 0);
+});
