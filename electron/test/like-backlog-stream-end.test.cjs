@@ -71,5 +71,6 @@ test('BridgeMOD 1.7.5 は /bridge/control でいいねの待ちを捨てる（�
   assert.match(mod, /if \(queue\.peekFirst\(\) == event\) queue\.pollFirst\(\);/);
   // 取り出したあとに捨てられたイベントは実行しない（ゲームMODへ count=0 で渡さない。PR #94 レビュー）。
   assert.match(mod, /private int executeEventSlice\(MinecraftServer server, BridgeEvent event, int commandBudget\) \{\s*(?:\/\/[^\n]*\s*)*if \(event\.remaining <= 0\) return 0;/);
-  assert.match(read('BridgeMod/gradle.properties'), /^mod_version=1\.7\.5\r?$/m);
+  const [major, minor, patch] = read('BridgeMod/gradle.properties').match(/^mod_version=(\d+)\.(\d+)\.(\d+)\r?$/m).slice(1).map(Number);
+  assert.ok(major > 1 || major === 1 && (minor > 7 || minor === 7 && patch >= 5), 'BridgeMOD 1.7.5 以上');
 });

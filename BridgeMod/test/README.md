@@ -95,6 +95,19 @@ Java 17でBridgeModの通常のbuildに加えて、明示的に `environmentProb
 
 結果はサーバールートの `like-backlog-results.json` に保存します。
 
+## 状態と WebSocket の送信（2026-10-14）
+
+`node status-threads.cjs` は、BridgeMOD 1.7.6 の状態の作り方と WebSocket の送信を確かめます（アプリレビュー 2026-10-08 の P5）。上と同じマーカー・ポート・GIFT_QA_SERVER を使います。テストが `bridge/commands/minecraft/qa_status_like.txt` を書き、ボット（QAStatus）を接続します。
+
+- `/bridge/status` が、これまでと同じ値をすべて返す。
+- 待ちの件数は、積んだ直後・捨てた直後の値を返す。
+- WebSocket へ、つないだらすぐ状態が届き、そのあと1秒ごとに届く。プレイヤーの死亡も届き、`/bridge/status` の死亡数もその時点の値になる。
+- 読まない WebSocket の相手がいても、15秒のあいだサーバーの tick と、ほかの接続への送信が止まらない。
+
+「直す前は、読まない相手で tick が止まる」ことは、ここで再現すると数分以上かかるので、JUnit（`BridgeMod/src/test` の `WebSocketOutboxTest`）で確かめます。JUnit は `gradlew build`（CI の mod-build）で毎回動きます。
+
+結果はサーバールートの `status-threads-results.json` に保存します。
+
 ## 採掘へ移したコマンド（2026-10-12）
 
 `node saikutu-commands.cjs` は、採掘へ移した採掘速度上昇・低下（give_haste・give_fatigue）が SaikutuMOD の内蔵 txt から効くことを確かめます（SaikutuMOD 1.1.2 から）。SaikutuMOD を入れたサーバーで、上と同じマーカー・ポート・GIFT_QA_SERVER を使います。テストが `bridge/commands/minecraft/game_saikutu_*.txt` を書きます。
