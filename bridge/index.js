@@ -1533,9 +1533,10 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         connectedAt = Date.now();
         likeCounter.reset();
         likesClosed = false;
-        // 別の配信につないだら、フォローのマイルストーンを0から数え直す（同じ配信へのつなぎ直しでは続きから）。
+        // 別の配信につないだら、マイルストーンを0から数え直す（同じ配信へのつなぎ直しでは続きから）。
+        // 最初の接続では数え直さない（つなぐ途中に届いたフォローを消さない。PR #96 レビュー）。
         const roomId = String(state.roomId || "");
-        if (roomId !== lastRoomId) featureEngine.startStream();
+        if (lastRoomId !== null && roomId !== lastRoomId) featureEngine.startStream();
         lastRoomId = roomId;
         recordStream('connect', tiktokUsername, state.roomId);
         console.log(`[TikTok] Connected. roomId=${state.roomId}`);
@@ -1922,6 +1923,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // 配信が終わったら、まだ実行していないいいね分を捨てる（2026-10-14 ユーザーの決定。配信のあとも妨害が続かないように）。
   // 捨てるのは、まとめ送りの待ち・送信の待ち（再送の待ちを含む）・BridgeMOD の待ちの3か所。配信中のいいね・ギフト・テスト発火は変えない。
   onTikTok("streamEnd", async () => {
+    // 次につなぐのは次の配信。配信の番号が同じに見えても、マイルストーンを0から数え直す（PR #96 レビュー）。
+    featureEngine.startStream();
     if (!bridgeMod) return;
     // 配信終了のあとに届いたいいね（同じ通知のまとまりに残っていた分など）も、次につながるまで使わない（PR #94 レビュー）。
     likesClosed = true;
@@ -1954,7 +1957,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     if (previousTotal === 0 || likeEvents.some(ev => enabledCommand(ev) && Math.floor(total / Number(ev.threshold)) > Math.floor(previousTotal / Number(ev.threshold)))) {
       console.log(`[Like:RAW] total=${total} previous=${previousTotal} count=${data.likeCount ?? '(none)'} from=${getStableSender(data)}`);
     }
-    featureEngine.recordLikes(total, getStableSender(data), previousTotal);
+    featureEngine.recordLikes(total, getStableSender(data), previousTotal, progress.local);
     for (const ev of likeEvents) {
       if (ev.enabled === false || !ev.commandFile || !ev.threshold) continue;
       const thresh = clampInt(ev.threshold, 1, 1000000, 10);

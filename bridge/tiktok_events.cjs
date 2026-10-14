@@ -101,9 +101,11 @@ function isPreConnectionEvent(data, connectedAt) {
 }
 function createLikeCounter() {
   let lastTotal = null;
+  // 配信の累計が届かず、つないでからの数で数えている間は true。
+  let localCount = false;
   const seen = new Set();
   return {
-    reset() { lastTotal = null; seen.clear(); },
+    reset() { lastTotal = null; localCount = false; seen.clear(); },
     next(input) {
       const data = normalizeTikTokEvent(input, 'like');
       if (data.msgId) {
@@ -113,16 +115,22 @@ function createLikeCounter() {
       }
       const delta = data.likeCount;
       let total = data.totalLikeCount;
-      if (total == null || (total === 0 && delta > 0 && lastTotal == null)) {
+      const derived = total == null || (total === 0 && delta > 0 && lastTotal == null);
+      if (derived) {
         if (delta == null) return null;
         total = (lastTotal ?? 0) + delta;
       }
-      if (!Number.isSafeInteger(total) || (lastTotal != null && total < lastTotal)) return null;
+      // 配信の累計が初めて届いた。つないでからの数とは比べられないので、この通知の分だけを新しく数える（PR #96 レビュー）。
+      const base = !derived && localCount ? null : lastTotal;
+      if (!Number.isSafeInteger(total) || (base != null && total < base)) return null;
       // The first live packet's count belongs to this connection. Exclude older likes,
       // but do not discard the first 100 live likes by treating their total as the baseline.
-      const previousTotal = lastTotal ?? Math.max(0, total - (delta ?? 0));
+      const previousTotal = base ?? Math.max(0, total - (delta ?? 0));
+      if (derived && lastTotal == null) localCount = true;
+      else if (!derived) localCount = false;
       lastTotal = total;
-      return { previousTotal, total, received: total - previousTotal };
+      // local: total が配信の累計ではなく、つないでからの数（配信の累計がまだ届いていない）。
+      return { previousTotal, total, received: total - previousTotal, local: localCount };
     },
   };
 }
