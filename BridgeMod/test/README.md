@@ -102,7 +102,11 @@ Java 17でBridgeModの通常のbuildに加えて、明示的に `environmentProb
 - `/bridge/status` が、これまでと同じ値をすべて返す。
 - 待ちの件数は、積んだ直後・捨てた直後の値を返す。
 - WebSocket へ、つないだらすぐ状態が届き、そのあと1秒ごとに届く。プレイヤーの死亡も届き、`/bridge/status` の死亡数もその時点の値になる。
-- 読まない WebSocket の相手がいても、15秒のあいだサーバーの tick と、ほかの接続への送信が止まらない。
+- 読まない WebSocket の相手がいても、15秒のあいだサーバーの tick と、ほかの接続への送信が止まらない（短い確認。15秒ではカーネルの送信バッファーが埋まらないので、直す前の版でも通る）。
+- サーバーが3秒止まっても、`/bridge/status` は1秒以内に `"stale":true` で返り、そのあいだのギフトも1.5秒以内に受け付けて1回だけ実行する。
+- 外部ゲームMODの状態が JSON にできなくても、サーバーは止まらず、そのMODの分だけエラーになる。
+
+後ろの2件は、`environmentProbeJar` の `gameprobe`（`gameprobe stall <ミリ秒>`・`gameprobe badstatus`）が必要です。BridgeMOD・`build/qa/environment-probe.jar`・DisplayMOD を配置してください。`--only=<名前の一部>` で1件だけ実行できます。
 
 「直す前は、読まない相手で tick が止まる」ことは、ここで再現すると数分以上かかるので、JUnit（`BridgeMod/src/test` の `WebSocketOutboxTest`）で確かめます。JUnit は `gradlew build`（CI の mod-build）で毎回動きます。
 

@@ -17,7 +17,10 @@ const post = (url, body) => bridgeFetch(base + url, { method: 'POST', headers: {
 async function wait(fn, ms = 60000) { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return; await sleep(200); } throw Error('Timed out'); }
 let rcon, bot;
 const results = [];
+// --only=<名前の一部> を付けると、名前にそれを含むテストだけを実行する。
+const only = process.argv.find(a => a.startsWith('--only='))?.slice('--only='.length);
 async function test(name, fn) {
+  if (only && !name.includes(only)) return;
   console.log('TEST', name);
   const info = await fn();
   results.push({ name, passed: true, info });
@@ -77,7 +80,8 @@ function listen() {
     return { statusMessages: statuses.length };
   });
 
-  await test('読まない WebSocket の相手がいても、サーバーの tick と、ほかの接続への送信は止まらない（15秒）', async () => {
+  // 短い確認。15秒ではカーネルの送信バッファーが埋まらないので、「直す前は止まる」ことは JUnit で確かめる（PR #98 レビュー）。
+  await test('読まない WebSocket の相手がいても、サーバーの tick と、ほかの接続への送信は止まらない（15秒の短い確認）', async () => {
     const raw = net.connect(wsPort, '127.0.0.1');
     await new Promise((resolve, reject) => { raw.once('connect', resolve); raw.once('error', reject); });
     raw.write(`GET /?token=${encodeURIComponent(token())} HTTP/1.1\r\nHost: 127.0.0.1:${wsPort}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n`
@@ -99,6 +103,45 @@ function listen() {
     assert.ok(statusMessages >= 12, 'the other client still receives status every second: ' + statusMessages);
     assert.ok(s.tps >= 15, 'tps ' + s.tps);
     return { ticksPerSecond: Math.round((t1 - t0) / seconds * 10) / 10, statusMessages, tps: s.tps };
+  });
+
+  // 状態の要求がサーバーを待つあいだに、ギフトの受付が後ろに並ぶと、BRIDGE は 1.5 秒で諦めて送り直し、ギフトが2回実行される（PR #98 レビュー C1）。
+  await test('サーバーが3秒止まっても、/bridge/status は1秒以内に古い状態（stale）で返り、そのあいだのギフトも1.5秒以内に受け付けて1回だけ実行する', async () => {
+    fs.writeFileSync(path.join(root, 'bridge', 'commands', 'minecraft', 'qa_status_gift.txt'), '# TITLE: qa status gift\nscoreboard players add #gift qastatus 1\n');
+    await rcon.send('scoreboard players set #gift qastatus 0');
+    const stall = rcon.send('gameprobe stall 3000'); // サーバーのスレッドが3秒止まる（RCON の返事も3秒後）
+    await sleep(300);
+    const t0 = Date.now();
+    const pending = status().then(s => ({ s, ms: Date.now() - t0 }));
+    await sleep(50);
+    const t1 = Date.now();
+    const r = await bridgeFetch(base + '/bridge/event', { method: 'POST', headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(1500),
+      body: JSON.stringify({ type: 'gift', key: 'qa_status_gift', count: 1, listenerName: 'QA', announce: false }) });
+    const eventMs = Date.now() - t1;
+    assert.equal(r.status, 202); await r.text();
+    const { s, ms } = await pending;
+    assert.ok(ms < 1000, 'status answered in ' + ms + 'ms');
+    assert.equal(s.stale, true);
+    await stall;
+    const gifts = async () => Number((await rcon.send('scoreboard players get #gift qastatus')).match(/has (\d+)/)?.[1] || 0);
+    await wait(async () => await gifts() === 1, 10000);
+    await sleep(3000);
+    assert.equal(await gifts(), 1, 'the gift ran exactly once');
+    return { statusMs: ms, eventMs };
+  });
+
+  // 外部ゲームMODの状態を JSON にできないと、以前は tick から StackOverflowError が漏れてサーバーが落ちた（PR #98 レビュー I3）。
+  await test('外部ゲームMODの状態が JSON にできなくても、サーバーは止まらず、そのMODの分だけエラーになる', async () => {
+    await rcon.send('gameprobe badstatus');
+    await sleep(2500);
+    const s = await status();
+    assert.equal(s.stale, undefined, 'the server thread built it');
+    assert.equal(s.games.gameprobe.ok, false);
+    assert.match(s.games.gameprobe.error, /StackOverflowError/);
+    assert.ok(s.tps >= 15, 'tps ' + s.tps);
+    await rcon.send('gameprobe goodstatus');
+    await wait(async () => (await status()).games.gameprobe.ok !== false, 5000);
+    return { error: s.games.gameprobe.error };
   });
 
   fs.writeFileSync(path.join(root, 'status-threads-results.json'), JSON.stringify({ results }, null, 2));

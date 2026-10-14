@@ -1,4 +1,5 @@
 package example.gameprobe;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import jp.douma.bridgemod.api.GameEvents;
 import jp.douma.bridgemod.api.RequestLedger;
 import net.minecraft.commands.Commands;
@@ -18,12 +19,18 @@ public final class GameProbe {
     private final List<Map<String,Object>> started = new ArrayList<>();
     private final RequestLedger ledger = new RequestLedger(1000);
     private boolean blocked, paused;
+    // badstatus の間は、JSON にできない状態（自分を含む Map）を返す（BridgeMOD 1.7.6 の実機テスト status-threads.cjs）。
+    private volatile boolean badStatus;
     private int duplicates, discarded;
     private volatile Map<String,Object> snapshot = Map.of();
     private MinecraftServer server;
     public GameProbe() {
-        GameEvents.register("gameprobe", this::offer, () -> snapshot);
+        GameEvents.register("gameprobe", this::offer, this::status);
         MinecraftForge.EVENT_BUS.register(this);
+    }
+    private Map<String,Object> status() {
+        if (!badStatus) return snapshot;
+        Map<String,Object> loop = new HashMap<>(); loop.put("self", loop); return loop;
     }
     private int offer(Map<String,Object> data) {
         if (!GameEvents.isCurrentSession("gameprobe", data.get("gameSessionId"))) { discarded++; return GameEvents.DISCARDED; }
@@ -43,6 +50,13 @@ public final class GameProbe {
         root.then(Commands.literal("unblock").executes(c -> { blocked = false; return 1; }));
         root.then(Commands.literal("pause").executes(c -> { paused = true; return 1; }));
         root.then(Commands.literal("resume").executes(c -> { paused = false; return 1; }));
+        root.then(Commands.literal("badstatus").executes(c -> { badStatus = true; return 1; }));
+        root.then(Commands.literal("goodstatus").executes(c -> { badStatus = false; return 1; }));
+        // サーバーのスレッドを止めて、重いサーバーを作る（BridgeMOD 1.7.6 の実機テスト status-threads.cjs）。
+        root.then(Commands.literal("stall").then(Commands.argument("ms", IntegerArgumentType.integer(1, 10000)).executes(c -> {
+            try { Thread.sleep(IntegerArgumentType.getInteger(c, "ms")); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            return 1;
+        })));
         event.getDispatcher().register(root);
     }
     @SubscribeEvent public void tick(TickEvent.ServerTickEvent event) {

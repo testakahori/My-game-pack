@@ -6,6 +6,7 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 /**
  * WebSocket の1つの接続へ送る（送信専用。BridgeMOD から Bridge へ状態と死亡通知を送る）。
@@ -46,8 +47,10 @@ final class WebSocketOutbox {
     private void writeLoop() {
         try {
             OutputStream out = socket.getOutputStream();
+            // 1秒ごとに、ソケットが閉じられていないかを見直す（読み込みのスレッドが閉じただけでも、このスレッドを終える）。
             while (!socket.isClosed()) {
-                byte[] frame = pending.take();
+                byte[] frame = pending.poll(1, TimeUnit.SECONDS);
+                if (frame == null) continue;
                 out.write(frame);
                 out.flush();
             }

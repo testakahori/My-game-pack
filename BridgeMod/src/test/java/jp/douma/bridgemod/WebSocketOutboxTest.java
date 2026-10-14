@@ -9,6 +9,8 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.HashSet;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -27,8 +29,39 @@ class WebSocketOutboxTest {
                 for (int i = 0; i < 2_000 && !outbox.isClosed(); i++) outbox.offer(message);
             }, "the server thread must not wait for a client that stopped reading");
             assertTrue(outbox.isClosed(), "a client that stopped reading is dropped (Bridge reconnects)");
-            assertFalse(peer.isClosed());
         }
+    }
+
+    // 接続が閉じたら、送信スレッドも終わる（PR #98 レビュー I1：以前は閉じたあとも送信待ちで止まったまま残った）。
+    @Test
+    void theSenderThreadEndsWhenTheSocketIsClosed() throws Exception {
+        InetAddress loopback = InetAddress.getLoopbackAddress();
+        try (ServerSocket server = new ServerSocket(0, 1, loopback);
+             Socket peer = new Socket(loopback, server.getLocalPort());
+             Socket accepted = server.accept()) {
+            Set<Thread> before = senders();
+            WebSocketOutbox outbox = new WebSocketOutbox(accepted);
+            Set<Thread> mine = senders();
+            mine.removeAll(before);
+            assertEquals(1, mine.size());
+            assertTrue(outbox.offer("a"));
+            // 相手が受け取るまで待つ。送信スレッドは、次の送信待ちで止まっている。
+            peer.setSoTimeout(5000);
+            assertEquals("a", readText(new DataInputStream(peer.getInputStream())));
+            // 受信側（BridgeMod の読み込みのスレッド）がソケットを閉じただけでも終わる。
+            accepted.close();
+            Thread sender = mine.iterator().next();
+            sender.join(5000);
+            assertFalse(sender.isAlive(), "the sender thread must not wait forever after the socket is closed");
+            assertFalse(outbox.offer("b"));
+        }
+    }
+
+    private static Set<Thread> senders() {
+        Set<Thread> threads = new HashSet<>();
+        for (Thread thread : Thread.getAllStackTraces().keySet())
+            if (thread.isAlive() && "BridgeMod-WebSocketSend".equals(thread.getName())) threads.add(thread);
+        return threads;
     }
 
     // 65,535 バイトを超えるメッセージは、長さを 8 バイトで書く（レビューの「低」：以前は長さが壊れていた）。

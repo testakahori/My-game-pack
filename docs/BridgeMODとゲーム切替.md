@@ -18,7 +18,9 @@
 - HTTPは`/bridge/event`、`/bridge/exec`、`/bridge/status`。ポートは従来と同じ。変更する場合は`BRIDGE_MOD_PORT`。
 - BridgeMOD 1.5.0 から、HTTP と WebSocket はこのPCの Bridge・アプリだけが使える。サーバー起動ごとに乱数トークンを `<サーバーフォルダー>/config/bridgemod-token.txt` に書き、HTTP は `X-Bridge-Token` ヘッダー、WebSocket は `ws://127.0.0.1:<ポート+1>/?token=<トークン>` で送る。次の要求は 403 で拒否する：トークンなし・不一致、`Origin` ヘッダーあり（ブラウザー）、`Host` が `127.0.0.1:<ポート>` / `localhost:<ポート>` 以外。POST の本文は `application/json` に限る（違えば 415）。WebSocket は送信専用（状態・死亡通知）で、受信したイベントは実行しない。アプリは Bridge 起動時に環境変数 `BRIDGE_MOD_TOKEN_FILE` でトークンの場所を渡す。
 - BridgeMOD 1.7.6 から（アプリレビュー 2026-10-08 の P5）、状態（プレイヤー・TPS・外部ゲームMODの状態など）はサーバーのスレッドだけで作る。
-  - `/bridge/status` は、サーバーに tick と tick の間で作らせて返す。サーバーが2秒応えないときは、最後に作った状態を返す。
+  - `/bridge/status` は、サーバーに tick と tick の間で作らせて返す。サーバーが 0.25 秒応えないとき（重いとき）は、その場の待ちの件数と最後に作った状態を `"stale":true` 付きで返す（Bridge・アプリの時間切れ 1.5 秒より十分短くする）。
+  - HTTP は4本のスレッドで受ける。状態の要求がサーバーを待っている間も、ギフトなどの受付は後ろに並ばない（並ぶと Bridge が時間切れで送り直し、ギフトが2回実行される）。
+  - 外部ゲームMODの状態は MOD ごとに JSON にする。JSON にできない MOD の分だけ `{"ok":false,"error":…}` になる。
   - WebSocket は、接続ごとの送信スレッドと送信待ち（256件まで）で送る。tick は送信待ちに積むだけで、送り終わるのを待たない。読まずに送信待ちがあふれた接続は切る（Bridge はつなぎ直す）。65,535 バイトを超えるメッセージも送れる。
 - アプリ・BRIDGE・コマンド一覧・同梱txtも新名称を使用。旧`/douma`コマンドと旧HTTP入口は登録しない。
 - 旧設定の`douma_mod`・`doumaModHost`・`doumaModPort`は読み取り互換を維持する。旧MODを起動する意味ではない。
