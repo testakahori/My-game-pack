@@ -85,22 +85,30 @@ test('現行protobuf: 100いいねの最初のパケットで1回、次の100で
 test('途中接続・再接続では過去分を実行せず、同じ累計・重複・逆順も二重計上しない', () => {
   const counter=createLikeCounter();
   const first=counter.next({total:'10100',count:10,common:{msgId:'1'}});
-  assert.deepEqual(first,{previousTotal:10090,total:10100,received:10});
+  assert.deepEqual(first,{previousTotal:10090,total:10100,received:10,local:false});
   assert.equal(likeRuleProgress({threshold:100},first.total,Math.floor(first.previousTotal/100)).triggersToRun,1);
   assert.equal(counter.next({total:'10200',count:100,common:{msgId:'1'}}),null);
   assert.equal(counter.next({total:'10100',count:10,common:{msgId:'2'}}).received,0);
   assert.equal(counter.next({total:'10000',count:10,common:{msgId:'3'}}),null);
   counter.reset();
-  assert.deepEqual(counter.next({total:'20100',count:10}),{previousTotal:20090,total:20100,received:10});
+  assert.deepEqual(counter.next({total:'20100',count:10}),{previousTotal:20090,total:20100,received:10,local:false});
   counter.reset();
-  assert.deepEqual(counter.next({totalLikeCount:50000}),{previousTotal:50000,total:50000,received:0});
+  assert.deepEqual(counter.next({totalLikeCount:50000}),{previousTotal:50000,total:50000,received:0,local:false});
 });
 test('累計がない場合は届いた増分を加算、不正値は数えない', () => {
   const counter=createLikeCounter();
   assert.equal(counter.next({count:50}).total,50);
-  assert.deepEqual(counter.next({likeCount:50}),{previousTotal:50,total:100,received:50});
+  assert.deepEqual(counter.next({likeCount:50}),{previousTotal:50,total:100,received:50,local:true});
   assert.equal(counter.next({count:-1,total:'NaN'}),null);
   assert.equal(counter.next({likeCount:Infinity}),null);
+});
+test('つないでからの数で数えたあとに配信の累計が届いたら、その通知の分だけを新しく数える（PR #96 レビュー）', () => {
+  const counter=createLikeCounter();
+  assert.deepEqual(counter.next({count:5,total:'0'}),{previousTotal:0,total:5,received:5,local:true});
+  assert.deepEqual(counter.next({count:3,total:'5050'}),{previousTotal:5047,total:5050,received:3,local:false});
+  assert.deepEqual(counter.next({count:100,total:'5150'}),{previousTotal:5050,total:5150,received:100,local:false});
+  // 配信の累計が届いたあとで1回だけ累計が欠けても、続きから足す（つないでからの数には戻らない）。
+  assert.deepEqual(counter.next({count:10}),{previousTotal:5150,total:5160,received:10,local:false});
 });
 test('接続秒の新着イベントは通し、接続前のネストした時刻は除外', () => {
   assert.equal(isPreConnectionEvent({common:{createTime:'1800000000'}},1800000000999),false);
