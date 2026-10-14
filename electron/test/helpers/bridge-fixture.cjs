@@ -46,10 +46,10 @@ async function startBridgeFixture(t, { commands = {}, config = {}, env = {}, res
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ tiktokUsername: 'fixture', ...config,
     options: { commandsDir: 'commands', commandTransport: 'bridge_mod', bridgeModHost: '127.0.0.1', bridgeModPort: server.address().port,
       likeBatchWindowMs: 100, ...(config.options || {}) } }));
-  let connection;
+  let connection, roomId = 'fixture-room';
   class FixtureConnection extends TikTokLiveConnection {
     constructor(...args) { super(...args); connection = this; }
-    async connect() { return { roomId: 'fixture-room' }; }
+    async connect() { return { roomId }; }
     async disconnect() {}
   }
   const fakeProcess = Object.assign(new EventEmitter(), { argv: ['node', source], env, platform: process.platform, cwd: () => dir,
@@ -69,13 +69,14 @@ async function startBridgeFixture(t, { commands = {}, config = {}, env = {}, res
   let msg = 100;
   const emit = async (type, fields) => {
     const message = { ...proto[type].decode(new Uint8Array()), ...fields,
-      common: { ...proto.CommonMessageData.decode(new Uint8Array()), msgId: String(++msg), createTime: String(Math.floor(Date.now() / 1000)) },
+      common: { ...proto.CommonMessageData.decode(new Uint8Array()), msgId: String(++msg), createTime: String(Math.floor(Date.now() / 1000)), ...fields.common },
       user: { ...proto.User.decode(new Uint8Array()), id: '123', displayId: 'viewer', nickname: '視聴者', ...fields.user } };
     if (fields.gift) message.gift = { ...proto.Gift.decode(new Uint8Array()), type: 1, ...fields.gift };
     await connection.processDecodedData({ type, data: proto[type].decode(proto[type].encode(message).finish()) });
   };
   // 仮想の TikTok 接続そのもの。配信終了（streamEnd）など、メッセージを通らないイベントを出すときに使う。
-  return { dir, requests, logs, emit, until, wait, connection: () => connection };
+  // setRoomId は、次につなぎ直したときの配信の番号（別の配信につないだことにする）。
+  return { dir, requests, logs, emit, until, wait, connection: () => connection, setRoomId: id => { roomId = id; } };
 }
 
 module.exports = { startBridgeFixture };

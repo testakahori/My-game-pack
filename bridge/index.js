@@ -1326,6 +1326,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   const likeCounter = createLikeCounter();
   // 配信が終わってから次につながるまでは、いいねを使わない（配信のあとに妨害を起こさない。2026-10-14）。
   let likesClosed = false;
+  // 前につないだ配信の番号。別の配信につないだかを見分ける。
+  let lastRoomId = null;
   let connectedAt = 0;
   let tiktokConnectLoop = null;
   let tiktokReconnectTimer = null;
@@ -1531,6 +1533,10 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         connectedAt = Date.now();
         likeCounter.reset();
         likesClosed = false;
+        // 別の配信につないだら、フォローのマイルストーンを0から数え直す（同じ配信へのつなぎ直しでは続きから）。
+        const roomId = String(state.roomId || "");
+        if (roomId !== lastRoomId) featureEngine.startStream();
+        lastRoomId = roomId;
         recordStream('connect', tiktokUsername, state.roomId);
         console.log(`[TikTok] Connected. roomId=${state.roomId}`);
         console.log(`[Bridge] connectedAt: ${connectedAt}`);
@@ -1948,7 +1954,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     if (previousTotal === 0 || likeEvents.some(ev => enabledCommand(ev) && Math.floor(total / Number(ev.threshold)) > Math.floor(previousTotal / Number(ev.threshold)))) {
       console.log(`[Like:RAW] total=${total} previous=${previousTotal} count=${data.likeCount ?? '(none)'} from=${getStableSender(data)}`);
     }
-    featureEngine.recordLikes(total, getStableSender(data));
+    featureEngine.recordLikes(total, getStableSender(data), previousTotal);
     for (const ev of likeEvents) {
       if (ev.enabled === false || !ev.commandFile || !ev.threshold) continue;
       const thresh = clampInt(ev.threshold, 1, 1000000, 10);

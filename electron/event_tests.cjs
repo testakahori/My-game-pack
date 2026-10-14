@@ -95,9 +95,8 @@ function planTestEvent(config, input, commandsDir) {
       if (progress.triggersToRun) push(rule.commandFile, progress.triggersToRun * boundedInt(rule.repeat ?? 1, 1, 100, 1), `${threshold}いいねごと`, 'like');
       if (progress.skippedTriggers) notes.push(`${threshold}いいねルール: 追いつき上限により${progress.skippedTriggers}回省略。`);
     }
-    // 到達済みのマイルストーンは、前回の累計から復元して二重発火を防ぐ。
-    for (const m of (config.options?.gameplay?.likeMilestones || [])) if (Number(m.threshold) <= before) featureEngine.likeMilestones.add(`like:${Number(m.threshold)}`);
-    featureEngine.recordLikes(total, sender);
+    // 本番と同じく、前回の累計から今回の累計までに越えたマイルストーンだけを発火する。
+    featureEngine.recordLikes(total, sender, before);
     notes.push(`累計${before}→${total}として判定。本番のいいね数は変更しません。`);
   }
   if (type === 'comment' || type === 'comment_command') {

@@ -31,7 +31,6 @@ class FeatureEngine {
     this.config = config;
     this.emit = emit;
     this.giftBursts = new Map();
-    this.likeMilestones = new Set();
     this.followCount = 0;
     this.topGifters = new Map();
     this.poll = null;
@@ -64,7 +63,7 @@ class FeatureEngine {
       : { at: now, count: amount, milestones: new Set() };
     this.giftBursts.set(giftId, burst);
     for (const level of (combo.levels || [])) {
-      // 到達済み状態はバースト単位で持つ。グローバルな likeMilestones に保存すると、
+      // 到達済み状態はバースト単位で持つ。エンジン全体で持つと、
       // windowMs を越えた次の独立コンボまで同じマーカーに阻まれてしまう。
       const marker = `${level.count}:${Math.floor(burst.count / level.count)}`;
       if (burst.count >= level.count && !burst.milestones.has(marker)) {
@@ -76,15 +75,21 @@ class FeatureEngine {
     return amount;
   }
 
-  recordLikes(total, sender) {
+  // 前の累計から今の累計までに越えたマイルストーンだけを発火する。配信の途中からつないでも、
+  // つなぐ前に越えていた分はまとめて発火しない。次の配信では累計が0から数え直されるので、また発火する（2026-10-14）。
+  recordLikes(total, sender, previousTotal = 0) {
     for (const milestone of (this.config.likeMilestones || [])) {
       const threshold = Number(milestone.threshold);
-      if (total >= threshold && !this.likeMilestones.has(`like:${threshold}`)) {
-        this.likeMilestones.add(`like:${threshold}`);
+      if (previousTotal < threshold && threshold <= total) {
         this.emit({ type: "milestone", commandFile: milestone.commandFile,
           count: Number(milestone.repeat || 1), sender, label: `${threshold}いいね` });
       }
     }
+  }
+
+  // 別の配信につないだら、フォローを0から数え直す（同じ配信へのつなぎ直しでは続きから数える）。
+  startStream() {
+    this.followCount = 0;
   }
 
   recordFollow(sender) {
