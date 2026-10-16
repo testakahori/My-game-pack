@@ -1,5 +1,5 @@
 'use strict';
-// サーバー・BRIDGE の停止を、出どころ（どのボタン・操作から来たか）付きで記録する。
+// サーバー・BRIDGE の停止と、妨害の一時停止・再開を、出どころ（どのボタン・操作から来たか）付きで記録する。
 // 2026-10-10、BRIDGE停止だけを押したはずがサーバーも止まり、アプリ側にログが残っていなくて原因を追えなかった。
 // アプリのログ欄はメモリ上だけなので、userData の logs/stop-requests.log にも残す。
 const fs = require('node:fs');
@@ -20,8 +20,11 @@ const STOP_ORIGINS = Object.freeze({
   'map:load': 'MAPの読込',
   'map:backup': 'MAPのバックアップ',
   'console': 'コンソールコマンドのstop',
+  'home:pause': '配信ホームの一時停止',
+  'home:resume': '配信ホームの再開',
+  'banner:resume': '一時停止の帯の再開',
 });
-const TARGETS = Object.freeze({ server: 'サーバー停止', bridge: 'BRIDGE停止' });
+const TARGETS = Object.freeze({ server: 'サーバー停止', bridge: 'BRIDGE停止', pause: '妨害の一時停止', resume: '妨害の再開' });
 
 function stopOriginLabel(origin) {
   if (origin === undefined || origin === null || origin === '') return '出どころの指定なし';

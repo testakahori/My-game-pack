@@ -1658,7 +1658,7 @@ function requestBridgeMod(method, requestPath, body, configOverride) {
         let parsed = {}; try { parsed = JSON.parse(text); } catch { parsed = { message: text }; }
         // 403 は「MODは動いているが認証に失敗」。オフラインと区別して原因と直し方を出す。
         if (res.statusCode === 403) reject(Object.assign(new Error(BRIDGE_MOD_AUTH_FAILED), { status: 403, authFailed: true }));
-        else if (res.statusCode >= 400 || parsed.ok === false) reject(new Error(parsed.message || `HTTP ${res.statusCode}`));
+        else if (res.statusCode >= 400 || parsed.ok === false) reject(Object.assign(new Error(parsed.message || `HTTP ${res.statusCode}`), { status: res.statusCode }));
         else resolve(parsed);
       });
     });
@@ -1760,6 +1760,19 @@ ipcMain.handle("mod:status", async () => {
   try { return { online: true, ...(await requestBridgeMod("GET", "/bridge/status")) }; }
   catch (e) { return { online: false, authFailed: e?.authFailed === true, error: e.message }; }
 });
+// 妨害の一時停止・再開（BridgeMOD 1.8.0 の /bridge/control。2026-10-16 ユーザーの決定）。停止と同じく出どころを記録する。
+async function setDisruptionPause(pause, origin) {
+  stopRequests.record(pause ? "pause" : "resume", origin);
+  try {
+    const result = await requestBridgeMod("POST", "/bridge/control", { action: pause ? "pause" : "resume" });
+    return { ok: true, paused: result.paused === true };
+  } catch (error) {
+    if (error?.status === 400) return { ok: false, message: "BridgeMOD を新しくすると使えます（1.8.0 以上）。" };
+    return { ok: false, message: error?.message || String(error) };
+  }
+}
+ipcMain.handle("mod:pause", (_event, origin) => setDisruptionPause(true, origin));
+ipcMain.handle("mod:resume", (_event, origin) => setDisruptionPause(false, origin));
 // 送った分を outcomes に1件ずつ足す。途中で失敗しても、それまでに送った分は呼び出し元に残る。
 async function fireBridgeEventMaybeRoulette(payload, bridgeCfg, commandsDir, outcomes) {
   const send = (method, route, body) => requestBridgeMod(method, route, body, bridgeCfg);
@@ -1817,6 +1830,9 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
   };
   const protection = bridgeCfg.options?.protection || {};
   const fired = [];
+  // 一時停止中でも待ちに積む。実行は再開まで待つことを結果に書く（2026-10-16）。
+  let paused = false;
+  try { paused = (await requestBridgeMod("GET", "/bridge/status", null, bridgeCfg)).paused === true; } catch { /* 送る段階で失敗を報告する */ }
   testEventRunning = true;
   try {
     for (const [stepIndex, step] of plan.steps.entries()) {
@@ -1856,7 +1872,7 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
     }
     const succeeded = fired.filter(row => row.ok).length;
     return { ok: succeeded === fired.length, matched: true, fired, steps: details, notes: plan.notes,
-      message: fired.length + "件中" + succeeded + "件をModへ送信しました。ゲーム内の結果も確認してください。" };
+      message: fired.length + "件中" + succeeded + "件をModへ送信しました。ゲーム内の結果も確認してください。" + (paused ? " 一時停止中です。再開すると実行されます。" : "") };
   } finally { testEventRunning = false; }
 });
 

@@ -132,6 +132,9 @@ contextBridge.exposeInMainWorld("mygamepack", {
   bridgeProcessStatus: () => ipcRenderer.invoke("bridge:processStatus"),
   bridgeLogs: () => ipcRenderer.invoke("bridge:logs"),
   modStatus: () => ipcRenderer.invoke("mod:status"),
+  // 妨害の一時停止・再開（origin はどのボタンから押したか。logs/stop-requests.log に残す）
+  modPause: (origin) => ipcRenderer.invoke("mod:pause", origin),
+  modResume: (origin) => ipcRenderer.invoke("mod:resume", origin),
   testEvent: (event) => ipcRenderer.invoke("mod:testEvent", event),
   streamSessionStatus: () => ipcRenderer.invoke("stream:session:status"),
   streamSessionStart: (title) => ipcRenderer.invoke("stream:session:start", title),

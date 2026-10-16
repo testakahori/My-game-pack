@@ -187,6 +187,8 @@ test("イベントIPC: 条件確認は未送信、全種別の実送信はテス
   const received = [];
   const server = http.createServer((req, res) => {
     const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => {
+      // テスト発火は送る前に、止めているかを状態で確かめる（2026-10-16）。送った数には入れない。
+      if (req.url === "/bridge/status") { res.setHeader("Content-Type", "application/json"); res.end('{"ok":true}'); return; }
       const payload = JSON.parse(Buffer.concat(chunks).toString()); received.push({ url: req.url, payload, token: req.headers["x-bridge-token"] });
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify(payload.key === "fail" ? { ok: false, message: "模擬エラー" } : { ok: true }));
@@ -234,6 +236,52 @@ test("Mod状態IPC: 認証の失敗（403）はオフラインと区別し、直
   assert.match(status.error, /認証に失敗/);
   const check = (await app.invoke("preflight:run")).checks.find(row => row.id === "mod");
   assert.equal(check.status, "error"); assert.match(check.detail, /認証に失敗/);
+});
+
+test('妨害の一時停止IPC: /bridge/control へ送り、出どころを記録する。古い BridgeMOD（400）では新しくするよう伝える。止めている間のテスト発火には文言を足す', async t => {
+  const http = require("node:http");
+  const received = [];
+  let supported = true, paused = false;
+  const server = http.createServer((req, res) => {
+    const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => {
+      const payload = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : null;
+      received.push({ method: req.method, url: req.url, payload });
+      res.setHeader("Content-Type", "application/json");
+      if (req.url === "/bridge/control" && !supported) { res.statusCode = 400; res.end('{"ok":false,"error":"unsupported"}'); return; }
+      if (req.url === "/bridge/control") { paused = payload.action === "pause"; res.end(JSON.stringify({ ok: true, paused })); return; }
+      if (req.url === "/bridge/status") { res.end(JSON.stringify({ ok: true, paused, gameSessions: {} })); return; }
+      res.end('{"ok":true}');
+    });
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const app = loadApp(t);
+  const cfg = JSON.parse(fs.readFileSync(app.configPath));
+  cfg.options.bridgeModPort = server.address().port;
+  cfg.shareEvent = { commandFile: "qa.txt", enabled: true, repeat: 1 };
+  fs.writeFileSync(app.configPath, JSON.stringify(cfg));
+  fs.writeFileSync(path.join(app.root, "bridge", "commands", "minecraft", "qa.txt"), "say test");
+  const logFile = path.join(app.root, "logs", "stop-requests.log");
+
+  // main は vm の中で動くので、比べる前に普通のオブジェクトへ直す。
+  const plain = value => JSON.parse(JSON.stringify(value));
+  assert.deepEqual(plain(await app.invoke("mod:pause", "home:pause")), { ok: true, paused: true });
+  assert.deepEqual(received.at(-1), { method: "POST", url: "/bridge/control", payload: { action: "pause" } });
+  const fired = await app.invoke("mod:testEvent", { type: "share" });
+  assert.match(fired.message, /一時停止中です。再開すると実行されます。/);
+  assert.deepEqual(plain(await app.invoke("mod:resume", "banner:resume")), { ok: true, paused: false });
+  assert.doesNotMatch((await app.invoke("mod:testEvent", { type: "share" })).message, /一時停止中/);
+  const lines = fs.readFileSync(logFile, "utf8").trimEnd().split("\n");
+  assert.match(lines[0], /妨害の一時停止 ← 配信ホームの一時停止$/);
+  assert.match(lines[1], /妨害の再開 ← 一時停止の帯の再開$/);
+
+  supported = false;
+  assert.deepEqual(plain(await app.invoke("mod:pause", "home:pause")), { ok: false, message: "BridgeMOD を新しくすると使えます（1.8.0 以上）。" });
+  server.close();
+  await new Promise(resolve => server.once("close", resolve));
+  const offline = await app.invoke("mod:resume", "home:resume");
+  assert.equal(offline.ok, false);
+  assert.ok(offline.message.length > 0, "つながらないときは理由を返す");
 });
 
 test("ギフト更新: 手動と自動の同時実行をまとめ、検証後に両画面へ通知する", async (t) => {
@@ -747,6 +795,8 @@ test("テスト発火: 音・粒子は本番と同じく先に送り、ルーレ
   // 音・粒子（指定した音の playsound）だけ受け付け、ルーレットの演出は断る。当選は2回目だけ失敗させる。
   const server = http.createServer((req, res) => {
     let body = ""; req.on("data", chunk => body += chunk); req.on("end", () => {
+      // テスト発火は送る前に、止めているかを状態で確かめる（2026-10-16）。送った順には入れない。
+      if (req.url === "/bridge/status") { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); return; }
       const payload = JSON.parse(body || "{}");
       const extras = req.url === "/bridge/exec" && JSON.stringify(payload).includes("minecraft:block.anvil.land");
       const status = req.url === "/bridge/exec" ? (extras ? 202 : 429) : (++events === 2 ? 400 : 202);
@@ -777,6 +827,8 @@ test("テスト発火のルーレット: 演出だけ送れなくても当選は
   // 演出（/bridge/exec）だけ待ち列が満杯で断られ、当選（/bridge/event）は受け付ける MOD。
   const server = http.createServer((req, res) => {
     req.resume(); req.on("end", () => {
+      // テスト発火は送る前に、止めているかを状態で確かめる（2026-10-16）。送った順には入れない。
+      if (req.url === "/bridge/status") { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); return; }
       received.push(req.url);
       res.writeHead(req.url === "/bridge/exec" ? 429 : 202, { "Content-Type": "application/json" });
       res.end(req.url === "/bridge/exec" ? '{"ok":false,"error":"queue_full"}' : '{"ok":true}');
