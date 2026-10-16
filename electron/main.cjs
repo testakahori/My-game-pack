@@ -41,6 +41,14 @@ const appConfig = createAppConfig({
 });
 const { getAppConfigPath, readAppConfig, writeAppConfig, consumeInstallerSetupReset } = appConfig;
 appConfig.register(ipcMain);
+const { createPaths } = require('./paths.cjs');
+// テスト（loadApp）は main.cjs を一時フォルダーで動かし、__dirname と process を偽物にする。モジュールにはこちらを渡す。
+const paths = createPaths({ app, process, appDir: __dirname, readAppConfig });
+const {
+  getInstalledBridgeRoot, getBridgeDir, getConfigPath, getGiftsDir, getGiftsMinPath, getGiftsMetaPath, getGiftsHtmlPath,
+  ensureDir, ensureConfigExists, getServerTemplatePath, getServerRoot, getBridgeBatDir,
+  getNodeCommand, getGvDataDir, getGvSettingsPath, getGvToolPath,
+} = paths;
 function minecraftLocationOptions() {
   return { appData: app.getPath('appData'), currentFolder: readAppConfig().minecraftGameFolder, serverRoot: getServerRoot() };
 }
@@ -146,99 +154,6 @@ const settingsBackups = createSettingsBackups({
 });
 
 const isDev = process.env.ELECTRON_DEV === "1";
-
-// --------------------
-// Paths (A方式: Bridge同梱)
-// --------------------
-// ✅ 重要：dev/prod ではなく「パッケージ済みか」で分岐する
-// - electron . / electron:dev / electron:prod（未パッケージ） => ui/bridge_runtime を見る
-// - exe化（electron-builder）後（パッケージ）             => <install>/resources/bridge を見る
-function getInstalledBridgeRoot() {
-  if (!app.isPackaged) {
-    return path.resolve(__dirname, "..", "bridge_runtime"); // ui/bridge_runtime
-  }
-  return path.join(process.resourcesPath, "bridge"); // <install>/resources/bridge
-}
-
-/**
- * resources/bridge/
- * ├─ start_all.bat
- * ├─ node/                     (同梱nodeをここに置くなら)
- * ├─ server/
- * └─ bridge/
- *    ├─ config.minecraft.json
- *    ├─ tools/
- *    │   ├─ fetch_gifts.js
- *    │   └─ gifts_to_html.js
- *    └─ data/
- *        └─ gifts/
- *            ├─ gifts.min.json
- *            ├─ gifts.full.json
- *            ├─ gifts.meta.json
- *            └─ gifts.html
- */
-function getBridgeDir() {
-  return path.join(getInstalledBridgeRoot(), "bridge");
-}
-
-function getConfigPath() {
-  return path.join(getBridgeBatDir(), "config.minecraft.json");
-}
-
-// gifts データは GiftsViewer と共有（tools-bundled を使うため）
-function getGiftsDir() {
-  const dir = !app.isPackaged
-    ? path.resolve(__dirname, "..", "GiftsViewer", "data", "gifts")
-    : path.join(app.getPath("userData"), "gv-data", "gifts");
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-function getGiftsMinPath() {
-  return path.join(getGiftsDir(), "gifts.min.json");
-}
-
-function getGiftsMetaPath() {
-  return path.join(getGiftsDir(), "gifts.meta.json");
-}
-
-function getGiftsHtmlPath() {
-  return path.join(getGiftsDir(), "gifts.html");
-}
-
-function ensureDir(p) {
-  fs.mkdirSync(p, { recursive: true });
-}
-
-function ensureConfigExists(configPath) {
-  if (fs.existsSync(configPath)) return;
-
-  ensureDir(path.dirname(configPath));
-
-  // options/likeEvents/各種イベントを欠いた最小configだと、config:write の commandsDir矯正
-  // （options が無いと発火しない）や各イベントの既定動作が効かなくなるため、完全な形で書き出す。
-  const defaultConfig = {
-    tiktokUsername: "",
-    rcon: { host: "127.0.0.1", port: 25575, password: "" },
-    mappings: [],
-    likeEvents: [],
-    unmappedGiftEvent: { commandFile: "", repeat: 1, enabled: false },
-    shareEvent: { commandFile: "", repeat: 1, enabled: false },
-    followEvent: { commandFile: "", repeat: 1, enabled: false },
-    memberEvent: { commandFile: "", repeat: 1, enabled: false },
-    options: {
-      giftCooldownMs: 300,
-      maxCommandsPerGift: 200,
-      commandTransport: "bridge_mod",
-      bridgeModHost: "127.0.0.1",
-      bridgeModPort: 25576,
-      maxLikeCatchUpPerEvent: 5,
-      logUnknownGifts: true,
-    },
-  };
-
-  fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2), "utf-8");
-}
 
 // --------------------
 // CSP (prod only-ish)
@@ -348,22 +263,6 @@ function createWindow() {
 // --------------------
 // Helpers: run process and capture logs
 // --------------------
-function detectBundledNodeExe() {
-  // 置き方が複数あり得るので順に探す。
-  // v1.0.12以降: resources/bridge/bridge-runtime.zip を serverFolder/bridge へ必要時展開する。
-  const candidates = [];
-  try { candidates.push(path.join(getBridgeBatDir(), "node", "node.exe")); } catch {}
-  try { candidates.push(path.join(app.getPath("userData"), "bridge", "node", "node.exe")); } catch {}
-  try { candidates.push(path.join(getInstalledBridgeRoot(), "node", "node.exe")); } catch {}
-  if (app.isPackaged) candidates.push(path.join(process.resourcesPath, "node", "node.exe"));
-
-  for (const candidate of candidates) {
-    if (candidate && fs.existsSync(candidate)) return candidate;
-  }
-
-  return null;
-}
-
 ipcMain.on("window:minimize", (event) => BrowserWindow.fromWebContents(event.sender)?.minimize());
 ipcMain.on("window:maximizeToggle", (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
@@ -372,23 +271,6 @@ ipcMain.on("window:maximizeToggle", (event) => {
   else win.maximize();
 });
 ipcMain.on("window:close", (event) => BrowserWindow.fromWebContents(event.sender)?.close());
-
-function getNodeCommand() {
-  if (process.platform !== "win32") return "node";
-  const bundled = detectBundledNodeExe();
-  return bundled || "node"; // 最悪PATH
-}
-
-function getToolsPath(name) {
-  return path.join(getBridgeDir(), "tools", name);
-}
-
-function ensureToolsExist() {
-  const fetchJs = getToolsPath("fetch_gifts.js");
-  const htmlJs = getToolsPath("gifts_to_html.js");
-  if (!fs.existsSync(fetchJs)) throw new Error(`tools not found: ${fetchJs}`);
-  if (!fs.existsSync(htmlJs)) throw new Error(`tools not found: ${htmlJs}`);
-}
 
 // --------------------
 // App lifecycle
@@ -608,39 +490,6 @@ function isOperatorAuthed() {
     const email = String(cfg.authEmail || "").trim();
     return !!email && cfg.authToken === operatorLoginToken(email);
   } catch { return false; }
-}
-
-// --------------------
-// Paths: Server / Bridge (UI統合用)
-// --------------------
-
-// テンプレートパス（常にバンドル版を返す）
-function getServerTemplatePath() {
-  if (!app.isPackaged) return path.resolve(__dirname, "..", "server", "Douma_Craft");
-  return path.join(process.resourcesPath, "server", "Douma_Craft");
-}
-
-function getServerRoot() {
-  // app-config.json に保存されたフォルダを優先
-  const cfg = readAppConfig();
-  // 指定先が消えていても別のサーバーに切り替えない。診断画面で同じパスを示す。
-  if (cfg.serverFolder) return path.resolve(cfg.serverFolder);
-  // 初回の保存先はアプリの外。更新・アンインストールでワールドを失わない。
-  if (!app.isPackaged) return path.resolve(__dirname, "..", "server", "Douma_Craft");
-  return path.join(app.getPath("documents"), "MyGamePack", "Server");
-}
-
-function getBridgeBatDir() {
-  // dev: ui/bridge をそのまま使用
-  if (!app.isPackaged) {
-    return path.resolve(__dirname, "..", "bridge");
-  }
-  // packaged: setupComplete=true なら serverFolder/bridge、それ以外は userData/bridge（フォールバック）
-  const cfg = readAppConfig();
-  if (cfg.setupComplete && cfg.serverFolder && fs.existsSync(cfg.serverFolder)) {
-    return path.join(cfg.serverFolder, "bridge");
-  }
-  return path.join(app.getPath("userData"), "bridge");
 }
 
 // --------------------
@@ -2234,34 +2083,8 @@ ipcMain.handle("gifts:update", async (_event, username) => {
 // ====================
 
 // --------------------
-// Paths: GiftsViewer
+// GiftsViewer（場所は paths.cjs）
 // --------------------
-function getGvToolsDir() {
-  if (!app.isPackaged) {
-    // tools-bundled を優先（.cjs バンドル済み）、なければ tools
-    const bundled = path.resolve(__dirname, "..", "GiftsViewer", "tools-bundled");
-    if (fs.existsSync(bundled)) return bundled;
-    return path.resolve(__dirname, "..", "GiftsViewer", "tools");
-  }
-  return path.join(process.resourcesPath, "gv-tools");
-}
-
-function getGvDataDir() {
-  const dir = !app.isPackaged
-    ? path.resolve(__dirname, "..", "GiftsViewer", "data", "gifts")
-    : path.join(app.getPath("userData"), "gv-data", "gifts");
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-function getGvSettingsPath() {
-  return path.join(app.getPath("userData"), "gv-settings.json");
-}
-
-function getGvToolPath(name) {
-  return path.join(getGvToolsDir(), name);
-}
-
 async function autoUpdateGiftsIfStale() {
   let bridgeCfg = {};
   try { bridgeCfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch {}
