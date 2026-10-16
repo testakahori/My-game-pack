@@ -16,7 +16,8 @@
 - 関数の中の処理は、移すだけにする。直すのは、受け取る形を変えるのに必要な所だけ（`__dirname` を `appDir` に、変数を直接見ていた所を受け取った関数に）。
 - `electron`・`child_process` は main.cjs だけが読み込む。モジュールは `fs`・`path`・`crypto`・`url` などほかの Node の組み込みは自分で読み込んでよい。
 - main.cjs の `__dirname` と `process` は、テスト（`loadApp`）では偽物になる（`__dirname` は一時フォルダーの `electron`、`process.resourcesPath` も偽物）。モジュールは自分の `__dirname`・`process` を使わず、main から `appDir`・`process` を受け取る。
-- 作業は worktree `C:\Users\MAKI\AppData\Local\Temp\claude\d--Dev02-game-dev-MyGamePack02\2ce3430a-7bb9-4c2a-a0c3-037ac6a442c5\scratchpad\wt-split`（ブランチ `refactor/main-split-1`）。D 側の作業コピー（`D:\Dev02\game_dev\MyGamePack02\My-game-pack-review`）は Codex が使っているので、ファイルにもブランチにも触らない。
+- 作業は、このセッションの scratchpad に作った worktree `wt-split`（ブランチ `refactor/main-split-1`）。D 側の作業コピー（`D:/Dev02/game_dev/MyGamePack02/My-game-pack-review`）は Codex が使っているので、ファイルにもブランチにも触らない。
+- 文書に Windows の場所を書くときは `/` 区切りにする。`\` のあとに16進数が続くと、Tailwind（`npm run build`）が CSS の文字コードとして読んでビルドが止まる（`electron/test/docs-css-safe.test.cjs` で確かめる）。
 - git は PowerShell で worktree に入って行う（`Push-Location <worktree>`）。`git add` が Permission denied のときは先に `git hash-object -w <file>`。commit メッセージはファイルに書いて `git commit -F`、最後に `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>`。`git stash` は使わない。
 - バッククォートを含む文や複数行のスクリプトは、Bash の `node -e "..."` に直接書かない（コマンド置換が起きる）。Write でファイルにしてから実行する。
 - 1つのテストファイルは `node --test electron/test/<name>.test.cjs`。全体は `npm run verify`。
