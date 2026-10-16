@@ -1450,7 +1450,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   }
 
   // Mod への発火を一元化：commandFile が roulette（仮想コマンド）ならルーレットに差し替える
-  function dispatchBridgeEvent(label, event, opts = {}) {
+  // ctx は本番（liveContext）か、テスト発火の文脈（2026-10-16）。
+  function dispatchBridgeEvent(ctx, label, event, opts = {}) {
     if (
       rouletteCfg?.enabled &&
       commandFileToBridgeKey(event.commandFile) === "roulette" &&
@@ -1461,33 +1462,50 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     enqueueMod(event);
   }
 
-  // デスルーレット：Mod からの death 通知（WS）で発動
-  onBridgeModWsMessage = (status) => {
-    if (status?.type !== "death") return;
-    const rl = deathRouletteCfg;
-    if (!rl || rl.enabled !== true) return;
-    const deaths = Number(status.deaths || 0);
-    const every = clampInt(rl.everyDeaths ?? 1, 1, 1000, 1);
-    if (deathRouletteMatches(rl, deaths)) {
-      console.log(`[DeathRoulette] deaths=${deaths}（${every}回ごと）→ ルーレット始動`);
-      runRoulette(() => rl, String(status.player || "player"), "death_roulette");
-    }
+  // 本番の処理（ギフト・いいね・シェア・フォロー・訪問・コメント・死亡）は、状態と送り先を ctx で受け取る。
+  // 本番はこの liveContext で、テスト発火は毎回新しい状態で同じ処理を通す（2026-10-16 ユーザーの決定）。
+  const liveContext = {
+    run: null,
+    log: (...args) => console.log(...args),
+    lastExecAt, streakLastCount,
+    commentGiftLastAt: new Map(), // rule毎の連投クールダウン
+    isDuplicate: key => isDuplicateEvent(key),
+    // まとめ送りは下（いいねの処理の前）で作る。呼ばれるのは TikTok のイベントが届いてから。
+    queueLike: (...args) => queueLikeEventBatched(...args),
+    sendExtras: (extras, sender) => { sendBridgeExec(bridgeMod, extras, sender).catch(() => {}); },
+    rejected: (event, error) => recordDeliveryRejection(event, error),
   };
+  const featureEngine = new FeatureEngine(options.gameplay || {}, feature => emitFeature(liveContext, feature));
+  liveContext.featureEngine = featureEngine;
 
-  const featureEngine = new FeatureEngine(options.gameplay || {}, feature => {
+  function emitFeature(ctx, feature) {
     if (!feature?.commandFile) return;
     if (!bridgeMod) {
       console.warn(`[Feature] ${feature.type} skipped: BridgeMod transport is required`);
       return;
     }
     const listenerName = feature.type === "combo"
-      ? (featureEngine.topGifter() || feature.sender) : feature.sender;
-    dispatchBridgeEvent(`feature:${feature.type}`, {
+      ? (ctx.featureEngine.topGifter() || feature.sender) : feature.sender;
+    dispatchBridgeEvent(ctx, `feature:${feature.type}`, {
       type: "other", historyType: feature.type || "other", commandFile: feature.commandFile,
       count: clampInt(feature.count, 1, 100, 1),
       listenerName: listenerName || "viewer", announce: true,
     }, { priority: 8 });
-  });
+  }
+
+  // デスルーレット：Mod からの death 通知（WS）で発動
+  onBridgeModWsMessage = (status) => handleDeath(liveContext, status);
+  function handleDeath(ctx, status) {
+    if (status?.type !== "death") return;
+    const rl = deathRouletteCfg;
+    if (!rl || rl.enabled !== true) return;
+    const deaths = Number(status.deaths || 0);
+    const every = clampInt(rl.everyDeaths ?? 1, 1, 1000, 1);
+    if (deathRouletteMatches(rl, deaths)) {
+      ctx.log(`[DeathRoulette] deaths=${deaths}（${every}回ごと）→ ルーレット始動`);
+      runRoulette(() => rl, String(status.player || "player"), "death_roulette");
+    }
+  }
 
   const { createAutomaticRecorder } = require('./stream_sessions.cjs');
   const { createAudienceRecorder } = require('./audience_stats.cjs');
@@ -1603,7 +1621,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   console.log("[Bridge] Listening for gifts...");
   console.log("[Bridge] Press Ctrl+C to stop.");
 
-  onTikTok("gift", async (data) => {
+  onTikTok("gift", async (data) => handleGift(liveContext, data));
+  async function handleGift(ctx, data) {
     data = normalizeTikTokEvent(data, 'gift');
     if (isMuted(data)) return;
     // [診断ログ] TikTok ライブラリが受信した全ギフトイベントを記録
@@ -1612,10 +1631,10 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const _rawMsgId = data.msgId || data.messageId || data.eventId || data.id || data.gift?.msgId || data.gift?.messageId || "";
     const _rawCreateTime = Number(data.createTime ?? 0);
     const _rawSender = getStableSender(data);
-    console.log(`[Gift:RAW] id=${_rawGiftId} name="${_rawName}" from=${_rawSender} msgId=${_rawMsgId || "(none)"} createTime=${_rawCreateTime} rc=${data.repeatCount ?? ""} re=${data.repeatEnd ?? ""}`);
+    ctx.log(`[Gift:RAW] id=${_rawGiftId} name="${_rawName}" from=${_rawSender} msgId=${_rawMsgId || "(none)"} createTime=${_rawCreateTime} rc=${data.repeatCount ?? ""} re=${data.repeatEnd ?? ""}`);
 
     if (isPreConnectionEvent(data)) {
-      console.log(`[Gift:SKIP:pre-connection] id=${_rawGiftId} name="${_rawName}" createTime=${_rawCreateTime} connectedAt=${connectedAt} diff=${_rawCreateTime * 1000 - connectedAt}ms`);
+      ctx.log(`[Gift:SKIP:pre-connection] id=${_rawGiftId} name="${_rawName}" createTime=${_rawCreateTime} connectedAt=${connectedAt} diff=${_rawCreateTime * 1000 - connectedAt}ms`);
       return;
     }
 
@@ -1626,15 +1645,15 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
     // dedupe（二重発火防止）
     const dkey = dedupeKeyFromGift(data);
-    if (isDuplicateEvent(dkey)) {
-      console.log(`[Gift:SKIP:dedupe] id=${giftId} name="${giftName}" from=${sender} key=${dkey}`);
+    if (ctx.isDuplicate(dkey)) {
+      ctx.log(`[Gift:SKIP:dedupe] id=${giftId} name="${giftName}" from=${sender} key=${dkey}`);
       return;
     }
 
     let mapping = mappingById.get(giftId);
     if (!mapping) {
       if (logUnknownGifts) {
-        console.log(
+        ctx.log(
           `[Gift] (unmapped) id=${giftId} name="${giftName}" from=${sender}${repeatText}`
         );
       }
@@ -1642,14 +1661,14 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       if (enabledCommand(unmappedGiftEvent)) {
         const rc = Number(data.repeatCount);
         const delta = Number.isFinite(rc) && rc > 0
-          ? computeStreakDelta(streakLastCount, 'unmapped:' + giftId + ':' + getSenderIdentity(data), rc, data.repeatEnd, Date.now(), STREAK_TTL_MS)
+          ? computeStreakDelta(ctx.streakLastCount, 'unmapped:' + giftId + ':' + getSenderIdentity(data), rc, data.repeatEnd, Date.now(), STREAK_TTL_MS)
           : 1;
         if (delta <= 0) return;
         const unmappedRepeat = delta * clampInt(unmappedGiftEvent.repeat ?? 1, 1, 100, 1);
         const unmappedMap = { commandFile: ensureTxt(unmappedGiftEvent.commandFile), name: `unmapped:${giftId}` };
         if (bridgeMod) {
-          console.log(`[Gift] (unmapped) -> BridgeMod file=${unmappedGiftEvent.commandFile} repeat=${unmappedRepeat}`);
-          dispatchBridgeEvent(`unmapped:${giftId}`, {
+          ctx.log(`[Gift] (unmapped) -> BridgeMod file=${unmappedGiftEvent.commandFile} repeat=${unmappedRepeat}`);
+          dispatchBridgeEvent(ctx, `unmapped:${giftId}`, {
             type: "gift",
             commandFile: unmappedGiftEvent.commandFile,
             count: unmappedRepeat,
@@ -1662,12 +1681,12 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         }
         const resolved = resolveCommands(unmappedMap);
         if (resolved.ok) {
-          const ctx = {
+          const placeholderCtx = {
             gameType: targetType === "minecraft" ? "minecraft" : "7dtd",
             listenerName: sender,
             playerId: dtd ? dtd.playerId : 0,
           };
-          const baseUnmappedCmds = resolved.commands.map((cmd) => applyPlaceholders(cmd, ctx));
+          const baseUnmappedCmds = resolved.commands.map((cmd) => applyPlaceholders(cmd, placeholderCtx));
 
           // タイトル表示プリロード（Minecraftのみ）
           let commands = [];
@@ -1718,29 +1737,29 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     // cooldown（streak中は落とさない）
     if (!isStreak) {
       const cooldownKey = `${giftId}:${sender}`;
-      const last = lastExecAt.get(cooldownKey) || 0;
+      const last = ctx.lastExecAt.get(cooldownKey) || 0;
       const fileCooldown = clampInt(randomized.meta?.COOLDOWN ?? giftCooldownMs, 0, 60000, giftCooldownMs);
       if (now - last < fileCooldown) return;
-      lastExecAt.set(cooldownKey, now);
+      ctx.lastExecAt.set(cooldownKey, now);
     }
 
     const baseRepeat = clampInt(mapping.repeat ?? 1, 1, 100, 1);
 
     // streakは「増えた分(delta)」だけ反応（詳細は computeStreakDelta のコメント参照）
     const delta = isStreak
-      ? computeStreakDelta(streakLastCount, `${giftId}:${getSenderIdentity(data)}`, rcNum, data.repeatEnd, now, STREAK_TTL_MS)
+      ? computeStreakDelta(ctx.streakLastCount, `${giftId}:${getSenderIdentity(data)}`, rcNum, data.repeatEnd, now, STREAK_TTL_MS)
       : 1;
 
     let times = delta * baseRepeat;
     if (times <= 0) return; // 連打終了通知は追加ギフトではない（送信時の最小1への丸めも避ける）。
     // 時限倍率（例：1.5倍）で小数になったら四捨五入する。BridgeMOD は小数の回数を拒否し、ギフトが丸ごと消えていた。
-    times = giftTimes(featureEngine.recordGift({ giftId, sender, commandFile: mapping.commandFile, count: times }));
+    times = giftTimes(ctx.featureEngine.recordGift({ giftId, sender, commandFile: mapping.commandFile, count: times }));
 
     if (bridgeMod) {
-      console.log(
+      ctx.log(
         `[Gift] id=${giftId} name="${mapping.name}" from=${sender}${repeatText} -> BridgeMod file=${mapping.commandFile} count=${times}`
       );
-      dispatchBridgeEvent(`gift:${giftId}`, {
+      dispatchBridgeEvent(ctx, `gift:${giftId}`, {
         type: "gift",
         commandFile: mapping.commandFile,
         count: times,
@@ -1782,12 +1801,12 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     }
 
     // placeholder差し込み
-    const ctx = {
+    const placeholderCtx = {
       gameType: targetType === "minecraft" ? "minecraft" : "7dtd",
       listenerName: sender,
       playerId: dtd ? dtd.playerId : 0,
     };
-    const replaced = expanded.map((cmd) => applyPlaceholders(cmd, ctx));
+    const replaced = expanded.map((cmd) => applyPlaceholders(cmd, placeholderCtx));
 
     console.log(
       `[Gift] id=${giftId} name="${mapping.name}" from=${sender}${repeatText} -> file=${mapping.commandFile} base=${resolved.commands.length} delta=${delta} repeat=${baseRepeat} total=${replaced.length}`
@@ -1824,14 +1843,13 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         .replace(/\{gift\}/g, giftName);
       enqueueSpeech(ttsText, ttsCfg, ttsNgWords);
     }
-  });
+  }
 
   // --------------------
   // コメント読み上げ（TTS）
   // --------------------
-  const commentGiftLastAt = new Map(); // rule毎の連投クールダウン
-
-  onTikTok("chat", async (data) => {
+  onTikTok("chat", async (data) => handleChat(liveContext, data));
+  async function handleChat(ctx, data) {
     data = normalizeTikTokEvent(data, 'chat');
     if (isPreConnectionEvent(data)) return;
     if (isMuted(data)) return;
@@ -1839,7 +1857,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const sender = getStableSender(data);
     const text = String(data.comment || "").trim();
     if (!text) return;
-    featureEngine.recordComment(text, sender);
+    ctx.featureEngine.recordComment(text, sender);
 
     // コメントギフト（イベント設定②）：設定した文字列を含むコメントでコマンド発動。
     // TTS の有効/無効とは独立して動く。
@@ -1849,13 +1867,13 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         if (!match || !rule.commandFile || !text.includes(match)) continue;
 
         const ruleKey = `${match}|${rule.commandFile}`;
-        const lastAt = commentGiftLastAt.get(ruleKey) || 0;
+        const lastAt = ctx.commentGiftLastAt.get(ruleKey) || 0;
         if (Date.now() - lastAt < 3000) continue; // 3秒クールダウン（連投スパム対策）
-        commentGiftLastAt.set(ruleKey, Date.now());
+        ctx.commentGiftLastAt.set(ruleKey, Date.now());
 
         const repeat = clampInt(rule.repeat ?? 1, 1, 100, 1);
-        console.log(`[CommentGift] "${match}" from=${sender} -> ${rule.commandFile} x${repeat}`);
-        dispatchBridgeEvent(`comment:${rule.commandFile}`, {
+        ctx.log(`[CommentGift] "${match}" from=${sender} -> ${rule.commandFile} x${repeat}`);
+        dispatchBridgeEvent(ctx, `comment:${rule.commandFile}`, {
           type: "other",
           historyType: "comment",
           commandFile: rule.commandFile,
@@ -1866,7 +1884,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
         if (rule.sound || rule.particle) {
           const extras = commentExtras(rule);
-          sendBridgeExec(bridgeMod, extras, sender).catch(() => {});
+          ctx.sendExtras(extras, sender);
         }
       }
     }
@@ -1876,7 +1894,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const readText = sender ? `${sender}、${text}` : text;
     console.log(`[TTS] コメントをキューへ追加 from=${sender || "viewer"} chars=${text.length}`);
     enqueueSpeech(readText, ttsCfg, ttsNgWords);
-  });
+  }
 
   // --------------------
   // 視聴者数メトリクス（配信統計の同接表示用）
@@ -1916,7 +1934,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   const LIKE_BATCH_MS = clampInt(options.likeBatchWindowMs ?? 1200, 100, 10000, 1200);
   const queueLikeEventBatched = createLikeBatcher({
     windowMs: LIKE_BATCH_MS, schedule: setTimeout, prepare: prepareGameEvent,
-    dispatch: event => dispatchBridgeEvent("like:" + event.commandFile, event),
+    dispatch: event => dispatchBridgeEvent(liveContext, "like:" + event.commandFile, event),
     failed: recordDeliveryRejection,
   });
 
@@ -1953,11 +1971,15 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     if (isMuted(data)) return;
     const progress = likeCounter.next(data);
     if (!progress) return;
+    handleLikeProgress(liveContext, data, progress);
+  });
+  // いいねの累計が分かったあとの処理（マイルストーン → いいねの設定）。テスト発火は入力の累計で同じ処理を通す（2026-10-16）。
+  function handleLikeProgress(ctx, data, progress) {
     const { total, previousTotal } = progress;
     if (previousTotal === 0 || likeEvents.some(ev => enabledCommand(ev) && Math.floor(total / Number(ev.threshold)) > Math.floor(previousTotal / Number(ev.threshold)))) {
-      console.log(`[Like:RAW] total=${total} previous=${previousTotal} count=${data.likeCount ?? '(none)'} from=${getStableSender(data)}`);
+      ctx.log(`[Like:RAW] total=${total} previous=${previousTotal} count=${data.likeCount ?? '(none)'} from=${getStableSender(data)}`);
     }
-    featureEngine.recordLikes(total, getStableSender(data), previousTotal, progress.local);
+    ctx.featureEngine.recordLikes(total, getStableSender(data), previousTotal, progress.local);
     for (const ev of likeEvents) {
       if (ev.enabled === false || !ev.commandFile || !ev.threshold) continue;
       const thresh = clampInt(ev.threshold, 1, 1000000, 10);
@@ -1974,13 +1996,13 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
       if (bridgeMod) {
         const count = triggersToRun * evRepeat;
-        console.log(
+        ctx.log(
           `[Like] total=${total} threshold=${thresh} newTriggers=${newTriggers} run=${triggersToRun} skipped=${skippedTriggers} repeat=${evRepeat} -> BridgeMod file=${ev.commandFile} count=${count}`
         );
         if (count > 0) {
           // 1つのルールの不備（GAME_MOD の書き間違いなど）で、残りのいいねルールまで止めない。
-          try { queueLikeEventBatched(ev.commandFile, count, sender, announceEnabled && thresh >= 100, triggersToRun); }
-          catch (error) { recordDeliveryRejection({ type: "like", commandFile: ev.commandFile, count, listenerName: sender }, error); }
+          try { ctx.queueLike(ev.commandFile, count, sender, announceEnabled && thresh >= 100, triggersToRun); }
+          catch (error) { ctx.rejected({ type: "like", commandFile: ev.commandFile, count, listenerName: sender }, error); }
         }
         continue;
       }
@@ -1991,8 +2013,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         continue;
       }
 
-      const ctx = { gameType: targetType, listenerName: sender, playerId: dtd ? dtd.playerId : 0 };
-      const baseCommands = resolved.commands.map((cmd) => applyPlaceholders(cmd, ctx));
+      const placeholderCtx = { gameType: targetType, listenerName: sender, playerId: dtd ? dtd.playerId : 0 };
+      const baseCommands = resolved.commands.map((cmd) => applyPlaceholders(cmd, placeholderCtx));
 
       // Title only when thresh >= 100
       const likeTitleCmds = (targetType === "minecraft" && announceEnabled && thresh >= 100) ? [
@@ -2022,12 +2044,13 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         }), { priority: 0 });
       }
     }
-  });
+  }
 
   // --------------------
   // Share イベント
   // --------------------
-  onTikTok("share", async (data) => {
+  onTikTok("share", async (data) => handleShare(liveContext, data));
+  function handleShare(ctx, data) {
     data = normalizeTikTokEvent(data, 'share');
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
     if (isMuted(data)) return;
@@ -2037,8 +2060,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const sender = getStableSender(data);
     const shareRepeat = clampInt(shareEvent.repeat ?? 1, 1, 100, 1);
     if (bridgeMod) {
-      console.log(`[Share] from=${sender} -> BridgeMod repeat=${shareRepeat} file=${shareEvent.commandFile}`);
-      dispatchBridgeEvent("share", {
+      ctx.log(`[Share] from=${sender} -> BridgeMod repeat=${shareRepeat} file=${shareEvent.commandFile}`);
+      dispatchBridgeEvent(ctx, "share", {
         type: "other",
         historyType: "share",
         commandFile: shareEvent.commandFile,
@@ -2061,8 +2084,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       ];
     }
 
-    const ctx = { gameType: targetType, listenerName: sender, playerId: dtd ? dtd.playerId : 0 };
-    const baseShareCmds = resolved.commands.map((cmd) => applyPlaceholders(cmd, ctx));
+    const placeholderCtx = { gameType: targetType, listenerName: sender, playerId: dtd ? dtd.playerId : 0 };
+    const baseShareCmds = resolved.commands.map((cmd) => applyPlaceholders(cmd, placeholderCtx));
     const shareExpanded = [...prelude];
     for (let r = 0; r < shareRepeat; r++) shareExpanded.push(...baseShareCmds);
 
@@ -2077,23 +2100,24 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         maxCommandsPerGift,
       }), { priority: 5 });
     }
-  });
+  }
 
   // --------------------
   // Follow（フォロー）イベント
   // --------------------
-  onTikTok("follow", async (data) => {
+  onTikTok("follow", async (data) => handleFollow(liveContext, data));
+  function handleFollow(ctx, data) {
     data = normalizeTikTokEvent(data, 'follow');
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
     if (isMuted(data)) return;
     const sender = getStableSender(data);
-    featureEngine.recordFollow(sender);
+    ctx.featureEngine.recordFollow(sender);
     if (!enabledCommand(followEvent)) return;
     const mapping = { commandFile: ensureTxt(followEvent.commandFile), name: "フォロー" };
     const followRepeat = clampInt(followEvent.repeat ?? 1, 1, 100, 1);
     if (bridgeMod) {
-      console.log(`[Follow] from=${sender} -> BridgeMod repeat=${followRepeat} file=${followEvent.commandFile}`);
-      dispatchBridgeEvent("follow", {
+      ctx.log(`[Follow] from=${sender} -> BridgeMod repeat=${followRepeat} file=${followEvent.commandFile}`);
+      dispatchBridgeEvent(ctx, "follow", {
         type: "other",
         historyType: "follow",
         commandFile: followEvent.commandFile,
@@ -2116,8 +2140,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       ];
     }
 
-    const ctx = { gameType: targetType, listenerName: sender, playerId: dtd ? dtd.playerId : 0 };
-    const baseFollowCmds = resolved.commands.map((cmd) => applyPlaceholders(cmd, ctx));
+    const placeholderCtx = { gameType: targetType, listenerName: sender, playerId: dtd ? dtd.playerId : 0 };
+    const baseFollowCmds = resolved.commands.map((cmd) => applyPlaceholders(cmd, placeholderCtx));
     const followExpanded = [...prelude];
     for (let r = 0; r < followRepeat; r++) followExpanded.push(...baseFollowCmds);
 
@@ -2132,12 +2156,13 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         maxCommandsPerGift,
       }), { priority: 5 });
     }
-  });
+  }
 
   // --------------------
   // Member（訪問）イベント
   // --------------------
-  onTikTok("member", async (data) => {
+  onTikTok("member", async (data) => handleMember(liveContext, data));
+  function handleMember(ctx, data) {
     data = normalizeTikTokEvent(data, 'member');
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
     if (isMuted(data)) return;
@@ -2147,8 +2172,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const sender = getStableSender(data);
     const memberRepeat = clampInt(memberEvent.repeat ?? 1, 1, 100, 1);
     if (bridgeMod) {
-      console.log(`[Member] join=${sender} -> BridgeMod repeat=${memberRepeat} file=${memberEvent.commandFile}`);
-      dispatchBridgeEvent("member", {
+      ctx.log(`[Member] join=${sender} -> BridgeMod repeat=${memberRepeat} file=${memberEvent.commandFile}`);
+      dispatchBridgeEvent(ctx, "member", {
         type: "other",
         historyType: "member",
         commandFile: memberEvent.commandFile,
@@ -2162,8 +2187,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const resolved = resolveCommands(mapping);
     if (!resolved.ok) { console.log(`[Member] ERROR: ${resolved.reason}`); return; }
 
-    const ctx = { gameType: targetType, listenerName: sender, playerId: dtd ? dtd.playerId : 0 };
-    const baseMemberCmds = resolved.commands.map((cmd) => applyPlaceholders(cmd, ctx));
+    const placeholderCtx = { gameType: targetType, listenerName: sender, playerId: dtd ? dtd.playerId : 0 };
+    const baseMemberCmds = resolved.commands.map((cmd) => applyPlaceholders(cmd, placeholderCtx));
     const memberExpanded = [];
     for (let r = 0; r < memberRepeat; r++) memberExpanded.push(...baseMemberCmds);
 
@@ -2178,7 +2203,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         maxCommandsPerGift,
       }), { priority: 3 });
     }
-  });
+  }
 
   function shutdownBridge() {
     recordStream('end', 'monitoring-stopped');

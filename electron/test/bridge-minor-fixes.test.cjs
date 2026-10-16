@@ -42,7 +42,7 @@ test('テスト発火も本番と同じく、時限倍率のあとの回数を�
   assert.equal(eventRules.giftTimes(4.5), 5);
   assert.equal(eventRules.giftTimes(1.2), 1);
   assert.equal(eventRules.giftTimes(NaN), 1);
-  assert.match(read('bridge/index.js'), /times = giftTimes\(featureEngine\.recordGift\(/, '本番も同じ関数で丸める');
+  assert.match(read('bridge/index.js'), /times = giftTimes\(ctx\.featureEngine\.recordGift\(/, '本番も同じ関数で丸める');
 });
 
 test('運用の統計は、回数0の行（音・粒子だけ失敗）を1回と数えない（PR #85 レビュー）', () => {
