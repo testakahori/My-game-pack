@@ -697,6 +697,16 @@
   color: #35e8a1;
 }
 
+/* ワールドを選び直したときの保存の結果（2026-10-16） */
+.cockpit-world-card > small.cockpit-world-msg {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+}
+
+.cockpit-world-card > small.cockpit-world-msg--ok { color: #8fe3c7; }
+.cockpit-world-card > small.cockpit-world-msg--error { color: #ff9fb2; }
+
 .cockpit-safety-state {
   display: flex;
   align-items: center;

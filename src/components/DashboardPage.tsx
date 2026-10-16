@@ -432,7 +432,8 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
   }, []);
 
   const subfolder = draft.startsWith(`${WORLD_PREFIX}/`) ? draft.slice(WORLD_PREFIX.length + 1) : draft;
-  const setSubfolder = (v: string) => { setDraft(`${WORLD_PREFIX}/${v}`); setWorldMsg(null); };
+  // 選び直したら、その場で保存する（2026-10-16 ユーザーの決定。以前は見えない隠しボタンと一括起動でしか保存できなかった）。
+  const setSubfolder = (v: string) => { const next = `${WORLD_PREFIX}/${v}`; setDraft(next); void handleWorldSave(next); };
   const isWorldDirty = draft !== levelName;
   useUnsavedChanges(!worldLoading && (isWorldDirty || (appliedUsername !== null && username.trim().replace(/^@/, "") !== appliedUsername)), applyBusy || worldSaving);
 
@@ -805,16 +806,17 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
     }
   };
 
-  const handleWorldSave = async () => {
+  const handleWorldSave = async (next: string) => {
     setWorldSaving(true); setWorldMsg(null);
     try {
-      await api.serverPropsWrite({ "level-name": draft });
-      setLevelName(draft);
+      await api.serverPropsWrite({ "level-name": next });
+      setLevelName(next);
       try { await api.serverDatapackDeployNightVision(); } catch { /* ignore */ }
       setWorldMsg({ type: "ok", text: "保存しました。次回サーバー起動時に反映されます。" });
-      addLog(`配布ワールドを変更しました: ${draft}`, "ok");
+      addLog(`配布ワールドを変更しました: ${next}`, "ok");
     } catch (e: any) {
-      setWorldMsg({ type: "error", text: `保存エラー: ${e?.message ?? String(e)}` });
+      setDraft(levelName);
+      setWorldMsg({ type: "error", text: `保存できませんでした。選ぶ前のワールドのままです: ${e?.message ?? String(e)}` });
       addLog(`ワールド保存エラー: ${e?.message ?? String(e)}`, "error");
     } finally { setWorldSaving(false); }
   };
@@ -1027,11 +1029,12 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
           <section className="cockpit-info-card cockpit-world-card">
           <h2><span><GrassBlockIcon /></span> 配信ワールド</h2>
           <label>ワールド</label>
-          <select value={subfolder} onChange={(e) => setSubfolder(e.target.value)}>
+          <select value={subfolder} disabled={worldLoading || worldSaving} onChange={(e) => setSubfolder(e.target.value)}>
             {worldFolders.map((folder) => <option value={folder} key={folder}>{WORLD_PREFIX}/ {folder}</option>)}
           </select>
           <WorldDiorama />
-          <small>状態: <b>{levelName ? "起動準備OK" : "未設定"}</b></small>
+          <small>状態: <b>{worldSaving ? "保存中…" : levelName ? "起動準備OK" : "未設定"}</b></small>
+          {worldMsg && <small role={worldMsg.type === "error" ? "alert" : "status"} className={`cockpit-world-msg cockpit-world-msg--${worldMsg.type}`}>{worldMsg.text}</small>}
           </section>
 
           <section className="cockpit-info-card cockpit-safety-card">
@@ -1128,7 +1131,6 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
         <button onClick={handleServerStart}>start</button><button onClick={handleServerStop}>stop</button>
         <button onClick={handleBridgeStart}>bridge</button><button onClick={handleBridgeStop}>bridge stop</button><button onClick={handleBridgeRestart}>bridge restart</button>
         <button onClick={handleMinecraftLaunch}>minecraft</button><button onClick={handleAllStop}>all stop</button>
-        <button onClick={handleWorldSave}>save</button>
       </div>
     </div>
   );
