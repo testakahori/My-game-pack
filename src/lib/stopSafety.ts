@@ -2,8 +2,11 @@
 import type { StopOrigin } from "../types/electron";
 
 export type StopTarget = "all" | "bridge" | "server";
-/** null は状態を取得できていない（不明）。動いているかもしれないものとして扱う。 */
-export type RunningState = { bridgeRunning: boolean | null; serverRunning: boolean | null; tiktokConnected?: boolean };
+/**
+ * null は状態を取得できていない（不明）。動いているかもしれないものとして扱う。
+ * disruptionPaused は妨害を一時停止中か（2026-10-16）。サーバーを止めると、BridgeMOD で預かっている分は消える。
+ */
+export type RunningState = { bridgeRunning: boolean | null; serverRunning: boolean | null; tiktokConnected?: boolean; disruptionPaused?: boolean };
 
 type BridgeStatus = { running?: boolean; tiktok?: { state?: string } | null } | null | undefined;
 type ServerStatus = { running?: boolean; managed?: boolean } | null | undefined;
@@ -49,7 +52,10 @@ export function stopConfirmMessage(target: StopTarget, state: RunningState): str
     target !== "server" && state.bridgeRunning === null ? "BRIDGE" : "",
     target !== "bridge" && state.serverRunning === null ? "サーバー" : "",
   ].filter(Boolean);
-  const note = unknown.length ? `${unknown.join("と")}の状態を確認できていません（動いているかもしれません）。\n` : "";
+  const unknownNote = unknown.length ? `${unknown.join("と")}の状態を確認できていません（動いているかもしれません）。\n` : "";
+  // サーバーを止めると一時停止は解け、BridgeMOD の待ちは消える（PR レビュー I-1）。BRIDGE停止はサーバーに触れない。
+  const pausedNote = target !== "bridge" && state.disruptionPaused ? "妨害を一時停止中です。サーバーを止めると一時停止は解け、BridgeMOD で預かっている分は消えます。\n" : "";
+  const note = unknownNote + pausedNote;
   if (target === "bridge") {
     if (state.bridgeRunning === false) return null;
     return `${live}${note}BRIDGEを停止します。止めている間のギフト・いいね・コメントはゲームに届かず、あとから届くこともありません。\n停止しますか？`;

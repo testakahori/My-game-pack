@@ -23,9 +23,25 @@ test('止めているかは、BridgeMOD とつながっていて paused が true
   assert.deepEqual(pauseView({ online: true, paused: true, gift: 'x', like: -1 }).queued, { gift: 0, like: 0, other: 0 }, '数でない値は0');
 });
 
-test('帯の文言は、預かっている件数と、再開すると順に起きることを書く', () => {
+test('帯の文言は、預かっている件数と、再開すると順に起きること、サーバーを止めると預かった分が消えることを書く', () => {
   assert.equal(pauseBannerText({ online: true, paused: true, queued: { gift: 2, like: 30, other: 1 } }),
-    '妨害を一時停止中です。届いた分は預かっています（ギフト 2・いいね 30・そのほか 1）。再開すると順に起きます');
+    '妨害を一時停止中です。届いた分は預かっています（ギフト 2・いいね 30・そのほか 1）。再開すると順に起きます。サーバーを止めると、BridgeMOD で預かっている分は消えます');
+});
+
+// 止めている間にサーバーを止める（MAP の読込・ゲームの切り替えも含む）と、BridgeMOD の待ちは消える（PR レビュー I-1）。
+test('止めている間のサーバー停止・一括停止の確認は、預かった分が消えることを書く。BRIDGE停止と、止めていないときは今までどおり', () => {
+  const { stopConfirmMessage } = loadTs('stopSafety.ts');
+  const running = { bridgeRunning: true, serverRunning: true, tiktokConnected: false };
+  const note = '妨害を一時停止中です。サーバーを止めると一時停止は解け、BridgeMOD で預かっている分は消えます。';
+  for (const target of ['server', 'all']) {
+    assert.ok(stopConfirmMessage(target, { ...running, disruptionPaused: true }).includes(note), target);
+    assert.ok(!stopConfirmMessage(target, running).includes('預かっている分'), target + '（止めていない）');
+  }
+  assert.ok(!stopConfirmMessage('bridge', { ...running, disruptionPaused: true }).includes('預かっている分'), 'BRIDGE停止はサーバーに触れない');
+  assert.equal(stopConfirmMessage('server', { ...running, serverRunning: false, disruptionPaused: true }), null, '止まっているサーバーは確認しない');
+  const home = source('components/DashboardPage.tsx');
+  assert.match(home, /stopConfirmMessage\(target, \{ \.\.\.stopState\(bridgeProcess, serverProc\), disruptionPaused: disruption\?\.paused === true \}\)/);
+  assert.match(home, /サーバーを止める・再起動すると一時停止は解け、BridgeMOD で預かっていた分は消えます。/);
 });
 
 test('一時停止・再開は出どころを付けて IPC を呼ぶ。失敗したら理由を返し、止めたことにしない', async () => {

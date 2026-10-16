@@ -1767,7 +1767,11 @@ async function setDisruptionPause(pause, origin) {
     const result = await requestBridgeMod("POST", "/bridge/control", { action: pause ? "pause" : "resume" });
     return { ok: true, paused: result.paused === true };
   } catch (error) {
-    if (error?.status === 400) return { ok: false, message: "BridgeMOD を新しくすると使えます（1.8.0 以上）。" };
+    // 1.7.5〜1.7.6 は 400（受け付けない指示）、1.7.4 より前は /bridge/control がなく 404（HTML）を返す。
+    if (error?.status === 400 || error?.status === 404) return { ok: false, message: "BridgeMOD を新しくすると使えます（1.8.0 以上）。" };
+    // 認証の失敗は直し方を含んだ文言を返す。つながらない・応答がないときは、英語の生の文字列を出さない。
+    if (error?.authFailed) return { ok: false, message: error.message };
+    if (!error?.status) return { ok: false, message: "BridgeMOD とつながっていません。Minecraft サーバーが動いているか確かめてください。" };
     return { ok: false, message: error?.message || String(error) };
   }
 }
@@ -1830,11 +1834,12 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
   };
   const protection = bridgeCfg.options?.protection || {};
   const fired = [];
-  // 一時停止中でも待ちに積む。実行は再開まで待つことを結果に書く（2026-10-16）。
-  let paused = false;
-  try { paused = (await requestBridgeMod("GET", "/bridge/status", null, bridgeCfg)).paused === true; } catch { /* 送る段階で失敗を報告する */ }
   testEventRunning = true;
   try {
+    // 一時停止中でも待ちに積む。実行は再開まで待つことを結果に書く（2026-10-16）。
+    // 読み取りは実行中の印を立てたあとに行う（待っている間に押された2つ目を、同時に動かさない）。
+    let paused = false;
+    try { paused = (await requestBridgeMod("GET", "/bridge/status", null, bridgeCfg)).paused === true; } catch { /* 送る段階で失敗を報告する */ }
     for (const [stepIndex, step] of plan.steps.entries()) {
       const payload = {
         type: step.type === "like" ? "like" : ["gift", "mapped_gift", "unmapped_gift"].includes(step.type) ? "gift" : "other",
@@ -1872,7 +1877,8 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
     }
     const succeeded = fired.filter(row => row.ok).length;
     return { ok: succeeded === fired.length, matched: true, fired, steps: details, notes: plan.notes,
-      message: fired.length + "件中" + succeeded + "件をModへ送信しました。ゲーム内の結果も確認してください。" + (paused ? " 一時停止中です。再開すると実行されます。" : "") };
+      // 送れなかった分（待ちがいっぱいなど）は再開しても実行されないので、送れた分があるときだけ書く。
+      message: fired.length + "件中" + succeeded + "件をModへ送信しました。ゲーム内の結果も確認してください。" + (paused && succeeded > 0 ? " 一時停止中です。再開すると実行されます。" : "") };
   } finally { testEventRunning = false; }
 });
 

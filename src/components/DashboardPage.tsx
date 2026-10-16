@@ -464,7 +464,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
   // 稼働中のものを止めるときだけ確認する（配信中のうっかり停止を防ぐ。止まっていれば確認なしで実行）。
   // アプリの外で起動したサーバーはここから止められないので、止める対象に数えない。
   const confirmStop = (target: StopTarget) => {
-    const message = stopConfirmMessage(target, stopState(bridgeProcess, serverProc));
+    const message = stopConfirmMessage(target, { ...stopState(bridgeProcess, serverProc), disruptionPaused: disruption?.paused === true });
     return !message || window.confirm(message);
   };
 
@@ -949,7 +949,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
                 </button>
               </div>
               {pauseNotice && <p role="alert">{pauseNotice}</p>}
-              <p>休憩や準備の間だけ妨害を止めます。止めている間に届いたギフト・いいねは預かり、再開すると送られた数どおり順に起きます。始まっている演出は最後まで続きます。サーバーを再起動すると解けます。</p>
+              <p>休憩や準備の間だけ妨害を止めます。止めている間に届いたギフト・いいねは預かり、再開すると送られた数どおり順に起きます。始まっている演出は最後まで続きます。サーバーを止める・再起動すると一時停止は解け、BridgeMOD で預かっていた分は消えます。</p>
             </section>
           ) : null}
           <details className="studio-advanced"><summary>ランチャー設定</summary>

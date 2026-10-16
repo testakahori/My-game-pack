@@ -241,15 +241,18 @@ test("Mod状態IPC: 認証の失敗（403）はオフラインと区別し、直
 test('妨害の一時停止IPC: /bridge/control へ送り、出どころを記録する。古い BridgeMOD（400）では新しくするよう伝える。止めている間のテスト発火には文言を足す', async t => {
   const http = require("node:http");
   const received = [];
-  let supported = true, paused = false;
+  let supported = true, paused = false, missingRoute = false, rejectEvents = false, slowStatus = 0;
   const server = http.createServer((req, res) => {
     const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => {
       const payload = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : null;
       received.push({ method: req.method, url: req.url, payload });
       res.setHeader("Content-Type", "application/json");
+      // BridgeMOD 1.7.0〜1.7.4 には /bridge/control がなく、JDK の HttpServer が HTML の 404 を返す。
+      if (req.url === "/bridge/control" && missingRoute) { res.statusCode = 404; res.setHeader("Content-Type", "text/html"); res.end("<h1>404 Not Found</h1>No context found for request"); return; }
       if (req.url === "/bridge/control" && !supported) { res.statusCode = 400; res.end('{"ok":false,"error":"unsupported"}'); return; }
       if (req.url === "/bridge/control") { paused = payload.action === "pause"; res.end(JSON.stringify({ ok: true, paused })); return; }
-      if (req.url === "/bridge/status") { res.end(JSON.stringify({ ok: true, paused, gameSessions: {} })); return; }
+      if (req.url === "/bridge/status") { setTimeout(() => res.end(JSON.stringify({ ok: true, paused, gameSessions: {} })), slowStatus); return; }
+      if (req.url === "/bridge/event" && rejectEvents) { res.statusCode = 429; res.end('{"ok":false,"error":"queue_full"}'); return; }
       res.end('{"ok":true}');
     });
   });
@@ -275,13 +278,30 @@ test('妨害の一時停止IPC: /bridge/control へ送り、出どころを記�
   assert.match(lines[0], /妨害の一時停止 ← 配信ホームの一時停止$/);
   assert.match(lines[1], /妨害の再開 ← 一時停止の帯の再開$/);
 
+  // 送れなかったテスト発火には「再開すると実行されます」と書かない（PR レビュー M-3）。
+  await app.invoke("mod:pause", "home:pause");
+  rejectEvents = true;
+  const refused = await app.invoke("mod:testEvent", { type: "share" });
+  assert.equal(refused.ok, false);
+  assert.doesNotMatch(refused.message, /再開すると実行されます/);
+  rejectEvents = false;
+  await app.invoke("mod:resume", "home:resume");
+
+  // 状態を読んでいる間に押されたテスト発火も、同時には動かさない（PR レビュー M-1）。
+  slowStatus = 300;
+  const both = await Promise.all([app.invoke("mod:testEvent", { type: "share" }), app.invoke("mod:testEvent", { type: "share" })]);
+  assert.equal(both.filter(result => /別のテストを実行中です/.test(result.message)).length, 1, both.map(result => result.message).join(" / "));
+  slowStatus = 0;
+
   supported = false;
+  assert.deepEqual(plain(await app.invoke("mod:pause", "home:pause")), { ok: false, message: "BridgeMOD を新しくすると使えます（1.8.0 以上）。" });
+  // 1.7.0〜1.7.4（404）にも同じ文言を返す（PR レビュー M-2）。
+  missingRoute = true;
   assert.deepEqual(plain(await app.invoke("mod:pause", "home:pause")), { ok: false, message: "BridgeMOD を新しくすると使えます（1.8.0 以上）。" });
   server.close();
   await new Promise(resolve => server.once("close", resolve));
-  const offline = await app.invoke("mod:resume", "home:resume");
-  assert.equal(offline.ok, false);
-  assert.ok(offline.message.length > 0, "つながらないときは理由を返す");
+  // つながらないときは、英語の生の文字列ではなく、確かめることを返す（PR レビュー M-2）。
+  assert.deepEqual(plain(await app.invoke("mod:resume", "home:resume")), { ok: false, message: "BridgeMOD とつながっていません。Minecraft サーバーが動いているか確かめてください。" });
 });
 
 test("ギフト更新: 手動と自動の同時実行をまとめ、検証後に両画面へ通知する", async (t) => {

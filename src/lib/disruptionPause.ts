@@ -13,7 +13,8 @@ export function pauseView(mod: { online?: unknown; paused?: unknown; gift?: unkn
 
 export function pauseBannerText(view: PauseView): string {
   const { gift, like, other } = view.queued;
-  return `妨害を一時停止中です。届いた分は預かっています（ギフト ${gift}・いいね ${like}・そのほか ${other}）。再開すると順に起きます`;
+  // サーバーを止める（MAP の読込・ゲームの切り替えも含む）と、BridgeMOD の待ちは消える（PR レビュー I-1）。
+  return `妨害を一時停止中です。届いた分は預かっています（ギフト ${gift}・いいね ${like}・そのほか ${other}）。再開すると順に起きます。サーバーを止めると、BridgeMOD で預かっている分は消えます`;
 }
 
 type PauseResult = { ok: boolean; paused?: boolean; message?: string };
