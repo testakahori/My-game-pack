@@ -36,15 +36,17 @@ test('Bridge のルーレットは来た順にまとめて回し、当たりは�
   // N 回分を先に全部決めると、大きな N で Bridge が止まり、途中で設定を変えても古い当たりが出る（PR #79 レビュー）。
   const source = read('bridge/index.js');
   const run = source.slice(source.indexOf('function runRoulette('), source.indexOf('function dispatchBridgeEvent('));
-  assert.match(run, /rouletteRequests\.push\(\{ getConfig, triggerName, historyType, spins: rouletteSpins\(count\), done: 0 \}\);/);
+  assert.match(run, /const spins = rouletteSpins\(count\);/);
+  // run・step はテスト発火のルーレットだけ（本番は null。2026-10-16）。
+  assert.match(run, /rouletteRequests\.push\(\{ getConfig, triggerName, historyType, spins, done: 0, run, step \}\);/);
   assert.match(run, /const rl = request\.getConfig\(\);/);
   assert.match(run, /if \(request\.done > 0\) console\.warn\(`\[Roulette\] ルーレットが無効になったため、残り\$\{request\.spins - request\.done\}回を取りやめました`\);/,
     '途中で無効にしたら残りは回さず、取りやめた回数をログに出す（PR #79 再レビュー）');
   assert.match(run, /round = prepareRoulette\(rl, commandsDirAbs\);/);
   assert.match(run, /request\.done\+\+;\s*if \(request\.done < request\.spins\) nextRouletteSpin\(\); else finish\(\);/, '同じ依頼を全部回してから次の依頼');
   assert.match(run, /Promise\.resolve\(\)\.then\(nextRouletteSpin\)/, '取りやめが続いても呼び出しを深く重ねない');
-  assert.match(source, /runRoulette\(\(\) => rouletteCfg, event\.listenerName, event\.historyType \|\| "roulette", event\.count\)/);
-  assert.match(source, /runRoulette\(\(\) => rl, String\(status\.player \|\| "player"\), "death_roulette"\)/, 'デスルーレットは1回');
+  assert.match(source, /runRoulette\(\(\) => rouletteCfg, event\.listenerName, event\.historyType \|\| "roulette", event\.count, run\)/);
+  assert.match(source, /runRoulette\(\(\) => rl, String\(status\.player \|\| "player"\), "death_roulette", 1, ctx\.run\)/, 'デスルーレットは1回');
 });
 
 test('同時に来た2人のルーレットは、来た順にまとめて回す（AAA BBB）', async t => {

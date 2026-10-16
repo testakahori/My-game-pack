@@ -37,6 +37,7 @@ const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("
 const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require("./feature_engine");
 const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes } = require("./event_rules.cjs");
 const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter, createMuteMatcher } = require("./tiktok_events.cjs");
+const { testEventActions, createTestRun, noMatchNote } = require("./test_fire.cjs");
 let runtimeProtection = { enabled: false };
 let bridgeModWebSocket = null;
 let bridgeModWebSocketStopping = false;
@@ -819,13 +820,17 @@ function recordDeliveryRejection(event, error) {
   try {
     const reason = deliveryFailureReason(error);
     const commandFile = ensureTxt(event?.commandFile);
-    deliveryRejections.rejected++;
-    deliveryRejections.last = { at: new Date().toISOString(), type: event?.historyType || event?.type || "other", commandFile, reason };
-    console.error(`[BridgeMod] 送れなかったイベント（再送しません）: type=${event?.type || "other"} file=${commandFile} count=${event?.count ?? 1} 理由: ${reason}`);
+    const at = new Date().toISOString(), type = event?.historyType || event?.type || "other";
+    // テスト発火の分は、テストの結果と履歴（テストの印つき）にだけ出す。ホーム画面の「送れなかったイベント」には数えない（2026-10-16）。
+    const test = event?.source === "test";
+    console.error(`[BridgeMod] ${test ? "[Test] " : ""}送れなかったイベント（再送しません）: type=${event?.type || "other"} file=${commandFile} count=${event?.count ?? 1} 理由: ${reason}`);
     appendOperationsHistoryLine(path.join(__dirname, "operations-history.json"), {
-      at: deliveryRejections.last.at, type: deliveryRejections.last.type,
-      sender: event?.listenerName || "viewer", commandFile, count: event?.count || 1, ok: false, message: reason,
+      at, type, sender: event?.listenerName || "viewer", commandFile, count: event?.count || 1, ok: false, message: reason,
+      ...(test ? { source: "test" } : {}),
     });
+    if (test) { event.testRun?.failed(event, reason); return; }
+    deliveryRejections.rejected++;
+    deliveryRejections.last = { at, type, commandFile, reason };
     updateRuntimeStatus({ delivery: { ...deliveryRejections } });
   } catch (recordError) {
     console.error("[BridgeMod] 送れなかったイベントを記録できませんでした:", recordError?.message || recordError);
@@ -857,7 +862,10 @@ function bridgeEventDelivery(bridgeMod, opts = {}) {
         // ダイヤ集計用（giftのみ）。diamond は1個あたりの単価、合計は diamond×count。
         ...(event.giftId ? { giftId: String(event.giftId) } : {}),
         ...(Number(event.diamond) > 0 ? { diamond: Number(event.diamond) } : {}),
+        // テスト発火の分は配信統計に入れない（アプリは source: "test" の行を数えない）。
+        ...(event.source === "test" ? { source: "test" } : {}),
       });
+      event.testRun?.delivered(event);
     },
     // state は同じ要求の再送のあいだ共有される。失敗の種類が変わったら数え直す。
     retry: (event, error, attempt, state = {}) => {
@@ -1349,7 +1357,12 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // Minecraft（BridgeMOD 経路）では「個別最大コマンド数」を掛けない。送られた数どおりに出す（2026-10-11 ユーザーの決定）。
   const modDelivery = bridgeMod ? bridgeEventDelivery(bridgeMod, { prepare: prepareGameEvent }) : null;
   // 失敗は recordDeliveryRejection がログ・履歴・画面用の状態へ記録済み。
-  const enqueueMod = event => modDelivery.enqueue(event).catch(() => {});
+  // テスト発火の分は、送る列から外れたことを集計へ知らせる（送れた・送れなかったの知らせがなければ、配信の終了で捨てた分）。
+  const enqueueMod = event => {
+    const pending = modDelivery.enqueue(event).catch(() => {});
+    if (event.testRun) pending.then(() => event.testRun.finished(event));
+    return pending;
+  };
 
   // RCON/Telnet 実行を直列化しつつ、ギフトをいいねの backlog より優先する。
   // 並列接続による gift_stream:bridge ストレージの上書きを防ぐため、実行自体は常に1本。
@@ -1402,6 +1415,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     // 認証の失敗かどうかは、当選を送るレーンが「同じ要求で 403 が2回続いたか」で判定する（演出の1回の 403 では決めない）。
     onFrameError: error => {
       console.warn("[Roulette] 演出を送れなかったため、演出を省いて当選を発火します:", error?.message || error);
+      // テスト発火のルーレットなら、結果にも書く（演出が出なかった理由を残す。PR #79 の確かめ）。
+      rouletteRequests[0]?.run?.notice(`ルーレットの演出を送れなかったため、演出を省いて当たりを送りました: ${error?.message || error}`);
     },
   });
   // 送られた回数（count）だけ回す（2026-10-11 ユーザーの決定）。回すたびに演出して当たりを決める。
@@ -1410,9 +1425,13 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // 途中で設定を変えても古い当たりが出る（PR #79 レビュー）。途中で無効にしたら、その依頼の残りは取りやめる。
   const rouletteRequests = [];
   let rouletteBusy = false;
-  function runRoulette(getConfig, triggerName, historyType, count = 1) {
+  function runRoulette(getConfig, triggerName, historyType, count = 1, run = null) {
     if (!bridgeMod) return false;
-    rouletteRequests.push({ getConfig, triggerName, historyType, spins: rouletteSpins(count), done: 0 });
+    const spins = rouletteSpins(count);
+    // テスト発火のルーレットは1つの手順として数え、回し終えるまで結果を待つ（2026-10-16）。
+    const step = run ? run.step({ commandFile: "roulette.txt", count: spins, historyType: historyType || "roulette" }, { roulette: true }) : null;
+    if (run) run.hold(step);
+    rouletteRequests.push({ getConfig, triggerName, historyType, spins, done: 0, run, step });
     if (!rouletteBusy) nextRouletteSpin();
     // 無効な項目を旧 roulette.txt へ流して成功扱いにしない。
     return true;
@@ -1422,7 +1441,11 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     if (!request) { rouletteBusy = false; return; }
     rouletteBusy = true;
     // 依頼を終えて次へ。取りやめが続いても呼び出しを深く重ねない。
-    const finish = () => { rouletteRequests.shift(); Promise.resolve().then(nextRouletteSpin); };
+    const finish = () => {
+      rouletteRequests.shift();
+      if (request.run) request.run.release(request.step);
+      Promise.resolve().then(nextRouletteSpin);
+    };
     const rl = request.getConfig();
     if (!rl?.enabled) {
       if (request.done > 0) console.warn(`[Roulette] ルーレットが無効になったため、残り${request.spins - request.done}回を取りやめました`);
@@ -1437,11 +1460,13 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       return finish();
     }
     animateRoulette(round, request.triggerName, winner => {
-      enqueueMod({
+      const event = {
         type: "other", historyType: request.historyType || "roulette",
         commandFile: winner.commandFile, count: winner.repeat,
         listenerName: request.triggerName || "roulette", announce: false,
-      });
+      };
+      // テスト発火の当たりは、ルーレットの手順の続きとして数える。
+      enqueueMod(request.run ? request.run.mark({ ...event, label: `${winner.label}（${request.done + 1}回目/${request.spins}）` }, request.step) : event);
     }).catch(error => console.error("[Roulette] 演出・発火に失敗:", error.message))
       .then(() => {
         request.done++;
@@ -1452,14 +1477,23 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // Mod への発火を一元化：commandFile が roulette（仮想コマンド）ならルーレットに差し替える
   // ctx は本番（liveContext）か、テスト発火の文脈（2026-10-16）。
   function dispatchBridgeEvent(ctx, label, event, opts = {}) {
-    if (
-      rouletteCfg?.enabled &&
-      commandFileToBridgeKey(event.commandFile) === "roulette" &&
-      runRoulette(() => rouletteCfg, event.listenerName, event.historyType || "roulette", event.count)
-    ) {
-      return;
+    const run = ctx.run;
+    if (rouletteCfg?.enabled && commandFileToBridgeKey(event.commandFile) === "roulette") {
+      // 条件だけ確認では回さない。回す回数だけ書く。
+      if (run?.preview) { run.step({ ...event, label: "ルーレット", count: rouletteSpins(event.count) }, { roulette: true }); return; }
+      if (runRoulette(() => rouletteCfg, event.listenerName, event.historyType || "roulette", event.count, run)) return;
     }
-    enqueueMod(event);
+    if (run?.preview) { previewEvent(run, event); return; }
+    enqueueMod(run ? run.mark(event) : event);
+  }
+  // 条件だけ確認：送る前の確かめ（名前・コマンドファイル・GAME_MOD）を送るときと同じく通し、通らなければ理由を書く。
+  function previewEvent(run, event) {
+    const step = run.step(event);
+    const commandFile = ensureTxt(event.commandFile);
+    let problem = commandFileProblem(commandFile)
+      || (fs.existsSync(path.join(commandsDirAbs, commandFile)) ? "" : `コマンドが見つかりません: ${commandFile}`);
+    if (!problem) { try { prepareGameEvent(event); } catch (error) { problem = error?.message || String(error); } }
+    if (problem) run.notice(`${run.steps[step].label}（${commandFile}）: ${problem}`);
   }
 
   // 本番の処理（ギフト・いいね・シェア・フォロー・訪問・コメント・死亡）は、状態と送り先を ctx で受け取る。
@@ -1489,7 +1523,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     dispatchBridgeEvent(ctx, `feature:${feature.type}`, {
       type: "other", historyType: feature.type || "other", commandFile: feature.commandFile,
       count: clampInt(feature.count, 1, 100, 1),
-      listenerName: listenerName || "viewer", announce: true,
+      listenerName: listenerName || "viewer", announce: true, label: feature.label,
     }, { priority: 8 });
   }
 
@@ -1503,7 +1537,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const every = clampInt(rl.everyDeaths ?? 1, 1, 1000, 1);
     if (deathRouletteMatches(rl, deaths)) {
       ctx.log(`[DeathRoulette] deaths=${deaths}（${every}回ごと）→ ルーレット始動`);
-      runRoulette(() => rl, String(status.player || "player"), "death_roulette");
+      if (ctx.run?.preview) ctx.run.step({ commandFile: "roulette.txt", count: 1, historyType: "death_roulette" }, { roulette: true });
+      else runRoulette(() => rl, String(status.player || "player"), "death_roulette", 1, ctx.run);
     }
   }
 
@@ -1670,6 +1705,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
           ctx.log(`[Gift] (unmapped) -> BridgeMod file=${unmappedGiftEvent.commandFile} repeat=${unmappedRepeat}`);
           dispatchBridgeEvent(ctx, `unmapped:${giftId}`, {
             type: "gift",
+            label: "未設定ギフト",
             commandFile: unmappedGiftEvent.commandFile,
             count: unmappedRepeat,
             listenerName: sender,
@@ -1727,6 +1763,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     }
 
     const randomized = resolveRandomizedMapping(mapping);
+    if (ctx.run && randomized.mapping !== mapping) ctx.run.notice(`ランダム選択: ${randomized.mapping.commandFile}（実行ごとに抽選）`);
     mapping = randomized.mapping;
     const now = Date.now();
 
@@ -1761,6 +1798,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       );
       dispatchBridgeEvent(ctx, `gift:${giftId}`, {
         type: "gift",
+        label: mapping.name,
         commandFile: mapping.commandFile,
         count: times,
         listenerName: sender,
@@ -1835,6 +1873,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     }
     }
 
+    if (ctx.run) return; // テスト発火は読み上げない（読み上げは読み上げ設定のテストで確かめる）
     // TTS 読み上げ（ギフト）
     const ttsCfg = loadTtsConfig();
     if (ttsCfg.enabled && ttsCfg.giftEnabled) {
@@ -1889,6 +1928,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       }
     }
 
+    if (ctx.run) return; // テスト発火は読み上げない（読み上げは読み上げ設定のテストで確かめる）
     const ttsCfg = loadTtsConfig();
     if (!ttsCfg.enabled || !ttsCfg.commentEnabled) return;
     const readText = sender ? `${sender}、${text}` : text;
@@ -2205,6 +2245,100 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     }
   }
 
+  // --------------------
+  // テスト発火（アプリの「イベントテスト」）
+  // --------------------
+  // 本番と同じ処理・同じ送る列を、本番とは別の新しい状態で通す（2026-10-16 ユーザーの決定）。
+  // 本番の状態（クールダウン・連打・コンボ・いいねとフォローの累計）には触らない。
+  const TEST_FIRE_WAIT_MS = clampInt(process.env.BRIDGE_TEST_FIRE_WAIT_MS ?? 10000, 100, 60000, 10000);
+  const startupOptions = JSON.stringify(options);
+  const OPTIONS_CHANGED_NOTE = "設定のうち、ミュート・アナウンス・コンボ・マイルストーン・投票などは、BRIDGE を起動し直すまで本番にもテストにも反映されません。いまの BRIDGE の設定で試しました。";
+
+  function createTestContext(run) {
+    let flushLikes = null;
+    const ctx = {
+      run,
+      log: (...args) => console.log("[Test]", ...args),
+      lastExecAt: new Map(), streakLastCount: new Map(), commentGiftLastAt: new Map(),
+      isDuplicate: () => false,
+      sendExtras: (extras, sender) => {
+        if (run.preview) return;
+        sendBridgeExec(bridgeMod, extras, sender).catch(error => run.notice(`音・粒子を送れませんでした: ${error?.message || error}`));
+      },
+      rejected: (event, error) => {
+        if (run.preview) run.notice(`${ensureTxt(event.commandFile)}: ${error?.message || error}`);
+        else recordDeliveryRejection(run.mark(event), error);
+      },
+      // まとめ送りは待たずに、処理を通し終えたらすぐ送る（まとめ方は本番と同じ）。
+      flushLikes: () => { const flush = flushLikes; flushLikes = null; if (flush) flush(); },
+    };
+    ctx.featureEngine = new FeatureEngine(options.gameplay || {}, feature => emitFeature(ctx, feature));
+    ctx.queueLike = createLikeBatcher({
+      windowMs: LIKE_BATCH_MS, schedule: flush => { flushLikes = flush; return flush; },
+      prepare: run.preview ? (event => event) : prepareGameEvent,
+      dispatch: event => dispatchBridgeEvent(ctx, "like:" + event.commandFile, event),
+      failed: ctx.rejected,
+    });
+    return ctx;
+  }
+
+  async function runTestAction(ctx, action) {
+    const sender = getStableSender(action.data || {});
+    switch (action.kind) {
+      case "direct": {
+        const key = commandFileToBridgeKey(action.commandFile);
+        if (key === "roulette" && !rouletteCfg?.enabled) throw new Error("ルーレットが無効です。イベント設定②で有効にして保存してください。");
+        if (key !== "roulette" && !fs.existsSync(path.join(commandsDirAbs, action.commandFile))) throw new Error(`コマンドが見つかりません: ${action.commandFile}`);
+        return dispatchBridgeEvent(ctx, "test:direct", { type: "gift", commandFile: action.commandFile, count: action.count,
+          listenerName: sender, announce: announceEnabled, label: "選んだコマンド" }, { priority: 10 });
+      }
+      case "gift": return handleGift(ctx, action.data);
+      case "like": return handleLikeProgress(ctx, action.data, action.progress);
+      case "share": return handleShare(ctx, action.data);
+      case "member": return handleMember(ctx, action.data);
+      case "follow":
+        // 新しいフォローを「入力の人数」人目として数える。
+        ctx.featureEngine.followCount = action.followCount - 1;
+        return handleFollow(ctx, action.data);
+      case "chat": return handleChat(ctx, action.data);
+      case "death": return handleDeath(ctx, action.status);
+      case "roulette":
+        if (!rouletteCfg?.enabled) return;
+        return dispatchBridgeEvent(ctx, "test:roulette", { type: "other", historyType: "roulette", commandFile: "roulette.txt",
+          count: 1, listenerName: sender, announce: false });
+      case "poll": {
+        const poll = ctx.featureEngine.config.poll;
+        if (!poll?.enabled || !poll.options?.[action.option]) return;
+        ctx.featureEngine.startPoll();
+        ctx.featureEngine.recordComment(`!${action.option}`, sender);
+        return ctx.featureEngine.finishPoll();
+      }
+    }
+  }
+
+  async function runTestEvent(input) {
+    if (!bridgeMod) throw new Error("テスト発火は、Minecraft を BridgeMOD で動かしているときだけ使えます。");
+    // 保存した直後でも、新しいイベント設定・割り当てで試す（自動の読み直しと同じ確かめを通す）。
+    reloadDynamicConfig();
+    const { sender, actions, notes } = testEventActions(input, { mappedGiftIds: new Set(mappingById.keys()) });
+    const run = createTestRun({ preview: input.preview === true });
+    const name = getStableSender({ nickname: sender });
+    if (input.type !== "death" && isMuted({ nickname: sender })) {
+      run.notice("この視聴者はミュート対象のため発火しません。");
+      return run.result(name);
+    }
+    for (const note of notes) run.notice(note);
+    try {
+      if (JSON.stringify(JSON.parse(fs.readFileSync(configPath, "utf8")).options || {}) !== startupOptions) run.notice(OPTIONS_CHANGED_NOTE);
+    } catch { /* 読めなければ注意を出さない（読み直しのエラーはログに出ている） */ }
+    const ctx = createTestContext(run);
+    for (const action of actions) await runTestAction(ctx, action);
+    ctx.flushLikes();
+    if (actions.length && !run.steps.length) run.notice(noMatchNote(input.type));
+    if (!run.preview) await run.wait(TEST_FIRE_WAIT_MS);
+    return run.result(name);
+  }
+
   function shutdownBridge() {
     recordStream('end', 'monitoring-stopped');
     clearInterval(audienceTimer);
@@ -2222,6 +2356,16 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   process.on('SIGTERM', shutdownBridge);
   process.on('disconnect', shutdownBridge);
   process.on('message', message => { if (message?.type === 'shutdown') shutdownBridge(); });
+  // アプリ（main）からのテスト発火の問い合わせ。結果は同じ id で返す。
+  process.on('message', message => {
+    if (message?.type !== 'testEvent') return;
+    runTestEvent(message.input || {})
+      .then(result => ({ ok: true, ...result }), error => ({ ok: false, error: error?.message || String(error) }))
+      .then(result => {
+        try { process.send?.({ type: 'testEventResult', id: message.id, result }); }
+        catch (error) { console.error('[Test] 結果をアプリへ返せませんでした:', error?.message || error); }
+      });
+  });
 }
 
 if (require.main === module) {
