@@ -37,7 +37,7 @@ test('サーバーが動いている間はワールドを選べず、理由を�
 
 test('保存している間・一括起動の間・サーバーの動作中は選べない。保存の結果をカードに出す', () => {
   const card = between('<section className="cockpit-info-card cockpit-world-card">', '</section>');
-  assert.match(card, /<select value=\{subfolder\} disabled=\{worldLoading \|\| worldSaving \|\| allStartBusy \|\| serverProc\.running === true\} onChange=\{\(e\) => setSubfolder\(e\.target\.value\)\}>/);
+  assert.match(card, /<select id="stream-world" value=\{subfolder\} disabled=\{worldLoading \|\| worldSaving \|\| allStartBusy \|\| serverProc\.running === true\} onChange=\{\(e\) => setSubfolder\(e\.target\.value\)\}>/);
   assert.match(card, /\{worldMsg && <small role=\{worldMsg\.type === "error" \? "alert" : "status"\}/);
   assert.match(card, /\{worldMsg\.text\}/);
 });

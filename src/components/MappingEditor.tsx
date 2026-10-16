@@ -192,7 +192,7 @@ const MappingEditor: React.FC<Props> = (props) => {
           </div>
           <button type="button" onClick={loadCmdFiles}>↻ コマンド再読込</button>
         </header>
-        {cmdMsg ? <p className={`gift-flow-message gift-flow-message--${cmdMsg.type}`}>{cmdMsg.text}</p> : null}
+        {cmdMsg ? <p role={cmdMsg.type === "error" ? "alert" : "status"} className={`gift-flow-message gift-flow-message--${cmdMsg.type}`}>{cmdMsg.text}</p> : null}
 
         <div className="gift-flow-body">
           <div className={`gift-flow-source ${hasGift ? "is-ready" : ""}`}>
@@ -260,24 +260,24 @@ const MappingEditor: React.FC<Props> = (props) => {
             onClick={handleSaveUpsert}
           >
             <span>▣</span>
-            {saving ? "保存中…" : already ? "このルートを更新" : "このルートを保存"}
+            {saving ? "保存中…" : already ? "割り当てを更新" : "割り当てを保存"}
           </button>
         </div>
 
-        {already ? <p className="gift-flow-notice">設定済みのギフトです。保存すると現在のルートを上書きします。</p> : null}
-        {saveMsg ? <p className={`gift-flow-message gift-flow-message--${saveMsg.type}`}>{saveMsg.text}</p> : null}
+        {already ? <p className="gift-flow-notice">設定済みのギフトです。保存すると現在の割り当てを更新します。</p> : null}
+        {saveMsg ? <p role={saveMsg.type === "error" ? "alert" : "status"} className={`gift-flow-message gift-flow-message--${saveMsg.type}`}>{saveMsg.text}</p> : null}
       </section>
 
       <section className="gift-registered-panel">
         <header className="gift-registered-heading">
           <div>
             <h3><span>3</span> 登録済みギフト <em>{filteredMappings.length} / {mappings.length} 件</em></h3>
-            <p>保存したルートをクリックすると編集できます。</p>
+            <p>保存した割り当てを選ぶと編集できます。</p>
           </div>
           <div className="gift-registered-search">
             <span>⌕</span>
-            <input value={listQuery} onChange={(e) => setListQuery(e.target.value)} placeholder="検索" />
-            {listQuery.trim() ? <button type="button" onClick={() => setListQuery("")}>×</button> : null}
+            <input aria-label="登録済みギフトを検索" value={listQuery} onChange={(e) => setListQuery(e.target.value)} placeholder="検索" />
+            {listQuery.trim() ? <button type="button" aria-label="登録済みギフトの検索をクリア" onClick={() => setListQuery("")}>×</button> : null}
           </div>
         </header>
 

@@ -175,6 +175,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
               return (
                 <button
                   key={key}
+                  aria-pressed={isActive}
                   type="button"
                   onClick={() => { setStatusFilter(key); setPage(1); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
@@ -196,6 +197,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
           <div className="relative flex-1 min-w-[140px] max-w-[200px]">
             <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-[10px]" />
             <input
+              aria-label="割り当てるギフトを検索"
               value={q}
               onChange={(e) => { setQ(e.target.value); setPage(1); }}
               placeholder="検索"
@@ -205,6 +207,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
 
           {/* ソート */}
           <select
+            aria-label="ギフトの並び順"
             value={sort}
             onChange={(e) => { setSort(e.target.value as typeof sort); setPage(1); }}
             className="bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-xs text-gray-100 outline-none focus:ring-2 focus:ring-cyan-500/30"
@@ -222,7 +225,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
 
       {/* エラー */}
       {err && (
-        <div className="mx-5 mb-3 px-3 py-2 bg-red-900/40 border border-red-700/40 rounded-xl text-[10px] text-red-300 break-all">
+        <div role="alert" className="mx-5 mb-3 px-3 py-2 bg-red-900/40 border border-red-700/40 rounded-xl text-[10px] text-red-300 break-all">
           ❌ {err}
         </div>
       )}
@@ -230,12 +233,15 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
       {/* ── ギフトグリッド ── */}
       <div className="gift-grid-scroll px-5 pb-5 overflow-y-auto">
         {filtered.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-gray-500 text-xs text-center">
+          <div className="catalog-empty-help" role="status">
             {loading
               ? "読み込み中…"
               : uniqueGifts.length === 0
               ? "「🔄 更新」ボタンでギフト一覧を取得してください"
-              : "該当するギフトがありません"}
+              : "条件に一致するギフトがありません。"}
+            {!loading && (uniqueGifts.length === 0
+              ? <><p>配信ホームでTikTokユーザー名を設定してから取得してください。</p><button type="button" className="empty-state-action" onClick={onUpdate}>ギフト一覧を取得</button></>
+              : <button type="button" className="empty-state-action" onClick={() => { setQ(""); setStatusFilter("all"); setPage(1); }}>検索・絞り込みを解除</button>)}
           </div>
         ) : (
           <div className="grid grid-cols-10 gap-2">
@@ -247,6 +253,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
               return (
                 <button
                   key={g.id}
+                  aria-pressed={isSelected}
                   type="button"
                   onClick={() => handleGiftClick(g)}
                   title={`${g.name} (💎${g.diamond_count})`}
@@ -305,7 +312,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
 
       {/* トースト */}
       {toastMsg && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-gray-900 border border-gray-600 text-white px-5 py-2 rounded-full text-xs font-bold shadow-xl pointer-events-none z-20 whitespace-nowrap">
+        <div role="status" className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-gray-900 border border-gray-600 text-white px-5 py-2 rounded-full text-xs font-bold shadow-xl pointer-events-none z-20 whitespace-nowrap">
           {toastMsg}
         </div>
       )}

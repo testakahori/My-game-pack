@@ -1,3 +1,4 @@
+import SaveBar from "./SaveBar";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 
@@ -221,7 +222,7 @@ const TTSSettingsPage: React.FC = () => {
   const [testing, setTesting] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
-  const [msg, setMsg] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+  const [msg, setMsg] = useState<{ type: "ok" | "error"; text: string; source?: "save" } | null>(null);
   const [testText, setTestText] = useState("こんにちは！今日は素敵な配信をありがとう！");
   const [voiceDropdownOpen, setVoiceDropdownOpen] = useState(false);
   const [testStats, setTestStats] = useState({ success: 0, total: 0 });
@@ -324,9 +325,9 @@ const TTSSettingsPage: React.FC = () => {
       await api.ttsSettingsWrite(settings);
       savedRef.current = JSON.stringify(settings);
       setIsDirty(false);
-      setMsg({ type: "ok", text: "音声設定を保存しました。" });
+      setMsg({ type: "ok", text: "音声設定を保存しました。", source: "save" });
     } catch (error: any) {
-      setMsg({ type: "error", text: `保存エラー: ${error?.message ?? String(error)}` });
+      setMsg({ type: "error", text: `保存エラー: ${error?.message ?? String(error)}`, source: "save" });
     } finally {
       setSaving(false);
     }
@@ -477,7 +478,7 @@ const TTSSettingsPage: React.FC = () => {
         />
       </section>
 
-      {msg ? <div className={`tts-message tts-message--${msg.type}`}>{msg.type === "ok" ? "✓" : "!"} {msg.text}</div> : null}
+      {msg && (msg.source !== "save" || msg.type === "error" || !isDirty) ? <div role={msg.type === "error" ? "alert" : "status"} className={`tts-message tts-message--${msg.type}`}>{msg.type === "ok" ? "✓" : "!"} {msg.text}</div> : null}
 
       <section className="tts-read-target-section">
         <div className="tts-section-heading tts-section-heading--compact">
@@ -641,6 +642,7 @@ const TTSSettingsPage: React.FC = () => {
           </button>
         </div>
       </section>
+      <SaveBar dirty={isDirty} saving={saving} onSave={handleSave} message={msg?.source === "save" ? msg : null} />
     </div>
   );
 };

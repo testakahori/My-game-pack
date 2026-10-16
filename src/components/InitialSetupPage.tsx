@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import setupCompleteHeroImage from "../../assets/初期セットアップ完了.png";
 import setupBeforeHeroImage from "../../assets/初期セットアップ完了前01.png";
 import setupBeforeForgeImage from "../../assets/初期セットアップ完了前02.png";
 import setupBeforeEnvImage from "../../assets/初期セットアップ完了前03.png";
@@ -474,12 +473,9 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
   if (setupComplete) {
     return (
       <div className="setup-page setup-complete-page setup-complete-v2 page-surface max-w-none">
-        <section className="setup-complete-hero-v2 setup-complete-hero-v2--image">
-          <img
-            src={setupCompleteHeroImage}
-            alt="セットアップ完了済みです。Forge、Bridge、Minecraft、TikTok の準備が完了したMinecraft風の完了ビジュアル"
-            className="setup-complete-hero-image-v2"
-          />
+        <section className="setup-status-heading">
+          <i className="fa-solid fa-circle-check" aria-hidden="true" />
+          <div><h1>サーバーのセットアップは完了しています</h1><p>次は配信ホームでゲームと接続設定を確認してください。TikTok・Minecraftの接続状態は、配信ホームで確認できます。</p></div>
         </section>
 
         <div className="setup-complete-grid-v2">
@@ -493,8 +489,6 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
             <p>設定ファイルやログはこのフォルダに保存されます。</p>
             <div className="setup-server-meta-v2">
               <span>▣ <small>サーバー状態</small><b>セットアップ完了</b></span>
-              <span>◷ <small>最終更新</small><b>この端末</b></span>
-              <span>◉ <small>ログサイズ</small><b>準備OK</b></span>
             </div>
           </section>
 
@@ -535,7 +529,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
         <div className="setup-complete-actions-v2">
           <button type="button" onClick={onSetupComplete} className="setup-dashboard-button-v2">
             <span>🚀</span>
-            <div><b>ダッシュボードへ戻る</b><small>サーバーを起動して配信を開始しましょう！</small></div>
+            <div><b>配信ホームへ戻る</b><small>サーバーを起動して配信を開始しましょう！</small></div>
           </button>
           <button type="button" onClick={onResetSetup} className="setup-reset-button-v2">
             <span>↻</span>
@@ -545,7 +539,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
 
         <div className="setup-ready-banner-v2">
           <span>⬡</span>
-          <div><b>すべての準備が整いました！</b><small>ダッシュボードからいつでもサーバーの起動・監視が可能です。素敵な配信をお楽しみください！</small></div>
+          <div><b>サーバー環境の準備ができました</b><small>配信ホームからいつでもサーバーの起動・監視が可能です。素敵な配信をお楽しみください！</small></div>
           <em>💎</em>
         </div>
       </div>
@@ -724,7 +718,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
       <section className="setup-flow-panel-v2">
         <div className="setup-flow-copy-v2">
           <span>ⓘ</span>
-          <p>① Forgeの準備 → ② <b>環境構築</b> → 完了確認の順に進みます。<br />完了後はMinecraftランチャーで「1.20.1-forge-47.4.10」を選び、ダッシュボードからサーバーを起動できます。</p>
+          <p>① Forgeの準備 → ② <b>環境構築</b> → 完了確認の順に進みます。<br />完了後はMinecraftランチャーで「1.20.1-forge-47.4.10」を選び、配信ホームからサーバーを起動できます。</p>
         </div>
         <FlowBlocks />
       </section>
