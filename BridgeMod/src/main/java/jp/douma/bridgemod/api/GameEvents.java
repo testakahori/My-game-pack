@@ -7,8 +7,9 @@ import java.util.function.Supplier;
 /** Server-thread handoff. ACCEPTED transfers ownership; WAIT leaves the event in Bridge's queue. */
 public final class GameEvents {
     public static final int WAIT = 0, ACCEPTED = 1, DISCARDED = 2;
-    private static final Map<String, Function<Map<String, Object>, Integer>> RECEIVERS = new HashMap<>();
-    private static final Map<String, Supplier<Map<String, Object>>> STATUS = new HashMap<>();
+    // Forge は MOD のコンストラクターを並列に呼ぶので、同時に登録しても消えない Map にする（アプリレビュー 2026-10-08 P5）。
+    private static final Map<String, Function<Map<String, Object>, Integer>> RECEIVERS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<String, Supplier<Map<String, Object>>> STATUS = new java.util.concurrent.ConcurrentHashMap<>();
     private static Function<Map<String, Object>, Integer> commonEffects;
     private record Session(String id, boolean active) {}
     private static final Map<String, Session> SESSIONS = new java.util.concurrent.ConcurrentHashMap<>();
@@ -56,10 +57,11 @@ public final class GameEvents {
     private GameEvents() {}
     public static void register(String id, Function<Map<String, Object>, Integer> receiver,
                                 Supplier<Map<String, Object>> status) {
-        if (!id.matches("[a-z][a-z0-9_]{1,63}") || RECEIVERS.containsKey(id))
+        Objects.requireNonNull(receiver);
+        Objects.requireNonNull(status);
+        if (!id.matches("[a-z][a-z0-9_]{1,63}") || RECEIVERS.putIfAbsent(id, receiver) != null)
             throw new IllegalArgumentException("Duplicate or invalid game MOD: " + id);
-        RECEIVERS.put(id, Objects.requireNonNull(receiver));
-        STATUS.put(id, Objects.requireNonNull(status));
+        STATUS.put(id, status);
     }
     public static int offer(String id, Map<String, Object> event) {
         Object requestId = event.get("requestId");
@@ -73,9 +75,15 @@ public final class GameEvents {
         if (result != WAIT && result != ACCEPTED && result != DISCARDED) throw new IllegalStateException("Invalid game handoff result");
         return result;
     }
+    /** 外部ゲームMODの状態取得が例外を出しても（無限の再帰も含む）、その MOD の分だけ {"ok":false,"error":…} にして、ほかの MOD とサーバーは止めない。 */
     public static Map<String, Object> status() {
         Map<String, Object> result = new TreeMap<>();
-        STATUS.forEach((id, supplier) -> result.put(id, supplier.get()));
+        STATUS.forEach((id, supplier) -> {
+            Object value;
+            try { value = supplier.get(); }
+            catch (Exception | StackOverflowError | LinkageError error) { value = Map.of("ok", false, "error", error.getClass().getSimpleName() + ": " + error.getMessage()); }
+            result.put(id, value);
+        });
         return result;
     }
     /** Common meteor / wither behaviour remains owned by BridgeMOD. No notification is emitted here. */

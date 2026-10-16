@@ -63,12 +63,21 @@ public class BridgeMod {
     private final LikeCodLimiter likeCod = new LikeCodLimiter();
 
     private HttpServer bridgeServer;
+    private java.util.concurrent.ExecutorService httpExecutor;
     // サーバー起動ごとに作り直す。null の間は HTTP・WebSocket をすべて拒否する。
     private volatile BridgeAuth auth;
-    private MinecraftServer activeServer;
-    private ServerSocket webSocketServer;
-    private final Set<Socket> webSocketClients = Collections.synchronizedSet(new HashSet<>());
+    // HTTP のスレッドも読む（状態を作らせる相手）。
+    private volatile MinecraftServer activeServer;
+    private volatile ServerSocket webSocketServer;
+    private final Set<WebSocketOutbox> webSocketClients = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private int statusBroadcastTicks = 0;
+    // HTTP の状態の要求がサーバーを待つ時間。BRIDGE とアプリは 1.5 秒で諦めるので、それより十分短くする（PR #98 レビュー）。
+    private static final long STATUS_WAIT_MS = 250;
+    // サーバーのスレッドで最後に作った状態の、待ちの件数より後ろの部分。プレイヤーや外部ゲームMODの状態は、ほかのスレッドから読まない（アプリレビュー 2026-10-08 P5）。
+    // まだ一度も作れていないときは、起動中と分かるようにする。
+    private volatile String lastStatusRest = ",\"starting\":true}";
+    // サーバーのスレッドだけが読み書きする。同じ失敗を毎秒ログに出さない。
+    private String lastStatusFailure = "";
     private long executedCommands = 0;
     private long failedCommands = 0;
     private volatile String lastError = "";
@@ -101,6 +110,7 @@ public class BridgeMod {
         activeServer = event.getServer();
         giftEffects.load(activeServer);
         environment.apply(activeServer, giftEffects);
+        buildStatusSafely();
         issueAuthToken(event.getServer());
         startBridgeHttpServer(event.getServer());
         startWebSocketServer();
@@ -131,13 +141,14 @@ public class BridgeMod {
 
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
+        // HTTP を閉じる前にサーバーを外す。止めている間に届いた状態の要求は、サーバーを待たずに古い状態を返す（PR #98 レビュー）。
+        activeServer = null;
         GameEvents.clearSessions(); discardedGameRequests = 0;
         giftEffects.stop();
         EnvironmentOverrides.reset();
         stopBridgeHttpServer();
         stopWebSocketServer();
         auth = null;
-        activeServer = null;
         synchronized (this) {
             giftQueue.clear();
             likeQueue.clear();
@@ -170,7 +181,9 @@ public class BridgeMod {
         environment.apply(activeServer, giftEffects);
         if (++statusBroadcastTicks >= 20) {
             statusBroadcastTicks = 0;
-            broadcastWebSocket(buildStatusJson());
+            // 送信待ちに積むだけで、送り終わるのを待たない（WebSocketOutbox）。状態を作れなくても tick は止めない。
+            String status = buildStatusSafely();
+            if (status != null) broadcastWebSocket(status);
         }
     }
 
@@ -263,11 +276,14 @@ public class BridgeMod {
             bridgeServer.createContext("/bridge/exec", exchange -> { if (authorize(exchange)) handleBridgeExec(server, exchange); });
             bridgeServer.createContext("/bridge/status", exchange -> { if (authorize(exchange)) handleBridgeStatus(exchange); });
             bridgeServer.createContext("/bridge/control", exchange -> { if (authorize(exchange)) handleBridgeControl(exchange); });
-            bridgeServer.setExecutor(Executors.newSingleThreadExecutor(r -> {
+            // 状態の要求がサーバーを待っている間も、ギフトなどの受付を後ろに並ばせない（並ぶと BRIDGE が 1.5 秒で諦めて送り直し、
+            // ギフトが2回実行される。PR #98 レビュー）。各ハンドラーは同時に動いても安全（待ち列は synchronized、auth は volatile）。
+            httpExecutor = Executors.newFixedThreadPool(4, r -> {
                 Thread t = new Thread(r, "BridgeMod-BridgeHttp");
                 t.setDaemon(true);
                 return t;
-            }));
+            });
+            bridgeServer.setExecutor(httpExecutor);
             bridgeServer.start();
             System.out.println("[Bridge] Bridge HTTP listening on 127.0.0.1:" + port);
         } catch (IOException e) {
@@ -280,6 +296,11 @@ public class BridgeMod {
         if (bridgeServer == null) return;
         bridgeServer.stop(1);
         bridgeServer = null;
+        // シングルプレイでワールドを開き直すたびに、受付のスレッドが残らないようにする。
+        if (httpExecutor != null) {
+            httpExecutor.shutdownNow();
+            httpExecutor = null;
+        }
         System.out.println("[Bridge] Bridge HTTP stopped");
     }
 
@@ -422,24 +443,68 @@ public class BridgeMod {
             sendHttp(exchange, 405, "{\"ok\":false,\"error\":\"method_not_allowed\"}");
             return;
         }
-        int gift, like, other;
-        synchronized (this) {
-            gift = giftQueue.size();
-            like = likeQueue.size();
-            other = otherQueue.size();
-        }
-        sendHttp(exchange, 200, buildStatusJson(gift, like, other));
+        sendHttp(exchange, 200, currentStatus());
     }
 
+    /**
+     * HTTP のスレッドから呼ぶ。状態はサーバーのスレッドに tick と tick の間で作らせるので、待ちの件数・演出の残り・プレイヤーなどが
+     * 同じ時点の値になる（アプリレビュー 2026-10-08 P5）。サーバーが STATUS_WAIT_MS 応えないとき（重い・止まりかけ）は、
+     * 頼んだ分を取り消して、その場の待ちの件数と最後に作った状態を "stale":true で返す（PR #98 レビュー）。
+     */
+    private String currentStatus() {
+        MinecraftServer server = activeServer;
+        if (server == null) return staleStatus();
+        java.util.concurrent.CompletableFuture<String> future = server.submit(this::buildStatusSafely);
+        try {
+            String status = future.get(STATUS_WAIT_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+            if (status != null) return status;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+            // 下で古い状態を返す
+        }
+        future.cancel(false);
+        return staleStatus();
+    }
+
+    /** どのスレッドから呼んでもよい。待ちの件数はその場で数え、ほかはサーバーのスレッドで最後に作った状態を使う。 */
+    private String staleStatus() {
+        int gift, like, other;
+        synchronized (this) {
+            gift = giftQueue.size(); like = likeQueue.size(); other = otherQueue.size();
+        }
+        return statusHead(gift, like, other) + ",\"stale\":true" + lastStatusRest;
+    }
+
+    private static String statusHead(int gift, int like, int other) {
+        return "{\"ok\":true,\"mod\":\"bridgemod\",\"environmentFixed\":true,\"gift\":" + gift + ",\"like\":" + like + ",\"other\":" + other;
+    }
+
+    // サーバーのスレッドからだけ呼ぶ。状態を作れなくても、起動と tick は止めない（null を返す）。
+    private String buildStatusSafely() {
+        try {
+            String status = buildStatusJson();
+            lastStatusFailure = "";
+            return status;
+        } catch (RuntimeException | StackOverflowError | LinkageError error) {
+            String message = error.toString();
+            if (!message.equals(lastStatusFailure)) {
+                lastStatusFailure = message;
+                System.out.println("[Bridge] status failed: " + message);
+            }
+            return null;
+        }
+    }
+
+    /**
+     * サーバーのスレッドからだけ呼ぶ（プレイヤー・TPS・外部ゲームMODの状態を読むため）。
+     * 待ちの件数より後ろの部分は lastStatusRest に残す（WebSocket の最初の送信と、サーバーが応えないときに使う）。
+     */
     private String buildStatusJson() {
         int gift, like, other;
         synchronized (this) {
             gift = giftQueue.size(); like = likeQueue.size(); other = otherQueue.size();
         }
-        return buildStatusJson(gift, like, other);
-    }
-
-    private String buildStatusJson(int gift, int like, int other) {
         ServerPlayer player = activeServer == null || activeServer.getPlayerList().getPlayers().isEmpty()
             ? null : activeServer.getPlayerList().getPlayers().get(0);
         double x = player == null ? 0 : player.getX();
@@ -447,8 +512,7 @@ public class BridgeMod {
         double z = player == null ? 0 : player.getZ();
         double tickMs = activeServer == null ? 0 : activeServer.getAverageTickTime();
         double tps = tickMs <= 0 ? 20.0 : Math.min(20.0, 1000.0 / tickMs);
-        return "{\"ok\":true,\"mod\":\"bridgemod\",\"environmentFixed\":true,\"gift\":" + gift + ",\"like\":" + like + ",\"other\":" + other
-            + ",\"games\":" + new com.google.gson.Gson().toJson(GameEvents.status())
+        String rest = ",\"games\":" + StatusJson.games(GameEvents.status())
             + ",\"gameSessions\":" + new com.google.gson.Gson().toJson(GameEvents.sessions())
             + ",\"discardedGameRequests\":" + discardedGameRequests
             + ",\"displayAvailable\":" + DisplayLink.available()
@@ -464,6 +528,9 @@ public class BridgeMod {
             + ",\"tickMs\":" + String.format(Locale.ROOT, "%.2f", tickMs)
             + ",\"player\":{\"online\":" + (player != null) + ",\"x\":" + String.format(Locale.ROOT, "%.2f", x)
             + ",\"y\":" + String.format(Locale.ROOT, "%.2f", y) + ",\"z\":" + String.format(Locale.ROOT, "%.2f", z) + "}}";
+        lastStatusRest = rest;
+        // サーバーで作った状態は "stale":false（つないだ直後の古い状態の印を、Bridge の記録に残し続けない）。
+        return statusHead(gift, like, other) + ",\"stale\":false" + rest;
     }
 
     private void startWebSocketServer() {
@@ -488,14 +555,13 @@ public class BridgeMod {
 
     private void stopWebSocketServer() {
         try { if (webSocketServer != null) webSocketServer.close(); } catch (IOException ignored) {}
-        synchronized (webSocketClients) {
-            for (Socket client : webSocketClients) try { client.close(); } catch (IOException ignored) {}
-            webSocketClients.clear();
-        }
+        for (WebSocketOutbox client : webSocketClients) client.close();
+        webSocketClients.clear();
         webSocketServer = null;
     }
 
     private void handleWebSocketClient(Socket socket) {
+        WebSocketOutbox outbox = null;
         try {
             // ハンドシェイクは5秒・64行・16KBまで。送ってこない相手にスレッドを抱えさせない。
             socket.setSoTimeout(5000);
@@ -528,8 +594,10 @@ public class BridgeMod {
                 + "Sec-WebSocket-Accept: " + accept + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
             out.flush();
             socket.setSoTimeout(0); // 接続後は状態を送り続けるだけなので、読み込みの時間制限を外す
-            webSocketClients.add(socket);
-            sendWebSocket(socket, buildStatusJson());
+            outbox = new WebSocketOutbox(socket);
+            // つないだ直後の状態を先に積んでから、1秒ごとの送信先に入れる（古い状態が新しい状態のあとに届かないように）。
+            outbox.offer(staleStatus());
+            webSocketClients.add(outbox);
             InputStream in = socket.getInputStream();
             // 送信専用。Bridge は状態と死亡通知を受け取るだけなので、受信したテキストでイベントを積まない。
             // 読み続けるのは、相手が閉じたことを検知するため。
@@ -538,7 +606,8 @@ public class BridgeMod {
             }
         } catch (Exception ignored) {
         } finally {
-            webSocketClients.remove(socket);
+            // 普通に切断したときも、送信スレッドを終える（PR #98 レビュー）。
+            if (outbox != null) { webSocketClients.remove(outbox); outbox.close(); }
             try { socket.close(); } catch (IOException ignored) {}
         }
     }
@@ -557,26 +626,8 @@ public class BridgeMod {
         return opcode == 1 ? new String(payload, StandardCharsets.UTF_8) : "";
     }
 
-    private void sendWebSocket(Socket socket, String text) throws IOException {
-        byte[] payload = text.getBytes(StandardCharsets.UTF_8);
-        OutputStream out = socket.getOutputStream();
-        synchronized (out) {
-            out.write(0x81);
-            if (payload.length < 126) out.write(payload.length);
-            else { out.write(126); out.write((payload.length >> 8) & 0xff); out.write(payload.length & 0xff); }
-            out.write(payload); out.flush();
-        }
-    }
-
     private void broadcastWebSocket(String text) {
-        synchronized (webSocketClients) {
-            Iterator<Socket> iterator = webSocketClients.iterator();
-            while (iterator.hasNext()) {
-                Socket socket = iterator.next();
-                try { sendWebSocket(socket, text); }
-                catch (IOException e) { iterator.remove(); try { socket.close(); } catch (IOException ignored) {} }
-            }
-        }
+        webSocketClients.removeIf(client -> !client.offer(text));
     }
 
     private void sendHttp(HttpExchange exchange, int status, String text) throws IOException {
