@@ -90,6 +90,7 @@
    - 設計書：`docs/superpowers/specs/2026-10-16-pause-disruptions-design.md`（ブランチ `docs/spec-pause-disruptions`、`eb3dd4c`）。BridgeMOD 1.8.0 の `/bridge/control` の pause・resume、配信ホームのボタン、全ページの帯。BRIDGE は変えない。
    - 次：ユーザーが設計書を確かめる → 実装計画（writing-plans）→ 実装。
 7. 小さい問題に `gift-effects.cjs` の古いテスト（`skytrap`・`iceage`）を足す。
+8. 小さい問題に、CI の Windows で `minecraft-processes.test.cjs` の「readJavaCommandLines は Windows の本物の PowerShell で java.exe の一覧を読める」が時間切れ（約8秒）で落ちる件を足す。10-16 に2回（PR #100・#101）。どちらもやり直しで通った。待つ時間か、PowerShell の呼び方を見直す。
 
 ---
 
