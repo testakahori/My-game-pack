@@ -40,7 +40,8 @@ test('Bridge のルーレットは来た順にまとめて回し、当たりは�
   // run・step はテスト発火のルーレットだけ（本番は null。2026-10-16）。
   assert.match(run, /rouletteRequests\.push\(\{ getConfig, triggerName, historyType, spins, done: 0, run, step \}\);/);
   assert.match(run, /const rl = request\.getConfig\(\);/);
-  assert.match(run, /if \(request\.done > 0\) console\.warn\(`\[Roulette\] ルーレットが無効になったため、残り\$\{request\.spins - request\.done\}回を取りやめました`\);/,
+  // 行頭の ${tag} はテスト発火のルーレットのときだけ「[Test] 」になる（2026-10-16）。
+  assert.match(run, /if \(request\.done > 0\) console\.warn\(`\$\{tag\}\[Roulette\] ルーレットが無効になったため、残り\$\{request\.spins - request\.done\}回を取りやめました`\);/,
     '途中で無効にしたら残りは回さず、取りやめた回数をログに出す（PR #79 再レビュー）');
   assert.match(run, /round = prepareRoulette\(rl, commandsDirAbs\);/);
   assert.match(run, /request\.done\+\+;\s*if \(request\.done < request\.spins\) nextRouletteSpin\(\); else finish\(\);/, '同じ依頼を全部回してから次の依頼');

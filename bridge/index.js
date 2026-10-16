@@ -885,7 +885,7 @@ function bridgeEventDelivery(bridgeMod, opts = {}) {
       const changed = state.logged !== kind;
       state.logged = kind;
       if (changed || attempt % 20 === 0) console.warn(
-        "[BridgeMod] Waiting to retry", event.type, event.commandFile, "attempt=" + attempt, detail);
+        `${event.source === "test" ? "[Test] " : ""}[BridgeMod] Waiting to retry`, event.type, event.commandFile, "attempt=" + attempt, detail);
     },
   });
 }
@@ -1075,11 +1075,12 @@ async function main() {
   const isMutedUser = createMuteMatcher(options.mutedUsers);
   const ttsNgWords = (Array.isArray(options.ttsNgWords) ? options.ttsNgWords : [])
     .map(v => String(v).trim()).filter(Boolean);
-  const isMuted = (data) => {
+  // log はテスト発火のとき行頭に [Test] を付けるためのもの（2026-10-16）。
+  const isMuted = (data, log = console.log) => {
     // 表示名は整えた形（' → ’ など）になるので、生の uniqueId・名前も候補に入れる（設定は生の名前でも整えた名前でもよい）。
     const event = normalizeTikTokEvent(data), sender = getStableSender(event);
     const blocked = isMutedUser([event.uniqueId, event.nickname, event.userId, sender]);
-    if (blocked) console.log(`[Safety] muted user event ignored: ${sender}`);
+    if (blocked) log(`[Safety] muted user event ignored: ${sender}`);
     return blocked;
   };
 
@@ -1192,7 +1193,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   }
 
   // --- コンフィグ ホットリロード ---
-  function reloadDynamicConfig() {
+  function reloadDynamicConfig(log = console.log) {
     try {
       const newCfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
       // 起動時と同じ検証を通す。壊れた設定では切り替えず、今の設定で動かし続ける。
@@ -1224,7 +1225,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
           repeat: clampInt(m.repeat ?? 1, 1, 100, 1),
         });
       }
-      console.log(`[Bridge] Config reloaded — likeEvents:${likeEvents.length} mappings:${mappingById.size}`);
+      log(`[Bridge] Config reloaded — likeEvents:${likeEvents.length} mappings:${mappingById.size}`);
     } catch (e) {
       console.log("[Bridge] Config reload error:", e?.message);
     }
@@ -1309,7 +1310,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     }
   }
 
-  function resolveRandomizedMapping(mapping) {
+  function resolveRandomizedMapping(mapping, log = console.log) {
     const resolved = resolveCommands(mapping);
     const choices = parseWeightedList(resolved.meta?.RANDOM).map(choice => {
       if (choice.explicitWeight) return choice;
@@ -1320,7 +1321,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const chosen = chooseWeighted(choices);
     if (!chosen) return { mapping, meta: resolved.meta || {} };
     const commandFile = ensureTxt(chosen.commandFile);
-    console.log(`[Random] ${mapping.commandFile} -> ${commandFile} (weight=${chosen.weight})`);
+    log(`[Random] ${mapping.commandFile} -> ${commandFile} (weight=${chosen.weight})`);
     return { mapping: { ...mapping, commandFile }, meta: resolved.meta || {} };
   }
 
@@ -1414,7 +1415,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     // 演出を送れなくても当選は再送のあるレーンへ流す。理由だけ残す。
     // 認証の失敗かどうかは、当選を送るレーンが「同じ要求で 403 が2回続いたか」で判定する（演出の1回の 403 では決めない）。
     onFrameError: error => {
-      console.warn("[Roulette] 演出を送れなかったため、演出を省いて当選を発火します:", error?.message || error);
+      console.warn(`${rouletteRequests[0]?.run ? "[Test] " : ""}[Roulette] 演出を送れなかったため、演出を省いて当選を発火します:`, error?.message || error);
       // テスト発火のルーレットなら、結果にも書く（演出が出なかった理由を残す。PR #79 の確かめ）。
       rouletteRequests[0]?.run?.notice(`ルーレットの演出を送れなかったため、演出を省いて当たりを送りました: ${error?.message || error}`);
     },
@@ -1449,8 +1450,10 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const rl = request.getConfig();
     // テスト発火なら、回さずに終わった回数と理由を結果に書く（以前のテスト発火と同じく、設定の誤りを失敗として出す。2026-10-16）。
     const left = request.spins - request.done;
+    // テスト発火のルーレットのログには、行頭に [Test] を付ける（最後のレビュー Minor #7）。
+    const tag = request.run ? "[Test] " : "";
     if (!rl?.enabled) {
-      if (request.done > 0) console.warn(`[Roulette] ルーレットが無効になったため、残り${request.spins - request.done}回を取りやめました`);
+      if (request.done > 0) console.warn(`${tag}[Roulette] ルーレットが無効になったため、残り${request.spins - request.done}回を取りやめました`);
       request.run?.failStep(request.step, `ルーレットが無効になったため、残り${left}回を取りやめました。`, left);
       return finish();
     }
@@ -1458,7 +1461,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     try {
       round = prepareRoulette(rl, commandsDirAbs);
     } catch (error) {
-      console.error("[Roulette]", error.message + (left > 1 ? `（残り${left}回を取りやめました）` : ""));
+      console.error(`${tag}[Roulette]`, error.message + (left > 1 ? `（残り${left}回を取りやめました）` : ""));
       request.run?.failStep(request.step, error.message, left);
       return finish();
     }
@@ -1470,7 +1473,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       };
       // テスト発火の当たりは、ルーレットの手順の続きとして数える。
       enqueueMod(request.run ? request.run.mark({ ...event, label: `${winner.label}（${request.done + 1}回目/${request.spins}）` }, request.step) : event);
-    }).catch(error => console.error("[Roulette] 演出・発火に失敗:", error.message))
+    }).catch(error => console.error(`${tag}[Roulette] 演出・発火に失敗:`, error.message))
       .then(() => {
         request.done++;
         if (request.done < request.spins) nextRouletteSpin(); else finish();
@@ -1668,7 +1671,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   onTikTok("gift", async (data) => handleGift(liveContext, data));
   async function handleGift(ctx, data) {
     data = normalizeTikTokEvent(data, 'gift');
-    if (isMuted(data)) return;
+    if (isMuted(data, ctx.log)) return;
     // [診断ログ] TikTok ライブラリが受信した全ギフトイベントを記録
     const _rawGiftId = String(data.giftId ?? "");
     const _rawName = String(data.giftName ?? data.extendedGiftInfo?.name ?? "");
@@ -1771,7 +1774,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       return;
     }
 
-    const randomized = resolveRandomizedMapping(mapping);
+    const randomized = resolveRandomizedMapping(mapping, ctx.log);
     if (ctx.run && randomized.mapping !== mapping) ctx.run.notice(`ランダム選択: ${randomized.mapping.commandFile}（実行ごとに抽選）`);
     mapping = randomized.mapping;
     const now = Date.now();
@@ -1900,7 +1903,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   async function handleChat(ctx, data) {
     data = normalizeTikTokEvent(data, 'chat');
     if (isPreConnectionEvent(data)) return;
-    if (isMuted(data)) return;
+    if (isMuted(data, ctx.log)) return;
 
     const sender = getStableSender(data);
     const text = String(data.comment || "").trim();
@@ -2102,7 +2105,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   function handleShare(ctx, data) {
     data = normalizeTikTokEvent(data, 'share');
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
-    if (isMuted(data)) return;
+    if (isMuted(data, ctx.log)) return;
     if (!enabledCommand(shareEvent)) return;
 
     const mapping = { commandFile: ensureTxt(shareEvent.commandFile), name: "シェア" };
@@ -2158,7 +2161,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   function handleFollow(ctx, data) {
     data = normalizeTikTokEvent(data, 'follow');
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
-    if (isMuted(data)) return;
+    if (isMuted(data, ctx.log)) return;
     const sender = getStableSender(data);
     ctx.featureEngine.recordFollow(sender);
     if (!enabledCommand(followEvent)) return;
@@ -2214,7 +2217,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   function handleMember(ctx, data) {
     data = normalizeTikTokEvent(data, 'member');
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
-    if (isMuted(data)) return;
+    if (isMuted(data, ctx.log)) return;
     if (!enabledCommand(memberEvent)) return;
 
     const mapping = { commandFile: ensureTxt(memberEvent.commandFile), name: "訪問" };
@@ -2260,19 +2263,25 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // 本番と同じ処理・同じ送る列を、本番とは別の新しい状態で通す（2026-10-16 ユーザーの決定）。
   // 本番の状態（クールダウン・連打・コンボ・いいねとフォローの累計）には触らない。
   const TEST_FIRE_WAIT_MS = clampInt(process.env.BRIDGE_TEST_FIRE_WAIT_MS ?? 10000, 100, 60000, 10000);
-  const startupOptions = JSON.stringify(options);
+  // テスト発火のログは、行頭に [Test] を付けて本番の行と見分ける。
+  const testLog = (...args) => console.log("[Test]", ...args);
+  // options を比べるときはキーを並べてから比べる。運用ページの保存でキーの並びが変わっても注意しない（最後のレビュー Minor #10）。
+  const stableJson = value => JSON.stringify(value, (_key, item) => (item && typeof item === "object" && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item));
+  const startupOptions = stableJson(options);
   const OPTIONS_CHANGED_NOTE = "設定のうち、ミュート・アナウンス・コンボ・マイルストーン・投票などは、BRIDGE を起動し直すまで本番にもテストにも反映されません。いまの BRIDGE の設定で試しました。";
 
   function createTestContext(run) {
     let flushLikes = null;
     const ctx = {
       run,
-      log: (...args) => console.log("[Test]", ...args),
+      log: testLog,
       lastExecAt: new Map(), streakLastCount: new Map(), commentGiftLastAt: new Map(),
       isDuplicate: () => false,
+      // 音・粒子も、送り終えるまで結果を待つ（失敗の理由を結果に残す。最後のレビュー Minor #8）。
       sendExtras: (extras, sender) => {
         if (run.preview) return;
-        sendBridgeExec(bridgeMod, extras, sender).catch(error => run.notice(`音・粒子を送れませんでした: ${error?.message || error}`));
+        run.track(sendBridgeExec(bridgeMod, extras, sender).catch(error => run.notice(`音・粒子を送れませんでした: ${error?.message || error}`)));
       },
       rejected: (event, error) => {
         if (run.preview) run.notice(`${ensureTxt(event.commandFile)}: ${error?.message || error}`);
@@ -2328,17 +2337,17 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   async function runTestEvent(input) {
     if (!bridgeMod) throw new Error("テスト発火は、Minecraft を BridgeMOD で動かしているときだけ使えます。");
     // 保存した直後でも、新しいイベント設定・割り当てで試す（自動の読み直しと同じ確かめを通す）。
-    reloadDynamicConfig();
+    reloadDynamicConfig(testLog);
     const { sender, actions, notes } = testEventActions(input, { mappedGiftIds: new Set(mappingById.keys()) });
     const run = createTestRun({ preview: input.preview === true });
     const name = getStableSender({ nickname: sender });
-    if (input.type !== "death" && isMuted({ nickname: sender })) {
+    if (input.type !== "death" && isMuted({ nickname: sender }, testLog)) {
       run.notice("この視聴者はミュート対象のため発火しません。");
       return run.result(name);
     }
     for (const note of notes) run.notice(note);
     try {
-      if (JSON.stringify(JSON.parse(fs.readFileSync(configPath, "utf8")).options || {}) !== startupOptions) run.notice(OPTIONS_CHANGED_NOTE);
+      if (stableJson(JSON.parse(fs.readFileSync(configPath, "utf8")).options || {}) !== startupOptions) run.notice(OPTIONS_CHANGED_NOTE);
     } catch { /* 読めなければ注意を出さない（読み直しのエラーはログに出ている） */ }
     const ctx = createTestContext(run);
     for (const action of actions) await runTestAction(ctx, action);
@@ -2371,7 +2380,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     runTestEvent(message.input || {})
       .then(result => ({ ok: true, ...result }), error => ({ ok: false, error: error?.message || String(error) }))
       .then(result => {
-        try { process.send?.({ type: 'testEventResult', id: message.id, result }); }
+        // ipc が閉じていたときの失敗は、あとからコールバックに来る。ログに出して、BRIDGE を落とさない（最後のレビュー Minor #9）。
+        try { process.send?.({ type: 'testEventResult', id: message.id, result }, error => { if (error) console.error('[Test] 結果をアプリへ返せませんでした:', error.message); }); }
         catch (error) { console.error('[Test] 結果をアプリへ返せませんでした:', error?.message || error); }
       });
   });

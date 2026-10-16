@@ -224,6 +224,73 @@ test('ミュート・コマンド直接・名前: ミュートの視聴者は送
   const missing = await bridge.testEvent({ type: 'gift', commandFile: 'missing' });
   assert.equal(missing.ok, false);
   assert.match(missing.error, /コマンドが見つかりません: missing\.txt/);
+  // 改行は本番と同じく1文字ごとに空白1つ（最後のレビュー Minor #2）。
+  bridge.requests.length = 0;
+  const crlf = await bridge.testEvent({ type: 'gift', commandFile: 'qa', count: 1, listenerName: 'a\r\nb' });
+  assert.equal(crlf.sender, 'a  b');
+  assert.equal(events(bridge)[0].listenerName, 'a  b');
+});
+
+test('GAME_MOD のいいね: 手順の回数は要求の数ぶん。条件だけ確認と同じ回数を出す（最後のレビュー Minor #3）', async t => {
+  const bridge = await startBridgeFixture(t, {
+    commands: { tower: '# TITLE: tower\n# GAME_MOD: gameprobe\nsay game\n' },
+    config: { likeEvents: [{ enabled: true, threshold: 10, commandFile: 'tower.txt', repeat: 1 }] },
+  });
+  const preview = await bridge.testEvent({ type: 'like', previousLikes: 0, likeCount: 30, preview: true });
+  const fired = await bridge.testEvent({ type: 'like', previousLikes: 0, likeCount: 30 });
+  assert.deepEqual(preview.steps.map(step => step.count), [3]);
+  assert.deepEqual(fired.steps.map(step => step.count), [3]);
+  assert.deepEqual(fired.fired.map(row => [row.state, row.count]), [['delivered', 3]]);
+  assert.equal(events(bridge).length, 3, 'GAME_MOD は1回ずつ別の要求');
+});
+
+test('配信の終了でいいねの送る列を捨てたら、テストのいいねは「取りやめ」になり、結果を待ち続けない（最後のレビューの足りないテスト）', async t => {
+  const bridge = await startBridgeFixture(t, {
+    commands: { cod: 'say cod\n' },
+    config: { likeEvents: [{ enabled: true, threshold: 10, commandFile: 'cod.txt', repeat: 1 }] },
+    respond: (payload, url) => (url === '/bridge/event' && payload.type === 'like' ? 429 : 202),
+  });
+  const pending = bridge.testEvent({ type: 'like', previousLikes: 0, likeCount: 10 });
+  await bridge.wait(300);
+  bridge.connection().emit('streamEnd', {});
+  const started = Date.now();
+  const result = await pending;
+  assert.ok(Date.now() - started < 5000, '10秒の時間切れを待たない');
+  assert.deepEqual(result.fired.map(row => [row.state, row.message]), [['discarded', '配信の終了で取りやめました']]);
+});
+
+test('テスト発火のログには、本番と見分けられるよう行頭に [Test] を付ける（最後のレビュー Minor #7）', async t => {
+  let busy = 1;
+  const bridge = await startBridgeFixture(t, {
+    commands: { pick: '# RANDOM: qa\nsay pick\n', qa: 'say qa\n' },
+    config: { mappings: [{ giftId: '1', name: 'くじ', commandFile: 'pick.txt', repeat: 1 }],
+      roulette: { enabled: true, items: [{ commandFile: 'qa.txt', label: 'QA', weight: 1, repeat: 1 }] },
+      options: { mutedUsers: ['muted'] } },
+    respond: (payload, url) => (url === '/bridge/exec' ? 429 : url === '/bridge/event' && payload.key === 'qa' && busy-- > 0 ? 503 : 202),
+  });
+  const start = bridge.logs.length;
+  await bridge.testEvent({ type: 'share', listenerName: 'muted' });
+  await bridge.testEvent({ type: 'mapped_gift', giftId: '1', count: 1 });
+  await bridge.testEvent({ type: 'roulette' });
+  const lines = bridge.logs.slice(start).filter(line => /\[(Random|Roulette|Safety)\]|Config reloaded|Waiting to retry/.test(line));
+  assert.ok(lines.length >= 4, lines.join('\n'));
+  assert.deepEqual(lines.filter(line => !line.startsWith('[Test]')), []);
+});
+
+test('設定: options のキーの並びが変わっただけなら、起動し直しの注意を出さない（最後のレビュー Minor #10）', async t => {
+  const bridge = await startBridgeFixture(t, { commands: { qa: 'say qa\n' }, config: { shareEvent: { enabled: true, commandFile: 'qa.txt' } } });
+  const file = path.join(bridge.dir, 'config.json');
+  const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
+  cfg.options = Object.fromEntries(Object.entries(cfg.options).reverse());
+  fs.writeFileSync(file, JSON.stringify(cfg));
+  const result = await bridge.testEvent({ type: 'share', preview: true });
+  assert.ok(!result.notes.some(note => note.includes('起動し直す')), result.notes.join(' / '));
+});
+
+test('結果を返す ipc の失敗はログに出し、音・粒子の送信も結果を返す前に待つ（最後のレビュー Minor #8・#9）', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../../bridge/index.js'), 'utf8');
+  assert.match(source, /process\.send\?\.\(\{ type: 'testEventResult', id: message\.id, result \}, error => \{ if \(error\) console\.error\('\[Test\] 結果をアプリへ返せませんでした:', error\.message\); \}\);/);
+  assert.match(source, /run\.track\(sendBridgeExec\(bridgeMod, extras, sender\)\.catch\(error => run\.notice\(`音・粒子を送れませんでした: \$\{error\?\.message \|\| error\}`\)\)\);/);
 });
 
 test('設定: 保存した直後でも新しいイベント設定で試す。起動時と違う options は注意を出し、起動時の値で試す', async t => {

@@ -14,7 +14,7 @@ const { runProc } = require("./process_runner.cjs");
 const { createStopRequestLog, isConsoleStop } = require("./stop_requests.cjs");
 const stopRequests = createStopRequestLog({ file: () => path.join(app.getPath("userData"), "logs", "stop-requests.log") });
 const { createSettingsBackups, atomicWrite, validCommand } = require("./settings_backups.cjs");
-const { commandFileProblem } = require("../bridge/command_files.cjs");
+const { commandFileProblem, usesBridgeModTransport } = require("../bridge/command_files.cjs");
 const { bridgeModTokenPath, withBridgeModToken } = require("../bridge/bridge_mod_token.cjs");
 const { runPreflight } = require("./preflight.cjs");
 const { createStreamSessions, streamBuckets } = require("./stream_sessions.cjs");
@@ -1789,6 +1789,8 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
   const bridgeCfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8"));
   assertGameCommands(bridgeCfg, selectableCommandNames(), gameProfiles.list());
   if (value?.type === "gift") assertGameCommands({ gameProfile: bridgeCfg.gameProfile, commandFile: value.commandFile }, selectableCommandNames(), gameProfiles.list());
+  // RCON・7DTD では BridgeMOD の状態を読みに行かず、使えない理由をそのまま返す（最後のレビュー Minor #5）。
+  if (!usesBridgeModTransport(bridgeCfg)) return { ok: false, message: "テスト発火は、Minecraft を BridgeMOD で動かしているときだけ使えます。" };
   if (!bridgeProcRef?.connected) return { ...BRIDGE_STOPPED_FOR_TEST };
   const preview = value?.preview === true;
   testEventRunning = true;

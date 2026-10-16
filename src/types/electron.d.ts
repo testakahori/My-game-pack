@@ -78,7 +78,7 @@ declare global {
       // invalidName: BridgeMOD が拒否する名前（日本語・空白など）。割り当てて保存すると理由付きで止まる。
       bridgeCommandsReadMeta: () => Promise<Array<{ name: string; title: string; category: string; description?: string; invalidName?: boolean }>>;
       bridgeCommandsList: () => Promise<Array<{ name: string; title: string; invalidName?: boolean }>>;
-      testEvent: (event: { type: string; preview?: boolean; listenerName?: string; commandFile?: string; giftId?: string; count?: number; previousLikes?: number; likeCount?: number; deaths?: number; followCount?: number; comment?: string; pollOption?: string }) => Promise<{ ok: boolean; message: string; preview?: boolean; notes?: string[]; steps?: Array<{ label: string; commandFile: string; count: number }>; fired?: Array<{ ok: boolean; message: string; stepIndex: number }> }>;
+      testEvent: (event: { type: string; preview?: boolean; listenerName?: string; commandFile?: string; giftId?: string; count?: number; previousLikes?: number; likeCount?: number; deaths?: number; followCount?: number; comment?: string; pollOption?: string }) => Promise<{ ok: boolean; message: string; preview?: boolean; matched?: boolean; bridgeStopped?: boolean; notes?: string[]; steps?: Array<{ label: string; commandFile: string; count: number; type?: string; roulette?: boolean }>; fired?: Array<{ stepIndex?: number; commandFile?: string; count?: number; state?: 'delivered' | 'pending' | 'failed' | 'discarded'; message: string }> }>;
       worldSavesList: () => Promise<{ world: string; busy: boolean; recoveryPending: boolean; saves: MapSave[] }>;
       worldSavesSave: (name: string) => Promise<MapOperationResult>;
       worldSavesLoad: (id: string) => Promise<MapOperationResult>;

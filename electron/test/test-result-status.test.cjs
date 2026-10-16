@@ -36,6 +36,13 @@ test('同じ内容（見出し・コマンド・回数・結果）の手順が�
   assert.deepEqual(stepLines(undefined, undefined), []);
 });
 
+test('型の宣言: テスト発火の結果は、BRIDGE が返す形（state・commandFile・count）と bridgeStopped を持つ（最後のレビュー Minor #6）', () => {
+  const line = read('src/types/electron.d.ts').split('\n').find(text => text.includes('testEvent: (event:'));
+  assert.match(line, /bridgeStopped\?: boolean/);
+  assert.match(line, /state\?: 'delivered' \| 'pending' \| 'failed' \| 'discarded'/);
+  assert.doesNotMatch(line, /fired\?: Array<\{ ok: boolean/);
+});
+
 test('テスト発火の画面: BRIDGE が止まっていると押せず理由を出す。結果は stepLines で出し、手順 i と結果の i 行目を組にしない', () => {
   const panel = read('src/components/EventTestPanel.tsx');
   assert.match(panel, /export default function EventTestPanel\(\{ onTested, bridgeRunning \}: \{ onTested: \(\) => Promise<void>; bridgeRunning: boolean \}\)/);

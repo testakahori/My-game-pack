@@ -42,9 +42,11 @@ test('フォロー・コメント・死亡・ルーレット・投票・シェ�
   assert.deepEqual([one({ type: 'gift', commandFile: 'qa', count: 7 }).commandFile, one({ type: 'gift', commandFile: 'qa.txt', count: 7 }).count], ['qa.txt', 7]);
 });
 
-test('名前が空なら「テスト視聴者」、改行は空白にする（整えるのは本番と同じく BRIDGE の処理の中）', () => {
+// 改行を先に1つの空白へまとめると、本番（改行1文字ごとに空白1つ）とずれる（最後のレビュー Minor #2）。
+test('名前は入力のまま渡し、整えるのは本番と同じく BRIDGE の処理の中。整えて空になる名前は「テスト視聴者」', () => {
   assert.equal(testEventActions({ type: 'share' }, mapped).sender, 'テスト視聴者');
-  assert.equal(testEventActions({ type: 'share', listenerName: 'a"b\nc' }, mapped).sender, 'a"b c');
+  assert.equal(testEventActions({ type: 'share', listenerName: '§c' }, mapped).sender, 'テスト視聴者');
+  assert.equal(testEventActions({ type: 'share', listenerName: 'a"b\r\nc' }, mapped).sender, 'a"b\r\nc');
 });
 
 test('不正入力・パス脱出・不明な種類を、通す前に止める', () => {
@@ -114,6 +116,30 @@ test('集計: 送る前に止まった手順（ルーレットの設定の誤り
   await run.wait(5000);
   assert.deepEqual(run.result('x').fired.map(r => [r.stepIndex, r.state, r.commandFile, r.count, r.message]),
     [[0, 'failed', 'roulette.txt', 2, 'ルーレットの有効な項目がありません。']]);
+});
+
+test('集計: GAME_MOD のいいね（1回ずつ別の要求）は、手順の回数を要求の数ぶんにする（最後のレビュー Minor #3）', () => {
+  const run = createTestRun();
+  run.mark({ type: 'like', commandFile: 'tower.txt', count: 1, repeatRequests: 3, gameMod: 'gameprobe' });
+  assert.equal(run.result('x').steps[0].count, 3);
+});
+
+test('集計: 途中まで送ったところで配信が終わったら、送れた回数と取りやめた回数を分けて書く（最後のレビュー Minor #4）', async () => {
+  const run = createTestRun();
+  const a = run.mark({ type: 'like', commandFile: 'cod.txt', count: 1000 });
+  run.delivered({ ...a, count: 300 });
+  run.finished(a);
+  await run.wait(5000);
+  assert.deepEqual(run.result('x').fired.map(r => [r.state, r.count, r.message]),
+    [['delivered', 300, 'BridgeMOD が受け付けました'], ['discarded', 700, '配信の終了で取りやめました']]);
+});
+
+test('集計: 音・粒子など手順に数えない送信も、終わるまで待ってから返す（最後のレビュー Minor #8）', async () => {
+  const run = createTestRun();
+  run.track(new Promise(resolve => setTimeout(resolve, 50)).then(() => run.notice('音・粒子を送れませんでした: HTTP 429')));
+  await run.wait(5000);
+  assert.deepEqual(run.result('x').notes, ['音・粒子を送れませんでした: HTTP 429']);
+  assert.deepEqual(run.result('x').fired, []);
 });
 
 test('何も通らなかったときの注意は種類ごと', () => {

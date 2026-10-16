@@ -270,6 +270,19 @@ test('テスト発火IPC: 入力の誤りは例外。返事がない・途中で
   assert.equal(asked.asked.length, 1);
 });
 
+test('テスト発火IPC: BridgeMOD で動かしていない設定（RCON など）では、BRIDGE に渡さずに理由を返す（最後のレビュー Minor #5）', async t => {
+  const app = loadApp(t);
+  const cfg = JSON.parse(fs.readFileSync(app.configPath)); cfg.options.commandTransport = 'rcon';
+  fs.writeFileSync(app.configPath, JSON.stringify(cfg));
+  const bridge = fakeBridge(() => ({ ok: true, steps: [], notes: [], fired: [] }));
+  app.setBridge(bridge.child);
+  for (const preview of [true, false]) {
+    assert.deepEqual(plainJson(await app.invoke('mod:testEvent', { type: 'share', preview })),
+      { ok: false, message: 'テスト発火は、Minecraft を BridgeMOD で動かしているときだけ使えます。' }, 'preview=' + preview);
+  }
+  assert.equal(bridge.asked.length, 0);
+});
+
 test("Mod状態IPC: 認証の失敗（403）はオフラインと区別し、直し方を返す", async t => {
   const http = require("node:http");
   const server = http.createServer((_req, res) => { res.writeHead(403, { "Content-Type": "application/json" }); res.end('{"ok":false,"error":"forbidden"}'); });
