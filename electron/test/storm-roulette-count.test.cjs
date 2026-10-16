@@ -64,10 +64,12 @@ test('同時に来た2人のルーレットは、来た順にまとめて回す�
   assert.deepEqual(bridge.requests.filter(x => x.key === 'qa').map(x => x.listenerName), ['alice', 'alice', 'alice', 'bob', 'bob', 'bob']);
 });
 
-test('テスト発火のルーレットは、演出を送れなかった印を回ごとに消す（PR #79 レビュー）', () => {
-  const main = read('electron/main.cjs');
-  const loop = main.slice(main.indexOf('for (let spin = 1; spin <= spins; spin++) {'), main.indexOf('outcomes.push({ key: winner.commandFile'));
-  assert.match(loop, /animationError = null;/);
+// 以前はアプリ（main）が自分でルーレットを回し、演出を送れなかった印を回ごとに消していた（PR #79 レビュー）。
+// 2026-10-16 からテスト発火も BRIDGE の本番のルーレットを通る。演出を送れなかったら、回している依頼のテストの結果に理由を書く。
+test('テスト発火のルーレットで演出を送れなかったら、そのテストの結果に理由を書く', () => {
+  const source = read('bridge/index.js');
+  const runner = source.slice(source.indexOf('const animateRoulette = createRouletteRunner({'), source.indexOf('const rouletteRequests = [];'));
+  assert.match(runner, /rouletteRequests\[0\]\?\.run\?\.notice\(`ルーレットの演出を送れなかったため、演出を省いて当たりを送りました: /);
 });
 
 test('嵐の txt の説明は N 倍に合わせ、ルーレットの字幕（36文字）に収める', () => {

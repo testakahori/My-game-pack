@@ -71,8 +71,38 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
     mockServerSpawn: fn => { serverSpawn = fn; },
     setServer: child => { context.fixtureChild = child; vm.runInContext('serverProcRef = fixtureChild; serverPid = fixtureChild?.pid || null;', context); },
     shortenServerWait: () => vm.runInContext('const originalWait = waitChildExit; waitChildExit = child => originalWait(child, 30);', context),
+    // テスト発火を受ける BRIDGE の代わり（ipc の通り道つきの子プロセス）。
+    setBridge: child => { context.fixtureBridge = child; vm.runInContext('bridgeProcRef = fixtureBridge; bridgePid = fixtureBridge?.pid || null;', context); },
+    shortenTestEventReply: () => vm.runInContext('testEventReplyMs = 50;', context),
   };
 }
+
+// テスト発火を受ける偽の BRIDGE。届いた問い合わせを記録し、answer の戻り値を返事として返す（undefined なら返さない）。
+function fakeBridge(answer, { connected = true } = {}) {
+  const { EventEmitter } = require('node:events');
+  const child = new EventEmitter();
+  const asked = [];
+  Object.assign(child, { pid: 4321, connected, exitCode: null, signalCode: null,
+    send(message, callback) {
+      asked.push(JSON.parse(JSON.stringify(message)));
+      callback?.(null);
+      const result = answer(message);
+      if (result !== undefined) setImmediate(() => child.emit('message', { type: 'testEventResult', id: message.id, result }));
+      return true;
+    } });
+  return { child, asked };
+}
+// テスト発火が送る前に読む BridgeMOD の状態（/bridge/status）。
+async function bridgeModStatus(t, app, reply = () => ({ ok: true, paused: false })) {
+  const http = require('node:http');
+  const server = http.createServer((req, res) => { req.resume(); req.on('end', () => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(reply(req))); }); });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const cfg = JSON.parse(fs.readFileSync(app.configPath)); cfg.options.bridgeModPort = server.address().port;
+  fs.writeFileSync(app.configPath, JSON.stringify(cfg));
+  return server;
+}
+const plainJson = value => JSON.parse(JSON.stringify(value));
 
 test('Euler IPC: 保存キーをBRIDGE・配信確認・ギフト取得へ渡し、削除とバックアップ分離を保つ', async t => {
   const calls = [];
@@ -182,45 +212,58 @@ test("統計IPC: テスト履歴を除外し、イベントなしの明示記録
   assert.equal((await app.invoke("stream:session:status")).active, null);
 });
 
-test("イベントIPC: 条件確認は未送信、全種別の実送信はテスト履歴、部分失敗も報告", async t => {
-  const http = require("node:http");
-  const received = [];
-  const server = http.createServer((req, res) => {
-    const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => {
-      // テスト発火は送る前に、止めているかを状態で確かめる（2026-10-16）。送った数には入れない。
-      if (req.url === "/bridge/status") { res.setHeader("Content-Type", "application/json"); res.end('{"ok":true}'); return; }
-      const payload = JSON.parse(Buffer.concat(chunks).toString()); received.push({ url: req.url, payload, token: req.headers["x-bridge-token"] });
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify(payload.key === "fail" ? { ok: false, message: "模擬エラー" } : { ok: true }));
-    });
-  });
-  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  t.after(() => new Promise(resolve => server.close(resolve)));
+test('テスト発火IPC: BRIDGE が止まっていると試せない。動いていれば入力を BRIDGE へ渡し、返事から文を作る（2026-10-16）', async t => {
   const app = loadApp(t);
-  const cfg = JSON.parse(fs.readFileSync(app.configPath));
-  const rule = { commandFile: "qa.txt", enabled: true, repeat: 1 };
-  Object.assign(cfg, { shareEvent: rule, followEvent: rule, memberEvent: rule, unmappedGiftEvent: rule,
-    likeEvents: [{ ...rule, threshold: 10 }], commentGifts: { enabled: true, rules: [{ ...rule, match: "確認" }] } });
-  cfg.options.bridgeModPort = server.address().port;
-  fs.writeFileSync(app.configPath, JSON.stringify(cfg));
-  const dir = path.join(app.root, "bridge", "commands", "minecraft"); fs.mkdirSync(dir, { recursive: true });
-  for (const file of ["qa.txt", "fail.txt"]) fs.writeFileSync(path.join(dir, file), "say test");
-  // BridgeMOD がサーバーフォルダーに書く認証トークンを、テスト発火でも付けて送る。
-  const tokenFile = path.join(app.root, "server", "Douma_Craft", "config", "bridgemod-token.txt");
-  fs.mkdirSync(path.dirname(tokenFile), { recursive: true }); fs.writeFileSync(tokenFile, "qa-token\n");
-  const preview = await app.invoke("mod:testEvent", { type: "share", preview: true });
-  assert.equal(preview.matched, true); assert.equal(received.length, 0);
-  for (const type of ["share", "follow", "member", "unmapped_gift", "comment", "like", "gift"]) {
-    const result = await app.invoke("mod:testEvent", { type, comment: "確認", likeCount: 10, commandFile: "qa.txt" });
-    assert.equal(result.ok, true, type);
-  }
-  assert.equal(received.length, 7);
-  assert.ok(received.every(row => row.token === "qa-token"), "X-Bridge-Token を付けて送る");
-  assert.ok((await app.invoke("operations:history")).every(row => row.source === "test"));
-  assert.equal((await app.invoke("operations:streamStats")).overall.events, 0);
-  cfg.commentGifts.rules.push({ ...rule, match: "確認", commandFile: "fail.txt" }); fs.writeFileSync(app.configPath, JSON.stringify(cfg));
-  const partial = await app.invoke("mod:testEvent", { type: "comment", comment: "確認" });
-  assert.equal(partial.ok, false); assert.equal(partial.fired.filter(row => row.ok).length, 1);
+  await bridgeModStatus(t, app);
+  const stopped = await app.invoke('mod:testEvent', { type: 'share', preview: true });
+  assert.deepEqual(plainJson(stopped), { ok: false, bridgeStopped: true, message: 'BRIDGE を起動すると試せます。' });
+  // 子プロセスはあっても ipc の通り道が切れている（自動再起動の直後など）ときも同じ。
+  app.setBridge(fakeBridge(() => undefined, { connected: false }).child);
+  assert.equal((await app.invoke('mod:testEvent', { type: 'share', preview: true })).bridgeStopped, true);
+  const steps = [{ label: 'シェア', commandFile: 'qa.txt', count: 1, type: 'share' }, { label: 'ルーレット', commandFile: 'roulette.txt', count: 2, type: 'roulette', roulette: true }];
+  const bridge = fakeBridge(message => message.input.preview
+    ? { ok: true, preview: true, sender: '検証', steps: steps.slice(0, 1), notes: ['メモ'], fired: [] }
+    : { ok: true, preview: false, sender: '検証', steps, notes: [], fired: [
+      { stepIndex: 0, commandFile: 'qa.txt', count: 1, state: 'delivered', message: 'BridgeMOD が受け付けました' },
+      { stepIndex: 1, commandFile: 'roulette.txt', count: 2, state: 'pending', message: 'ルーレットを回しています（当たりは回したあとに送ります）' },
+    ] });
+  app.setBridge(bridge.child);
+  const preview = await app.invoke('mod:testEvent', { type: 'share', preview: true, listenerName: '検証' });
+  assert.equal(preview.ok, true); assert.equal(preview.matched, true); assert.deepEqual(plainJson(preview.notes), ['メモ']);
+  assert.equal(preview.message, '1件の設定が条件に一致しました（未送信）。');
+  assert.equal(bridge.asked[0].type, 'testEvent');
+  assert.deepEqual(bridge.asked[0].input, { type: 'share', preview: true, listenerName: '検証' });
+  const fired = await app.invoke('mod:testEvent', { type: 'share', listenerName: '検証' });
+  assert.equal(fired.ok, true);
+  assert.equal(fired.message, 'BridgeMOD が受け付けた 1件・送り直し中 1件。ゲーム内の結果も確認してください。');
+  assert.equal(fired.fired.length, 2);
+  assert.deepEqual(plainJson(await app.invoke('operations:history')), [], '履歴は BRIDGE が書く（main は書かない）');
+});
+
+test('テスト発火IPC: 入力の誤りは例外。返事がない・途中で BRIDGE が止まった・BridgeMOD につながらないときは理由を返す', async t => {
+  const app = loadApp(t);
+  const server = await bridgeModStatus(t, app);
+  app.shortenTestEventReply();
+  app.setBridge(fakeBridge(() => undefined).child);
+  await assert.rejects(app.invoke('mod:testEvent', { type: 'share', preview: true }), /BRIDGE から返事がありません/);
+  // 返事がなくても実行中の印は残らない（次のテストを押せる）。
+  app.setBridge(fakeBridge(() => ({ ok: false, error: 'テストするコメントを入力してください。' })).child);
+  await assert.rejects(app.invoke('mod:testEvent', { type: 'comment', preview: true }), /テストするコメントを入力してください/);
+  const dying = fakeBridge(() => undefined);
+  dying.child.send = (_message, callback) => { callback?.(null); setImmediate(() => dying.child.emit('exit', 1)); return true; };
+  app.setBridge(dying.child);
+  await assert.rejects(app.invoke('mod:testEvent', { type: 'share', preview: true }), /BRIDGE が止まったため、結果を受け取れませんでした/);
+  // BridgeMOD につながらないときは、送る列に入れない（あとでサーバーを起動したときに思いがけず動くため。設計書 7）。
+  const asked = fakeBridge(() => ({ ok: true, steps: [], notes: [], fired: [] }));
+  app.setBridge(asked.child);
+  await new Promise(resolve => server.close(resolve));
+  const refused = await app.invoke('mod:testEvent', { type: 'share' });
+  assert.equal(refused.ok, false);
+  assert.equal(refused.message, 'Minecraft サーバー（BridgeMOD）につながりません。サーバーを起動してから試してください。');
+  assert.equal(asked.asked.length, 0);
+  // 条件だけ確認は BridgeMOD がなくても使える。
+  assert.equal((await app.invoke('mod:testEvent', { type: 'share', preview: true })).ok, true);
+  assert.equal(asked.asked.length, 1);
 });
 
 test("Mod状態IPC: 認証の失敗（403）はオフラインと区別し、直し方を返す", async t => {
@@ -259,6 +302,11 @@ test('妨害の一時停止IPC: /bridge/control へ送り、出どころを記�
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));
   const app = loadApp(t);
+  // テスト発火は BRIDGE へ渡す（2026-10-16）。rejectEvents のあいだは「送れなかった」と返す。
+  app.setBridge(fakeBridge(() => ({ ok: true, steps: [{ label: 'シェア', commandFile: 'qa.txt', count: 1, type: 'share' }], notes: [],
+    fired: [rejectEvents
+      ? { stepIndex: 0, commandFile: 'qa.txt', count: 1, state: 'failed', message: 'BridgeMODが受け付けませんでした（HTTP 400）' }
+      : { stepIndex: 0, commandFile: 'qa.txt', count: 1, state: 'delivered', message: 'BridgeMOD が受け付けました' }] })).child);
   const cfg = JSON.parse(fs.readFileSync(app.configPath));
   cfg.options.bridgeModPort = server.address().port;
   cfg.shareEvent = { commandFile: "qa.txt", enabled: true, repeat: 1 };
@@ -777,99 +825,6 @@ test('ゲーム選択IPC: サバイバルでは残った採掘TXTをルーレッ
   const config = JSON.parse(fs.readFileSync(app.configPath));
   config.deathRoulette = { enabled: true, everyDeaths: 1, items: [{ commandFile: 'game_saikutu_get_ender_pearl.txt', weight: 1, repeat: 1 }] };
   await assert.rejects(app.invoke('config:write', config), /使えないコマンド/);
-});
-
-test("テスト発火のルーレット: 数を3にすると3回回し、当選を3回送って1回ずつ記録する（2026-10-11 ユーザーの決定）", async t => {
-  const http = require("node:http");
-  const events = [];
-  const server = http.createServer((req, res) => {
-    let body = ""; req.on("data", chunk => body += chunk); req.on("end", () => {
-      if (req.url === "/bridge/event") events.push(JSON.parse(body));
-      res.writeHead(req.url === "/bridge/exec" ? 429 : 202, { "Content-Type": "application/json" });
-      res.end(req.url === "/bridge/exec" ? '{"ok":false,"error":"queue_full"}' : '{"ok":true}');
-    });
-  });
-  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  t.after(() => new Promise(resolve => server.close(resolve)));
-  const app = loadApp(t);
-  const cfg = JSON.parse(fs.readFileSync(app.configPath));
-  cfg.roulette = { enabled: true, items: [{ commandFile: "qa.txt", label: "QA", weight: 1, repeat: 2 }] };
-  cfg.options.bridgeModPort = server.address().port;
-  fs.writeFileSync(app.configPath, JSON.stringify(cfg));
-  const dir = path.join(app.root, "bridge", "commands", "minecraft"); fs.mkdirSync(dir, { recursive: true });
-  for (const file of ["qa.txt", "roulette.txt"]) fs.writeFileSync(path.join(dir, file), "say test");
-  const tokenFile = path.join(app.root, "server", "Douma_Craft", "config", "bridgemod-token.txt");
-  fs.mkdirSync(path.dirname(tokenFile), { recursive: true }); fs.writeFileSync(tokenFile, "qa-token\n");
-  const result = await app.invoke("mod:testEvent", { type: "gift", commandFile: "roulette.txt", count: 3 });
-  assert.equal(result.ok, true, JSON.stringify(result));
-  assert.deepEqual(events.map(event => [event.key, event.count]), [["qa", 2], ["qa", 2], ["qa", 2]]);
-  assert.equal(result.fired.map(row => row.commandFile + "×" + row.count).join(","), "qa.txt×2,qa.txt×2,qa.txt×2", "当選ごとに記録する");
-  assert.equal(result.fired.map(row => row.stepIndex).join(","), "0,0,0", "どれも手順0の記録（画面は手順ごとにまとめる）");
-  assert.match(result.fired[2].message, /ルーレット 3回目\/3/);
-});
-
-test("テスト発火: 音・粒子は本番と同じく先に送り、ルーレットが途中で失敗したら残りの回数を記録する（見送った軽い点 2026-10-12）", async t => {
-  const http = require("node:http");
-  const order = [];
-  let events = 0;
-  // 音・粒子（指定した音の playsound）だけ受け付け、ルーレットの演出は断る。当選は2回目だけ失敗させる。
-  const server = http.createServer((req, res) => {
-    let body = ""; req.on("data", chunk => body += chunk); req.on("end", () => {
-      // テスト発火は送る前に、止めているかを状態で確かめる（2026-10-16）。送った順には入れない。
-      if (req.url === "/bridge/status") { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); return; }
-      const payload = JSON.parse(body || "{}");
-      const extras = req.url === "/bridge/exec" && JSON.stringify(payload).includes("minecraft:block.anvil.land");
-      const status = req.url === "/bridge/exec" ? (extras ? 202 : 429) : (++events === 2 ? 400 : 202);
-      order.push(extras ? "extras" : req.url === "/bridge/event" ? "event" : "frame");
-      res.writeHead(status, { "Content-Type": "application/json" }); res.end(status < 300 ? '{"ok":true}' : '{"ok":false}');
-    });
-  });
-  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  t.after(() => new Promise(resolve => server.close(resolve)));
-  const app = loadApp(t);
-  const cfg = JSON.parse(fs.readFileSync(app.configPath));
-  cfg.roulette = { enabled: true, items: [{ commandFile: "qa.txt", label: "QA", weight: 1, repeat: 1 }] };
-  cfg.commentGifts = { enabled: true, rules: [{ match: "回して", commandFile: "roulette.txt", repeat: 3, enabled: true, sound: "minecraft:block.anvil.land" }] };
-  cfg.options.bridgeModPort = server.address().port;
-  fs.writeFileSync(app.configPath, JSON.stringify(cfg));
-  const dir = path.join(app.root, "bridge", "commands", "minecraft"); fs.mkdirSync(dir, { recursive: true });
-  for (const file of ["qa.txt", "roulette.txt"]) fs.writeFileSync(path.join(dir, file), "say test");
-  const tokenFile = path.join(app.root, "server", "Douma_Craft", "config", "bridgemod-token.txt");
-  fs.mkdirSync(path.dirname(tokenFile), { recursive: true }); fs.writeFileSync(tokenFile, "qa-token\n");
-  const result = await app.invoke("mod:testEvent", { type: "comment", comment: "回して" });
-  assert.equal(order[0], "extras", "音・粒子はルーレットを回す前に送る: " + order.join(","));
-  assert.equal(result.fired.map(row => (row.ok ? "ok" : "ng") + "×" + row.count).join(","), "ok×1,ng×2", "1回目は送れ、2回目で失敗。残りは2回");
-});
-
-test("テスト発火のルーレット: 演出だけ送れなくても当選は送り、演出を送れなかった理由を結果に書く", async t => {
-  const http = require("node:http");
-  const received = [];
-  // 演出（/bridge/exec）だけ待ち列が満杯で断られ、当選（/bridge/event）は受け付ける MOD。
-  const server = http.createServer((req, res) => {
-    req.resume(); req.on("end", () => {
-      // テスト発火は送る前に、止めているかを状態で確かめる（2026-10-16）。送った順には入れない。
-      if (req.url === "/bridge/status") { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); return; }
-      received.push(req.url);
-      res.writeHead(req.url === "/bridge/exec" ? 429 : 202, { "Content-Type": "application/json" });
-      res.end(req.url === "/bridge/exec" ? '{"ok":false,"error":"queue_full"}' : '{"ok":true}');
-    });
-  });
-  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  t.after(() => new Promise(resolve => server.close(resolve)));
-  const app = loadApp(t);
-  const cfg = JSON.parse(fs.readFileSync(app.configPath));
-  cfg.roulette = { enabled: true, items: [{ commandFile: "qa.txt", label: "QA", weight: 1, repeat: 2 }] };
-  cfg.options.bridgeModPort = server.address().port;
-  fs.writeFileSync(app.configPath, JSON.stringify(cfg));
-  const dir = path.join(app.root, "bridge", "commands", "minecraft"); fs.mkdirSync(dir, { recursive: true });
-  for (const file of ["qa.txt", "roulette.txt"]) fs.writeFileSync(path.join(dir, file), "say test");
-  const tokenFile = path.join(app.root, "server", "Douma_Craft", "config", "bridgemod-token.txt");
-  fs.mkdirSync(path.dirname(tokenFile), { recursive: true }); fs.writeFileSync(tokenFile, "qa-token\n");
-  const result = await app.invoke("mod:testEvent", { type: "gift", commandFile: "roulette.txt" });
-  assert.equal(result.ok, true, JSON.stringify(result));
-  assert.deepEqual(received, ["/bridge/exec", "/bridge/event"], "演出は最初の失敗でやめ、当選は送る");
-  // 以前は演出が出なかった理由がどこにも残らず、結果は「成功」とだけ表示された。
-  assert.match(result.fired[0].message, /ルーレットの演出は送れませんでした/);
 });
 
 test('ホームのゲーム一覧に、アプリの更新でMODが古いままかと、その理由を出す（2026-10-13）', async t => {

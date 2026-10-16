@@ -36,7 +36,4 @@ test('テスト発火の画面は stepStatus で手順ごとに表示し、記�
   const panel = fs.readFileSync(path.resolve(__dirname, '../../src/components/EventTestPanel.tsx'), 'utf8');
   assert.match(panel, /stepStatus\(result\.fired, i\)/);
   assert.doesNotMatch(panel, /result\.fired\?\.\[i\]/, '手順 i と記録の i 行目を組にしない');
-  const main = fs.readFileSync(path.resolve(__dirname, '../../electron/main.cjs'), 'utf8');
-  assert.match(main, /for \(const \[stepIndex, step\] of plan\.steps\.entries\(\)\)/);
-  assert.match(main, /const row = \{ at: new Date\(\)\.toISOString\(\), source: "test", type: step\.type, sender: plan\.sender, stepIndex, \.\.\.result \};/);
 });

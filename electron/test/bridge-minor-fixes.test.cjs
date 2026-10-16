@@ -30,15 +30,7 @@ test('時限倍率で回数が小数になったら、四捨五入して整数�
   assert.deepEqual(bridge.requests.filter(x => x.key === 'zombie').map(x => x.count), [5], '3回×1.5倍＝4.5回 → 5回');
 });
 
-test('テスト発火も本番と同じく、時限倍率のあとの回数を四捨五入する（PR #85 レビュー）', t => {
-  const { planTestEvent } = require('../event_tests.cjs');
-  const os = require('node:os');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gift-times-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  fs.writeFileSync(path.join(dir, 'zombie.txt'), 'say test\n');
-  const config = { options: { commandTransport: 'bridge_mod', gameplay: { timedMode: { enabled: true, start: '00:00', end: '24:00', multiplier: 1.5 } } },
-    mappings: [{ giftId: '1', name: 'バラ', commandFile: 'zombie.txt', repeat: 3 }] };
-  assert.equal(planTestEvent(config, { type: 'mapped_gift', giftId: '1', count: 1 }, dir).steps[0].count, 5, '3回×1.5倍＝4.5回 → 5回（以前は切り捨てで4回）');
+test('時限倍率のあとの回数は、本番もテスト発火も同じ関数（giftTimes）で四捨五入する（PR #85 レビュー）', () => {
   assert.equal(eventRules.giftTimes(4.5), 5);
   assert.equal(eventRules.giftTimes(1.2), 1);
   assert.equal(eventRules.giftTimes(NaN), 1);
@@ -49,10 +41,6 @@ test('運用の統計は、回数0の行（音・粒子だけ失敗）を1回と
   const main = read('electron/main.cjs');
   const stats = main.slice(main.indexOf('const byCommand = {};'), main.indexOf('const top = (obj)'));
   assert.match(stats, /const count = Number\(row\.count\);\s*const amount = Number\.isFinite\(count\) && count >= 0 \? count : 1;/);
-});
-
-test('音・粒子とイベントの両方が失敗したら、両方の理由を記録する（PR #85 レビュー）', () => {
-  assert.match(read('electron/main.cjs'), /catch \(error\) \{ failure = failure \? new Error\(failure\.message \+ " ／ " \+ error\.message\) : error; \}/);
 });
 
 test('起動ログの「個別最大コマンド数」には、BridgeMOD 経由では使わないことを書く', async t => {

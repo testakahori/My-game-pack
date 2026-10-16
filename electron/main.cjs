@@ -14,11 +14,9 @@ const { runProc } = require("./process_runner.cjs");
 const { createStopRequestLog, isConsoleStop } = require("./stop_requests.cjs");
 const stopRequests = createStopRequestLog({ file: () => path.join(app.getPath("userData"), "logs", "stop-requests.log") });
 const { createSettingsBackups, atomicWrite, validCommand } = require("./settings_backups.cjs");
-const { prepareRoulette, createRouletteRunner, rouletteSpins } = require("../bridge/roulette.cjs");
 const { commandFileProblem } = require("../bridge/command_files.cjs");
 const { bridgeModTokenPath, withBridgeModToken } = require("../bridge/bridge_mod_token.cjs");
 const { runPreflight } = require("./preflight.cjs");
-const { planTestEvent } = require("./event_tests.cjs");
 const { createStreamSessions, streamBuckets } = require("./stream_sessions.cjs");
 const { saveGiftPanelPng } = require("./image_export.cjs");
 const { EULA_URL, inspectSetup, inspectForgeClient, launchForgeInstaller, prepareServerEnvironment } = require("./initial_setup.cjs");
@@ -1693,16 +1691,6 @@ function readOperationsHistory() {
   return rows.reverse(); // 新しい順
 }
 
-function compactOperationsHistoryIfLarge(historyPath) {
-  try {
-    const stat = fs.statSync(historyPath);
-    if (stat.size < 2 * 1024 * 1024) return; // 2MB未満は行カウストをしない（頻繁なfs呼び出しを避ける）
-    const lines = fs.readFileSync(historyPath, "utf8").split("\n").filter((l) => l.trim());
-    if (lines.length <= 2000) return;
-    fs.writeFileSync(historyPath, lines.slice(lines.length - 2000).join("\n") + "\n", "utf8");
-  } catch { /* 圧縮に失敗しても記録自体は既に成功しているので無視 */ }
-}
-
 // 旧バージョン（JSON配列・新しい順）で運用していたファイルをJSONL（1行1イベント・古い順）へ
 // その場で一度だけ変換する。以降は追記のみで済むため、bridgeとelectronの同時書き込みで
 // 履歴が巻き戻る事故が起きなくなる。
@@ -1717,14 +1705,6 @@ function migrateOperationsHistoryToJsonlIfNeeded(historyPath) {
   const oldestFirst = [...rows].reverse(); // 旧フォーマットは新しい順→古い順に戻す
   const lines = oldestFirst.map((row) => JSON.stringify(row)).join("\n");
   fs.writeFileSync(historyPath, lines ? lines + "\n" : "", "utf8");
-}
-
-function appendOperationsHistory(row, historyPath = getOperationsHistoryPath()) {
-  try {
-    migrateOperationsHistoryToJsonlIfNeeded(historyPath);
-    fs.appendFileSync(historyPath, JSON.stringify(row) + "\n", "utf8");
-    compactOperationsHistoryIfLarge(historyPath);
-  } catch { /* ignore */ }
 }
 
 // 30日より古いイベント履歴を起動時に削除（配信集計リストの保持期間）
@@ -1777,108 +1757,70 @@ async function setDisruptionPause(pause, origin) {
 }
 ipcMain.handle("mod:pause", (_event, origin) => setDisruptionPause(true, origin));
 ipcMain.handle("mod:resume", (_event, origin) => setDisruptionPause(false, origin));
-// 送った分を outcomes に1件ずつ足す。途中で失敗しても、それまでに送った分は呼び出し元に残る。
-async function fireBridgeEventMaybeRoulette(payload, bridgeCfg, commandsDir, outcomes) {
-  const send = (method, route, body) => requestBridgeMod(method, route, body, bridgeCfg);
-  const fire = async event => {
-    // Test clicks have no upstream queue. Freeze the game round before sending/animating.
-    const names = fs.readdirSync(commandsDir).filter(name => name === event.key + '.txt' || name.startsWith('game_') && name.endsWith('_' + event.key + '.txt'));
-    const direct = names.find(name => name === event.key + '.txt');
-    if (!direct && names.length > 1) throw new Error('ゲームコマンドの名前が重複しています');
-    const file = direct || names[0];
-    const metadata = file ? fs.readFileSync(path.join(commandsDir, file), 'utf8').match(/^\s*#\s*GAME_MOD:\s*([a-z][a-z0-9_]{1,63})\s*$/m) : null;
-    const status = metadata ? await send('GET', '/bridge/status') : null;
-    await send('POST', '/bridge/event', { ...event, requestId: crypto.randomUUID(),
-      ...(metadata ? { gameSessionId: status?.gameSessions?.[metadata[1]]?.sessionId || '' } : {}) });
-  };
-  // 演出だけ送れなかったとき（待ち列が満杯・古い MOD など）も当選は発火する。理由はテスト結果に書く。
-  let animationError = null;
-  const animateTestRoulette = createRouletteRunner({
-    sendFrame: (commands, listenerName) => send("POST", "/bridge/exec", { listenerName, commands }),
-    onFrameError: error => { animationError = error?.message || String(error); },
+// テスト発火は BRIDGE に渡し、本番と同じ処理・同じ送る列を通す（2026-10-16 ユーザーの決定。
+// 設計書 docs/superpowers/specs/2026-10-16-test-fire-parity-design.md）。BRIDGE は結果を最大10秒待つので、返事は15秒まで待つ。
+let testEventReplyMs = 15000;
+function askBridgeTestEvent(input) {
+  const child = bridgeProcRef;
+  if (!child?.connected) return Promise.resolve(null);
+  const id = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    let timer = null;
+    const onMessage = message => { if (message?.type === "testEventResult" && message.id === id) finish(resolve, message.result); };
+    const onExit = () => finish(reject, new Error("BRIDGE が止まったため、結果を受け取れませんでした。"));
+    function finish(settle, value) {
+      clearTimeout(timer);
+      child.off("message", onMessage);
+      child.off("exit", onExit);
+      settle(value);
+    }
+    child.on("message", onMessage);
+    child.on("exit", onExit);
+    timer = setTimeout(() => finish(reject, new Error("BRIDGE から返事がありません。BRIDGE のログを確認してください。")), testEventReplyMs);
+    try { child.send({ type: "testEvent", id, input }, error => { if (error) finish(reject, new Error("BRIDGE へ送れませんでした: " + error.message)); }); }
+    catch (error) { finish(reject, new Error("BRIDGE へ送れませんでした: " + error.message)); }
   });
-  if (payload.key !== "roulette") {
-    await fire(payload);
-    outcomes.push({ key: payload.key, count: payload.count, roulette: false });
-    return;
-  }
-  if (bridgeCfg?.roulette?.enabled !== true) {
-    throw new Error("ルーレットが無効です。イベント設定②で有効にして保存してください。");
-  }
-  // 送られた回数だけ回す（2026-10-11 ユーザーの決定）。回すたびに演出して当たりを決める。
-  const spins = rouletteSpins(payload.count);
-  for (let spin = 1; spin <= spins; spin++) {
-    animationError = null;   // 演出を送れなかったかは回ごとに見る
-    const round = prepareRoulette(bridgeCfg.roulette, commandsDir);
-    const winner = await animateTestRoulette(round, payload.listenerName, item => fire({
-      ...payload, key: item.commandFile.replace(/\.txt$/i, ""), count: item.repeat, announce: false,
-    }));
-    outcomes.push({ key: winner.commandFile.replace(/\.txt$/i, ""), count: winner.repeat, roulette: true, label: winner.label, spin, spins,
-      ...(animationError ? { animationError } : {}) });
-  }
 }
 
+const BRIDGE_STOPPED_FOR_TEST = { ok: false, bridgeStopped: true, message: "BRIDGE を起動すると試せます。" };
 let testEventRunning = false;
 ipcMain.handle("mod:testEvent", async (_event, value) => {
   if (testEventRunning) return { ok: false, message: "別のテストを実行中です。完了後にお試しください。" };
   const bridgeCfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8"));
-  const commandsDir = path.join(getBridgeBatDir(), "commands", "minecraft");
-  const historyPath = getOperationsHistoryPath();
   assertGameCommands(bridgeCfg, selectableCommandNames(), gameProfiles.list());
   if (value?.type === "gift") assertGameCommands({ gameProfile: bridgeCfg.gameProfile, commandFile: value.commandFile }, selectableCommandNames(), gameProfiles.list());
-  const plan = planTestEvent(bridgeCfg, value, commandsDir);
-  const details = plan.steps.map(step => ({ commandFile: step.commandFile, count: step.count, label: step.label, type: step.type }));
-  if (value.preview === true || !plan.steps.length) return {
-    ok: true, matched: plan.steps.length > 0, preview: true, steps: details, notes: plan.notes,
-    message: plan.steps.length ? plan.steps.length + "件の設定が条件に一致しました（未送信）。" : "発火する設定はありません。条件・有効設定を確認してください。",
-  };
-  const protection = bridgeCfg.options?.protection || {};
-  const fired = [];
+  if (!bridgeProcRef?.connected) return { ...BRIDGE_STOPPED_FOR_TEST };
+  const preview = value?.preview === true;
   testEventRunning = true;
   try {
     // 一時停止中でも待ちに積む。実行は再開まで待つことを結果に書く（2026-10-16）。
     // 読み取りは実行中の印を立てたあとに行う（待っている間に押された2つ目を、同時に動かさない）。
     let paused = false;
-    try { paused = (await requestBridgeMod("GET", "/bridge/status", null, bridgeCfg)).paused === true; } catch { /* 送る段階で失敗を報告する */ }
-    for (const [stepIndex, step] of plan.steps.entries()) {
-      const payload = {
-        type: step.type === "like" ? "like" : ["gift", "mapped_gift", "unmapped_gift"].includes(step.type) ? "gift" : "other",
-        key: step.commandFile.replace(/\.txt$/i, ""), count: step.count, listenerName: plan.sender,
-        announce: bridgeCfg.options?.announceEnabled !== false,
-        protectionEnabled: false,
-        protectX1: Number(protection.x1 || 0), protectX2: Number(protection.x2 || 0),
-        protectZ1: Number(protection.z1 || 0), protectZ2: Number(protection.z2 || 0),
-      };
-      const outcomes = [];
-      let failure = null;
-      // 音・粒子は本番の Bridge と同じく先に送り、送れなくてもイベントは送る（ルーレットを回し終えるまで待たせない）。
-      if (step.extras?.length) {
-        try { await requestBridgeMod("POST", "/bridge/exec", { listenerName: plan.sender, commands: step.extras }, bridgeCfg); }
-        catch (error) { failure = new Error("音・粒子を送れませんでした: " + error.message); }
-      }
-      try {
-        await fireBridgeEventMaybeRoulette(payload, step.roulette ? { ...bridgeCfg, roulette: step.roulette } : bridgeCfg, commandsDir, outcomes);
-      } catch (error) { failure = failure ? new Error(failure.message + " ／ " + error.message) : error; }
-      // 送れた分（ルーレットは当選ごと）を1行ずつ記録し、失敗したらその理由も1行足す。
-      const rows = outcomes.map(outcome => ({ commandFile: outcome.key + ".txt", count: outcome.count, ok: true,
-        message: step.label + " → " + outcome.key + ".txt × " + outcome.count + " をModへ送信済み"
-          + (outcome.spins > 1 ? `（ルーレット ${outcome.spin}回目/${outcome.spins}）` : "")
-          + (outcome.animationError ? `（ルーレットの演出は送れませんでした: ${outcome.animationError}）` : "") }));
-      // 失敗の行の回数は、送れなかった分（ルーレットは残りの回数）。
-      const spun = outcomes.find(outcome => outcome.roulette);
-      const left = spun ? spun.spins - outcomes.length : outcomes.length ? 0 : step.count;
-      if (failure) rows.push({ commandFile: payload.key + ".txt", count: left, ok: false, message: failure.message });
-      for (const result of rows) {
-        // 1つの手順から何行も出るので、画面が手順ごとにまとめられるよう手順の番号を持たせる（PR #79 レビュー）。
-        const row = { at: new Date().toISOString(), source: "test", type: step.type, sender: plan.sender, stepIndex, ...result };
-        appendOperationsHistory(row, historyPath);
-        fired.push(row);
+    if (!preview) {
+      try { paused = (await requestBridgeMod("GET", "/bridge/status", null, bridgeCfg)).paused === true; }
+      catch (error) {
+        // つながらないときは送らない。止まっている間に送る列へ入れると、あとでサーバーを起動したときに思いがけず動く（設計書 7）。
+        // HTTP の応答が返ったとき（403 など）はつながっているので送り、BRIDGE の送り直しに任せる。
+        if (!Number.isInteger(error?.status)) return { ok: false, message: "Minecraft サーバー（BridgeMOD）につながりません。サーバーを起動してから試してください。" };
       }
     }
-    const succeeded = fired.filter(row => row.ok).length;
-    return { ok: succeeded === fired.length, matched: true, fired, steps: details, notes: plan.notes,
-      // 送れなかった分（待ちがいっぱいなど）は再開しても実行されないので、送れた分があるときだけ書く。
-      message: fired.length + "件中" + succeeded + "件をModへ送信しました。ゲーム内の結果も確認してください。" + (paused && succeeded > 0 ? " 一時停止中です。再開すると実行されます。" : "") };
+    const result = await askBridgeTestEvent({ ...value, preview });
+    if (!result) return { ...BRIDGE_STOPPED_FOR_TEST };
+    if (!result.ok) throw new Error(result.error || "テスト発火に失敗しました。");
+    const steps = result.steps || [], notes = result.notes || [], fired = result.fired || [];
+    if (preview || !steps.length) return {
+      ok: true, matched: steps.length > 0, preview: true, steps, notes,
+      message: steps.length ? steps.length + "件の設定が条件に一致しました（未送信）。" : "発火する設定はありません。条件・有効設定を確認してください。",
+    };
+    const count = state => fired.filter(row => row.state === state).length;
+    const delivered = count("delivered"), pending = count("pending"), failed = count("failed"), discarded = count("discarded");
+    const parts = ["BridgeMOD が受け付けた " + delivered + "件"];
+    if (pending) parts.push("送り直し中 " + pending + "件");
+    if (failed) parts.push("送れなかった " + failed + "件");
+    if (discarded) parts.push("取りやめ " + discarded + "件");
+    return { ok: failed === 0 && discarded === 0, matched: true, fired, steps, notes,
+      // 送れなかった分は再開しても実行されないので、受け付けた分・送り直し中の分があるときだけ書く。
+      message: parts.join("・") + "。ゲーム内の結果も確認してください。" + (paused && delivered + pending > 0 ? " 一時停止中です。再開すると実行されます。" : "") };
   } finally { testEventRunning = false; }
 });
 
