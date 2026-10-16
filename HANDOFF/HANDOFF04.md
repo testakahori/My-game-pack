@@ -208,7 +208,15 @@
        - options の変更の注意は、キーを並べてから比べる（並びが変わっただけでは出さない）。
        - レビューで足りないと言われた「配信の終了でテストのいいねが取りやめになる」のテストも足した。
      - 開発版の画面での目視（イベントテストの画面・BRIDGE が止まっているときの表示）はまだ。
-   - main.cjs の大きさ
+   - main.cjs の大きさ（10-17 から進行中。設計書 `docs/superpowers/specs/2026-10-17-main-split-design.md`。PR 6本で仕事ごとのファイルに分ける）
+     - PR1（土台）：ipc の窓口の一覧を固定するテスト、`app_config.cjs`・`paths.cjs`・`operator_auth.cjs`・`window.cjs`。PR #110、ブランチ `refactor/main-split-1`。main.cjs は 2,954行 → 2,489行。
+     - PR1 は開発版を本物の Electron で起動し、外から操作して確かめた（ログイン・ウィンドウの操作・アプリ設定の保存・CSP・外部リンク・移動の制限）。共有のアプリ設定は確かめたあと元に戻した。
+     - Codex が D 側の作業コピーで UI/UX を直しているので、分割は scratchpad の worktree（`wt-split`）で進めている。D 側のブランチは切り替えない。
+     - PR1 の最終レビュー：重大 0・重要 3（テストの穴。直した）・軽い 6（ユーザーの指示で直した）。分ける前と後の main.cjs を同じ偽物の electron で比べ、動きの違いは0件。
+     - PR1 で見つけた小さい問題（このPRでは直さない）：
+       - Tailwind は git が追跡しているファイル全体からクラス名を拾う。文書に `\` + 16進数の場所（scratchpad の場所など）を書くとビルドが止まる。`src/index.css` で読む範囲を絞る（Codex の UI の作業と重なるので別の PR）。それまでは `electron/test/docs-css-safe.test.cjs` が見張る。
+       - `app:config:write` は、サーバーの停止中は保存先の変更を止めない（ウィンドウを閉じるのは止める）。前からの動き。
+       - `app:config:write` に文字列を渡すと、`'serverFolder' in data` の TypeError が先に出る。前からの順番。
    - 設定の既定値と設定ファイルの破損
    - 処理のコピー
    - リリース手順が2つ
@@ -677,7 +685,7 @@
   - 戻したもの：サーバーの mods（bridgemod-1.4.0・displaymod-1.1.0 に戻った）・ワールド・`config`（`bridgemod-token.txt` は消えた）・`server.properties`・`douma-weather-timers.properties`、`.minecraft\mods`、`profiles.json`（active=common）・`Local Storage`・`Session Storage`・`DIPS`。
   - 戻したあと一覧と照合した：変わったファイル・消えたファイルとも0件。増えたのは `logs\stop-requests.log` だけで、調べるのに使うので残した。
   - D 側：`git restore bridge/config.minecraft.json`。切替と BRIDGE が作った未追跡ファイル18件（`_op.txt`・`game_saikutu_*.txt` 14件・`stream-audience.json`・`stream-metrics.jsonl`・`stream-sessions.json`）は、退避フォルダーの `_D側の未追跡ファイル` へ移した（`git clean` は自動モードで止められた）。
-  - 残っているもの：切替でアプリが旧 mods を預けた `.mygamepack-mod-switch\df26f376-…`（サーバーと `.minecraft` の両方。17:23 の分）。中身は bridgemod-1.4.0 と displaymod-1.1.0 で、不要なら消してよい。
+  - 残っているもの：切替でアプリが旧 mods を預けた `.mygamepack-mod-switch/df26f376-…`（サーバーと `.minecraft` の両方。17:23 の分）。中身は bridgemod-1.4.0 と displaymod-1.1.0 で、不要なら消してよい。
 - 退避の注意：userData の `bridge\node`・`bridge\node_modules`（BRIDGE の実行ファイル、約5,700件）まで写したので、退避に約15分かかった。朝の退避はこれを外していた。次からは外すとよい。robocopy は「コピーした」を終了コード1で返すので、スクリプトの終了コードが1でも失敗とは限らない。
 
 #### 次にやること
@@ -747,7 +755,7 @@
 - 開発版アプリと Minecraft を閉じてから、退避 `MyGamePack02\back\実機確認_退避_20261010` から次を戻した（robocopy /MIR とコピー）。
   - サーバーの `mods`（bridgemod-1.4.0・displaymod-1.1.0 に戻った）・`haihu_world`・`config`（`bridgemod-token.txt` は消えた）・`server.properties`
   - Minecraft の `%APPDATA%\.minecraft\mods`
-  - `%APPDATA%\tiktok-bridge-ui\game-profiles\3a04a27d61dbcc79\profiles.json`（active=common に戻った）
+  - `%APPDATA%/tiktok-bridge-ui/game-profiles/3a04a27d61dbcc79/profiles.json`（active=common に戻った）
 - `app-config.json` は退避時から変わっていなかったので、戻していない。
 - 戻したあと、全部のファイルが退避と SHA-256 で一致することを確かめた（ワールド 42件、mods 2件ずつ、config 1件）。
 - D 側は `git restore bridge/config.minecraft.json` と、切替で増えた未追跡ファイル（`bridge/commands/minecraft/_op.txt`・`game_saikutu_*.txt` 14件・`bridge/stream-audience.json`・`bridge/stream-sessions.json`）の削除で片付けた。

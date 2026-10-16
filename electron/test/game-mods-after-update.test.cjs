@@ -186,7 +186,9 @@ test('アプリの起動と、手動インストールのあとの初期セッ�
   assert.match(startup, /refreshGameModsAfterUpdate\(\{ version: app\.getVersion\(\), readConfig: readAppConfig, writeConfig: writeAppConfig, profiles: gameProfiles, run: gameProfileOperation \}\)/);
   assert.match(startup, /win\.webContents\.send\("games:changed", \{ state: result\.state, changed: result\.changed === true \}\)/);
   // 手動インストール（更新も含む）は初期セットアップをやり直すので、起動時には入れ替えない。セットアップを終えたら入れ替える（PR #91 レビュー）。
-  const write = main.slice(main.indexOf('ipcMain.handle("app:config:write"'), main.indexOf('// IPC: 運営ログイン認証'));
+  // app:config:write は electron/app_config.cjs へ移した（2026-10-17 main.cjs の分割）。
+  const appConfigSource = read('electron/app_config.cjs');
+  const write = appConfigSource.slice(appConfigSource.indexOf('ipcMain.handle("app:config:write"'));
   assert.match(write, /const wasSetupComplete = readAppConfig\(\)\.setupComplete === true;/);
   assert.match(write, /if \(!wasSetupComplete && readAppConfig\(\)\.setupComplete === true\) setTimeout\(\(\) => \{ refreshGameModsOnStartup\(\)\.catch\(/);
   assert.match(read('electron/game_mods_refresh.cjs'), /await run\(\(\) => profiles\.refreshMods\(\)\);/, '「保存」の activate ではなく、jar だけを入れ替える');

@@ -5,7 +5,6 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
 const http = require("http");
-const { pathToFileURL } = require("url");
 const { ENGINE_PORTS, checkEngine, getSpeakers, flattenSpeakers, synthesize } = require("./tts.cjs");
 const { validateBridgeConfig } = require("./config_schema.cjs");
 const { RestartPolicy } = require("./restart_policy.cjs");
@@ -27,6 +26,33 @@ const { refreshGameModsAfterUpdate, gameModsOutdated } = require('./game_mods_re
 const { availableGameCommands, assertGameCommands } = require('./game_command_scope.cjs');
 const { discoverMinecraftLocations, validateMinecraftFolder } = require('./minecraft_locations.cjs');
 const { tasklistNames, minecraftProcesses, readJavaCommandLines, switchBlockedMessage } = require('./minecraft_processes.cjs');
+// main.cjs から分けた仕事（2026-10-17 設計書 docs/superpowers/specs/2026-10-17-main-split-design.md）。
+// electron は main だけが読み込み、必要なものを渡す。あとで定義するもの（サーバーの状態など）は、呼ばれたときに読む関数で渡す。
+const { createAppConfig } = require('./app_config.cjs');
+const appConfig = createAppConfig({
+  app,
+  assertGameProfileIdle: () => assertGameProfileIdle(),
+  assertMapIdle: () => assertMapIdle(),
+  isServerStarting: () => serverStarting,
+  getConfigPath: () => getConfigPath(),
+  getSettingsBackups: () => settingsBackups,
+  refreshGameModsOnStartup: () => refreshGameModsOnStartup(),
+});
+const { getAppConfigPath, readAppConfig, writeAppConfig, consumeInstallerSetupReset } = appConfig;
+appConfig.register(ipcMain);
+const { createPaths } = require('./paths.cjs');
+// テスト（loadApp）は main.cjs を一時フォルダーで動かし、__dirname と process を偽物にする。モジュールにはこちらを渡す。
+const paths = createPaths({ app, process, appDir: __dirname, readAppConfig });
+const {
+  getInstalledBridgeRoot, getBridgeDir, getConfigPath, getGiftsDir, getGiftsMinPath, getGiftsMetaPath, getGiftsHtmlPath,
+  ensureDir, ensureConfigExists, getServerTemplatePath, getServerRoot, getBridgeBatDir,
+  getNodeCommand, getGvDataDir, getGvSettingsPath, getGvToolPath,
+} = paths;
+const { createOperatorAuth } = require('./operator_auth.cjs');
+const operatorAuth = createOperatorAuth({ readAppConfig, writeAppConfig });
+// コンソール送信（server:command）などの強い操作は、main 側でもログイン済みかを確かめる。
+const { isOperatorAuthed } = operatorAuth;
+operatorAuth.register(ipcMain);
 function minecraftLocationOptions() {
   return { appData: app.getPath('appData'), currentFolder: readAppConfig().minecraftGameFolder, serverRoot: getServerRoot() };
 }
@@ -132,249 +158,15 @@ const settingsBackups = createSettingsBackups({
 });
 
 const isDev = process.env.ELECTRON_DEV === "1";
-
-// --------------------
-// Paths (A方式: Bridge同梱)
-// --------------------
-// ✅ 重要：dev/prod ではなく「パッケージ済みか」で分岐する
-// - electron . / electron:dev / electron:prod（未パッケージ） => ui/bridge_runtime を見る
-// - exe化（electron-builder）後（パッケージ）             => <install>/resources/bridge を見る
-function getInstalledBridgeRoot() {
-  if (!app.isPackaged) {
-    return path.resolve(__dirname, "..", "bridge_runtime"); // ui/bridge_runtime
-  }
-  return path.join(process.resourcesPath, "bridge"); // <install>/resources/bridge
+const { createAppWindow } = require('./window.cjs');
+// 保存・準備中（初期セットアップ・MAP の作業・サーバーの起動と停止・ゲームの切り替え）はウィンドウを閉じない。
+// 名前のある関数にして、テストから5つの作業ごとに確かめる（main.cjs の分割 PR1 レビュー）。
+function isAppBusy() {
+  return initialSetupRunning || mapOperationBusy || serverStarting || serverStopping || gameProfileBusy;
 }
-
-/**
- * resources/bridge/
- * ├─ start_all.bat
- * ├─ node/                     (同梱nodeをここに置くなら)
- * ├─ server/
- * └─ bridge/
- *    ├─ config.minecraft.json
- *    ├─ tools/
- *    │   ├─ fetch_gifts.js
- *    │   └─ gifts_to_html.js
- *    └─ data/
- *        └─ gifts/
- *            ├─ gifts.min.json
- *            ├─ gifts.full.json
- *            ├─ gifts.meta.json
- *            └─ gifts.html
- */
-function getBridgeDir() {
-  return path.join(getInstalledBridgeRoot(), "bridge");
-}
-
-function getConfigPath() {
-  return path.join(getBridgeBatDir(), "config.minecraft.json");
-}
-
-// gifts データは GiftsViewer と共有（tools-bundled を使うため）
-function getGiftsDir() {
-  const dir = !app.isPackaged
-    ? path.resolve(__dirname, "..", "GiftsViewer", "data", "gifts")
-    : path.join(app.getPath("userData"), "gv-data", "gifts");
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-function getGiftsMinPath() {
-  return path.join(getGiftsDir(), "gifts.min.json");
-}
-
-function getGiftsMetaPath() {
-  return path.join(getGiftsDir(), "gifts.meta.json");
-}
-
-function getGiftsHtmlPath() {
-  return path.join(getGiftsDir(), "gifts.html");
-}
-
-function ensureDir(p) {
-  fs.mkdirSync(p, { recursive: true });
-}
-
-function ensureConfigExists(configPath) {
-  if (fs.existsSync(configPath)) return;
-
-  ensureDir(path.dirname(configPath));
-
-  // options/likeEvents/各種イベントを欠いた最小configだと、config:write の commandsDir矯正
-  // （options が無いと発火しない）や各イベントの既定動作が効かなくなるため、完全な形で書き出す。
-  const defaultConfig = {
-    tiktokUsername: "",
-    rcon: { host: "127.0.0.1", port: 25575, password: "" },
-    mappings: [],
-    likeEvents: [],
-    unmappedGiftEvent: { commandFile: "", repeat: 1, enabled: false },
-    shareEvent: { commandFile: "", repeat: 1, enabled: false },
-    followEvent: { commandFile: "", repeat: 1, enabled: false },
-    memberEvent: { commandFile: "", repeat: 1, enabled: false },
-    options: {
-      giftCooldownMs: 300,
-      maxCommandsPerGift: 200,
-      commandTransport: "bridge_mod",
-      bridgeModHost: "127.0.0.1",
-      bridgeModPort: 25576,
-      maxLikeCatchUpPerEvent: 5,
-      logUnknownGifts: true,
-    },
-  };
-
-  fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2), "utf-8");
-}
-
-// --------------------
-// CSP (prod only-ish)
-// --------------------
-// ELECTRON_DEV=1 のときは付けない（Vite開発や調査が楽）
-// それ以外は付ける（electron:prod / exe）
-function installProdOnlyCsp() {
-  if (isDev) return;
-
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        "Content-Security-Policy": [
-          [
-            "default-src 'self'",
-            "script-src 'self'",
-            "style-src 'self' 'unsafe-inline'",
-            // gifts画像URLが https のため許可
-            "img-src 'self' data: https:",
-            "font-src 'self' data:",
-            // TTS テスト再生の base64 wav data URI を許可
-            "media-src 'self' data:",
-            "connect-src 'self'",
-            "object-src 'none'",
-            "base-uri 'self'",
-            "frame-ancestors 'none'",
-          ].join("; "),
-        ],
-      },
-    });
-  });
-}
-
-// --------------------
-// Window
-// --------------------
-function createWindow() {
-  const iconPath = path.join(__dirname, "..", "assets", "icon.ico");
-  const indexHtml = path.join(__dirname, "..", "dist", "index.html");
-  const indexPageUrl = pathToFileURL(indexHtml).href;
-
-  const win = new BrowserWindow({
-    width: 1488,
-    height: 1000,
-    minWidth: 1120,
-    minHeight: 720,
-    frame: false,
-    autoHideMenuBar: true,
-    icon: iconPath,
-    webPreferences: {
-      preload: path.join(__dirname, "preload.cjs"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-  win.on("close", event => {
-    if (!initialSetupRunning && !mapOperationBusy && !serverStarting && !serverStopping && !gameProfileBusy) return;
-    event.preventDefault();
-    void dialog.showMessageBox(win, { type: "info", title: "保存・準備中です",
-      message: "ワールドと設定を準備しています。保存とサーバー停止が終わるまで、このアプリを開いたままお待ちください。" });
-  });
-
-  const openExternalHttpUrl = (rawUrl) => {
-    try {
-      const parsed = new URL(rawUrl);
-      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return;
-      void shell.openExternal(parsed.href);
-    } catch {}
-  };
-
-  // 外部リンクは http(s) だけOSブラウザで開く。
-  // 任意のカスタムプロトコルをshellへ渡すと、別アプリの危険なURLハンドラを起動し得る。
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    openExternalHttpUrl(url);
-    return { action: "deny" };
-  });
-
-  // preload API はこのアプリのindex.htmlだけに公開する。別のローカルHTMLへの
-  // file:// 遷移を許すと、そのHTMLから特権IPCを呼べるため必ず遮断する。
-  win.webContents.on("will-navigate", (e, url) => {
-    const targetWithoutHash = String(url).split("#", 1)[0];
-    if (targetWithoutHash === indexPageUrl) return;
-    e.preventDefault();
-    openExternalHttpUrl(url);
-  });
-
-  session.defaultSession.setPermissionCheckHandler(() => false);
-  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
-  win.webContents.on("will-prevent-unload", (event) => {
-    const choice = dialog.showMessageBoxSync(win, {
-      type: "question", title: "未保存の変更があります",
-      message: "編集中の設定が保存されていません。",
-      detail: "変更を残す場合は編集に戻り、保存してから終了してください。",
-      buttons: ["編集に戻る", "変更を破棄して終了"], defaultId: 0, cancelId: 0, noLink: true,
-    });
-    if (choice === 1) event.preventDefault();
-  });
-  win.loadFile(indexHtml);
-
-  if (isDev) {
-    win.webContents.openDevTools({ mode: "detach" });
-  }
-}
-
-// --------------------
-// Helpers: run process and capture logs
-// --------------------
-function detectBundledNodeExe() {
-  // 置き方が複数あり得るので順に探す。
-  // v1.0.12以降: resources/bridge/bridge-runtime.zip を serverFolder/bridge へ必要時展開する。
-  const candidates = [];
-  try { candidates.push(path.join(getBridgeBatDir(), "node", "node.exe")); } catch {}
-  try { candidates.push(path.join(app.getPath("userData"), "bridge", "node", "node.exe")); } catch {}
-  try { candidates.push(path.join(getInstalledBridgeRoot(), "node", "node.exe")); } catch {}
-  if (app.isPackaged) candidates.push(path.join(process.resourcesPath, "node", "node.exe"));
-
-  for (const candidate of candidates) {
-    if (candidate && fs.existsSync(candidate)) return candidate;
-  }
-
-  return null;
-}
-
-ipcMain.on("window:minimize", (event) => BrowserWindow.fromWebContents(event.sender)?.minimize());
-ipcMain.on("window:maximizeToggle", (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win) return;
-  if (win.isMaximized()) win.unmaximize();
-  else win.maximize();
-});
-ipcMain.on("window:close", (event) => BrowserWindow.fromWebContents(event.sender)?.close());
-
-function getNodeCommand() {
-  if (process.platform !== "win32") return "node";
-  const bundled = detectBundledNodeExe();
-  return bundled || "node"; // 最悪PATH
-}
-
-function getToolsPath(name) {
-  return path.join(getBridgeDir(), "tools", name);
-}
-
-function ensureToolsExist() {
-  const fetchJs = getToolsPath("fetch_gifts.js");
-  const htmlJs = getToolsPath("gifts_to_html.js");
-  if (!fs.existsSync(fetchJs)) throw new Error(`tools not found: ${fetchJs}`);
-  if (!fs.existsSync(htmlJs)) throw new Error(`tools not found: ${htmlJs}`);
-}
+const appWindow = createAppWindow({ BrowserWindow, session, dialog, shell, appDir: __dirname, isDev, isBusy: () => isAppBusy() });
+const { installProdOnlyCsp, createWindow } = appWindow;
+appWindow.register(ipcMain);
 
 // --------------------
 // App lifecycle
@@ -506,23 +298,12 @@ ipcMain.handle("preflight:run", () => {
   return preflightTask;
 });
 
-// Compatibility IPCs never contact GitHub or launch an installer. Distribution is manual.
-function manualUpdateStatus() {
-  return { state: "manual", version: app.getVersion(), percent: 0, error: "", checkedAt: null,
-    message: "最新版は配布者から受け取り、インストーラーを実行してください。" };
-}
-ipcMain.handle("updater:status", manualUpdateStatus);
-ipcMain.handle("updater:check", manualUpdateStatus);
-ipcMain.handle("updater:install", () => ({ ok: false, ...manualUpdateStatus() }));
 ipcMain.handle("config:validate", async (_event, value) => validateBridgeConfig(value, { previous: [readSavedBridgeConfig()] }));
 
 // ✅ preload側の「bridgeRoot / bridgeDir」ズレ事故を防ぐため両方返す
 ipcMain.handle("bridge:root", async () => getInstalledBridgeRoot());
 ipcMain.handle("bridge:dir", async () => getBridgeDir());
 ipcMain.handle("bridge:syncStatus", () => bridgeSyncState);
-
-// アプリバージョン（UIのハードコード表記を廃してこれを使う）
-ipcMain.handle("app:version", () => app.getVersion());
 
 // --------------------
 // IPC: Gifts read (UIタブ用)
@@ -556,164 +337,6 @@ ipcMain.handle("gifts:openHtml", async () => {
   await shell.openPath(html);
   return { ok: true, html };
 });
-
-// --------------------
-// App config (userData/app-config.json)
-// --------------------
-function getAppConfigPath() {
-  return path.join(app.getPath("userData"), "app-config.json");
-}
-
-function readAppConfig() {
-  const p = getAppConfigPath();
-  if (!fs.existsSync(p)) return { serverFolder: "", setupComplete: false };
-  try { return JSON.parse(fs.readFileSync(p, "utf-8")); }
-  catch { return { serverFolder: "", setupComplete: false }; }
-}
-
-function writeAppConfig(data) {
-  const p = getAppConfigPath();
-  const current = readAppConfig();
-  const next = { ...current, ...data };
-  if (next.serverFolder) next.serverFolder = path.resolve(next.serverFolder);
-  fs.writeFileSync(p, JSON.stringify(next, null, 2), "utf-8");
-}
-
-function readPublicAppConfig() {
-  const config = readAppConfig();
-  const { authEmail: _authEmail, authToken: _authToken, authLoginAt: _authLoginAt, ...publicConfig } = config;
-  return publicConfig;
-}
-
-const RENDERER_APP_CONFIG_FIELDS = new Set([
-  "serverFolder",
-  "setupComplete",
-  "setupRequiredByInstall",
-  "minecraftPlayerName",
-  "minecraftLauncherPath",
-  "autoBackupOnServerStart",
-]);
-
-function sanitizeRendererAppConfigUpdate(data) {
-  const next = {};
-  for (const [key, value] of Object.entries(data || {})) {
-    if (!RENDERER_APP_CONFIG_FIELDS.has(key)) throw new Error(`変更できないアプリ設定です: ${key}`);
-    if (["setupComplete", "setupRequiredByInstall", "autoBackupOnServerStart"].includes(key)) {
-      if (typeof value !== "boolean") throw new Error(`${key} must be a boolean`);
-      next[key] = value;
-      continue;
-    }
-    if (typeof value !== "string" || value.length > 4096) throw new Error(`${key} must be a string`);
-    next[key] = value;
-  }
-  return next;
-}
-
-// --------------------
-// 運営ログイン認証
-// --------------------
-// リポジトリは public のため平文パスワードは一切置かない。PBKDF2ハッシュのみを埋め込む。
-// ログイン成功後は authEmail + authToken(HMAC) を app-config.json に保存し、次回起動時は
-// トークン再計算で照合する（パスワード自体は保存しない）。
-const OPERATOR_AUTH = {
-  salt: "fa2e3d72dcba1a83977e4cac983c5366",
-  hash: "8365be19bbae0379de9af9cb411e3883ae9faa82d6eb244ce5e1725a810d1c0c",
-  iterations: 210000,
-  keyLen: 32,
-};
-
-function verifyOperatorPassword(password) {
-  const derived = crypto.pbkdf2Sync(
-    String(password),
-    OPERATOR_AUTH.salt,
-    OPERATOR_AUTH.iterations,
-    OPERATOR_AUTH.keyLen,
-    "sha256"
-  );
-  const expected = Buffer.from(OPERATOR_AUTH.hash, "hex");
-  return derived.length === expected.length && crypto.timingSafeEqual(derived, expected);
-}
-
-function operatorLoginToken(email) {
-  return crypto
-    .createHmac("sha256", OPERATOR_AUTH.hash)
-    .update(String(email).trim().toLowerCase())
-    .digest("hex");
-}
-
-function isValidLoginEmail(email) {
-  const v = String(email || "").trim();
-  return v.length >= 5 && v.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
-}
-
-let failedAuthAttempts = 0;
-let authLockedUntil = 0;
-
-// 運営ログイン済みかどうか（auth:status と同じ判定）。UI 全体は LoginPage でゲートされて
-// いるが、コンソール送信のような強い操作は main 側でも二重に確認する（多層防御）。
-function isOperatorAuthed() {
-  try {
-    const cfg = readAppConfig();
-    const email = String(cfg.authEmail || "").trim();
-    return !!email && cfg.authToken === operatorLoginToken(email);
-  } catch { return false; }
-}
-
-/**
- * The NSIS installer writes this one-shot marker after every successful install.
- * Consuming it here makes an installed build always open behind the setup gate,
- * while preserving the previously selected server folder for returning users.
- */
-function consumeInstallerSetupReset() {
-  if (!app.isPackaged) return;
-
-  const markerPath = path.join(app.getPath("userData"), "require-initial-setup.flag");
-  if (!fs.existsSync(markerPath)) return;
-
-  try {
-    writeAppConfig({
-      setupComplete: false,
-      setupRequiredByInstall: true,
-      setupRequiredAt: new Date().toISOString(),
-    });
-    fs.unlinkSync(markerPath);
-  } catch (error) {
-    console.warn("[setup] failed to consume installer reset marker:", error?.message || error);
-  }
-}
-
-// --------------------
-// Paths: Server / Bridge (UI統合用)
-// --------------------
-
-// テンプレートパス（常にバンドル版を返す）
-function getServerTemplatePath() {
-  if (!app.isPackaged) return path.resolve(__dirname, "..", "server", "Douma_Craft");
-  return path.join(process.resourcesPath, "server", "Douma_Craft");
-}
-
-function getServerRoot() {
-  // app-config.json に保存されたフォルダを優先
-  const cfg = readAppConfig();
-  // 指定先が消えていても別のサーバーに切り替えない。診断画面で同じパスを示す。
-  if (cfg.serverFolder) return path.resolve(cfg.serverFolder);
-  // 初回の保存先はアプリの外。更新・アンインストールでワールドを失わない。
-  if (!app.isPackaged) return path.resolve(__dirname, "..", "server", "Douma_Craft");
-  return path.join(app.getPath("documents"), "MyGamePack", "Server");
-}
-
-function getBridgeBatDir() {
-  // dev: ui/bridge をそのまま使用
-  if (!app.isPackaged) {
-    return path.resolve(__dirname, "..", "bridge");
-  }
-  // packaged: setupComplete=true なら serverFolder/bridge、それ以外は userData/bridge（フォールバック）
-  const cfg = readAppConfig();
-  if (cfg.setupComplete && cfg.serverFolder && fs.existsSync(cfg.serverFolder)) {
-    return path.join(cfg.serverFolder, "bridge");
-  }
-  return path.join(app.getPath("userData"), "bridge");
-}
 
 // --------------------
 // Bridge: resources → serverFolder/bridge へ差分同期
@@ -2306,34 +1929,8 @@ ipcMain.handle("gifts:update", async (_event, username) => {
 // ====================
 
 // --------------------
-// Paths: GiftsViewer
+// GiftsViewer（場所は paths.cjs）
 // --------------------
-function getGvToolsDir() {
-  if (!app.isPackaged) {
-    // tools-bundled を優先（.cjs バンドル済み）、なければ tools
-    const bundled = path.resolve(__dirname, "..", "GiftsViewer", "tools-bundled");
-    if (fs.existsSync(bundled)) return bundled;
-    return path.resolve(__dirname, "..", "GiftsViewer", "tools");
-  }
-  return path.join(process.resourcesPath, "gv-tools");
-}
-
-function getGvDataDir() {
-  const dir = !app.isPackaged
-    ? path.resolve(__dirname, "..", "GiftsViewer", "data", "gifts")
-    : path.join(app.getPath("userData"), "gv-data", "gifts");
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-function getGvSettingsPath() {
-  return path.join(app.getPath("userData"), "gv-settings.json");
-}
-
-function getGvToolPath(name) {
-  return path.join(getGvToolsDir(), name);
-}
-
 async function autoUpdateGiftsIfStale() {
   let bridgeCfg = {};
   try { bridgeCfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch {}
@@ -2485,68 +2082,6 @@ ipcMain.handle("gv:settings:write", async (_event, v) => {
   const p = getGvSettingsPath();
   const next = { username: String(v?.username || "").trim().replace(/^@/, "") };
   fs.writeFileSync(p, JSON.stringify(next, null, 2), "utf-8");
-  return { ok: true };
-});
-
-// --------------------
-// IPC: App config
-// --------------------
-ipcMain.handle("app:config:read", async () => readPublicAppConfig());
-
-ipcMain.handle("app:config:write", async (_event, data) => {
-  assertGameProfileIdle();
-  if (data && ('serverFolder' in data || 'world' in data)) { assertMapIdle(); if (serverStarting) throw new Error('サーバーの起動中は保存先を変更できません。'); }
-  if (typeof data !== "object" || data === null) throw new Error("data must be an object");
-  if (Object.hasOwn(data, "autoBackupOnServerStart") && data.autoBackupOnServerStart !== readAppConfig().autoBackupOnServerStart && fs.existsSync(getConfigPath())) settingsBackups.create("automatic");
-  const wasSetupComplete = readAppConfig().setupComplete === true;
-  writeAppConfig(sanitizeRendererAppConfigUpdate(data));
-  // 手動インストール（更新も含む）のあとは初期セットアップをやり直す。終えたら、アプリの更新に合わせて MOD を入れ替える（PR #91 レビュー）。
-  if (!wasSetupComplete && readAppConfig().setupComplete === true) setTimeout(() => { refreshGameModsOnStartup().catch(e => console.warn("[games]", e?.message || e)); }, 0);
-  return { ok: true };
-});
-
-// --------------------
-// IPC: 運営ログイン認証
-// --------------------
-ipcMain.handle("auth:status", async () => {
-  const cfg = readAppConfig();
-  const email = String(cfg.authEmail || "").trim();
-  if (!email || !cfg.authToken) return { authenticated: false, email: "" };
-  const valid = cfg.authToken === operatorLoginToken(email);
-  return { authenticated: valid, email: valid ? email : "" };
-});
-
-ipcMain.handle("auth:login", async (_event, payload) => {
-  const now = Date.now();
-  if (now < authLockedUntil) {
-    const seconds = Math.max(1, Math.ceil((authLockedUntil - now) / 1000));
-    return { ok: false, message: `ログイン試行が多すぎます。${seconds}秒後に再試行してください` };
-  }
-  const email = String(payload?.email || "").trim();
-  const password = String(payload?.password || "");
-  if (!isValidLoginEmail(email)) {
-    return { ok: false, message: "メールアドレスの形式が正しくありません" };
-  }
-  if (!verifyOperatorPassword(password)) {
-    failedAuthAttempts += 1;
-    if (failedAuthAttempts >= 5) {
-      failedAuthAttempts = 0;
-      authLockedUntil = Date.now() + 60000;
-    }
-    return { ok: false, message: "パスワードが違います" };
-  }
-  failedAuthAttempts = 0;
-  authLockedUntil = 0;
-  writeAppConfig({
-    authEmail: email,
-    authToken: operatorLoginToken(email),
-    authLoginAt: new Date().toISOString(),
-  });
-  return { ok: true, email };
-});
-
-ipcMain.handle("auth:logout", async () => {
-  writeAppConfig({ authEmail: "", authToken: "" });
   return { ok: true };
 });
 
