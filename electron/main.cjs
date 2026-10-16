@@ -1818,7 +1818,8 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
     if (pending) parts.push("送り直し中 " + pending + "件");
     if (failed) parts.push("送れなかった " + failed + "件");
     if (discarded) parts.push("取りやめ " + discarded + "件");
-    return { ok: failed === 0 && discarded === 0, matched: true, fired, steps, notes,
+    // 手順があるのに何も受け付けられなかったら（ルーレットを途中で無効にしたなど）、成功にしない（最後のレビュー Important #1）。
+    return { ok: failed === 0 && discarded === 0 && delivered + pending > 0, matched: true, fired, steps, notes,
       // 送れなかった分は再開しても実行されないので、受け付けた分・送り直し中の分があるときだけ書く。
       message: parts.join("・") + "。ゲーム内の結果も確認してください。" + (paused && delivered + pending > 0 ? " 一時停止中です。再開すると実行されます。" : "") };
   } finally { testEventRunning = false; }

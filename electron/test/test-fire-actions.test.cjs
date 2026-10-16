@@ -105,6 +105,17 @@ test('集計: ルーレットの当たりは同じ手順の続きとして数え
   assert.deepEqual(result.notes, ['演出なし']);
 });
 
+test('集計: 送る前に止まった手順（ルーレットの設定の誤りなど）は、送らなかった回数を「送れなかった」として書く', async () => {
+  const run = createTestRun();
+  const spin = run.step({ commandFile: 'roulette.txt', count: 3, historyType: 'roulette' }, { roulette: true });
+  run.hold(spin);
+  run.failStep(spin, 'ルーレットの有効な項目がありません。', 2);
+  run.release(spin);
+  await run.wait(5000);
+  assert.deepEqual(run.result('x').fired.map(r => [r.stepIndex, r.state, r.commandFile, r.count, r.message]),
+    [[0, 'failed', 'roulette.txt', 2, 'ルーレットの有効な項目がありません。']]);
+});
+
 test('何も通らなかったときの注意は種類ごと', () => {
   assert.match(noMatchNote('death'), /デスルーレット/);
   assert.match(noMatchNote('share'), /シェア/);

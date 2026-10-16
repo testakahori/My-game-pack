@@ -126,6 +126,10 @@ function createTestRun({ preview = false } = {}) {
     failed: (event, reason) => row(event, 'failed', reason),
     // 送る列から外れた。送れた・送れなかったの知らせがなければ、配信の終了で捨てた分。
     finished: event => row(event, 'discarded', '配信の終了で取りやめました'),
+    // 送る前に止まった手順（ルーレットの設定の誤りなど）。送らなかった回数を「送れなかった」として書く。
+    failStep(stepIndex, reason, count = steps[stepIndex].count) {
+      fired.push({ stepIndex, commandFile: steps[stepIndex].commandFile, count, state: 'failed', message: reason });
+    },
     // ルーレットを回し終えるまで待つ。
     hold(stepIndex) { open.set(stepIndex, (open.get(stepIndex) || 0) + 1); waiting++; },
     release: close,

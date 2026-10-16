@@ -238,6 +238,10 @@ test('テスト発火IPC: BRIDGE が止まっていると試せない。動い�
   assert.equal(fired.message, 'BridgeMOD が受け付けた 1件・送り直し中 1件。ゲーム内の結果も確認してください。');
   assert.equal(fired.fired.length, 2);
   assert.deepEqual(plainJson(await app.invoke('operations:history')), [], '履歴は BRIDGE が書く（main は書かない）');
+  // 手順があるのに何も受け付けられなかったら（ルーレットを途中で無効にしたなど）、緑の「成功」にしない（最後のレビュー Important #1）。
+  app.setBridge(fakeBridge(() => ({ ok: true, steps: steps.slice(1), notes: [], fired: [] })).child);
+  const nothing = await app.invoke('mod:testEvent', { type: 'roulette' });
+  assert.equal(nothing.ok, false);
 });
 
 test('テスト発火IPC: 入力の誤りは例外。返事がない・途中で BRIDGE が止まった・BridgeMOD につながらないときは理由を返す', async t => {

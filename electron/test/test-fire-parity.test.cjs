@@ -146,6 +146,23 @@ test('ルーレットの演出だけ送れなくても当たりは送り、演�
   assert.ok(result.notes.some(note => note.includes('ルーレットの演出を送れなかった')), result.notes.join(' / '));
 });
 
+// 以前のテスト発火は送る前にルーレットを確かめ、誤りを失敗として出していた（最後のレビュー Important #1。2026-10-16）。
+test('ルーレットの設定の誤り（存在しないコマンドだけ）は、テスト発火では「送れなかった」に、条件だけ確認では注意に出す', async t => {
+  const bridge = await startBridgeFixture(t, {
+    commands: { qa: 'say qa\n' },
+    config: { roulette: { enabled: true, items: [{ commandFile: 'gone.txt', label: 'なし', weight: 1, repeat: 1 }] },
+      deathRoulette: { enabled: true, everyDeaths: 1, items: [{ commandFile: 'gone.txt', weight: 1, repeat: 1 }] } },
+  });
+  const fired = await bridge.testEvent({ type: 'roulette' });
+  assert.deepEqual(fired.fired.map(row => [row.stepIndex, row.state, row.commandFile, row.count]), [[0, 'failed', 'roulette.txt', 1]]);
+  assert.match(fired.fired[0].message, /ルーレットの有効な項目がありません/);
+  const preview = await bridge.testEvent({ type: 'roulette', preview: true });
+  assert.ok(preview.notes.some(note => note.includes('ルーレットの有効な項目がありません')), preview.notes.join(' / '));
+  const death = await bridge.testEvent({ type: 'death', deaths: 1, preview: true });
+  assert.ok(death.notes.some(note => note.includes('ルーレットの有効な項目がありません')), death.notes.join(' / '));
+  assert.deepEqual(events(bridge), []);
+});
+
 test('送り直し: 混んでいても届いたら「受け付けた」、時間内に届かなければ「送り直し中」。400 は「送れなかった」で、ホームの件数に数えない', async t => {
   let busy = 1, slow = true;
   const bridge = await startBridgeFixture(t, {

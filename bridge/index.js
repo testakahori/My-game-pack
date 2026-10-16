@@ -1447,16 +1447,19 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       Promise.resolve().then(nextRouletteSpin);
     };
     const rl = request.getConfig();
+    // テスト発火なら、回さずに終わった回数と理由を結果に書く（以前のテスト発火と同じく、設定の誤りを失敗として出す。2026-10-16）。
+    const left = request.spins - request.done;
     if (!rl?.enabled) {
       if (request.done > 0) console.warn(`[Roulette] ルーレットが無効になったため、残り${request.spins - request.done}回を取りやめました`);
+      request.run?.failStep(request.step, `ルーレットが無効になったため、残り${left}回を取りやめました。`, left);
       return finish();
     }
     let round;
     try {
       round = prepareRoulette(rl, commandsDirAbs);
     } catch (error) {
-      const left = request.spins - request.done;
       console.error("[Roulette]", error.message + (left > 1 ? `（残り${left}回を取りやめました）` : ""));
+      request.run?.failStep(request.step, error.message, left);
       return finish();
     }
     animateRoulette(round, request.triggerName, winner => {
@@ -1480,11 +1483,17 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const run = ctx.run;
     if (rouletteCfg?.enabled && commandFileToBridgeKey(event.commandFile) === "roulette") {
       // 条件だけ確認では回さない。回す回数だけ書く。
-      if (run?.preview) { run.step({ ...event, label: "ルーレット", count: rouletteSpins(event.count) }, { roulette: true }); return; }
+      if (run?.preview) { previewRoulette(run, rouletteCfg, { ...event, label: "ルーレット", count: rouletteSpins(event.count) }); return; }
       if (runRoulette(() => rouletteCfg, event.listenerName, event.historyType || "roulette", event.count, run)) return;
     }
     if (run?.preview) { previewEvent(run, event); return; }
     enqueueMod(run ? run.mark(event) : event);
+  }
+  // 条件だけ確認のルーレット：回さずに回数だけ書く。回すときと同じ確かめ（有効な項目があるか）を通し、通らなければ理由を書く。
+  function previewRoulette(run, config, event) {
+    const step = run.step(event, { roulette: true });
+    try { prepareRoulette(config, commandsDirAbs); }
+    catch (error) { run.notice(`${run.steps[step].label}: ${error?.message || error}`); }
   }
   // 条件だけ確認：送る前の確かめ（名前・コマンドファイル・GAME_MOD）を送るときと同じく通し、通らなければ理由を書く。
   function previewEvent(run, event) {
@@ -1537,7 +1546,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const every = clampInt(rl.everyDeaths ?? 1, 1, 1000, 1);
     if (deathRouletteMatches(rl, deaths)) {
       ctx.log(`[DeathRoulette] deaths=${deaths}（${every}回ごと）→ ルーレット始動`);
-      if (ctx.run?.preview) ctx.run.step({ commandFile: "roulette.txt", count: 1, historyType: "death_roulette" }, { roulette: true });
+      if (ctx.run?.preview) previewRoulette(ctx.run, rl, { commandFile: "roulette.txt", count: 1, historyType: "death_roulette" });
       else runRoulette(() => rl, String(status.player || "player"), "death_roulette", 1, ctx.run);
     }
   }
