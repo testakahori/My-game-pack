@@ -18,7 +18,8 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "mygamepack-regression-")));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const handlers = new Map();
-  const onChannels = new Set();
+  // ipcMain.on は同じ名前でも何度でも登録できてしまう（処理が2回動く）ので、重なりも含めて集める。
+  const onChannels = [];
   let serverSpawn;
   const notifications = [];
   const copiedTexts = [];
@@ -34,7 +35,9 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
       return { ...real, spawn: (...args) => serverSpawn ? serverSpawn(...args) : real.spawn(...args) };
     }
     if (name === "electron") return {
-      app, dialog, safeStorage, ipcMain: { handle: (name, fn) => handlers.set(name, fn), on: name => onChannels.add(name) },
+      // 本物の ipcMain.handle は同じ名前の二重登録で例外を投げ、アプリが起動しない。偽物も同じく止める（main.cjs の分割 PR1 レビュー）。
+      app, dialog, safeStorage, ipcMain: { handle: (name, fn) => { if (handlers.has(name)) throw new Error('ipc の二重登録: ' + name); handlers.set(name, fn); },
+        on: name => onChannels.push(name) },
       clipboard: { writeText: text => copiedTexts.push(text) },
       BrowserWindow: { getFocusedWindow: () => null, getAllWindows: () => [{ webContents: { send: (...args) => notifications.push(args) } }] },
     };
@@ -70,6 +73,8 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
   return { root, configPath, notifications, copiedTexts, clearGameSelection: () => fs.unlinkSync(context.fixtureGameState), invoke: (name, ...args) => handlers.get(name)({}, ...args),
     // ipc の窓口の名前（main.cjs の分割で増えたり減ったりしていないかを確かめる。2026-10-17）。
     channels: () => [...handlers.keys()].sort(), onChannels: () => [...onChannels].sort(),
+    // main.cjs の中の変数を読む・書く（配線の確かめ用）。
+    evaluate: code => vm.runInContext(code, context),
     usePackagedPaths: () => { app.isPackaged = true; },
     mockServerSpawn: fn => { serverSpawn = fn; },
     setServer: child => { context.fixtureChild = child; vm.runInContext('serverProcRef = fixtureChild; serverPid = fixtureChild?.pid || null;', context); },
@@ -90,6 +95,21 @@ test('ipc の窓口の一覧は、main.cjs を分けても変わらない（116�
   assert.equal(IPC_HANDLE_CHANNELS.length, 116);
   assert.deepEqual(app.channels(), [...IPC_HANDLE_CHANNELS].sort());
   assert.deepEqual(app.onChannels(), IPC_ON_CHANNELS);
+});
+
+// main.cjs がモジュールへ渡す「呼ばれたときに読む関数」の配線（main.cjs の分割 PR1 レビュー）。
+// モジュールのテストは代わりの関数を渡すので、main の配線の取り違え（別の変数を読む・1つ抜ける）はここで止める。
+test('配線: サーバーの起動中は保存先を変えず、作業中（5つのどれか）はウィンドウを閉じない', async t => {
+  const app = loadApp(t);
+  app.evaluate('serverStarting = true;');
+  await assert.rejects(app.invoke('app:config:write', { serverFolder: app.root }), /サーバーの起動中は保存先を変更できません。/);
+  app.evaluate('serverStarting = false;');
+  assert.equal(app.evaluate('isAppBusy()'), false);
+  for (const flag of ['initialSetupRunning', 'mapOperationBusy', 'serverStarting', 'serverStopping', 'gameProfileBusy']) {
+    app.evaluate(`${flag} = true;`);
+    assert.equal(app.evaluate('isAppBusy()'), true, flag);
+    app.evaluate(`${flag} = false;`);
+  }
 });
 
 // テスト発火を受ける偽の BRIDGE。届いた問い合わせを記録し、answer の戻り値を返事として返す（undefined なら返さない）。

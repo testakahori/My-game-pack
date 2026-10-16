@@ -54,4 +54,7 @@ test('失敗が5回続いたら60秒止める。過ぎたら試せて、成功�
   assert.equal((await invoke('auth:login', { email: 'op@example.com', password: 'test-pass' })).ok, true);
   for (let i = 0; i < 4; i++) await invoke('auth:login', { email: 'op@example.com', password: 'wrong' });
   assert.equal((await invoke('auth:login', { email: 'op@example.com', password: 'test-pass' })).ok, true, '4回の失敗では止めない');
+  // 成功で数え直していなければ、4回＋1回＝5回目で止まってしまう（main.cjs の分割 PR1 レビュー）。
+  await invoke('auth:login', { email: 'op@example.com', password: 'wrong' });
+  assert.equal((await invoke('auth:login', { email: 'op@example.com', password: 'test-pass' })).ok, true, '成功したら失敗の回数を数え直す');
 });

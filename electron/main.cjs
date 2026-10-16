@@ -160,8 +160,11 @@ const settingsBackups = createSettingsBackups({
 const isDev = process.env.ELECTRON_DEV === "1";
 const { createAppWindow } = require('./window.cjs');
 // 保存・準備中（初期セットアップ・MAP の作業・サーバーの起動と停止・ゲームの切り替え）はウィンドウを閉じない。
-const appWindow = createAppWindow({ BrowserWindow, session, dialog, shell, appDir: __dirname, isDev,
-  isBusy: () => initialSetupRunning || mapOperationBusy || serverStarting || serverStopping || gameProfileBusy });
+// 名前のある関数にして、テストから5つの作業ごとに確かめる（main.cjs の分割 PR1 レビュー）。
+function isAppBusy() {
+  return initialSetupRunning || mapOperationBusy || serverStarting || serverStopping || gameProfileBusy;
+}
+const appWindow = createAppWindow({ BrowserWindow, session, dialog, shell, appDir: __dirname, isDev, isBusy: () => isAppBusy() });
 const { installProdOnlyCsp, createWindow } = appWindow;
 appWindow.register(ipcMain);
 
