@@ -37,6 +37,7 @@ const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("
 const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require("./feature_engine");
 const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes } = require("./event_rules.cjs");
 const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter, createMuteMatcher } = require("./tiktok_events.cjs");
+const { testEventActions, createTestRun, noMatchNote } = require("./test_fire.cjs");
 let runtimeProtection = { enabled: false };
 let bridgeModWebSocket = null;
 let bridgeModWebSocketStopping = false;
@@ -819,13 +820,17 @@ function recordDeliveryRejection(event, error) {
   try {
     const reason = deliveryFailureReason(error);
     const commandFile = ensureTxt(event?.commandFile);
-    deliveryRejections.rejected++;
-    deliveryRejections.last = { at: new Date().toISOString(), type: event?.historyType || event?.type || "other", commandFile, reason };
-    console.error(`[BridgeMod] 送れなかったイベント（再送しません）: type=${event?.type || "other"} file=${commandFile} count=${event?.count ?? 1} 理由: ${reason}`);
+    const at = new Date().toISOString(), type = event?.historyType || event?.type || "other";
+    // テスト発火の分は、テストの結果と履歴（テストの印つき）にだけ出す。ホーム画面の「送れなかったイベント」には数えない（2026-10-16）。
+    const test = event?.source === "test";
+    console.error(`[BridgeMod] ${test ? "[Test] " : ""}送れなかったイベント（再送しません）: type=${event?.type || "other"} file=${commandFile} count=${event?.count ?? 1} 理由: ${reason}`);
     appendOperationsHistoryLine(path.join(__dirname, "operations-history.json"), {
-      at: deliveryRejections.last.at, type: deliveryRejections.last.type,
-      sender: event?.listenerName || "viewer", commandFile, count: event?.count || 1, ok: false, message: reason,
+      at, type, sender: event?.listenerName || "viewer", commandFile, count: event?.count || 1, ok: false, message: reason,
+      ...(test ? { source: "test" } : {}),
     });
+    if (test) { event.testRun?.failed(event, reason); return; }
+    deliveryRejections.rejected++;
+    deliveryRejections.last = { at, type, commandFile, reason };
     updateRuntimeStatus({ delivery: { ...deliveryRejections } });
   } catch (recordError) {
     console.error("[BridgeMod] 送れなかったイベントを記録できませんでした:", recordError?.message || recordError);
@@ -857,7 +862,10 @@ function bridgeEventDelivery(bridgeMod, opts = {}) {
         // ダイヤ集計用（giftのみ）。diamond は1個あたりの単価、合計は diamond×count。
         ...(event.giftId ? { giftId: String(event.giftId) } : {}),
         ...(Number(event.diamond) > 0 ? { diamond: Number(event.diamond) } : {}),
+        // テスト発火の分は配信統計に入れない（アプリは source: "test" の行を数えない）。
+        ...(event.source === "test" ? { source: "test" } : {}),
       });
+      event.testRun?.delivered(event);
     },
     // state は同じ要求の再送のあいだ共有される。失敗の種類が変わったら数え直す。
     retry: (event, error, attempt, state = {}) => {
@@ -877,7 +885,7 @@ function bridgeEventDelivery(bridgeMod, opts = {}) {
       const changed = state.logged !== kind;
       state.logged = kind;
       if (changed || attempt % 20 === 0) console.warn(
-        "[BridgeMod] Waiting to retry", event.type, event.commandFile, "attempt=" + attempt, detail);
+        `${event.source === "test" ? "[Test] " : ""}[BridgeMod] Waiting to retry`, event.type, event.commandFile, "attempt=" + attempt, detail);
     },
   });
 }
@@ -1067,11 +1075,12 @@ async function main() {
   const isMutedUser = createMuteMatcher(options.mutedUsers);
   const ttsNgWords = (Array.isArray(options.ttsNgWords) ? options.ttsNgWords : [])
     .map(v => String(v).trim()).filter(Boolean);
-  const isMuted = (data) => {
+  // log はテスト発火のとき行頭に [Test] を付けるためのもの（2026-10-16）。
+  const isMuted = (data, log = console.log) => {
     // 表示名は整えた形（' → ’ など）になるので、生の uniqueId・名前も候補に入れる（設定は生の名前でも整えた名前でもよい）。
     const event = normalizeTikTokEvent(data), sender = getStableSender(event);
     const blocked = isMutedUser([event.uniqueId, event.nickname, event.userId, sender]);
-    if (blocked) console.log(`[Safety] muted user event ignored: ${sender}`);
+    if (blocked) log(`[Safety] muted user event ignored: ${sender}`);
     return blocked;
   };
 
@@ -1184,7 +1193,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   }
 
   // --- コンフィグ ホットリロード ---
-  function reloadDynamicConfig() {
+  function reloadDynamicConfig(log = console.log) {
     try {
       const newCfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
       // 起動時と同じ検証を通す。壊れた設定では切り替えず、今の設定で動かし続ける。
@@ -1216,7 +1225,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
           repeat: clampInt(m.repeat ?? 1, 1, 100, 1),
         });
       }
-      console.log(`[Bridge] Config reloaded — likeEvents:${likeEvents.length} mappings:${mappingById.size}`);
+      log(`[Bridge] Config reloaded — likeEvents:${likeEvents.length} mappings:${mappingById.size}`);
     } catch (e) {
       console.log("[Bridge] Config reload error:", e?.message);
     }
@@ -1301,7 +1310,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     }
   }
 
-  function resolveRandomizedMapping(mapping) {
+  function resolveRandomizedMapping(mapping, log = console.log) {
     const resolved = resolveCommands(mapping);
     const choices = parseWeightedList(resolved.meta?.RANDOM).map(choice => {
       if (choice.explicitWeight) return choice;
@@ -1312,7 +1321,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const chosen = chooseWeighted(choices);
     if (!chosen) return { mapping, meta: resolved.meta || {} };
     const commandFile = ensureTxt(chosen.commandFile);
-    console.log(`[Random] ${mapping.commandFile} -> ${commandFile} (weight=${chosen.weight})`);
+    log(`[Random] ${mapping.commandFile} -> ${commandFile} (weight=${chosen.weight})`);
     return { mapping: { ...mapping, commandFile }, meta: resolved.meta || {} };
   }
 
@@ -1349,7 +1358,12 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // Minecraft（BridgeMOD 経路）では「個別最大コマンド数」を掛けない。送られた数どおりに出す（2026-10-11 ユーザーの決定）。
   const modDelivery = bridgeMod ? bridgeEventDelivery(bridgeMod, { prepare: prepareGameEvent }) : null;
   // 失敗は recordDeliveryRejection がログ・履歴・画面用の状態へ記録済み。
-  const enqueueMod = event => modDelivery.enqueue(event).catch(() => {});
+  // テスト発火の分は、送る列から外れたことを集計へ知らせる（送れた・送れなかったの知らせがなければ、配信の終了で捨てた分）。
+  const enqueueMod = event => {
+    const pending = modDelivery.enqueue(event).catch(() => {});
+    if (event.testRun) pending.then(() => event.testRun.finished(event));
+    return pending;
+  };
 
   // RCON/Telnet 実行を直列化しつつ、ギフトをいいねの backlog より優先する。
   // 並列接続による gift_stream:bridge ストレージの上書きを防ぐため、実行自体は常に1本。
@@ -1401,7 +1415,9 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     // 演出を送れなくても当選は再送のあるレーンへ流す。理由だけ残す。
     // 認証の失敗かどうかは、当選を送るレーンが「同じ要求で 403 が2回続いたか」で判定する（演出の1回の 403 では決めない）。
     onFrameError: error => {
-      console.warn("[Roulette] 演出を送れなかったため、演出を省いて当選を発火します:", error?.message || error);
+      console.warn(`${rouletteRequests[0]?.run ? "[Test] " : ""}[Roulette] 演出を送れなかったため、演出を省いて当選を発火します:`, error?.message || error);
+      // テスト発火のルーレットなら、結果にも書く（演出が出なかった理由を残す。PR #79 の確かめ）。
+      rouletteRequests[0]?.run?.notice(`ルーレットの演出を送れなかったため、演出を省いて当たりを送りました: ${error?.message || error}`);
     },
   });
   // 送られた回数（count）だけ回す（2026-10-11 ユーザーの決定）。回すたびに演出して当たりを決める。
@@ -1410,9 +1426,13 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   // 途中で設定を変えても古い当たりが出る（PR #79 レビュー）。途中で無効にしたら、その依頼の残りは取りやめる。
   const rouletteRequests = [];
   let rouletteBusy = false;
-  function runRoulette(getConfig, triggerName, historyType, count = 1) {
+  function runRoulette(getConfig, triggerName, historyType, count = 1, run = null) {
     if (!bridgeMod) return false;
-    rouletteRequests.push({ getConfig, triggerName, historyType, spins: rouletteSpins(count), done: 0 });
+    const spins = rouletteSpins(count);
+    // テスト発火のルーレットは1つの手順として数え、回し終えるまで結果を待つ（2026-10-16）。
+    const step = run ? run.step({ commandFile: "roulette.txt", count: spins, historyType: historyType || "roulette" }, { roulette: true }) : null;
+    if (run) run.hold(step);
+    rouletteRequests.push({ getConfig, triggerName, historyType, spins, done: 0, run, step });
     if (!rouletteBusy) nextRouletteSpin();
     // 無効な項目を旧 roulette.txt へ流して成功扱いにしない。
     return true;
@@ -1422,27 +1442,38 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     if (!request) { rouletteBusy = false; return; }
     rouletteBusy = true;
     // 依頼を終えて次へ。取りやめが続いても呼び出しを深く重ねない。
-    const finish = () => { rouletteRequests.shift(); Promise.resolve().then(nextRouletteSpin); };
+    const finish = () => {
+      rouletteRequests.shift();
+      if (request.run) request.run.release(request.step);
+      Promise.resolve().then(nextRouletteSpin);
+    };
     const rl = request.getConfig();
+    // テスト発火なら、回さずに終わった回数と理由を結果に書く（以前のテスト発火と同じく、設定の誤りを失敗として出す。2026-10-16）。
+    const left = request.spins - request.done;
+    // テスト発火のルーレットのログには、行頭に [Test] を付ける（最後のレビュー Minor #7）。
+    const tag = request.run ? "[Test] " : "";
     if (!rl?.enabled) {
-      if (request.done > 0) console.warn(`[Roulette] ルーレットが無効になったため、残り${request.spins - request.done}回を取りやめました`);
+      if (request.done > 0) console.warn(`${tag}[Roulette] ルーレットが無効になったため、残り${request.spins - request.done}回を取りやめました`);
+      request.run?.failStep(request.step, `ルーレットが無効になったため、残り${left}回を取りやめました。`, left);
       return finish();
     }
     let round;
     try {
       round = prepareRoulette(rl, commandsDirAbs);
     } catch (error) {
-      const left = request.spins - request.done;
-      console.error("[Roulette]", error.message + (left > 1 ? `（残り${left}回を取りやめました）` : ""));
+      console.error(`${tag}[Roulette]`, error.message + (left > 1 ? `（残り${left}回を取りやめました）` : ""));
+      request.run?.failStep(request.step, error.message, left);
       return finish();
     }
     animateRoulette(round, request.triggerName, winner => {
-      enqueueMod({
+      const event = {
         type: "other", historyType: request.historyType || "roulette",
         commandFile: winner.commandFile, count: winner.repeat,
         listenerName: request.triggerName || "roulette", announce: false,
-      });
-    }).catch(error => console.error("[Roulette] 演出・発火に失敗:", error.message))
+      };
+      // テスト発火の当たりは、ルーレットの手順の続きとして数える。
+      enqueueMod(request.run ? request.run.mark({ ...event, label: `${winner.label}（${request.done + 1}回目/${request.spins}）` }, request.step) : event);
+    }).catch(error => console.error(`${tag}[Roulette] 演出・発火に失敗:`, error.message))
       .then(() => {
         request.done++;
         if (request.done < request.spins) nextRouletteSpin(); else finish();
@@ -1450,44 +1481,78 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   }
 
   // Mod への発火を一元化：commandFile が roulette（仮想コマンド）ならルーレットに差し替える
-  function dispatchBridgeEvent(label, event, opts = {}) {
-    if (
-      rouletteCfg?.enabled &&
-      commandFileToBridgeKey(event.commandFile) === "roulette" &&
-      runRoulette(() => rouletteCfg, event.listenerName, event.historyType || "roulette", event.count)
-    ) {
-      return;
+  // ctx は本番（liveContext）か、テスト発火の文脈（2026-10-16）。
+  function dispatchBridgeEvent(ctx, label, event, opts = {}) {
+    const run = ctx.run;
+    if (rouletteCfg?.enabled && commandFileToBridgeKey(event.commandFile) === "roulette") {
+      // 条件だけ確認では回さない。回す回数だけ書く。
+      if (run?.preview) { previewRoulette(run, rouletteCfg, { ...event, label: "ルーレット", count: rouletteSpins(event.count) }); return; }
+      if (runRoulette(() => rouletteCfg, event.listenerName, event.historyType || "roulette", event.count, run)) return;
     }
-    enqueueMod(event);
+    if (run?.preview) { previewEvent(run, event); return; }
+    enqueueMod(run ? run.mark(event) : event);
+  }
+  // 条件だけ確認のルーレット：回さずに回数だけ書く。回すときと同じ確かめ（有効な項目があるか）を通し、通らなければ理由を書く。
+  function previewRoulette(run, config, event) {
+    const step = run.step(event, { roulette: true });
+    try { prepareRoulette(config, commandsDirAbs); }
+    catch (error) { run.notice(`${run.steps[step].label}: ${error?.message || error}`); }
+  }
+  // 条件だけ確認：送る前の確かめ（名前・コマンドファイル・GAME_MOD）を送るときと同じく通し、通らなければ理由を書く。
+  function previewEvent(run, event) {
+    const step = run.step(event);
+    const commandFile = ensureTxt(event.commandFile);
+    let problem = commandFileProblem(commandFile)
+      || (fs.existsSync(path.join(commandsDirAbs, commandFile)) ? "" : `コマンドが見つかりません: ${commandFile}`);
+    if (!problem) { try { prepareGameEvent(event); } catch (error) { problem = error?.message || String(error); } }
+    if (problem) run.notice(`${run.steps[step].label}（${commandFile}）: ${problem}`);
   }
 
-  // デスルーレット：Mod からの death 通知（WS）で発動
-  onBridgeModWsMessage = (status) => {
-    if (status?.type !== "death") return;
-    const rl = deathRouletteCfg;
-    if (!rl || rl.enabled !== true) return;
-    const deaths = Number(status.deaths || 0);
-    const every = clampInt(rl.everyDeaths ?? 1, 1, 1000, 1);
-    if (deathRouletteMatches(rl, deaths)) {
-      console.log(`[DeathRoulette] deaths=${deaths}（${every}回ごと）→ ルーレット始動`);
-      runRoulette(() => rl, String(status.player || "player"), "death_roulette");
-    }
+  // 本番の処理（ギフト・いいね・シェア・フォロー・訪問・コメント・死亡）は、状態と送り先を ctx で受け取る。
+  // 本番はこの liveContext で、テスト発火は毎回新しい状態で同じ処理を通す（2026-10-16 ユーザーの決定）。
+  const liveContext = {
+    run: null,
+    log: (...args) => console.log(...args),
+    lastExecAt, streakLastCount,
+    commentGiftLastAt: new Map(), // rule毎の連投クールダウン
+    isDuplicate: key => isDuplicateEvent(key),
+    // まとめ送りは下（いいねの処理の前）で作る。呼ばれるのは TikTok のイベントが届いてから。
+    queueLike: (...args) => queueLikeEventBatched(...args),
+    sendExtras: (extras, sender) => { sendBridgeExec(bridgeMod, extras, sender).catch(() => {}); },
+    rejected: (event, error) => recordDeliveryRejection(event, error),
   };
+  const featureEngine = new FeatureEngine(options.gameplay || {}, feature => emitFeature(liveContext, feature));
+  liveContext.featureEngine = featureEngine;
 
-  const featureEngine = new FeatureEngine(options.gameplay || {}, feature => {
+  function emitFeature(ctx, feature) {
     if (!feature?.commandFile) return;
     if (!bridgeMod) {
       console.warn(`[Feature] ${feature.type} skipped: BridgeMod transport is required`);
       return;
     }
     const listenerName = feature.type === "combo"
-      ? (featureEngine.topGifter() || feature.sender) : feature.sender;
-    dispatchBridgeEvent(`feature:${feature.type}`, {
+      ? (ctx.featureEngine.topGifter() || feature.sender) : feature.sender;
+    dispatchBridgeEvent(ctx, `feature:${feature.type}`, {
       type: "other", historyType: feature.type || "other", commandFile: feature.commandFile,
       count: clampInt(feature.count, 1, 100, 1),
-      listenerName: listenerName || "viewer", announce: true,
+      listenerName: listenerName || "viewer", announce: true, label: feature.label,
     }, { priority: 8 });
-  });
+  }
+
+  // デスルーレット：Mod からの death 通知（WS）で発動
+  onBridgeModWsMessage = (status) => handleDeath(liveContext, status);
+  function handleDeath(ctx, status) {
+    if (status?.type !== "death") return;
+    const rl = deathRouletteCfg;
+    if (!rl || rl.enabled !== true) return;
+    const deaths = Number(status.deaths || 0);
+    const every = clampInt(rl.everyDeaths ?? 1, 1, 1000, 1);
+    if (deathRouletteMatches(rl, deaths)) {
+      ctx.log(`[DeathRoulette] deaths=${deaths}（${every}回ごと）→ ルーレット始動`);
+      if (ctx.run?.preview) previewRoulette(ctx.run, rl, { commandFile: "roulette.txt", count: 1, historyType: "death_roulette" });
+      else runRoulette(() => rl, String(status.player || "player"), "death_roulette", 1, ctx.run);
+    }
+  }
 
   const { createAutomaticRecorder } = require('./stream_sessions.cjs');
   const { createAudienceRecorder } = require('./audience_stats.cjs');
@@ -1603,19 +1668,20 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   console.log("[Bridge] Listening for gifts...");
   console.log("[Bridge] Press Ctrl+C to stop.");
 
-  onTikTok("gift", async (data) => {
+  onTikTok("gift", async (data) => handleGift(liveContext, data));
+  async function handleGift(ctx, data) {
     data = normalizeTikTokEvent(data, 'gift');
-    if (isMuted(data)) return;
+    if (isMuted(data, ctx.log)) return;
     // [診断ログ] TikTok ライブラリが受信した全ギフトイベントを記録
     const _rawGiftId = String(data.giftId ?? "");
     const _rawName = String(data.giftName ?? data.extendedGiftInfo?.name ?? "");
     const _rawMsgId = data.msgId || data.messageId || data.eventId || data.id || data.gift?.msgId || data.gift?.messageId || "";
     const _rawCreateTime = Number(data.createTime ?? 0);
     const _rawSender = getStableSender(data);
-    console.log(`[Gift:RAW] id=${_rawGiftId} name="${_rawName}" from=${_rawSender} msgId=${_rawMsgId || "(none)"} createTime=${_rawCreateTime} rc=${data.repeatCount ?? ""} re=${data.repeatEnd ?? ""}`);
+    ctx.log(`[Gift:RAW] id=${_rawGiftId} name="${_rawName}" from=${_rawSender} msgId=${_rawMsgId || "(none)"} createTime=${_rawCreateTime} rc=${data.repeatCount ?? ""} re=${data.repeatEnd ?? ""}`);
 
     if (isPreConnectionEvent(data)) {
-      console.log(`[Gift:SKIP:pre-connection] id=${_rawGiftId} name="${_rawName}" createTime=${_rawCreateTime} connectedAt=${connectedAt} diff=${_rawCreateTime * 1000 - connectedAt}ms`);
+      ctx.log(`[Gift:SKIP:pre-connection] id=${_rawGiftId} name="${_rawName}" createTime=${_rawCreateTime} connectedAt=${connectedAt} diff=${_rawCreateTime * 1000 - connectedAt}ms`);
       return;
     }
 
@@ -1626,15 +1692,15 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
     // dedupe（二重発火防止）
     const dkey = dedupeKeyFromGift(data);
-    if (isDuplicateEvent(dkey)) {
-      console.log(`[Gift:SKIP:dedupe] id=${giftId} name="${giftName}" from=${sender} key=${dkey}`);
+    if (ctx.isDuplicate(dkey)) {
+      ctx.log(`[Gift:SKIP:dedupe] id=${giftId} name="${giftName}" from=${sender} key=${dkey}`);
       return;
     }
 
     let mapping = mappingById.get(giftId);
     if (!mapping) {
       if (logUnknownGifts) {
-        console.log(
+        ctx.log(
           `[Gift] (unmapped) id=${giftId} name="${giftName}" from=${sender}${repeatText}`
         );
       }
@@ -1642,15 +1708,16 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       if (enabledCommand(unmappedGiftEvent)) {
         const rc = Number(data.repeatCount);
         const delta = Number.isFinite(rc) && rc > 0
-          ? computeStreakDelta(streakLastCount, 'unmapped:' + giftId + ':' + getSenderIdentity(data), rc, data.repeatEnd, Date.now(), STREAK_TTL_MS)
+          ? computeStreakDelta(ctx.streakLastCount, 'unmapped:' + giftId + ':' + getSenderIdentity(data), rc, data.repeatEnd, Date.now(), STREAK_TTL_MS)
           : 1;
         if (delta <= 0) return;
         const unmappedRepeat = delta * clampInt(unmappedGiftEvent.repeat ?? 1, 1, 100, 1);
         const unmappedMap = { commandFile: ensureTxt(unmappedGiftEvent.commandFile), name: `unmapped:${giftId}` };
         if (bridgeMod) {
-          console.log(`[Gift] (unmapped) -> BridgeMod file=${unmappedGiftEvent.commandFile} repeat=${unmappedRepeat}`);
-          dispatchBridgeEvent(`unmapped:${giftId}`, {
+          ctx.log(`[Gift] (unmapped) -> BridgeMod file=${unmappedGiftEvent.commandFile} repeat=${unmappedRepeat}`);
+          dispatchBridgeEvent(ctx, `unmapped:${giftId}`, {
             type: "gift",
+            label: "未設定ギフト",
             commandFile: unmappedGiftEvent.commandFile,
             count: unmappedRepeat,
             listenerName: sender,
@@ -1662,12 +1729,12 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         }
         const resolved = resolveCommands(unmappedMap);
         if (resolved.ok) {
-          const ctx = {
+          const placeholderCtx = {
             gameType: targetType === "minecraft" ? "minecraft" : "7dtd",
             listenerName: sender,
             playerId: dtd ? dtd.playerId : 0,
           };
-          const baseUnmappedCmds = resolved.commands.map((cmd) => applyPlaceholders(cmd, ctx));
+          const baseUnmappedCmds = resolved.commands.map((cmd) => applyPlaceholders(cmd, placeholderCtx));
 
           // タイトル表示プリロード（Minecraftのみ）
           let commands = [];
@@ -1707,7 +1774,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       return;
     }
 
-    const randomized = resolveRandomizedMapping(mapping);
+    const randomized = resolveRandomizedMapping(mapping, ctx.log);
+    if (ctx.run && randomized.mapping !== mapping) ctx.run.notice(`ランダム選択: ${randomized.mapping.commandFile}（実行ごとに抽選）`);
     mapping = randomized.mapping;
     const now = Date.now();
 
@@ -1718,30 +1786,31 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     // cooldown（streak中は落とさない）
     if (!isStreak) {
       const cooldownKey = `${giftId}:${sender}`;
-      const last = lastExecAt.get(cooldownKey) || 0;
+      const last = ctx.lastExecAt.get(cooldownKey) || 0;
       const fileCooldown = clampInt(randomized.meta?.COOLDOWN ?? giftCooldownMs, 0, 60000, giftCooldownMs);
       if (now - last < fileCooldown) return;
-      lastExecAt.set(cooldownKey, now);
+      ctx.lastExecAt.set(cooldownKey, now);
     }
 
     const baseRepeat = clampInt(mapping.repeat ?? 1, 1, 100, 1);
 
     // streakは「増えた分(delta)」だけ反応（詳細は computeStreakDelta のコメント参照）
     const delta = isStreak
-      ? computeStreakDelta(streakLastCount, `${giftId}:${getSenderIdentity(data)}`, rcNum, data.repeatEnd, now, STREAK_TTL_MS)
+      ? computeStreakDelta(ctx.streakLastCount, `${giftId}:${getSenderIdentity(data)}`, rcNum, data.repeatEnd, now, STREAK_TTL_MS)
       : 1;
 
     let times = delta * baseRepeat;
     if (times <= 0) return; // 連打終了通知は追加ギフトではない（送信時の最小1への丸めも避ける）。
     // 時限倍率（例：1.5倍）で小数になったら四捨五入する。BridgeMOD は小数の回数を拒否し、ギフトが丸ごと消えていた。
-    times = giftTimes(featureEngine.recordGift({ giftId, sender, commandFile: mapping.commandFile, count: times }));
+    times = giftTimes(ctx.featureEngine.recordGift({ giftId, sender, commandFile: mapping.commandFile, count: times }));
 
     if (bridgeMod) {
-      console.log(
+      ctx.log(
         `[Gift] id=${giftId} name="${mapping.name}" from=${sender}${repeatText} -> BridgeMod file=${mapping.commandFile} count=${times}`
       );
-      dispatchBridgeEvent(`gift:${giftId}`, {
+      dispatchBridgeEvent(ctx, `gift:${giftId}`, {
         type: "gift",
+        label: mapping.name,
         commandFile: mapping.commandFile,
         count: times,
         listenerName: sender,
@@ -1782,12 +1851,12 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     }
 
     // placeholder差し込み
-    const ctx = {
+    const placeholderCtx = {
       gameType: targetType === "minecraft" ? "minecraft" : "7dtd",
       listenerName: sender,
       playerId: dtd ? dtd.playerId : 0,
     };
-    const replaced = expanded.map((cmd) => applyPlaceholders(cmd, ctx));
+    const replaced = expanded.map((cmd) => applyPlaceholders(cmd, placeholderCtx));
 
     console.log(
       `[Gift] id=${giftId} name="${mapping.name}" from=${sender}${repeatText} -> file=${mapping.commandFile} base=${resolved.commands.length} delta=${delta} repeat=${baseRepeat} total=${replaced.length}`
@@ -1816,6 +1885,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     }
     }
 
+    if (ctx.run) return; // テスト発火は読み上げない（読み上げは読み上げ設定のテストで確かめる）
     // TTS 読み上げ（ギフト）
     const ttsCfg = loadTtsConfig();
     if (ttsCfg.enabled && ttsCfg.giftEnabled) {
@@ -1824,22 +1894,21 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         .replace(/\{gift\}/g, giftName);
       enqueueSpeech(ttsText, ttsCfg, ttsNgWords);
     }
-  });
+  }
 
   // --------------------
   // コメント読み上げ（TTS）
   // --------------------
-  const commentGiftLastAt = new Map(); // rule毎の連投クールダウン
-
-  onTikTok("chat", async (data) => {
+  onTikTok("chat", async (data) => handleChat(liveContext, data));
+  async function handleChat(ctx, data) {
     data = normalizeTikTokEvent(data, 'chat');
     if (isPreConnectionEvent(data)) return;
-    if (isMuted(data)) return;
+    if (isMuted(data, ctx.log)) return;
 
     const sender = getStableSender(data);
     const text = String(data.comment || "").trim();
     if (!text) return;
-    featureEngine.recordComment(text, sender);
+    ctx.featureEngine.recordComment(text, sender);
 
     // コメントギフト（イベント設定②）：設定した文字列を含むコメントでコマンド発動。
     // TTS の有効/無効とは独立して動く。
@@ -1849,13 +1918,13 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         if (!match || !rule.commandFile || !text.includes(match)) continue;
 
         const ruleKey = `${match}|${rule.commandFile}`;
-        const lastAt = commentGiftLastAt.get(ruleKey) || 0;
+        const lastAt = ctx.commentGiftLastAt.get(ruleKey) || 0;
         if (Date.now() - lastAt < 3000) continue; // 3秒クールダウン（連投スパム対策）
-        commentGiftLastAt.set(ruleKey, Date.now());
+        ctx.commentGiftLastAt.set(ruleKey, Date.now());
 
         const repeat = clampInt(rule.repeat ?? 1, 1, 100, 1);
-        console.log(`[CommentGift] "${match}" from=${sender} -> ${rule.commandFile} x${repeat}`);
-        dispatchBridgeEvent(`comment:${rule.commandFile}`, {
+        ctx.log(`[CommentGift] "${match}" from=${sender} -> ${rule.commandFile} x${repeat}`);
+        dispatchBridgeEvent(ctx, `comment:${rule.commandFile}`, {
           type: "other",
           historyType: "comment",
           commandFile: rule.commandFile,
@@ -1866,17 +1935,18 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
         if (rule.sound || rule.particle) {
           const extras = commentExtras(rule);
-          sendBridgeExec(bridgeMod, extras, sender).catch(() => {});
+          ctx.sendExtras(extras, sender);
         }
       }
     }
 
+    if (ctx.run) return; // テスト発火は読み上げない（読み上げは読み上げ設定のテストで確かめる）
     const ttsCfg = loadTtsConfig();
     if (!ttsCfg.enabled || !ttsCfg.commentEnabled) return;
     const readText = sender ? `${sender}、${text}` : text;
     console.log(`[TTS] コメントをキューへ追加 from=${sender || "viewer"} chars=${text.length}`);
     enqueueSpeech(readText, ttsCfg, ttsNgWords);
-  });
+  }
 
   // --------------------
   // 視聴者数メトリクス（配信統計の同接表示用）
@@ -1916,7 +1986,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   const LIKE_BATCH_MS = clampInt(options.likeBatchWindowMs ?? 1200, 100, 10000, 1200);
   const queueLikeEventBatched = createLikeBatcher({
     windowMs: LIKE_BATCH_MS, schedule: setTimeout, prepare: prepareGameEvent,
-    dispatch: event => dispatchBridgeEvent("like:" + event.commandFile, event),
+    dispatch: event => dispatchBridgeEvent(liveContext, "like:" + event.commandFile, event),
     failed: recordDeliveryRejection,
   });
 
@@ -1953,11 +2023,15 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     if (isMuted(data)) return;
     const progress = likeCounter.next(data);
     if (!progress) return;
+    handleLikeProgress(liveContext, data, progress);
+  });
+  // いいねの累計が分かったあとの処理（マイルストーン → いいねの設定）。テスト発火は入力の累計で同じ処理を通す（2026-10-16）。
+  function handleLikeProgress(ctx, data, progress) {
     const { total, previousTotal } = progress;
     if (previousTotal === 0 || likeEvents.some(ev => enabledCommand(ev) && Math.floor(total / Number(ev.threshold)) > Math.floor(previousTotal / Number(ev.threshold)))) {
-      console.log(`[Like:RAW] total=${total} previous=${previousTotal} count=${data.likeCount ?? '(none)'} from=${getStableSender(data)}`);
+      ctx.log(`[Like:RAW] total=${total} previous=${previousTotal} count=${data.likeCount ?? '(none)'} from=${getStableSender(data)}`);
     }
-    featureEngine.recordLikes(total, getStableSender(data), previousTotal, progress.local);
+    ctx.featureEngine.recordLikes(total, getStableSender(data), previousTotal, progress.local);
     for (const ev of likeEvents) {
       if (ev.enabled === false || !ev.commandFile || !ev.threshold) continue;
       const thresh = clampInt(ev.threshold, 1, 1000000, 10);
@@ -1974,13 +2048,13 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
       if (bridgeMod) {
         const count = triggersToRun * evRepeat;
-        console.log(
+        ctx.log(
           `[Like] total=${total} threshold=${thresh} newTriggers=${newTriggers} run=${triggersToRun} skipped=${skippedTriggers} repeat=${evRepeat} -> BridgeMod file=${ev.commandFile} count=${count}`
         );
         if (count > 0) {
           // 1つのルールの不備（GAME_MOD の書き間違いなど）で、残りのいいねルールまで止めない。
-          try { queueLikeEventBatched(ev.commandFile, count, sender, announceEnabled && thresh >= 100, triggersToRun); }
-          catch (error) { recordDeliveryRejection({ type: "like", commandFile: ev.commandFile, count, listenerName: sender }, error); }
+          try { ctx.queueLike(ev.commandFile, count, sender, announceEnabled && thresh >= 100, triggersToRun); }
+          catch (error) { ctx.rejected({ type: "like", commandFile: ev.commandFile, count, listenerName: sender }, error); }
         }
         continue;
       }
@@ -1991,8 +2065,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         continue;
       }
 
-      const ctx = { gameType: targetType, listenerName: sender, playerId: dtd ? dtd.playerId : 0 };
-      const baseCommands = resolved.commands.map((cmd) => applyPlaceholders(cmd, ctx));
+      const placeholderCtx = { gameType: targetType, listenerName: sender, playerId: dtd ? dtd.playerId : 0 };
+      const baseCommands = resolved.commands.map((cmd) => applyPlaceholders(cmd, placeholderCtx));
 
       // Title only when thresh >= 100
       const likeTitleCmds = (targetType === "minecraft" && announceEnabled && thresh >= 100) ? [
@@ -2022,23 +2096,24 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         }), { priority: 0 });
       }
     }
-  });
+  }
 
   // --------------------
   // Share イベント
   // --------------------
-  onTikTok("share", async (data) => {
+  onTikTok("share", async (data) => handleShare(liveContext, data));
+  function handleShare(ctx, data) {
     data = normalizeTikTokEvent(data, 'share');
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
-    if (isMuted(data)) return;
+    if (isMuted(data, ctx.log)) return;
     if (!enabledCommand(shareEvent)) return;
 
     const mapping = { commandFile: ensureTxt(shareEvent.commandFile), name: "シェア" };
     const sender = getStableSender(data);
     const shareRepeat = clampInt(shareEvent.repeat ?? 1, 1, 100, 1);
     if (bridgeMod) {
-      console.log(`[Share] from=${sender} -> BridgeMod repeat=${shareRepeat} file=${shareEvent.commandFile}`);
-      dispatchBridgeEvent("share", {
+      ctx.log(`[Share] from=${sender} -> BridgeMod repeat=${shareRepeat} file=${shareEvent.commandFile}`);
+      dispatchBridgeEvent(ctx, "share", {
         type: "other",
         historyType: "share",
         commandFile: shareEvent.commandFile,
@@ -2061,8 +2136,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       ];
     }
 
-    const ctx = { gameType: targetType, listenerName: sender, playerId: dtd ? dtd.playerId : 0 };
-    const baseShareCmds = resolved.commands.map((cmd) => applyPlaceholders(cmd, ctx));
+    const placeholderCtx = { gameType: targetType, listenerName: sender, playerId: dtd ? dtd.playerId : 0 };
+    const baseShareCmds = resolved.commands.map((cmd) => applyPlaceholders(cmd, placeholderCtx));
     const shareExpanded = [...prelude];
     for (let r = 0; r < shareRepeat; r++) shareExpanded.push(...baseShareCmds);
 
@@ -2077,23 +2152,24 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         maxCommandsPerGift,
       }), { priority: 5 });
     }
-  });
+  }
 
   // --------------------
   // Follow（フォロー）イベント
   // --------------------
-  onTikTok("follow", async (data) => {
+  onTikTok("follow", async (data) => handleFollow(liveContext, data));
+  function handleFollow(ctx, data) {
     data = normalizeTikTokEvent(data, 'follow');
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
-    if (isMuted(data)) return;
+    if (isMuted(data, ctx.log)) return;
     const sender = getStableSender(data);
-    featureEngine.recordFollow(sender);
+    ctx.featureEngine.recordFollow(sender);
     if (!enabledCommand(followEvent)) return;
     const mapping = { commandFile: ensureTxt(followEvent.commandFile), name: "フォロー" };
     const followRepeat = clampInt(followEvent.repeat ?? 1, 1, 100, 1);
     if (bridgeMod) {
-      console.log(`[Follow] from=${sender} -> BridgeMod repeat=${followRepeat} file=${followEvent.commandFile}`);
-      dispatchBridgeEvent("follow", {
+      ctx.log(`[Follow] from=${sender} -> BridgeMod repeat=${followRepeat} file=${followEvent.commandFile}`);
+      dispatchBridgeEvent(ctx, "follow", {
         type: "other",
         historyType: "follow",
         commandFile: followEvent.commandFile,
@@ -2116,8 +2192,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       ];
     }
 
-    const ctx = { gameType: targetType, listenerName: sender, playerId: dtd ? dtd.playerId : 0 };
-    const baseFollowCmds = resolved.commands.map((cmd) => applyPlaceholders(cmd, ctx));
+    const placeholderCtx = { gameType: targetType, listenerName: sender, playerId: dtd ? dtd.playerId : 0 };
+    const baseFollowCmds = resolved.commands.map((cmd) => applyPlaceholders(cmd, placeholderCtx));
     const followExpanded = [...prelude];
     for (let r = 0; r < followRepeat; r++) followExpanded.push(...baseFollowCmds);
 
@@ -2132,23 +2208,24 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         maxCommandsPerGift,
       }), { priority: 5 });
     }
-  });
+  }
 
   // --------------------
   // Member（訪問）イベント
   // --------------------
-  onTikTok("member", async (data) => {
+  onTikTok("member", async (data) => handleMember(liveContext, data));
+  function handleMember(ctx, data) {
     data = normalizeTikTokEvent(data, 'member');
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
-    if (isMuted(data)) return;
+    if (isMuted(data, ctx.log)) return;
     if (!enabledCommand(memberEvent)) return;
 
     const mapping = { commandFile: ensureTxt(memberEvent.commandFile), name: "訪問" };
     const sender = getStableSender(data);
     const memberRepeat = clampInt(memberEvent.repeat ?? 1, 1, 100, 1);
     if (bridgeMod) {
-      console.log(`[Member] join=${sender} -> BridgeMod repeat=${memberRepeat} file=${memberEvent.commandFile}`);
-      dispatchBridgeEvent("member", {
+      ctx.log(`[Member] join=${sender} -> BridgeMod repeat=${memberRepeat} file=${memberEvent.commandFile}`);
+      dispatchBridgeEvent(ctx, "member", {
         type: "other",
         historyType: "member",
         commandFile: memberEvent.commandFile,
@@ -2162,8 +2239,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     const resolved = resolveCommands(mapping);
     if (!resolved.ok) { console.log(`[Member] ERROR: ${resolved.reason}`); return; }
 
-    const ctx = { gameType: targetType, listenerName: sender, playerId: dtd ? dtd.playerId : 0 };
-    const baseMemberCmds = resolved.commands.map((cmd) => applyPlaceholders(cmd, ctx));
+    const placeholderCtx = { gameType: targetType, listenerName: sender, playerId: dtd ? dtd.playerId : 0 };
+    const baseMemberCmds = resolved.commands.map((cmd) => applyPlaceholders(cmd, placeholderCtx));
     const memberExpanded = [];
     for (let r = 0; r < memberRepeat; r++) memberExpanded.push(...baseMemberCmds);
 
@@ -2178,7 +2255,107 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         maxCommandsPerGift,
       }), { priority: 3 });
     }
-  });
+  }
+
+  // --------------------
+  // テスト発火（アプリの「イベントテスト」）
+  // --------------------
+  // 本番と同じ処理・同じ送る列を、本番とは別の新しい状態で通す（2026-10-16 ユーザーの決定）。
+  // 本番の状態（クールダウン・連打・コンボ・いいねとフォローの累計）には触らない。
+  const TEST_FIRE_WAIT_MS = clampInt(process.env.BRIDGE_TEST_FIRE_WAIT_MS ?? 10000, 100, 60000, 10000);
+  // テスト発火のログは、行頭に [Test] を付けて本番の行と見分ける。
+  const testLog = (...args) => console.log("[Test]", ...args);
+  // options を比べるときはキーを並べてから比べる。運用ページの保存でキーの並びが変わっても注意しない（最後のレビュー Minor #10）。
+  const stableJson = value => JSON.stringify(value, (_key, item) => (item && typeof item === "object" && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item));
+  const startupOptions = stableJson(options);
+  const OPTIONS_CHANGED_NOTE = "設定のうち、ミュート・アナウンス・コンボ・マイルストーン・投票などは、BRIDGE を起動し直すまで本番にもテストにも反映されません。いまの BRIDGE の設定で試しました。";
+
+  function createTestContext(run) {
+    let flushLikes = null;
+    const ctx = {
+      run,
+      log: testLog,
+      lastExecAt: new Map(), streakLastCount: new Map(), commentGiftLastAt: new Map(),
+      isDuplicate: () => false,
+      // 音・粒子も、送り終えるまで結果を待つ（失敗の理由を結果に残す。最後のレビュー Minor #8）。
+      sendExtras: (extras, sender) => {
+        if (run.preview) return;
+        run.track(sendBridgeExec(bridgeMod, extras, sender).catch(error => run.notice(`音・粒子を送れませんでした: ${error?.message || error}`)));
+      },
+      rejected: (event, error) => {
+        if (run.preview) run.notice(`${ensureTxt(event.commandFile)}: ${error?.message || error}`);
+        else recordDeliveryRejection(run.mark(event), error);
+      },
+      // まとめ送りは待たずに、処理を通し終えたらすぐ送る（まとめ方は本番と同じ）。
+      flushLikes: () => { const flush = flushLikes; flushLikes = null; if (flush) flush(); },
+    };
+    ctx.featureEngine = new FeatureEngine(options.gameplay || {}, feature => emitFeature(ctx, feature));
+    ctx.queueLike = createLikeBatcher({
+      windowMs: LIKE_BATCH_MS, schedule: flush => { flushLikes = flush; return flush; },
+      prepare: run.preview ? (event => event) : prepareGameEvent,
+      dispatch: event => dispatchBridgeEvent(ctx, "like:" + event.commandFile, event),
+      failed: ctx.rejected,
+    });
+    return ctx;
+  }
+
+  async function runTestAction(ctx, action) {
+    const sender = getStableSender(action.data || {});
+    switch (action.kind) {
+      case "direct": {
+        const key = commandFileToBridgeKey(action.commandFile);
+        if (key === "roulette" && !rouletteCfg?.enabled) throw new Error("ルーレットが無効です。イベント設定②で有効にして保存してください。");
+        if (key !== "roulette" && !fs.existsSync(path.join(commandsDirAbs, action.commandFile))) throw new Error(`コマンドが見つかりません: ${action.commandFile}`);
+        return dispatchBridgeEvent(ctx, "test:direct", { type: "gift", commandFile: action.commandFile, count: action.count,
+          listenerName: sender, announce: announceEnabled, label: "選んだコマンド" }, { priority: 10 });
+      }
+      case "gift": return handleGift(ctx, action.data);
+      case "like": return handleLikeProgress(ctx, action.data, action.progress);
+      case "share": return handleShare(ctx, action.data);
+      case "member": return handleMember(ctx, action.data);
+      case "follow":
+        // 新しいフォローを「入力の人数」人目として数える。
+        ctx.featureEngine.followCount = action.followCount - 1;
+        return handleFollow(ctx, action.data);
+      case "chat": return handleChat(ctx, action.data);
+      case "death": return handleDeath(ctx, action.status);
+      case "roulette":
+        if (!rouletteCfg?.enabled) return;
+        return dispatchBridgeEvent(ctx, "test:roulette", { type: "other", historyType: "roulette", commandFile: "roulette.txt",
+          count: 1, listenerName: sender, announce: false });
+      case "poll": {
+        const poll = ctx.featureEngine.config.poll;
+        if (!poll?.enabled || !poll.options?.[action.option]) return;
+        ctx.featureEngine.startPoll();
+        ctx.featureEngine.recordComment(`!${action.option}`, sender);
+        return ctx.featureEngine.finishPoll();
+      }
+    }
+  }
+
+  async function runTestEvent(input) {
+    if (!bridgeMod) throw new Error("テスト発火は、Minecraft を BridgeMOD で動かしているときだけ使えます。");
+    // 保存した直後でも、新しいイベント設定・割り当てで試す（自動の読み直しと同じ確かめを通す）。
+    reloadDynamicConfig(testLog);
+    const { sender, actions, notes } = testEventActions(input, { mappedGiftIds: new Set(mappingById.keys()) });
+    const run = createTestRun({ preview: input.preview === true });
+    const name = getStableSender({ nickname: sender });
+    if (input.type !== "death" && isMuted({ nickname: sender }, testLog)) {
+      run.notice("この視聴者はミュート対象のため発火しません。");
+      return run.result(name);
+    }
+    for (const note of notes) run.notice(note);
+    try {
+      if (stableJson(JSON.parse(fs.readFileSync(configPath, "utf8")).options || {}) !== startupOptions) run.notice(OPTIONS_CHANGED_NOTE);
+    } catch { /* 読めなければ注意を出さない（読み直しのエラーはログに出ている） */ }
+    const ctx = createTestContext(run);
+    for (const action of actions) await runTestAction(ctx, action);
+    ctx.flushLikes();
+    if (actions.length && !run.steps.length) run.notice(noMatchNote(input.type));
+    if (!run.preview) await run.wait(TEST_FIRE_WAIT_MS);
+    return run.result(name);
+  }
 
   function shutdownBridge() {
     recordStream('end', 'monitoring-stopped');
@@ -2197,6 +2374,17 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   process.on('SIGTERM', shutdownBridge);
   process.on('disconnect', shutdownBridge);
   process.on('message', message => { if (message?.type === 'shutdown') shutdownBridge(); });
+  // アプリ（main）からのテスト発火の問い合わせ。結果は同じ id で返す。
+  process.on('message', message => {
+    if (message?.type !== 'testEvent') return;
+    runTestEvent(message.input || {})
+      .then(result => ({ ok: true, ...result }), error => ({ ok: false, error: error?.message || String(error) }))
+      .then(result => {
+        // ipc が閉じていたときの失敗は、あとからコールバックに来る。ログに出して、BRIDGE を落とさない（最後のレビュー Minor #9）。
+        try { process.send?.({ type: 'testEventResult', id: message.id, result }, error => { if (error) console.error('[Test] 結果をアプリへ返せませんでした:', error.message); }); }
+        catch (error) { console.error('[Test] 結果をアプリへ返せませんでした:', error?.message || error); }
+      });
+  });
 }
 
 if (require.main === module) {

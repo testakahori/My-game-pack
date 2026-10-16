@@ -1,12 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { isBridgeCommandFile, commandFileProblem, commandFileRefs } = require('../../bridge/command_files.cjs');
 const { validateBridgeConfig: validateForSave } = require('../config_schema.cjs');
 const { validateBridgeConfig: validateForBridge } = require('../../bridge/config_schema.js');
-const { planTestEvent } = require('../event_tests.cjs');
 
 test('BridgeMODと同じ規則でコマンドファイル名を判定する', () => {
   for (const name of ['cod.txt', 'tnt-kuusyuu.txt', 'game_umetate_tower.txt', 'roulette', 'A.TXT']) assert.ok(isBridgeCommandFile(name), name);
@@ -77,17 +75,4 @@ test('Bridgeの起動・再読込では警告に留め、Bridge自体は起動�
   const result = validateForBridge(config());
   assert.equal(result.ok, true);
   assert.ok(result.warnings.some(w => w.includes('ギフト割り当て（バラ）') && w.includes('実行されません')));
-});
-
-test('テスト発火でも本番と同じく使えない名前は送らず、ほかの設定は続けて確認する', t => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'command-files-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  for (const name of ['ネコ.txt', 'cod.txt']) fs.writeFileSync(path.join(dir, name), 'say test\n');
-  const direct = planTestEvent({}, { type: 'gift', commandFile: 'ネコ.txt' }, dir);
-  assert.deepEqual(direct.steps, []);
-  assert.ok(direct.notes.some(note => note.includes('半角英数字')));
-  const likes = planTestEvent({ likeEvents: [{ threshold: 10, commandFile: 'ネコ.txt' }, { threshold: 10, commandFile: 'cod.txt' }] },
-    { type: 'like', likeCount: 10, previousLikes: 0 }, dir);
-  assert.deepEqual(likes.steps.map(step => step.commandFile), ['cod.txt']);
-  assert.ok(likes.notes.some(note => note.includes('ネコ.txt')));
 });

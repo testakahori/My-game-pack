@@ -129,14 +129,23 @@ class FeatureEngine {
     const poll = this.config.poll;
     if (!poll?.enabled || !poll.options) return;
     this.poll = { options: poll.options, votes: new Map(), voters: new Set() };
-    setTimeout(() => {
-      const winner = [...this.poll.votes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
-        || Object.keys(poll.options)[0];
-      const chosen = poll.options[winner];
-      if (chosen) this.emit({ type: "poll", commandFile: chosen.commandFile || chosen,
-        count: Number(chosen.repeat || 1), sender: "コメント投票", label: `!${winner}` });
-      this.poll = null;
-    }, Math.max(5000, Number(poll.durationMs || 30000)));
+    this.pollTimer = setTimeout(() => this.finishPoll(), Math.max(5000, Number(poll.durationMs || 30000)));
+    // 投票の締め切りを待つだけで、プロセス（BRIDGE・テストの実行）を終わらせずに残さない。
+    this.pollTimer?.unref?.();
+  }
+
+  // 投票を締め切って当選を出す。時間切れでも、テスト発火（すぐ締め切る）でも同じ処理を通す（2026-10-16）。
+  finishPoll() {
+    if (!this.poll) return;
+    clearTimeout(this.pollTimer);
+    this.pollTimer = null;
+    const { options, votes } = this.poll;
+    this.poll = null;
+    const winner = [...votes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || Object.keys(options)[0];
+    const chosen = options[winner];
+    // 選択肢は "a.txt" とも { commandFile, repeat } とも書ける。文字列の .repeat（String の関数）を回数として読まない。
+    if (chosen) this.emit({ type: "poll", commandFile: chosen.commandFile || chosen,
+      count: Number((typeof chosen === "object" && chosen.repeat) || 1), sender: "コメント投票", label: `!${winner}` });
   }
 
   topGifter() {

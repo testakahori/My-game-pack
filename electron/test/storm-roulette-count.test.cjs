@@ -36,15 +36,18 @@ test('Bridge のルーレットは来た順にまとめて回し、当たりは�
   // N 回分を先に全部決めると、大きな N で Bridge が止まり、途中で設定を変えても古い当たりが出る（PR #79 レビュー）。
   const source = read('bridge/index.js');
   const run = source.slice(source.indexOf('function runRoulette('), source.indexOf('function dispatchBridgeEvent('));
-  assert.match(run, /rouletteRequests\.push\(\{ getConfig, triggerName, historyType, spins: rouletteSpins\(count\), done: 0 \}\);/);
+  assert.match(run, /const spins = rouletteSpins\(count\);/);
+  // run・step はテスト発火のルーレットだけ（本番は null。2026-10-16）。
+  assert.match(run, /rouletteRequests\.push\(\{ getConfig, triggerName, historyType, spins, done: 0, run, step \}\);/);
   assert.match(run, /const rl = request\.getConfig\(\);/);
-  assert.match(run, /if \(request\.done > 0\) console\.warn\(`\[Roulette\] ルーレットが無効になったため、残り\$\{request\.spins - request\.done\}回を取りやめました`\);/,
+  // 行頭の ${tag} はテスト発火のルーレットのときだけ「[Test] 」になる（2026-10-16）。
+  assert.match(run, /if \(request\.done > 0\) console\.warn\(`\$\{tag\}\[Roulette\] ルーレットが無効になったため、残り\$\{request\.spins - request\.done\}回を取りやめました`\);/,
     '途中で無効にしたら残りは回さず、取りやめた回数をログに出す（PR #79 再レビュー）');
   assert.match(run, /round = prepareRoulette\(rl, commandsDirAbs\);/);
   assert.match(run, /request\.done\+\+;\s*if \(request\.done < request\.spins\) nextRouletteSpin\(\); else finish\(\);/, '同じ依頼を全部回してから次の依頼');
   assert.match(run, /Promise\.resolve\(\)\.then\(nextRouletteSpin\)/, '取りやめが続いても呼び出しを深く重ねない');
-  assert.match(source, /runRoulette\(\(\) => rouletteCfg, event\.listenerName, event\.historyType \|\| "roulette", event\.count\)/);
-  assert.match(source, /runRoulette\(\(\) => rl, String\(status\.player \|\| "player"\), "death_roulette"\)/, 'デスルーレットは1回');
+  assert.match(source, /runRoulette\(\(\) => rouletteCfg, event\.listenerName, event\.historyType \|\| "roulette", event\.count, run\)/);
+  assert.match(source, /runRoulette\(\(\) => rl, String\(status\.player \|\| "player"\), "death_roulette", 1, ctx\.run\)/, 'デスルーレットは1回');
 });
 
 test('同時に来た2人のルーレットは、来た順にまとめて回す（AAA BBB）', async t => {
@@ -62,10 +65,12 @@ test('同時に来た2人のルーレットは、来た順にまとめて回す�
   assert.deepEqual(bridge.requests.filter(x => x.key === 'qa').map(x => x.listenerName), ['alice', 'alice', 'alice', 'bob', 'bob', 'bob']);
 });
 
-test('テスト発火のルーレットは、演出を送れなかった印を回ごとに消す（PR #79 レビュー）', () => {
-  const main = read('electron/main.cjs');
-  const loop = main.slice(main.indexOf('for (let spin = 1; spin <= spins; spin++) {'), main.indexOf('outcomes.push({ key: winner.commandFile'));
-  assert.match(loop, /animationError = null;/);
+// 以前はアプリ（main）が自分でルーレットを回し、演出を送れなかった印を回ごとに消していた（PR #79 レビュー）。
+// 2026-10-16 からテスト発火も BRIDGE の本番のルーレットを通る。演出を送れなかったら、回している依頼のテストの結果に理由を書く。
+test('テスト発火のルーレットで演出を送れなかったら、そのテストの結果に理由を書く', () => {
+  const source = read('bridge/index.js');
+  const runner = source.slice(source.indexOf('const animateRoulette = createRouletteRunner({'), source.indexOf('const rouletteRequests = [];'));
+  assert.match(runner, /rouletteRequests\[0\]\?\.run\?\.notice\(`ルーレットの演出を送れなかったため、演出を省いて当たりを送りました: /);
 });
 
 test('嵐の txt の説明は N 倍に合わせ、ルーレットの字幕（36文字）に収める', () => {

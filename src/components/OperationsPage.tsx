@@ -380,7 +380,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
 
       <nav className="studio-ops-tabs" aria-label="運用センターのメニュー">{[["map", "MAPセーブ・ロード"], ["test", "イベントテスト"], ["safety", "動作設定"], ["maintenance", "設定復元・更新"], ["advanced", "詳細設定"]].map(([id, label]) => <button key={id} aria-pressed={opsTab === id} onClick={() => setOpsTab(id)}>{label}</button>)}{hasChanges && <button className="studio-ops-save" disabled={saving} onClick={save}>変更を保存</button>}</nav>
       <div hidden={opsTab !== "map"}><WorldSavesPanel active={opsTab === "map"} /></div>
-      <div hidden={opsTab !== "test"}><EventTestPanel onTested={refresh} /></div>
+      <div hidden={opsTab !== "test"}><EventTestPanel onTested={refresh} bridgeRunning={bridgeProcess.running === true} /></div>
       <div className="ops-main-grid" hidden={opsTab !== "safety"}>
 
         <OpsPanel className="ops-stability-card">
