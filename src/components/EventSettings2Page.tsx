@@ -1,7 +1,6 @@
 // src/components/EventSettings2Page.tsx
 // イベント設定②：ルーレット / デスルーレット / コメントギフト
 // デザインはイベント設定①（EventSettingsPage）を踏襲。
-import SaveBar from "./SaveBar";
 import React, { useCallback, useEffect, useState } from "react";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 import { commandOptionLabel } from "../lib/commandLabel";
@@ -632,7 +631,6 @@ const EventSettings2Page: React.FC = () => {
         保存後は BRIDGE が数秒で設定を自動再読込します（再起動でも可）。
         デスルーレットは Mod v1.2.0 以降のサーバーで動作します。
       </div>
-      <SaveBar dirty={Boolean(savedSnapshot) && currentSnapshot !== savedSnapshot} saving={saving} onSave={() => void save("イベント設定")} message={msg} />
     </div>
   );
 };

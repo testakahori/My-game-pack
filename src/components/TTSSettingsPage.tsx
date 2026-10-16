@@ -1,4 +1,3 @@
-import SaveBar from "./SaveBar";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 
@@ -642,7 +641,6 @@ const TTSSettingsPage: React.FC = () => {
           </button>
         </div>
       </section>
-      <SaveBar dirty={isDirty} saving={saving} onSave={handleSave} message={msg?.source === "save" ? msg : null} />
     </div>
   );
 };

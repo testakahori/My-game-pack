@@ -1,5 +1,4 @@
 // src/components/EventSettingsPage.tsx
-import SaveBar from "./SaveBar";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ToggleSlider } from "./ToggleSlider";
 import EventTypeIcon, { type EventIconKind } from "./EventTypeIcon";
@@ -346,7 +345,7 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving || !isDirty}
+            disabled={saving}
             className={`px-5 py-2 rounded-lg text-sm font-bold transition active:scale-95 ${
               isDirty && !saving
                 ? "bg-cyan-600 hover:bg-cyan-500 text-white shadow-md"
@@ -409,12 +408,12 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
           <div>
             <div className="flex items-center gap-2">
               <span className="events-like-icon">♥</span>
-              <h2 className="text-base font-black text-white">いいね設定 <small>（何いいねごとに実行するか）</small></h2>
+              <h2 className="text-base font-black text-white">いいね設定 <small>（しきい値ラダー）</small></h2>
               <span className="text-[10px] font-bold text-cyan-400 bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-700/40">
                 複数設定可
               </span>
             </div>
-            <p className="text-xs text-gray-400 mt-0.5">指定したいいね数が増えるたびに実行します。複数のルールを登録できます。</p>
+            <p className="text-xs text-gray-400 mt-0.5">X いいねごとにコマンドを発火します。しきい値ごとに設定できます。</p>
           </div>
           <button
             type="button"
@@ -432,7 +431,7 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
         ) : (
           <div className="events-like-table">
             <div className="events-like-columns" aria-hidden="true">
-              <span>何いいねごと</span>
+              <span>しきい値（累計いいね数）</span>
               <span>実行コマンド（Minecraft）</span>
               <span>繰り返し（回数）</span>
               <span>ステータス</span>
@@ -583,7 +582,34 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
         </div>
       </div>
 
-      <SaveBar dirty={isDirty} saving={saving} onSave={handleSave} message={msg} />
+      {/* ══ 保存フッター ══ */}
+      <div className={`events-footer flex items-center justify-between gap-4 rounded-2xl p-5 border transition-all ${
+        isDirty
+          ? "bg-amber-950/25 border-amber-600/40"
+          : "bg-gray-800/40 border-gray-700"
+      }`}>
+        <div>
+          {isDirty ? (
+            <p className="text-sm font-bold text-amber-300">⚠ 未保存の変更があります</p>
+          ) : (
+            <p className="text-sm text-gray-500">保存後は稼働中のBRIDGEに数秒で自動反映されます。再起動は不要です。</p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className={`px-8 py-3 rounded-xl font-black text-sm transition-all active:scale-95 shrink-0 ${
+            isDirty && !saving
+              ? "bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-900/30"
+              : !saving
+              ? "bg-gray-700 hover:bg-gray-600 text-gray-300"
+              : "bg-gray-700 text-gray-500 cursor-not-allowed"
+          }`}
+        >
+          {saving ? "保存中…" : "💾 保存する"}
+        </button>
+      </div>
 
     </div>
   );

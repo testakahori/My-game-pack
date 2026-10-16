@@ -39,7 +39,6 @@ function chatCommandOf(meta: CommandMeta): string {
 }
 
 const CommandsListPage: React.FC = () => {
-  const [loading, setLoading] = React.useState(true);
   const [commands, setCommands] = React.useState<CommandMeta[]>([]);
   const [err, setErr] = React.useState<string | null>(null);
   const [q, setQ] = React.useState("");
@@ -52,12 +51,10 @@ const CommandsListPage: React.FC = () => {
   };
 
   const reload = React.useCallback(async () => {
-    setLoading(true);
     setErr(null);
     const api = getApi();
     if (!api?.bridgeCommandsReadMeta) {
-      setErr("コマンドを読み込めません。アプリを起動し直してください。");
-      setLoading(false);
+      setErr("Electron API (bridgeCommandsReadMeta) が見つかりません。");
       return;
     }
     try {
@@ -66,7 +63,7 @@ const CommandsListPage: React.FC = () => {
       setCommands((list || []).filter((c) => c.name !== "roulette.txt"));
     } catch (e: any) {
       setErr(e?.message || String(e));
-    } finally { setLoading(false); }
+    }
   }, []);
 
   React.useEffect(() => {
@@ -135,19 +132,18 @@ const CommandsListPage: React.FC = () => {
         </div>
       </section>
 
-      {err && <div role="alert" className="gift-catalog-error">❌ {err}</div>}
+      {err && <div className="gift-catalog-error">❌ {err}</div>}
 
       {/* 検索・カテゴリフィルタ */}
       <section className="cmd-toolbar">
         <div className="gift-catalog-search">
           <span>⌕</span>
-          <input aria-label="コマンド名・説明を検索" value={q} onChange={(e) => setQ(e.target.value)} placeholder="コマンド名・説明を検索..." />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="コマンド名・説明を検索..." />
         </div>
         <div className="cmd-category-chips">
           {categoryChips.map((cat) => (
             <button
               key={cat}
-              aria-pressed={activeCategory === cat}
               type="button"
               className={activeCategory === cat ? "is-active" : ""}
               onClick={() => setActiveCategory(cat)}
@@ -162,9 +158,8 @@ const CommandsListPage: React.FC = () => {
       </section>
 
       {grouped.length === 0 ? (
-        <div className="gift-catalog-empty" role="status">
-          <p>{loading ? "コマンドを読み込み中…" : commands.length === 0 ? "コマンドを表示できません。配信ホームでゲームの保存状態を確認してください。" : "検索条件に一致するコマンドがありません。"}</p>
-          {!loading && (commands.length === 0 ? <button className="empty-state-action" type="button" onClick={() => void reload()}>再読み込み</button> : <button className="empty-state-action" type="button" onClick={() => { setQ(""); setActiveCategory("すべて"); }}>検索・絞り込みを解除</button>)}
+        <div className="gift-catalog-empty">
+          {commands.length === 0 ? "コマンドが見つかりません" : "検索結果が0件です"}
         </div>
       ) : (
         grouped.map((group) => (
@@ -203,7 +198,7 @@ const CommandsListPage: React.FC = () => {
       )}
 
       {toast && (
-        <div key={toast.id} role="status" className="gift-catalog-toast">
+        <div key={toast.id} className="gift-catalog-toast">
           {toast.msg}
         </div>
       )}

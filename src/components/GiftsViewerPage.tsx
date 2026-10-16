@@ -304,9 +304,8 @@ const GiftsViewerPage: React.FC<Props> = ({ bridgeRunning, modOnline }) => {
         </div>
 
         {filtered.length === 0 ? (
-          <div className="gift-catalog-empty" role="status">
-            <p>{loading ? "取得中…" : uniqueGifts.length === 0 ? "ギフト一覧はまだ取得されていません。上でTikTokユーザー名を確認し、「更新」を押してください。" : "検索条件に一致するギフトがありません。"}</p>
-            {!loading && uniqueGifts.length > 0 && <button type="button" className="empty-state-action" onClick={() => { setQ(""); setPage(1); }}>検索をクリア</button>}
+          <div className="gift-catalog-empty">
+            {loading ? "取得中…" : uniqueGifts.length === 0 ? "ギフトがありません" : "検索結果が0件です"}
           </div>
         ) : (
           <div className={`gift-catalog-grid gift-catalog-grid--${viewMode}`}>
