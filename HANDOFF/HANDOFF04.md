@@ -152,7 +152,9 @@
        - options の変更の注意は、キーを並べてから比べる（並びが変わっただけでは出さない）。
        - レビューで足りないと言われた「配信の終了でテストのいいねが取りやめになる」のテストも足した。
      - 開発版の画面での目視（イベントテストの画面・BRIDGE が止まっているときの表示）はまだ。
-   - main.cjs の大きさ
+   - main.cjs の大きさ（10-17 から進行中。設計書 `docs/superpowers/specs/2026-10-17-main-split-design.md`。PR 6本で仕事ごとのファイルに分ける）
+     - PR1（土台）：ipc の窓口の一覧を固定するテスト、`app_config.cjs`・`paths.cjs`・`operator_auth.cjs`・`window.cjs`。ブランチ `refactor/main-split-1`。
+     - Codex が D 側の作業コピーで UI/UX を直しているので、分割は scratchpad の worktree（`wt-split`）で進めている。D 側のブランチは切り替えない。
    - 設定の既定値と設定ファイルの破損
    - 処理のコピー
    - リリース手順が2つ

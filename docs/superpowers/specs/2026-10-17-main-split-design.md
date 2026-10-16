@@ -39,10 +39,19 @@
 | `bridge_mod_client.cjs` | BridgeMOD との通信、状態・一時停止・再開、テスト発火の受け渡し | 1617〜1840 の通信・テスト発火の部分 |
 | `operations_stats.cjs` | 操作履歴・配信統計・視聴者数・統計の書き出し | 1617〜1840 の履歴の部分、2071〜2083 |
 | `bridge_settings.cjs` | BRIDGE の設定の読み書き・ギフトの割り当て・テンプレート・配信前チェック・コマンド txt | 415〜526、2633〜2705 |
+| `games_ipc.cjs` | ゲームの選択・切り替え・Minecraft の保存先（`games:*` の8個） | 30〜116 |
 | `gifts_viewer.cjs` | ギフト一覧（UI タブ・GiftsViewer）の読み込み・更新・画像 | 527〜559、2291〜2490 |
 | `tts_ipc.cjs` | 読み上げの設定とエンジン | 2781〜2954 |
 | `setup_ipc.cjs` | 初期セットアップ・Forge インストーラー・セットアップの確認・環境の実測・フォルダー選択 | 2174〜2251、2275〜2290、2717〜2780 |
 
+- 表の行の範囲の中にあって、名前からは置き場が分かりにくい ipc の置き場（PR1 の計画を書くときに確かめた。2026-10-17）
+  - `updater:*`・`app:version` → `app_config.cjs`（PR1）
+  - `config:path`・`settings:backups:*`・`preflight:run`・`config:validate`・`bridge:root`・`bridge:dir` → `bridge_settings.cjs`（PR2）
+  - `bridge:syncStatus` → `bridge_sync.cjs`（PR3）
+  - `clipboard:writeText` → `gifts_viewer.cjs`（PR2）
+  - `dialog:pickFolder`・`dialog:pickFile`・`folder:open` → `setup_ipc.cjs`（PR2）
+  - `server:command` → `server_process.cjs`、`presets:*`・`world:*` → `map_operations.cjs`、`server:datapack:deployNightVision`・`server:gamerules:apply` → `server_files.cjs`（PR4）
+  - `euler:*`・`tiktok:liveStatus` → `bridge_process.cjs`、`stream:session:*`・`image:saveGiftPanel` → `operations_stats.cjs`（PR5）
 - main.cjs に残すもの: `electron` などの読み込み、アプリの起動と終了（今の 379〜414）、各モジュールを作って必要なものを渡す配線。目標は 400 行以下。
 - 表の行は目安。移すときに、一緒に動く関数がほかの区切りにあれば、使う側のモジュールへ置く。2つのモジュールの両方が使うものは、下の 4 の決まりで受け渡す。
 
@@ -53,6 +62,8 @@
 - ipc の窓口は、そのモジュールが `register(ipcMain)` で自分で登録する。main は作ったあとに `register` を呼ぶ。
 - `electron` は main.cjs だけが読み込む。`ipcMain`・`dialog`・`shell`・`app`・`BrowserWindow`・`net`・`clipboard`・`nativeImage`・`safeStorage`・`session` は main から渡す。
   - 理由: テスト（`electron/test/app-regressions.test.cjs` の `loadApp`）は main.cjs を仮想の環境で動かし、`electron` を偽物に差し替えている。モジュールが自分で `electron` を読み込むと、偽物に差し替わらない。
+- `child_process`（`spawn`・`spawnSync`）も main.cjs だけが読み込み、モジュールには渡す。テスト（`loadApp`）は `child_process` も偽物に差し替えている（サーバー・BRIDGE の起動を試すため）。
+- main.cjs の `__dirname` と `process` も、テストでは偽物になる（`__dirname` は一時フォルダーの `electron`、`process.resourcesPath` も偽物）。モジュールは自分の `__dirname`・`process` を使わず、main から `appDir`・`process` を受け取る。
 - 「いま作業中か」の判定は、持ち主のモジュールが関数として外に出し、止める側はそれを受け取って使う。
   - サーバー: `isStarting()`・`isStopping()`・`child()`（`server_process`）
   - MAP: `isBusy()`・`assertIdle()`（`map_operations`。今の `assertMapIdle`）
@@ -68,7 +79,7 @@
 1. **土台**
    - ipc の窓口の名前の一覧を固定するテスト（下の 6）
    - `paths.cjs`・`app_config.cjs`・`operator_auth.cjs`・`window.cjs`
-2. **端の仕事**: `gifts_viewer.cjs`・`tts_ipc.cjs`・`setup_ipc.cjs`・`bridge_settings.cjs`
+2. **端の仕事**: `games_ipc.cjs`・`gifts_viewer.cjs`・`tts_ipc.cjs`・`setup_ipc.cjs`・`bridge_settings.cjs`
 3. **配布**: `bridge_sync.cjs`
 4. **サーバー側**: `server_process.cjs`・`map_operations.cjs`・`server_files.cjs`・`minecraft_client.cjs`
 5. **BRIDGE 側**: `bridge_process.cjs`・`bridge_mod_client.cjs`・`operations_stats.cjs`
