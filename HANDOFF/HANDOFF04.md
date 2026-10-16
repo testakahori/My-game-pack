@@ -155,6 +155,11 @@
    - main.cjs の大きさ（10-17 から進行中。設計書 `docs/superpowers/specs/2026-10-17-main-split-design.md`。PR 6本で仕事ごとのファイルに分ける）
      - PR1（土台）：ipc の窓口の一覧を固定するテスト、`app_config.cjs`・`paths.cjs`・`operator_auth.cjs`・`window.cjs`。ブランチ `refactor/main-split-1`。
      - Codex が D 側の作業コピーで UI/UX を直しているので、分割は scratchpad の worktree（`wt-split`）で進めている。D 側のブランチは切り替えない。
+     - PR1 の最終レビュー：重大 0・重要 3（テストの穴。直した）・軽い 6（ユーザーの指示で直した）。分ける前と後の main.cjs を同じ偽物の electron で比べ、動きの違いは0件。
+     - PR1 で見つけた小さい問題（このPRでは直さない）：
+       - Tailwind は git が追跡しているファイル全体からクラス名を拾う。文書に `\` + 16進数の場所（scratchpad の場所など）を書くとビルドが止まる。`src/index.css` で読む範囲を絞る（Codex の UI の作業と重なるので別の PR）。それまでは `electron/test/docs-css-safe.test.cjs` が見張る。
+       - `app:config:write` は、サーバーの停止中は保存先の変更を止めない（ウィンドウを閉じるのは止める）。前からの動き。
+       - `app:config:write` に文字列を渡すと、`'serverFolder' in data` の TypeError が先に出る。前からの順番。
    - 設定の既定値と設定ファイルの破損
    - 処理のコピー
    - リリース手順が2つ

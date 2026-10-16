@@ -20,6 +20,7 @@
 - `electron/preload.cjs` と画面（`src/`）は変えない。
 - 関数の中の処理は、移すだけにする。直すのは、受け取る形を変えるのに必要な所だけ（変数を直接見ていた所を、受け取った関数で見るなど）。
 - 処理の中の不具合を見つけても、この作業では直さない。HANDOFF の小さい問題に書く。
+- 例外（PR1 の最終レビューで決めた。2026-10-17）: テストで確かめるために戻り値を足すのはよい（`createWindow` がウィンドウを返す。呼び出し側は使わない）。分ける前から誰も呼んでいない関数は、移さずに消してよい（`getToolsPath`・`ensureToolsExist`）。
 - `bridge/index.js` の分割は、この作業に含めない。
 
 ## 3. 分け方
@@ -58,7 +59,7 @@
 ## 4. モジュールの決まり
 
 - 各モジュールは `createXxx(deps)` を1つだけ外に出す。`deps` には、そのモジュールが使うものを名前つきで渡す（例: `createServerProcess({ fs, path, spawn, getServerRoot, appendLog, ... })`）。
-- 戻り値は、そのモジュールの関数のまとまり。ほかのモジュールが使う関数だけを入れる。
+- 戻り値は、そのモジュールの関数のまとまり。ほかのモジュールが使う関数と、そのモジュールのテストで確かめる関数を入れる（PR1 の最終レビュー M2 で足した。2026-10-17）。
 - ipc の窓口は、そのモジュールが `register(ipcMain)` で自分で登録する。main は作ったあとに `register` を呼ぶ。
 - `electron` は main.cjs だけが読み込む。`ipcMain`・`dialog`・`shell`・`app`・`BrowserWindow`・`net`・`clipboard`・`nativeImage`・`safeStorage`・`session` は main から渡す。
   - 理由: テスト（`electron/test/app-regressions.test.cjs` の `loadApp`）は main.cjs を仮想の環境で動かし、`electron` を偽物に差し替えている。モジュールが自分で `electron` を読み込むと、偽物に差し替わらない。
@@ -118,3 +119,4 @@
 - 設定の既定値の置き場（別の大きい問題）。
 - `bridge/index.js`・`src/components/DashboardPage.tsx`・`src/index.css` の分割。
 - 画面・preload・ipc の名前の変更。
+- Tailwind が読む範囲を `src/index.css`（`source()`）で絞ること。今は git が追跡しているファイル全体を読むので、文書に `\` + 16進数の場所を書くとビルドが止まる。`src/` は Codex の UI の作業と重なるので別の PR で行い、それまでは `electron/test/docs-css-safe.test.cjs` で追跡しているテキストファイル全体を確かめる（PR1 の最終レビュー M1）。

@@ -146,16 +146,8 @@ function createPaths({ app, process, appDir, readAppConfig }) {
     return bundled || "node"; // 最悪PATH
   }
 
-  function getToolsPath(name) {
-    return path.join(getBridgeDir(), "tools", name);
-  }
-
-  function ensureToolsExist() {
-    const fetchJs = getToolsPath("fetch_gifts.js");
-    const htmlJs = getToolsPath("gifts_to_html.js");
-    if (!fs.existsSync(fetchJs)) throw new Error(`tools not found: ${fetchJs}`);
-    if (!fs.existsSync(htmlJs)) throw new Error(`tools not found: ${htmlJs}`);
-  }
+  // 同梱 BRIDGE の tools の場所を返す getToolsPath・ensureToolsExist は、分ける前から誰も呼んでいなかったので移さずに消した（2026-10-17 PR1 の最終レビュー M2）。
+  // ギフトの取得の道具は GiftsViewer のもの（getGvToolPath）を使う。
 
   // GiftsViewer
   function getGvToolsDir() {
@@ -187,7 +179,7 @@ function createPaths({ app, process, appDir, readAppConfig }) {
   return {
     getInstalledBridgeRoot, getBridgeDir, getConfigPath, getGiftsDir, getGiftsMinPath, getGiftsMetaPath, getGiftsHtmlPath,
     ensureDir, ensureConfigExists, getServerTemplatePath, getServerRoot, getBridgeBatDir,
-    detectBundledNodeExe, getNodeCommand, getToolsPath, ensureToolsExist,
+    detectBundledNodeExe, getNodeCommand,
     getGvToolsDir, getGvDataDir, getGvSettingsPath, getGvToolPath,
   };
 }

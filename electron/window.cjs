@@ -102,6 +102,7 @@ function createAppWindow({ BrowserWindow, session, dialog, shell, appDir, isDev,
     if (isDev) {
       win.webContents.openDevTools({ mode: "detach" });
     }
+    // テストでウィンドウの設定を確かめるために返す。main.cjs の呼び出し側は使わない（分ける前は何も返さなかった。PR1 の最終レビュー M3）。
     return win;
   }
 

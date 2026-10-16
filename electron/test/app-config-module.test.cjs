@@ -63,6 +63,27 @@ test('保存先は止まっているときだけ変える。サーバーの起�
   assert.deepEqual(calls, ['gameProfileIdle', 'mapIdle']);
 });
 
+// ワールドの指定（world）も保存先と同じく止める。MAP の作業中は MAP の理由で止まり、サーバーの判定まで進まない（PR1 の最終レビュー M5）。
+test('world の指定も止める。MAP の作業中は MAP の理由で止め、サーバーの判定まで進まない', async t => {
+  const starting = setup(t, { serverStarting: true });
+  await assert.rejects(starting.invoke('app:config:write', { world: 'w' }), /サーバーの起動中は保存先を変更できません。/);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'app-config-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const calls = [], handlers = new Map();
+  const appConfig = createAppConfig({
+    app: { isPackaged: false, getPath: () => dir, getVersion: () => '9.9.9' },
+    assertGameProfileIdle: () => calls.push('gameProfileIdle'),
+    assertMapIdle: () => { throw new Error('MAP の保存・読込中です。'); },
+    isServerStarting: () => { calls.push('serverStarting'); return true; },
+    getConfigPath: () => path.join(dir, 'config.minecraft.json'),
+    getSettingsBackups: () => ({ create: () => {} }),
+    refreshGameModsOnStartup: async () => {},
+  });
+  appConfig.register({ handle: (name, fn) => handlers.set(name, fn) });
+  await assert.rejects(handlers.get('app:config:write')({}, { serverFolder: 'other' }), /MAP の保存・読込中です。/);
+  assert.deepEqual(calls, ['gameProfileIdle']);
+});
+
 test('自動バックアップの切り替えでは、設定があれば先にバックアップする。初期セットアップを終えたら MOD を入れ替える', async t => {
   const { dir, invoke, calls } = setup(t);
   fs.writeFileSync(path.join(dir, 'config.minecraft.json'), '{}');

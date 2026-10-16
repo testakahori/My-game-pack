@@ -49,6 +49,26 @@ test('配布版の場所は、resources とユーザーのフォルダー。保�
   assert.equal(missing.getServerRoot(), path.resolve(path.join(userData, 'gone')), '保存先が消えていても別のサーバーに切り替えない');
 });
 
+// 配布版のギフト・BRIDGE・設定の場所と、同梱 node の最後の候補（PR1 の最終レビュー M4）。
+test('配布版のギフト・BRIDGE の中身・セットアップ前の設定の場所。同梱 node は resources/node も探す', t => {
+  const { userData, resources, paths } = setup(t, { packaged: true });
+  assert.equal(paths.getGiftsDir(), path.join(userData, 'gv-data', 'gifts'));
+  assert.equal(paths.getBridgeDir(), path.join(resources, 'bridge', 'bridge'));
+  assert.equal(paths.getConfigPath(), path.join(userData, 'bridge', 'config.minecraft.json'));
+  assert.equal(paths.getNodeCommand(), 'node');
+  const exe = path.join(resources, 'node', 'node.exe');
+  fs.mkdirSync(path.dirname(exe), { recursive: true });
+  fs.writeFileSync(exe, '');
+  assert.equal(paths.getNodeCommand(), exe);
+});
+
+// 分ける前から誰も呼んでいなかった関数は、移さずに消した（PR1 の最終レビュー M2）。
+test('使われていなかった BRIDGE の tools の場所の関数は返さない', t => {
+  const { paths } = setup(t);
+  assert.equal(paths.getToolsPath, undefined);
+  assert.equal(paths.ensureToolsExist, undefined);
+});
+
 test('同梱の node を探し、なければ PATH の node。Windows 以外は node', t => {
   const { repo, paths } = setup(t, { packaged: false });
   assert.equal(paths.detectBundledNodeExe(), null);
