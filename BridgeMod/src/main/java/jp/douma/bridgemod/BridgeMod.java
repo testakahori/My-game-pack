@@ -74,7 +74,8 @@ public class BridgeMod {
     // HTTP の状態の要求がサーバーを待つ時間。BRIDGE とアプリは 1.5 秒で諦めるので、それより十分短くする（PR #98 レビュー）。
     private static final long STATUS_WAIT_MS = 250;
     // サーバーのスレッドで最後に作った状態の、待ちの件数より後ろの部分。プレイヤーや外部ゲームMODの状態は、ほかのスレッドから読まない（アプリレビュー 2026-10-08 P5）。
-    private volatile String lastStatusRest = "}";
+    // まだ一度も作れていないときは、起動中と分かるようにする。
+    private volatile String lastStatusRest = ",\"starting\":true}";
     // サーバーのスレッドだけが読み書きする。同じ失敗を毎秒ログに出さない。
     private String lastStatusFailure = "";
     private long executedCommands = 0;
@@ -482,8 +483,10 @@ public class BridgeMod {
     // サーバーのスレッドからだけ呼ぶ。状態を作れなくても、起動と tick は止めない（null を返す）。
     private String buildStatusSafely() {
         try {
-            return buildStatusJson();
-        } catch (RuntimeException | StackOverflowError error) {
+            String status = buildStatusJson();
+            lastStatusFailure = "";
+            return status;
+        } catch (RuntimeException | StackOverflowError | LinkageError error) {
             String message = error.toString();
             if (!message.equals(lastStatusFailure)) {
                 lastStatusFailure = message;
@@ -526,7 +529,8 @@ public class BridgeMod {
             + ",\"player\":{\"online\":" + (player != null) + ",\"x\":" + String.format(Locale.ROOT, "%.2f", x)
             + ",\"y\":" + String.format(Locale.ROOT, "%.2f", y) + ",\"z\":" + String.format(Locale.ROOT, "%.2f", z) + "}}";
         lastStatusRest = rest;
-        return statusHead(gift, like, other) + rest;
+        // サーバーで作った状態は "stale":false（つないだ直後の古い状態の印を、Bridge の記録に残し続けない）。
+        return statusHead(gift, like, other) + ",\"stale\":false" + rest;
     }
 
     private void startWebSocketServer() {

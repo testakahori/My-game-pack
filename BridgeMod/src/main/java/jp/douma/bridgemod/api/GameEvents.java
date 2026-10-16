@@ -75,13 +75,13 @@ public final class GameEvents {
         if (result != WAIT && result != ACCEPTED && result != DISCARDED) throw new IllegalStateException("Invalid game handoff result");
         return result;
     }
-    /** 外部ゲームMODの状態取得が例外を出しても、その MOD の分だけ {"ok":false,"error":…} にして、ほかの MOD とサーバーは止めない。 */
+    /** 外部ゲームMODの状態取得が例外を出しても（無限の再帰も含む）、その MOD の分だけ {"ok":false,"error":…} にして、ほかの MOD とサーバーは止めない。 */
     public static Map<String, Object> status() {
         Map<String, Object> result = new TreeMap<>();
         STATUS.forEach((id, supplier) -> {
             Object value;
             try { value = supplier.get(); }
-            catch (Exception | LinkageError error) { value = Map.of("ok", false, "error", error.getClass().getSimpleName() + ": " + error.getMessage()); }
+            catch (Exception | StackOverflowError | LinkageError error) { value = Map.of("ok", false, "error", error.getClass().getSimpleName() + ": " + error.getMessage()); }
             result.put(id, value);
         });
         return result;

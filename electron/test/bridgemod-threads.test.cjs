@@ -19,7 +19,13 @@ test('状態はサーバーのスレッドだけで作る（起動時・tick・H
   // プレイヤー・TPS・外部ゲームMODの状態を読む buildStatusJson は、buildStatusSafely からだけ呼ぶ。
   const calls = code(mod).match(/buildStatusJson\(/g) || [];
   assert.equal(calls.length, 2, 'definition and one call from buildStatusSafely');
-  assert.match(body('private String buildStatusSafely()'), /return buildStatusJson\(\);[\s\S]*catch \(RuntimeException \| StackOverflowError error\)/);
+  const safely = body('private String buildStatusSafely()');
+  assert.match(safely, /String status = buildStatusJson\(\);\s*lastStatusFailure = "";\s*return status;/, '直ったら、同じ失敗をまたログに出す（PR #98 再レビュー m3）');
+  assert.match(safely, /catch \(RuntimeException \| StackOverflowError \| LinkageError error\)/);
+  // サーバーで作った状態は "stale":false。WebSocket の最初の古い状態の印が、Bridge の記録に残り続けない（PR #98 再レビュー m1）。
+  assert.match(body('private String buildStatusJson()'), /return statusHead\(gift, like, other\) \+ ",\\"stale\\":false" \+ rest;/);
+  // 一度も状態を作れていないときは、起動中と分かるようにする（PR #98 再レビュー m2）。
+  assert.match(mod, /private volatile String lastStatusRest = ",\\"starting\\":true\}";/);
   const started = body('public void onServerStarted(');
   assert.ok(started.indexOf('buildStatusSafely();') >= 0 && started.indexOf('buildStatusSafely();') < started.indexOf('startBridgeHttpServer('), '受付を開く前に作る');
   assert.match(body('public void onServerTick('), /String status = buildStatusSafely\(\);\s*if \(status != null\) broadcastWebSocket\(status\);/);

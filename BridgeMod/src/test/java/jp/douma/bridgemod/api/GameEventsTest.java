@@ -27,6 +27,18 @@ class GameEventsTest {
         assertEquals(Map.of("ok", false, "error", "IllegalStateException: broken"), status.get("qa_status_bad"));
     }
 
+    // 状態の Supplier が無限に再帰しても、その MOD の分だけエラーにする（PR #98 再レビュー m4）。
+    @Test
+    void aGameStatusThatRecursesForeverOnlyBreaksThatGame() {
+        GameEvents.register("qa_status_deep", event -> GameEvents.ACCEPTED, GameEventsTest::recurse);
+        Map<String, Object> status = assertDoesNotThrow(GameEvents::status);
+        assertEquals(Map.of("ok", false, "error", "StackOverflowError: null"), status.get("qa_status_deep"));
+    }
+
+    private static Map<String, Object> recurse() {
+        return recurse();
+    }
+
     // Forge は MOD のコンストラクターを並列に呼ぶ。同時に登録しても、どれも消えない。
     @Test
     void concurrentRegistrationsAreAllKept() throws Exception {

@@ -47,6 +47,7 @@ function listen() {
     for (const key of ['games', 'gameSessions', 'player']) assert.equal(typeof s[key], 'object', key);
     assert.equal(s.ok, true);
     assert.equal(s.mod, 'bridgemod');
+    assert.equal(s.stale, false, 'the server thread built it');
     return { tps: s.tps, games: Object.keys(s.games) };
   });
 
@@ -135,7 +136,7 @@ function listen() {
     await rcon.send('gameprobe badstatus');
     await sleep(2500);
     const s = await status();
-    assert.equal(s.stale, undefined, 'the server thread built it');
+    assert.equal(s.stale, false, 'the server thread built it');
     assert.equal(s.games.gameprobe.ok, false);
     assert.match(s.games.gameprobe.error, /StackOverflowError/);
     assert.ok(s.tps >= 15, 'tps ' + s.tps);
