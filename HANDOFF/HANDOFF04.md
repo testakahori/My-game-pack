@@ -184,7 +184,8 @@
        - レビューで足りないと言われた「配信の終了でテストのいいねが取りやめになる」のテストも足した。
      - 開発版の画面での目視（イベントテストの画面・BRIDGE が止まっているときの表示）はまだ。
    - main.cjs の大きさ（10-17 から進行中。設計書 `docs/superpowers/specs/2026-10-17-main-split-design.md`。PR 6本で仕事ごとのファイルに分ける）
-     - PR1（土台）：ipc の窓口の一覧を固定するテスト、`app_config.cjs`・`paths.cjs`・`operator_auth.cjs`・`window.cjs`。ブランチ `refactor/main-split-1`。
+     - PR1（土台）：ipc の窓口の一覧を固定するテスト、`app_config.cjs`・`paths.cjs`・`operator_auth.cjs`・`window.cjs`。PR #110、ブランチ `refactor/main-split-1`。main.cjs は 2,954行 → 2,489行。
+     - PR1 は開発版を本物の Electron で起動し、外から操作して確かめた（ログイン・ウィンドウの操作・アプリ設定の保存・CSP・外部リンク・移動の制限）。共有のアプリ設定は確かめたあと元に戻した。
      - Codex が D 側の作業コピーで UI/UX を直しているので、分割は scratchpad の worktree（`wt-split`）で進めている。D 側のブランチは切り替えない。
      - PR1 の最終レビュー：重大 0・重要 3（テストの穴。直した）・軽い 6（ユーザーの指示で直した）。分ける前と後の main.cjs を同じ偽物の electron で比べ、動きの違いは0件。
      - PR1 で見つけた小さい問題（このPRでは直さない）：
