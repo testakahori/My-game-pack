@@ -92,7 +92,7 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
           commandFile: (m.commandFile || "").trim(),
           repeat: Math.min(100, Math.max(1, Number(m.repeat ?? 1))),
         }));
-      if (!String(cfg?.tiktokUsername || "").trim()) throw new Error("ダッシュボードでTikTok IDを承認してから保存してください。");
+      if (!String(cfg?.tiktokUsername || "").trim()) throw new Error("配信ホームでTikTok IDを承認してから保存してください。");
       if (api.configMappingsWrite) await api.configMappingsWrite(normalized);
       else await api.configWrite({ ...cfg, mappings: normalized });
   }, []);
@@ -203,19 +203,19 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
             <aside className="gift-design-preview">
               <div className="gift-preview-art">
                 {pickedGiftImage ? <img src={pickedGiftImage} alt={pickedGiftName || "選択中ギフト"} /> : null}
-                <i>✦</i><b>✦</b>
+                {!pickedGiftImage && <span className="gift-preview-placeholder"><i className="fa-solid fa-gift" aria-hidden="true" /></span>}
               </div>
               <div className="gift-preview-heading">
                 <h2>{pickedGiftName || "ギフトを選択"}</h2>
-                <em>{pickedMapping ? "設定済み" : "未設定"}</em>
+                <em>{!pickedGiftId ? "未選択" : pickedMapping ? "設定済み" : "未設定"}</em>
               </div>
-              <p>コスト: <strong>💎 {pickedGiftDiamonds ?? 1}</strong></p>
+              <p>コスト: <strong>{pickedGiftId && pickedGiftDiamonds !== undefined ? `💎 ${pickedGiftDiamonds}` : "—"}</strong></p>
               <div className="gift-preview-route">
-                <small>ルートプレビュー</small>
+                <small>割り当てプレビュー</small>
                 <div>
-                  <span><MinecraftCommandIcon command={pickedMapping?.commandFile || "skeleton.txt"} /></span>
+                  <span>{pickedMapping?.commandFile ? <MinecraftCommandIcon command={pickedMapping.commandFile} /> : <i className="fa-solid fa-circle-question" aria-hidden="true" />}</span>
                   <b>{pickedMapping?.commandSetLabel || pickedMapping?.commandFile || "コマンド未設定"}</b>
-                  <em>× {pickedMapping?.repeat ?? 1}回</em>
+                  {pickedMapping && <em>× {pickedMapping.repeat ?? 1}回</em>}
                 </div>
               </div>
             </aside>

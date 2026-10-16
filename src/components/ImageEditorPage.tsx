@@ -33,7 +33,7 @@ function fitCards(design: PanelDesign, cards: PanelCard[]) {
 }
 const EMPTY_MAPPINGS: GiftMapping[] = [];
 
-export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mappings?: GiftMapping[] }) {
+export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS, onOpenCatalog }: { mappings?: GiftMapping[]; onOpenCatalog?: () => void }) {
   const initial = useMemo(loadLibrary, []);
   const libraryRef = useRef<PanelLibrary>(initial.library);
   const [documents, setDocuments] = useState(initial.library.designs);
@@ -274,9 +274,10 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
         <section className="panel-library">
           <div className="panel-library-heading"><div className="panel-section-label"><span>02</span><h2>画像に使うギフト</h2></div><button className="studio-quiet" onClick={addMapped} disabled={!mappedCards.length || design.cards.length >= 96 || loading}>設定済みをまとめて追加</button></div>
           <div className="panel-library-tools"><div className="panel-segments"><button aria-pressed={source === 'mapped'} onClick={() => setSource('mapped')}>設定済み {mappedCards.length}</button><button aria-pressed={source === 'all'} onClick={() => setSource('all')}>すべて {gifts.length}</button></div><label className="panel-search"><i className="fa-solid fa-magnifying-glass" /><input aria-label="画像に使うギフトを検索" placeholder="ギフト名・効果名で検索" value={search} onChange={e => setSearch(e.target.value)} /></label></div>
-          {loading ? <p className="panel-library-empty" role="status">ギフトを読み込んでいます…</p> : dataError ? <div className="studio-alert" role="alert">{dataError}<button onClick={() => setReload(n => n + 1)}>再読み込み</button></div> : !available.length ? <p className="panel-library-empty">{source === 'mapped' && !mappedCards.length ? '「すべて」からギフトを選んで画像に追加できます。' : '一致するギフトがありません。検索する文字を変えてください。'}</p> : <div className="panel-gift-grid">{available.slice(0, 100).map(c => <article key={c.id} className="panel-gift-entry"><button className="panel-gift-add" aria-label={c.giftName + 'を画像に追加'} disabled={design.cards.length >= 96} onClick={() => addCards([c])} title={c.giftName + ' / ' + c.title}>
+          {loading ? <p className="panel-library-empty" role="status">ギフトを読み込んでいます…</p> : dataError ? <div className="studio-alert" role="alert">{dataError}<button onClick={() => setReload(n => n + 1)}>再読み込み</button></div> : !available.length ? <p className="panel-library-empty">{!gifts.length && !mappedCards.length ? 'ギフト一覧が空です。ギフト一覧でTikTokユーザー名を確認し、更新してください。' : source === 'mapped' && !mappedCards.length ? '「すべて」からギフトを選んで画像に追加できます。' : '一致するギフトがありません。検索する文字を変えてください。'}</p> : <div className="panel-gift-grid">{available.slice(0, 100).map(c => <article key={c.id} className="panel-gift-entry"><button className="panel-gift-add" aria-label={c.giftName + 'を画像に追加'} disabled={design.cards.length >= 96} onClick={() => addCards([c])} title={c.giftName + ' / ' + c.title}>
             <div>{c.image ? <img src={c.image} alt="" loading="lazy" /> : <i className="fa-solid fa-gift" />}<span className="panel-gift-plus">+</span></div><b>{c.giftName}</b><small>{c.title}</small>
           </button></article>)}</div>}
+          {!loading && !gifts.length && !mappedCards.length && onOpenCatalog && <button type="button" className="studio-primary" onClick={onOpenCatalog}>ギフト一覧を開く</button>}
           {available.length > 100 && <p className="panel-hint">先頭100件を表示しています。検索してギフトを絞り込めます。</p>}
           {design.cards.length >= 96 && <p className="panel-hint">1つの画像には96枚まで追加できます。別のデザインに分けて作成してください。</p>}
         </section>

@@ -30,7 +30,7 @@ export default function WorldSavesPanel({ active }: { active: boolean }) {
       const result = saved ? await window.mygamepack.worldSavesLoad(saved.id) : await window.mygamepack.worldSavesSave(name);
       setNotice(saved ? '「' + saved.name + '」を読み込みました。' : '「' + result.saved!.name + '」にMAPを保存しました。');
       if (!saved) setName('');
-      if (result.restartError) setError('MAP操作は完了しましたが、再起動に失敗しました。ダッシュボードから起動してください。' + result.restartError);
+      if (result.restartError) setError('MAP操作は完了しましたが、再起動に失敗しました。配信ホームから起動してください。' + result.restartError);
       else if (result.restarted) setNotice(text => text + ' サーバーの起動完了後にMinecraftへ再接続してください。');
       await refresh();
     } catch (e) { setError(String((e as Error).message || e)); setNotice(''); }
@@ -44,7 +44,7 @@ export default function WorldSavesPanel({ active }: { active: boolean }) {
     <div className="map-list-heading"><h3>保存したMAP <small>{saves.length}件</small></h3><button className="studio-quiet" disabled={busy || loading} onClick={() => { setError(''); void refresh(); }}>一覧を更新</button></div>
     {!loading && !saves.length && <div className="map-saves-empty">最初のMAPをセーブしておくと、ここからいつでも戻せます。</div>}
     <div className="map-saves-list">{saves.map(saved => <article key={saved.id}><span className="map-save-icon" aria-hidden="true">◇</span><div><b>{saved.name}</b><small>{new Date(saved.createdAt).toLocaleString('ja-JP')} ・ {(saved.bytes / 1048576).toFixed(1)} MB{saved.reason === 'before-load' ? ' ・ 読込前の自動退避' : saved.reason === 'server-start' ? ' ・ 起動前の自動セーブ' : ''}</small></div><button className="studio-quiet" disabled={busy || loading} aria-label={'「' + saved.name + '」をロード'} onClick={() => void run(saved)}>このMAPをロード</button></article>)}</div>
-    <p className="panel-hint">保存先：サーバーフォルダーの map-saves。保存したMAPは自動削除しません。ギフト設定は「ギフト設定保存」で別に保存できます。</p>
+    <p className="panel-hint">保存先：サーバーフォルダーの map-saves。保存したMAPは自動削除しません。ギフト設定は「ファイルに書き出す」で別に保存できます。</p>
     {notice && <p role="status" className="studio-notice">{notice}</p>}{error && <p role="alert" className="studio-alert">{error}</p>}
   </section>;
 }

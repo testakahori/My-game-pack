@@ -1,4 +1,5 @@
 // src/components/EventSettingsPage.tsx
+import SaveBar from "./SaveBar";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ToggleSlider } from "./ToggleSlider";
 import EventTypeIcon, { type EventIconKind } from "./EventTypeIcon";
@@ -42,10 +43,12 @@ function newLikeEvent(): LikeEvent {
 
 // ── コマンドファイル選択 ─────────────────────────────────
 function CmdFileSelect({
+  label,
   value,
   onChange,
   commandFiles,
 }: {
+  label: string;
   value: string;
   onChange: (v: string) => void;
   commandFiles: CommandFile[];
@@ -55,6 +58,7 @@ function CmdFileSelect({
     <div className="event-command-select flex items-center gap-2">
       {commandFiles.length > 0 ? (
         <select
+          aria-label={label}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className="flex-1 bg-gray-900 border border-gray-600 rounded-xl px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
@@ -68,6 +72,7 @@ function CmdFileSelect({
       ) : (
         <input
           type="text"
+          aria-label={label}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="例: cod.txt"
@@ -127,7 +132,7 @@ function SimpleEventCard({
             <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">{description}</p>
           </div>
         </div>
-        <ToggleSlider checked={event.enabled} onChange={onToggle} />
+        <ToggleSlider label={`${title}を有効にする`} checked={event.enabled} onChange={onToggle} />
       </div>
 
       {/* 実行イベント + 回数 */}
@@ -136,6 +141,7 @@ function SimpleEventCard({
         <div className="flex items-center gap-2">
           <div className="flex-1 min-w-0">
             <CmdFileSelect
+              label={`${title}の実行コマンド`}
               value={event.commandFile}
               onChange={onCommandChange}
               commandFiles={commandFiles}
@@ -147,6 +153,7 @@ function SimpleEventCard({
                 type="number"
                 min={1}
                 max={100}
+                aria-label={`${title}の繰り返し回数`}
                 value={event.repeat ?? 1}
                 onChange={(e) => onRepeatChange(Math.min(100, Math.max(1, Number(e.target.value) || 1)))}
                 className="w-16 shrink-0 bg-gray-900 border border-gray-600 rounded-xl px-2 py-2.5 text-sm text-center text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
@@ -339,7 +346,7 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || !isDirty}
             className={`px-5 py-2 rounded-lg text-sm font-bold transition active:scale-95 ${
               isDirty && !saving
                 ? "bg-cyan-600 hover:bg-cyan-500 text-white shadow-md"
@@ -354,12 +361,12 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
       </div>
 
       {/* 未保存 / メッセージ */}
-      {isDirty && !msg && (
+      {isDirty && msg?.type !== "error" && (
         <div className="px-4 py-3 rounded-xl text-sm font-medium bg-amber-950/40 border border-amber-600/40 text-amber-300 flex items-center gap-2">
           ⚠ 未保存の変更があります。保存ボタンを押してください。
         </div>
       )}
-      {msg && (
+      {msg && (msg.type === "error" || !isDirty) && (
         <div className={`px-4 py-3 rounded-xl text-sm font-medium ${
           msg.type === "ok"
             ? "bg-emerald-900/50 border border-emerald-500/30 text-emerald-300"
@@ -402,12 +409,12 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
           <div>
             <div className="flex items-center gap-2">
               <span className="events-like-icon">♥</span>
-              <h2 className="text-base font-black text-white">いいね設定 <small>（しきい値ラダー）</small></h2>
+              <h2 className="text-base font-black text-white">いいね設定 <small>（何いいねごとに実行するか）</small></h2>
               <span className="text-[10px] font-bold text-cyan-400 bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-700/40">
                 複数設定可
               </span>
             </div>
-            <p className="text-xs text-gray-400 mt-0.5">X いいねごとにコマンドを発火します。しきい値ごとに設定できます。</p>
+            <p className="text-xs text-gray-400 mt-0.5">指定したいいね数が増えるたびに実行します。複数のルールを登録できます。</p>
           </div>
           <button
             type="button"
@@ -425,7 +432,7 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
         ) : (
           <div className="events-like-table">
             <div className="events-like-columns" aria-hidden="true">
-              <span>しきい値（累計いいね数）</span>
+              <span>何いいねごと</span>
               <span>実行コマンド（Minecraft）</span>
               <span>繰り返し（回数）</span>
               <span>ステータス</span>
@@ -451,13 +458,14 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
                 <span className="events-like-arrow" aria-hidden="true">→</span>
 
                 <CmdFileSelect
+                  label={`ルール${idx + 1}の実行コマンド`}
                   value={ev.commandFile}
                   onChange={(v) => updateLike(ev.id, { commandFile: v })}
                   commandFiles={commandFiles}
                 />
 
                 <div className="events-like-repeat">
-                  <button type="button" onClick={() => updateLike(ev.id, { repeat: Math.max(1, (ev.repeat ?? 1) - 1) })}>−</button>
+                  <button type="button" aria-label={`ルール${idx + 1}の回数を減らす`} onClick={() => updateLike(ev.id, { repeat: Math.max(1, (ev.repeat ?? 1) - 1) })}>−</button>
                   <input
                     type="number"
                     min={1}
@@ -466,11 +474,11 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
                     aria-label={`ルール${idx + 1}の繰り返し回数`}
                     onChange={(e) => updateLike(ev.id, { repeat: Math.min(100, Math.max(1, Number(e.target.value) || 1)) })}
                   />
-                  <button type="button" onClick={() => updateLike(ev.id, { repeat: Math.min(100, (ev.repeat ?? 1) + 1) })}>＋</button>
+                  <button type="button" aria-label={`ルール${idx + 1}の回数を増やす`} onClick={() => updateLike(ev.id, { repeat: Math.min(100, (ev.repeat ?? 1) + 1) })}>＋</button>
                 </div>
 
                 <div className="events-like-status">
-                  <ToggleSlider checked={ev.enabled} onChange={() => updateLike(ev.id, { enabled: !ev.enabled })} />
+                  <ToggleSlider label={`ルール${idx + 1}を有効にする`} checked={ev.enabled} onChange={() => updateLike(ev.id, { enabled: !ev.enabled })} />
                   <span>{ev.enabled ? "有効" : "無効"}</span>
                 </div>
 
@@ -575,34 +583,7 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
         </div>
       </div>
 
-      {/* ══ 保存フッター ══ */}
-      <div className={`events-footer flex items-center justify-between gap-4 rounded-2xl p-5 border transition-all ${
-        isDirty
-          ? "bg-amber-950/25 border-amber-600/40"
-          : "bg-gray-800/40 border-gray-700"
-      }`}>
-        <div>
-          {isDirty ? (
-            <p className="text-sm font-bold text-amber-300">⚠ 未保存の変更があります</p>
-          ) : (
-            <p className="text-sm text-gray-500">保存後は稼働中のBRIDGEに数秒で自動反映されます。再起動は不要です。</p>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className={`px-8 py-3 rounded-xl font-black text-sm transition-all active:scale-95 shrink-0 ${
-            isDirty && !saving
-              ? "bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-900/30"
-              : !saving
-              ? "bg-gray-700 hover:bg-gray-600 text-gray-300"
-              : "bg-gray-700 text-gray-500 cursor-not-allowed"
-          }`}
-        >
-          {saving ? "保存中…" : "💾 保存する"}
-        </button>
-      </div>
+      <SaveBar dirty={isDirty} saving={saving} onSave={handleSave} message={msg} />
 
     </div>
   );
