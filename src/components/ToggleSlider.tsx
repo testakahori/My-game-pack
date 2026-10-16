@@ -15,7 +15,7 @@ export function ToggleSlider({ label, checked, onChange }: ToggleSliderProps) {
       aria-label={label}
       aria-checked={checked}
       onClick={onChange}
-      className={`toggle-slider relative inline-flex h-7 w-[4.5rem] flex-shrink-0 cursor-pointer rounded-full border p-0.5 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 ${
+      className={`relative inline-flex h-7 w-[4.5rem] flex-shrink-0 cursor-pointer rounded-full border p-0.5 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 ${
         checked
           ? "bg-emerald-600 border-emerald-500"
           : "bg-gray-700 border-gray-600"

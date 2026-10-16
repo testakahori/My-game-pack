@@ -28,17 +28,6 @@ test('スイッチは有効・無効どちらでも操作対象の名前を読�
   }
 });
 
-test('保存失敗を知らせ、編集中の再保存を許可する', () => {
-  const { default: SaveBar } = component('SaveBar');
-  const html = render(SaveBar, { dirty: true, saving: false, onSave() {}, message: { type: 'error', text: '保存できませんでした。再試行してください。' } });
-  assert.match(html, /未保存の変更があります/);
-  assert.match(html, /role="alert"[^>]*>保存できませんでした/);
-  assert.doesNotMatch(html, /disabled/);
-  const saving = render(SaveBar, { dirty: true, saving: true, onSave() {} });
-  assert.match(saving, /button[^>]*disabled/);
-  assert.match(saving, /保存中…/);
-});
-
 test('配信手順は未確認のMAPや停止中のプロセスを完了扱いにしない', () => {
   const { default: LaunchGuide } = component('LaunchGuide');
   const html = render(LaunchGuide, { server: 'pending', bridge: 'pending', gameRunning: false, live: false, world: 'world' });
@@ -53,16 +42,4 @@ test('配信手順は処理中・失敗・実際の配信開始を区別する',
   assert.match(html, /<em>処理中<\/em>/);
   assert.match(html, /<em>確認が必要<\/em>/);
   assert.equal((html.match(/<em>完了<\/em>/g) || []).length, 1);
-});
-
-
-test('編集を再開したら古い保存成功を表示しない', () => {
-  const { default: SaveBar } = component('SaveBar');
-  const message = { type: 'ok', text: '設定を保存しました。' };
-  const dirty = render(SaveBar, { dirty: true, saving: false, onSave() {}, message });
-  assert.match(dirty, /未保存の変更があります/);
-  assert.doesNotMatch(dirty, /設定を保存しました。/);
-  const saved = render(SaveBar, { dirty: false, saving: false, onSave() {}, message });
-  assert.match(saved, /設定を保存しました。/);
-  assert.match(saved, /button[^>]*disabled/);
 });

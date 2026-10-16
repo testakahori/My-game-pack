@@ -84,14 +84,12 @@ export default function GameSelector({ onChanged, onStatus }: { onChanged: () =>
       <button type="button" className="game-selector-apply" disabled={busy || scanning || !game?.installed || status?.recoveryRequired}
         onClick={() => run(() => api.gamesActivate(selected), true)}>{busy ? '処理中…' : '保存'}</button>
     </div>
-    <details className="game-selector-details"><summary>ゲームの動作・使用するMOD</summary>
     <p>{game?.installed ? `使用するMOD：BridgeMOD ＋ DisplayMOD（表示）${selected === 'common' ? '' : ` ＋ ${game.modName}`}` : 'このゲームMODはまだ登録されていません。完成したゲームパックを登録してください。'}</p>
     <p>① ゲームを選んで保存 → ② ギフト・いいね・ルーレットなどを設定。ゲームごとに設定を保存し、次回の切替時に読み込みます。</p>
+    {dirty && <p role="status" className="game-selector-pending">ゲームの変更は未保存です。「保存」を押すと選んだゲームへ切り替わります。</p>}
     <p>暗視・アイテムロストなし・昼・晴れは固定です。イベント中のみ時間・天候が一時的に変わります。</p>
     <p>コマンドの実行通知は非表示です。敵モブの自然発生は停止します。動物・魚の自然発生と、ギフト・コマンドでの召喚は有効です。</p>
-    </details>
-    {dirty && <p role="status" className="game-selector-pending">変更は未保存です。「保存」でゲームを切り替えます。</p>}
-    {status && <small>{status.applied ? `適用済み：${status.games.find(g => g.id === status.active)?.name}` : 'ゲームを選んで「保存」を押してください。'} ／ ゲームの切替はすべて停止してから行います。</small>}
+    {status && <small>{status.applied ? `適用済み：${status.games.find(g => g.id === status.active)?.name}` : 'ゲームが未保存です。ゲームを選んで「保存」を押してください。'} ／ 切替はサーバー・Minecraft・BRIDGEの停止中に行います。</small>}
     {status?.modsOutdatedAfterUpdate && <div role="alert" className="game-selector-pending">
       <p>アプリの更新でMODが古いままです{status.modsRefreshError ? `（理由：${status.modsRefreshError}）` : ''}。サーバーと Minecraft を止めてから「今すぐ入れ替える」を押してください（ほかのMODはそのまま残ります。次にアプリを起動したときも自動で試します）。</p>
       <button type="button" disabled={busy || scanning || status.recoveryRequired} onClick={refreshModsNow}>今すぐ入れ替える</button>

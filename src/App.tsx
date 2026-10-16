@@ -172,7 +172,7 @@ const App: React.FC = () => {
   const handleResetSetup = async () => {
     const api = (window as any).mygamepack;
     try {
-      await api.appConfigWrite({ setupComplete: false, serverFolder: "" });
+      await api.appConfigWrite({ setupComplete: false });
     } catch { /* ignore */ }
     setSetupComplete(false);
     setActivePage(AppPage.SETUP);
@@ -192,7 +192,6 @@ const App: React.FC = () => {
 
   return (
     <div className="app-shell ui-refresh flex h-screen flex-col bg-gray-900 text-gray-100 overflow-hidden">
-      <a className="skip-to-content" href="#main-content">本文へ移動</a>
       <header className="global-app-header">
         <div className="global-app-identity">
           <div className="global-app-cube"><MinecraftBlockIcon /></div>
@@ -230,24 +229,24 @@ const App: React.FC = () => {
             {pauseError && <em role="alert">{pauseError}</em>}
           </div>}
           <main id="main-content" tabIndex={-1} aria-label={PAGE_TITLE[activePage]} key={settingsRevision} ref={contentRef} className="app-content flex-1 overflow-y-auto">
-          {gameSettingsPage && gameReady && <div className="current-game-label">プレイ中のゲーム：<strong>{gameStatus?.games.find(game => game.id === gameStatus.active)?.name}</strong><button type="button" onClick={() => navigateTo(AppPage.DASHBOARD)}>配信ホームで変更</button></div>}
+          {gameSettingsPage && gameReady && <div className="current-game-label">プレイ中のゲーム：<strong>{gameStatus?.games.find(game => game.id === gameStatus.active)?.name}</strong><span>変更はTOPから</span></div>}
           {setupComplete && activePage === AppPage.DASHBOARD && <GameSelector onStatus={setGameStatus} onChanged={() => setSettingsRevision(value => value + 1)} />}
-          {(gameSettingsPage || activePage === AppPage.DASHBOARD) && !gameReady && <section className="game-required" role="status">
+          {gameSettingsPage && !gameReady && <section className="game-required" role="status">
             <h2>{gameLoading ? "ゲームの保存状態を確認しています…" : "配信ホームでゲームを選んで保存してください"}</h2>
             {!gameLoading && <><p>{gameStatus?.recoveryRequired ? "前回のゲーム切替を復旧してから設定を続けてください。" : "ゲームを保存すると、そのゲームで使えるコマンドをギフト・ルーレット・デスルーレット・いいね・シェア・訪問・未設定ギフトなどに設定できます。"}</p>
             {activePage !== AppPage.DASHBOARD && <button type="button" onClick={() => navigateTo(AppPage.DASHBOARD)}>配信ホームへ戻る</button>}</>}
             {/* 操作盤を出せない間も止められるようにする（ゲームの保存・復旧は停止中に行うため） */}
             {setupComplete && <StopPanel />}
           </section>}
-          {activePage === AppPage.DASHBOARD && gameReady && (
+          {activePage === AppPage.DASHBOARD && (
             <div className="page-pad p-6">
-              <DashboardPage onNavigate={navigateTo} disruption={disruption} onDisruptionPause={changeDisruptionPause} />
+              <DashboardPage onNavigate={navigateTo} disruption={disruption} onDisruptionPause={changeDisruptionPause} startReady={gameReady} />
             </div>
           )}
 
           {/* GiftSettingsPage は独自に Header（タブ）を持つため p-0 */}
           {activePage === AppPage.GIFTS && gameReady && <GiftSettingsPage onOpenImageEditor={() => navigateTo(AppPage.IMAGE_EDITOR)} />}
-          {activePage === AppPage.IMAGE_EDITOR && <div className="page-pad p-6"><ImageEditorPage onOpenCatalog={setupComplete ? () => navigateTo(AppPage.GIFTS_VIEWER) : undefined} /></div>}
+          {activePage === AppPage.IMAGE_EDITOR && <div className="page-pad p-6"><ImageEditorPage /></div>}
 
           {activePage === AppPage.EVENTS && gameReady && (
             <div className="page-pad p-6">

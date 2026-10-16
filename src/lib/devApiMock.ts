@@ -265,7 +265,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
       // 手入力フォールバックへ即座に委ねる。
       throw new Error("開発ブラウザーではネイティブのフォルダ選択ダイアログを利用できません");
     },
-    serverCheckSetupComplete: async () => ({ complete: true, dir: appConfig.serverFolder }),
+    serverCheckSetupComplete: async () => ({ complete: true, dir: appConfig.serverFolder || defaultServerFolder }),
     serverCopyTemplate: async (targetFolder: string) => {
       appConfig = { ...appConfig, serverFolder: targetFolder || appConfig.serverFolder };
       localStorage.setItem(DEV_APP_CONFIG_KEY, JSON.stringify(appConfig));

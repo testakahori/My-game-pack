@@ -261,7 +261,7 @@ const WorldDiorama: React.FC = () => (
 );
 
 // ── メインコンポーネント ──────────────────────────────────
-const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?: PauseView; onDisruptionPause?: (pause: boolean) => Promise<string | null> }> = ({ onNavigate, disruption, onDisruptionPause }) => {
+const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?: PauseView; onDisruptionPause?: (pause: boolean) => Promise<string | null>; startReady?: boolean }> = ({ onNavigate, disruption, onDisruptionPause, startReady = true }) => {
   const api = (window as any).mygamepack;
   // 妨害の一時停止（2026-10-16）。状態は App の5秒ごとの mod:status から受け取る。
   const [pauseBusy, setPauseBusy] = useState(false);
@@ -440,6 +440,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
 
   // ── ハンドラー ──
   const handleServerStart = async () => {
+    if (!startReady) return;
     setForgeState("starting"); addLog("Forgeサーバーを起動中…");
     try {
       // 暗視は初期設定：どのワールドでも常時付与されるよう、起動前に毎回データパックを配置する
@@ -484,6 +485,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
   };
 
   const handleBridgeStart = async () => {
+    if (!startReady) return;
     setBridgeState("starting"); addLog("BRIDGEを起動中…");
     try {
       await api.bridgeLaunch(); setBridgeState("running");
@@ -505,6 +507,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
   };
 
   const handleBridgeRestart = async () => {
+    if (!startReady) return;
     setBridgeState("starting"); addLog("BRIDGEを再起動中…");
     try {
       // main側で「停止完了→起動」を直列実行する専用IPCを使う（stop→launch連打の空振りを防ぐ）
@@ -522,6 +525,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
   };
 
   const handleMinecraftLaunch = async () => {
+    if (!startReady) return;
     addLog("Minecraftランチャーを起動中…");
     try { await api.minecraftLaunch(); addLog("Minecraftランチャーを起動しました。", "ok"); }
     catch (e: any) { addLog(`Minecraft起動エラー: ${e?.message ?? String(e)}`, "error"); }
@@ -580,6 +584,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
   }, [api, username]);
 
   const handleAllStart = async () => {
+    if (!startReady) return;
     if (allStartBusy) return;
 
     // OP権限の事前チェック：マイクラID未設定だと起動後の自動OP付与ができず、
@@ -875,18 +880,6 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
             <div><h1>配信の準備をはじめよう</h1><p>TikTok LIVE STUDIOの接続後、MinecraftとBRIDGEを準備します</p></div>
           </div>
 
-          <div className="cockpit-launch-actions">
-            <div className="cockpit-main-actions">
-              <button type="button" onClick={handleAllStart} disabled={isBusy || allStopBusy} className="cockpit-all-start">
-                <span>▶</span> 一括起動
-              </button>
-              <button type="button" onClick={handleAllStop} disabled={allStartBusy || allStopBusy} className="cockpit-all-start cockpit-all-stop">
-                <span>■</span> 一括停止
-              </button>
-            </div>
-
-          </div>
-
           <div className="cockpit-pipeline">
             {pipeline.map((item, index) => (
               <React.Fragment key={item.label}>
@@ -905,7 +898,16 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
             ))}
           </div>
 
-          <p className="cockpit-all-start-note">TikTokはアカウントのライブ配信状態を30秒ごとに確認します。イベントの受信にはBRIDGEの起動が必要です。</p>
+          <div className="cockpit-launch-actions">
+            <div className="cockpit-main-actions">
+              <button type="button" onClick={handleAllStart} disabled={!startReady || isBusy || allStopBusy} className="cockpit-all-start">
+                <span>▶</span> 一括起動
+              </button>
+              <button type="button" onClick={handleAllStop} disabled={allStartBusy || allStopBusy} className="cockpit-all-start cockpit-all-stop">
+                <span>■</span> 一括停止
+              </button>
+            </div>
+          </div>
           {launchNotice && <p role={launchNotice.type === "error" ? "alert" : "status"} className={`cockpit-launch-notice cockpit-launch-notice--${launchNotice.type}`}>{launchNotice.text}</p>}
           {bridgeProcess.delivery?.authFailed ? (
             <p role="alert" className="cockpit-launch-notice cockpit-launch-notice--error">
@@ -920,18 +922,18 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
               {" "}割り当てたコマンドを見直してください。
             </p>
           ) : null}
-          <p className="cockpit-all-start-note">LIVE STUDIOで接続済みなら「一括起動」を押してください。サーバー → Minecraft → BRIDGEの順に準備し、起動済みのものはそのまま使用します。</p>
+          {!startReady && <p className="cockpit-all-start-note" role="status">起動するには、画面上部でプレイするゲームを保存してください。</p>}
           {serverProc.running && serverProc.managed === false && <p className="cockpit-all-start-note">このアプリを開く前からサーバーが動いています。BRIDGEは接続できます。サーバー停止・MAP保存は、起動した画面で stop を実行してから行ってください。</p>}
           <section className="cockpit-bridge-controls" aria-label="BRIDGE単体操作">
             <strong>BRIDGEだけを操作</strong>
             <div className="cockpit-bridge-actions">
-              <button type="button" onClick={handleBridgeStart} disabled={isBusy || bridgeState === "running"} className="cockpit-bridge-action cockpit-bridge-action--start">
+              <button type="button" onClick={handleBridgeStart} disabled={!startReady || isBusy || bridgeState === "running"} className="cockpit-bridge-action cockpit-bridge-action--start">
                 ▶ BRIDGE起動
               </button>
               <button type="button" onClick={handleBridgeStop} disabled={isBusy || bridgeState === "stopped"} className="cockpit-bridge-action cockpit-bridge-action--stop">
                 ■ BRIDGE停止
               </button>
-              <button type="button" onClick={handleBridgeRestart} disabled={isBusy || bridgeState === "stopped"} className="cockpit-bridge-action cockpit-bridge-action--restart">
+              <button type="button" onClick={handleBridgeRestart} disabled={!startReady || isBusy || bridgeState === "stopped"} className="cockpit-bridge-action cockpit-bridge-action--restart">
                 ↻ BRIDGE再起動
               </button>
             </div>
@@ -1062,7 +1064,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
                 {typeof bridgeProcess.memMb === "number" ? <span> MEM {bridgeProcess.memMb}MB</span> : null}
               </p>
             </div>
-            <button type="button" onClick={handleBridgeRestart} disabled={isBusy}>↻ BRIDGE再起動</button>
+            <button type="button" onClick={handleBridgeRestart} disabled={!startReady || isBusy}>↻ BRIDGE再起動</button>
           </div>
           <div className="cockpit-bridge-log-body">
             {bridgeLogs.length ? bridgeLogs.slice(-80).map((line, index) => (

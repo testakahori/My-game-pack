@@ -203,7 +203,7 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
             <aside className="gift-design-preview">
               <div className="gift-preview-art">
                 {pickedGiftImage ? <img src={pickedGiftImage} alt={pickedGiftName || "選択中ギフト"} /> : null}
-                {!pickedGiftImage && <span className="gift-preview-placeholder"><i className="fa-solid fa-gift" aria-hidden="true" /></span>}
+                <i>✦</i><b>✦</b>
               </div>
               <div className="gift-preview-heading">
                 <h2>{pickedGiftName || "ギフトを選択"}</h2>
@@ -211,7 +211,7 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
               </div>
               <p>コスト: <strong>{pickedGiftId && pickedGiftDiamonds !== undefined ? `💎 ${pickedGiftDiamonds}` : "—"}</strong></p>
               <div className="gift-preview-route">
-                <small>割り当てプレビュー</small>
+                <small>ルートプレビュー</small>
                 <div>
                   <span>{pickedMapping?.commandFile ? <MinecraftCommandIcon command={pickedMapping.commandFile} /> : <i className="fa-solid fa-circle-question" aria-hidden="true" />}</span>
                   <b>{pickedMapping?.commandSetLabel || pickedMapping?.commandFile || "コマンド未設定"}</b>
