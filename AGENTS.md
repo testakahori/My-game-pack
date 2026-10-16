@@ -31,7 +31,7 @@
     - BridgeMod：`BridgeMod/` で `gradlew build --offline "-Dnet.minecraftforge.gradle.check.certs=false"`
     - SaikutuMod・DisplayMod：`BridgeMod/gradlew -p <MODのフォルダー> build` に同じ引数を付けます。
   - jar の中身を変えたらバージョンを上げ、`game-packs/*/game.json` などの参照も合わせます。
-- テスト発火と本番の両方を直します。Bridge が横取りして処理するもの（ルーレット、いいね、回数の上限、ミュートなど）は、アプリのテスト発火（`electron/event_tests.cjs`、`electron/main.cjs`）にも同じ処理があります。
+- テスト発火は BRIDGE に渡し、本番と同じ処理（`bridge/index.js` の `handleGift` などに ctx を渡す形）を通します（2026-10-16）。本番の処理を直せば、テスト発火にも同じ直しが効きます。テストのときだけの分かれ道（`ctx.run` があるとき）を足すときは、本番の要求が変わらないことを `electron/test/test-fire-parity.test.cjs` で確かめます。
 - 新しいテストは、修正前のコードで落ちることを確かめます。確かめるときは `git archive` で取り出した一時コピーを使い、共有の作業ツリーで `git stash` は使いません。古い退避を誤って戻す事故が起きかけました。
 
 ## 書き方
