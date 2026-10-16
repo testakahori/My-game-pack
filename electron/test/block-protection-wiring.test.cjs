@@ -60,7 +60,8 @@ test('控える範囲は、プレイヤーの描画距離・強制読み込み�
 test('BridgeMOD は tick ごとのキュー処理（txt と /bridge/exec）を runProtected で包む', () => {
   const source = read('BridgeMod/src/main/java/jp/douma/bridgemod/BridgeMod.java');
   const tick = source.slice(source.indexOf('public void onServerTick('), source.indexOf('private void processQueues()'));
-  assert.match(tick, /if \(hasQueuedEvents\(\)\) BlockProtection\.runProtected\(activeServer, "bridgemod", this::processQueues\);/);
+  // 妨害の一時停止の間は、待ちから取り出さない（BridgeMOD 1.8.0）。
+  assert.match(tick, /if \((?:!paused && )?hasQueuedEvents\(\)\) BlockProtection\.runProtected\(activeServer, "bridgemod", this::processQueues\);/);
   assert.doesNotMatch(tick, /processQueue\(activeServer/, 'キューを包みの外で処理しない');
   const queues = source.slice(source.indexOf('private void processQueues()'));
   for (const name of ['giftQueue', 'otherQueue', 'likeQueue']) assert.match(queues.slice(0, 600), new RegExp('processQueue\\(activeServer, ' + name));
