@@ -18,15 +18,26 @@ test('ワールドを選び直したら、その場で level-name を保存す�
   assert.match(save, /setLevelName\(next\);/);
 });
 
-test('保存できなかったら、選ぶ前のワールドに戻して理由を出す', () => {
+test('保存できなかったら、保存を始める前のワールドに戻して理由を出す', () => {
   const save = between('const handleWorldSave = async (next: string) => {', '\n  };\n');
-  assert.match(save, /catch \(e: any\) \{\s*setDraft\(levelName\);/);
+  // 戻し先は保存を始めた時点の値（一括起動が途中で保存しても、古い値に戻さない。PR #105 レビュー）。
+  assert.match(save, /const previous = levelName;/);
+  assert.match(save, /catch \(e: any\) \{\s*setDraft\(previous\);/);
   assert.match(save, /保存できませんでした。選ぶ前のワールドのままです/);
 });
 
-test('保存している間は選べない。保存の結果をカードに出す', () => {
+// 一括起動と同じく、サーバーが動いている間はワールドを変えない（PR #105 レビュー）。
+test('サーバーが動いている間はワールドを選べず、理由を出す。保存の直前にももう一度確かめる', () => {
+  const save = between('const handleWorldSave = async (next: string) => {', '\n  };\n');
+  const check = save.indexOf('if ((await api.serverProcessStatus?.())?.running) throw new Error("サーバーが動いているため、ワールドを変えられません。停止してから選んでください。");');
+  assert.ok(check >= 0 && check < save.indexOf('await api.serverPropsWrite('), '書く前に確かめる');
   const card = between('<section className="cockpit-info-card cockpit-world-card">', '</section>');
-  assert.match(card, /<select value=\{subfolder\} disabled=\{worldLoading \|\| worldSaving\} onChange=\{\(e\) => setSubfolder\(e\.target\.value\)\}>/);
+  assert.match(card, /\{serverProc\.running === true && <small className="cockpit-world-msg">サーバーの動作中はワールドを変えられません。停止してから選んでください。<\/small>\}/);
+});
+
+test('保存している間・一括起動の間・サーバーの動作中は選べない。保存の結果をカードに出す', () => {
+  const card = between('<section className="cockpit-info-card cockpit-world-card">', '</section>');
+  assert.match(card, /<select value=\{subfolder\} disabled=\{worldLoading \|\| worldSaving \|\| allStartBusy \|\| serverProc\.running === true\} onChange=\{\(e\) => setSubfolder\(e\.target\.value\)\}>/);
   assert.match(card, /\{worldMsg && <small role=\{worldMsg\.type === "error" \? "alert" : "status"\}/);
   assert.match(card, /\{worldMsg\.text\}/);
 });

@@ -807,15 +807,19 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
   };
 
   const handleWorldSave = async (next: string) => {
+    // 失敗したら、保存を始めた時点のワールドに戻す（一括起動が途中で保存しても、古い値に戻さない）。
+    const previous = levelName;
     setWorldSaving(true); setWorldMsg(null);
     try {
+      // 一括起動と同じく、サーバーが動いている間はワールドを変えない（選ぶ欄も止めているが、押した直後に起動された場合に備える）。
+      if ((await api.serverProcessStatus?.())?.running) throw new Error("サーバーが動いているため、ワールドを変えられません。停止してから選んでください。");
       await api.serverPropsWrite({ "level-name": next });
       setLevelName(next);
       try { await api.serverDatapackDeployNightVision(); } catch { /* ignore */ }
       setWorldMsg({ type: "ok", text: "保存しました。次回サーバー起動時に反映されます。" });
       addLog(`配布ワールドを変更しました: ${next}`, "ok");
     } catch (e: any) {
-      setDraft(levelName);
+      setDraft(previous);
       setWorldMsg({ type: "error", text: `保存できませんでした。選ぶ前のワールドのままです: ${e?.message ?? String(e)}` });
       addLog(`ワールド保存エラー: ${e?.message ?? String(e)}`, "error");
     } finally { setWorldSaving(false); }
@@ -1029,11 +1033,12 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
           <section className="cockpit-info-card cockpit-world-card">
           <h2><span><GrassBlockIcon /></span> 配信ワールド</h2>
           <label>ワールド</label>
-          <select value={subfolder} disabled={worldLoading || worldSaving} onChange={(e) => setSubfolder(e.target.value)}>
+          <select value={subfolder} disabled={worldLoading || worldSaving || allStartBusy || serverProc.running === true} onChange={(e) => setSubfolder(e.target.value)}>
             {worldFolders.map((folder) => <option value={folder} key={folder}>{WORLD_PREFIX}/ {folder}</option>)}
           </select>
           <WorldDiorama />
           <small>状態: <b>{worldSaving ? "保存中…" : levelName ? "起動準備OK" : "未設定"}</b></small>
+          {serverProc.running === true && <small className="cockpit-world-msg">サーバーの動作中はワールドを変えられません。停止してから選んでください。</small>}
           {worldMsg && <small role={worldMsg.type === "error" ? "alert" : "status"} className={`cockpit-world-msg cockpit-world-msg--${worldMsg.type}`}>{worldMsg.text}</small>}
           </section>
 
