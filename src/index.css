@@ -7537,6 +7537,10 @@ button.tts-status-card:hover {
 .backup-controls label { display: grid; gap: 7px; flex: 1; min-width: 270px; font-size: 12px; }
 .backup-controls select { width: 100%; background: #0a1626; border: 1px solid #3c536d; padding: 11px; color: #e4edf7; border-radius: 9px; font-size: 13px; }
 .unsaved-banner { padding: 8px 24px; background: #493a1c; border-bottom: 1px solid #8c682e; color: #ffe0a1; font-size: 12px; }
+/* 妨害の一時停止中の帯（2026-10-16） */
+.pause-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 24px; background: #1c3a49; border-bottom: 1px solid #2e7d8c; color: #c9f3ff; font-size: 12px; }
+.pause-banner button { padding: 4px 12px; border: 1px solid #5fd3e8; border-radius: 6px; background: #0f2a36; color: #e6fbff; font-size: 12px; cursor: pointer; }
+.pause-banner em { color: #ffb4a8; font-style: normal; }
 .safety-panel :focus-visible { outline: 2px solid #69e4f5; outline-offset: 3px; }
 
 /* Event rehearsal and explicit stream recording */

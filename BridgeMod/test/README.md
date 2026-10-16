@@ -117,3 +117,15 @@ Java 17でBridgeModの通常のbuildに加えて、明示的に `environmentProb
 `node saikutu-commands.cjs` は、採掘へ移した採掘速度上昇・低下（give_haste・give_fatigue）が SaikutuMOD の内蔵 txt から効くことを確かめます（SaikutuMOD 1.1.2 から）。SaikutuMOD を入れたサーバーで、上と同じマーカー・ポート・GIFT_QA_SERVER を使います。テストが `bridge/commands/minecraft/game_saikutu_*.txt` を書きます。
 
 結果はサーバールートの `saikutu-commands-results.json` に保存します。
+
+## 妨害の一時停止（2026-10-16）
+
+`node pause.cjs` は、BridgeMOD 1.8.0 の妨害の一時停止を確かめます。上と同じマーカー・ポート・GIFT_QA_SERVER を使います。テストが `bridge/commands/minecraft/qa_pause.txt` を書き、ボット（QAPause）を接続します。
+
+- `/bridge/control` の `pause`・`resume` で切り替わり、2回押しても 200。状態に `paused` が出る。
+- 止めている間は、ギフト・いいね・そのほか・`/bridge/exec`・ゲーム内の `/bridge` を実行せずに預かる。再開したら送った数どおり実行する。
+- 止めている間に配信が終わったら、預かったいいねは捨てる。
+- 止めている間に待ちがいっぱいになったら 429 を返す。再開したら預かった分は全部実行する。
+- 始まっている演出は、止めても最後まで続く。
+
+結果はサーバールートの `pause-results.json` に保存します。`--only=<名前の一部>` で1件だけ実行できます。

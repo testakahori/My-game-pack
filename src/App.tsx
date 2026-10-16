@@ -17,6 +17,7 @@ import MinecraftBlockIcon from "./components/MinecraftBlockIcon";
 import LoginPage from "./components/LoginPage";
 import GameSelector from './components/GameSelector';
 import StopPanel from "./components/StopPanel";
+import { pauseView, pauseBannerText, setDisruptionPause, type PauseView } from "./lib/disruptionPause";
 import type { GameStatus } from './types/electron';
 import { UnsavedChangesProvider, useUnsavedGuard } from "./UnsavedChanges";
 
@@ -43,6 +44,10 @@ const App: React.FC = () => {
   const [appVersion, setAppVersion] = useState("");
   const [clock, setClock] = useState(new Date());
   const [headerStatus, setHeaderStatus] = useState({ bridgeRunning: false, modOnline: false, modAuthFailed: false });
+  // 妨害の一時停止（2026-10-16）。止めている間は、どのページにも帯を出す。
+  const [disruption, setDisruption] = useState<PauseView>(() => pauseView(null));
+  const [pauseError, setPauseError] = useState("");
+  const pollRef = useRef<() => Promise<void>>(async () => {});
   const { confirmDiscard, hasChanges } = useUnsavedGuard();
   const [settingsRevision, setSettingsRevision] = useState(0);
   const contentRef = useRef<HTMLElement>(null);
@@ -135,12 +140,29 @@ const App: React.FC = () => {
           api?.modStatus ? api.modStatus() : Promise.resolve({ online: false }),
         ]);
         if (!cancelled) setHeaderStatus({ bridgeRunning: Boolean(bridge?.running), modOnline: Boolean(mod?.online), modAuthFailed: mod?.authFailed === true });
+        if (!cancelled) setDisruption(pauseView(mod));
       } catch { /* ヘッダーの参考表示なので失敗しても無視 */ }
     };
+    pollRef.current = poll;
     poll();
     const timer = window.setInterval(poll, 5000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, []);
+
+  // 一時停止・再開（2026-10-16）。出どころは配信ホームと帯で分けて記録する。
+  // 切り替えたあとは5秒待たずに読み直す。失敗したら理由を出す（止めたことにしない）。
+  const changeDisruptionPause = async (pause: boolean): Promise<string | null> => {
+    const api = (window as any).mygamepack;
+    const result = await setDisruptionPause(api, pause, pause ? "home:pause" : "home:resume");
+    await pollRef.current();
+    return result.ok ? null : result.message || "一時停止を切り替えられませんでした。";
+  };
+  const resumeFromBanner = async () => {
+    const api = (window as any).mygamepack;
+    const result = await setDisruptionPause(api, false, "banner:resume");
+    setPauseError(result.ok ? "" : result.message || "再開できませんでした。");
+    await pollRef.current();
+  };
 
   const handleSetupComplete = () => {
     setSetupComplete(true);
@@ -201,6 +223,11 @@ const App: React.FC = () => {
           </header>
 
           {hasChanges && <div className="unsaved-banner" role="status">未保存の変更があります。保存してから画面を移動してください。</div>}
+          {disruption.paused && <div className="pause-banner" role="status">
+            <span>{pauseBannerText(disruption)}</span>
+            <button type="button" onClick={resumeFromBanner}>▶ 再開</button>
+            {pauseError && <em role="alert">{pauseError}</em>}
+          </div>}
           <main key={settingsRevision} ref={contentRef} className="app-content flex-1 overflow-y-auto">
           {gameSettingsPage && gameReady && <div className="current-game-label">プレイ中のゲーム：<strong>{gameStatus?.games.find(game => game.id === gameStatus.active)?.name}</strong><span>変更はTOPから</span></div>}
           {setupComplete && activePage === AppPage.DASHBOARD && <GameSelector onStatus={setGameStatus} onChanged={() => setSettingsRevision(value => value + 1)} />}
@@ -213,7 +240,7 @@ const App: React.FC = () => {
           </section>}
           {activePage === AppPage.DASHBOARD && gameReady && (
             <div className="page-pad p-6">
-              <DashboardPage onNavigate={navigateTo} />
+              <DashboardPage onNavigate={navigateTo} disruption={disruption} onDisruptionPause={changeDisruptionPause} />
             </div>
           )}
 

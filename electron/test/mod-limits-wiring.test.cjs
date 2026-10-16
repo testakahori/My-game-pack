@@ -20,7 +20,9 @@ test('BridgeMOD は大技の count を抑えず、スーパージャンプに上
   assert.doesNotMatch(source, /SLOW_FALLING/, '低速落下を付けない（落下死してよい）');
   assert.match(source, /j\.target = JumpPhysics\.stackTarget\(Math\.max\(j\.target, p\.getY\(\)\), count\);/);
   assert.equal(fs.existsSync(path.resolve(__dirname, '../../BridgeMod/src/main/java/jp/douma/bridgemod/EffectLimits.java')), false);
-  assert.match(read('BridgeMod/gradle.properties'), /^mod_version=1\.7\.\d+\r?$/m);
+  // 上限をやめたのは 1.7.0 から（以降の版でも上限は戻さない）。
+  const [major, minor] = read('BridgeMod/gradle.properties').match(/^mod_version=(\d+)\.(\d+)\.\d+\r?$/m).slice(1).map(Number);
+  assert.ok(major > 1 || major === 1 && minor >= 7, 'BridgeMOD 1.7.0 以上');
 });
 
 test('頂点を過ぎて水・溶岩・はしご・乗り物・飛行に入ったジャンプは外し、次のジャンプを古い頂点に足さない（PR #74 レビュー）', () => {

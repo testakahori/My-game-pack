@@ -22,6 +22,8 @@ export type PreflightCheck = { id: string; title: string; status: "ok" | "warn" 
 export type PreflightResult = { checkedAt: string; checks: PreflightCheck[] };
 // 停止の出どころ。main がログ欄と logs/stop-requests.log に残す（名前は electron/stop_requests.cjs の STOP_ORIGINS と同じ）。
 export type StopOrigin = "stop-panel:all" | "stop-panel:bridge" | "stop-panel:server" | "home:all" | "home:bridge" | "home:server" | "home:bridge-restart" | "euler:bridge-restart";
+// 妨害の一時停止・再開の出どころ（同じく STOP_ORIGINS と同じ名前。2026-10-16）。
+export type PauseOrigin = "home:pause" | "home:resume" | "banner:resume";
 export type SettingsBackup = { id: string; createdAt: string; reason: string; version: string; username: string; mappings: number; commands: number; ttsEnabled: boolean; issues: number };
 
 export type Gift = {

@@ -78,6 +78,9 @@ public class BridgeMod {
     private volatile String lastStatusRest = ",\"starting\":true}";
     // サーバーのスレッドだけが読み書きする。同じ失敗を毎秒ログに出さない。
     private String lastStatusFailure = "";
+    // 妨害の一時停止（休憩・準備の間だけ止める。2026-10-16 ユーザーの決定）。メモリだけに持ち、サーバーを止めたら解く。
+    // 受付（HTTP）は続け、待ちから取り出して実行することだけを止める。
+    private volatile boolean paused;
     private long executedCommands = 0;
     private long failedCommands = 0;
     private volatile String lastError = "";
@@ -143,6 +146,7 @@ public class BridgeMod {
     public void onServerStopping(ServerStoppingEvent event) {
         // HTTP を閉じる前にサーバーを外す。止めている間に届いた状態の要求は、サーバーを待たずに古い状態を返す（PR #98 レビュー）。
         activeServer = null;
+        paused = false;
         GameEvents.clearSessions(); discardedGameRequests = 0;
         giftEffects.stop();
         EnvironmentOverrides.reset();
@@ -176,7 +180,8 @@ public class BridgeMod {
 
         likeCod.tick();
         // 妨害のコマンド（txt と /bridge/exec）は、実行のあとで変わったコマンドブロックを中身ごと戻す（BlockProtection）。
-        if (hasQueuedEvents()) BlockProtection.runProtected(activeServer, "bridgemod", this::processQueues);
+        // 一時停止の間は待ちから取り出さない（始まっている演出・固定環境・状態の送信は続ける）。
+        if (!paused && hasQueuedEvents()) BlockProtection.runProtected(activeServer, "bridgemod", this::processQueues);
         giftEffects.tick(activeServer);
         environment.apply(activeServer, giftEffects);
         if (++statusBroadcastTicks >= 20) {
@@ -263,6 +268,7 @@ public class BridgeMod {
             source.sendFailure(Component.literal("[Bridge] queue is full, try again later"));
             return 0;
         }
+        if (paused) source.sendSuccess(() -> Component.literal("[Bridge] 妨害は一時停止中です。再開すると実行されます"), false);
         return 1;
     }
 
@@ -406,8 +412,9 @@ public class BridgeMod {
         return new String(buf, StandardCharsets.UTF_8);
     }
 
-    // 待ち列への指示。今は「いいねの待ちを捨てる」だけ（配信が終わったとき。2026-10-14 ユーザーの決定）。
-    // ギフト・そのほかの待ちは捨てない（送られた数どおりに起こす）。
+    // 待ち列への指示（トークンが必要）。
+    // - いいねの待ちを捨てる（配信が終わったとき。2026-10-14 ユーザーの決定）。ギフト・そのほかの待ちは捨てない。
+    // - 妨害の一時停止・再開（休憩・準備の間だけ止める。2026-10-16 ユーザーの決定）。
     private void handleBridgeControl(HttpExchange exchange) throws IOException {
         if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
             sendHttp(exchange, 405, "{\"ok\":false,\"error\":\"method_not_allowed\"}");
@@ -417,9 +424,15 @@ public class BridgeMod {
         try {
             com.google.gson.JsonObject data = com.google.gson.JsonParser.parseString(readHttpBody(exchange)).getAsJsonObject();
             action = data.get("action").getAsString();
-            type = data.get("type").getAsString();
+            type = data.has("type") ? data.get("type").getAsString() : "";
         } catch (Exception e) {
             sendHttp(exchange, 400, "{\"ok\":false,\"error\":\"bad_request\"}");
+            return;
+        }
+        if ("pause".equals(action) || "resume".equals(action)) {
+            paused = "pause".equals(action);
+            System.out.println("[Bridge] disruptions " + (paused ? "paused" : "resumed"));
+            sendHttp(exchange, 200, "{\"ok\":true,\"paused\":" + paused + "}");
             return;
         }
         if (!"discard".equals(action) || !"like".equals(type)) {
@@ -476,8 +489,9 @@ public class BridgeMod {
         return statusHead(gift, like, other) + ",\"stale\":true" + lastStatusRest;
     }
 
-    private static String statusHead(int gift, int like, int other) {
-        return "{\"ok\":true,\"mod\":\"bridgemod\",\"environmentFixed\":true,\"gift\":" + gift + ",\"like\":" + like + ",\"other\":" + other;
+    private String statusHead(int gift, int like, int other) {
+        return "{\"ok\":true,\"mod\":\"bridgemod\",\"environmentFixed\":true,\"paused\":" + paused
+            + ",\"gift\":" + gift + ",\"like\":" + like + ",\"other\":" + other;
     }
 
     // サーバーのスレッドからだけ呼ぶ。状態を作れなくても、起動と tick は止めない（null を返す）。

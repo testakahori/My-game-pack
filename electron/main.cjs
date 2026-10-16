@@ -1658,7 +1658,7 @@ function requestBridgeMod(method, requestPath, body, configOverride) {
         let parsed = {}; try { parsed = JSON.parse(text); } catch { parsed = { message: text }; }
         // 403 は「MODは動いているが認証に失敗」。オフラインと区別して原因と直し方を出す。
         if (res.statusCode === 403) reject(Object.assign(new Error(BRIDGE_MOD_AUTH_FAILED), { status: 403, authFailed: true }));
-        else if (res.statusCode >= 400 || parsed.ok === false) reject(new Error(parsed.message || `HTTP ${res.statusCode}`));
+        else if (res.statusCode >= 400 || parsed.ok === false) reject(Object.assign(new Error(parsed.message || `HTTP ${res.statusCode}`), { status: res.statusCode }));
         else resolve(parsed);
       });
     });
@@ -1760,6 +1760,23 @@ ipcMain.handle("mod:status", async () => {
   try { return { online: true, ...(await requestBridgeMod("GET", "/bridge/status")) }; }
   catch (e) { return { online: false, authFailed: e?.authFailed === true, error: e.message }; }
 });
+// 妨害の一時停止・再開（BridgeMOD 1.8.0 の /bridge/control。2026-10-16 ユーザーの決定）。停止と同じく出どころを記録する。
+async function setDisruptionPause(pause, origin) {
+  stopRequests.record(pause ? "pause" : "resume", origin);
+  try {
+    const result = await requestBridgeMod("POST", "/bridge/control", { action: pause ? "pause" : "resume" });
+    return { ok: true, paused: result.paused === true };
+  } catch (error) {
+    // 1.7.5〜1.7.6 は 400（受け付けない指示）、1.7.4 より前は /bridge/control がなく 404（HTML）を返す。
+    if (error?.status === 400 || error?.status === 404) return { ok: false, message: "BridgeMOD を新しくすると使えます（1.8.0 以上）。" };
+    // 認証の失敗は直し方を含んだ文言を返す。つながらない・応答がないときは、英語の生の文字列を出さない。
+    if (error?.authFailed) return { ok: false, message: error.message };
+    if (!error?.status) return { ok: false, message: "BridgeMOD とつながっていません。Minecraft サーバーが動いているか確かめてください。" };
+    return { ok: false, message: error?.message || String(error) };
+  }
+}
+ipcMain.handle("mod:pause", (_event, origin) => setDisruptionPause(true, origin));
+ipcMain.handle("mod:resume", (_event, origin) => setDisruptionPause(false, origin));
 // 送った分を outcomes に1件ずつ足す。途中で失敗しても、それまでに送った分は呼び出し元に残る。
 async function fireBridgeEventMaybeRoulette(payload, bridgeCfg, commandsDir, outcomes) {
   const send = (method, route, body) => requestBridgeMod(method, route, body, bridgeCfg);
@@ -1819,6 +1836,10 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
   const fired = [];
   testEventRunning = true;
   try {
+    // 一時停止中でも待ちに積む。実行は再開まで待つことを結果に書く（2026-10-16）。
+    // 読み取りは実行中の印を立てたあとに行う（待っている間に押された2つ目を、同時に動かさない）。
+    let paused = false;
+    try { paused = (await requestBridgeMod("GET", "/bridge/status", null, bridgeCfg)).paused === true; } catch { /* 送る段階で失敗を報告する */ }
     for (const [stepIndex, step] of plan.steps.entries()) {
       const payload = {
         type: step.type === "like" ? "like" : ["gift", "mapped_gift", "unmapped_gift"].includes(step.type) ? "gift" : "other",
@@ -1856,7 +1877,8 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
     }
     const succeeded = fired.filter(row => row.ok).length;
     return { ok: succeeded === fired.length, matched: true, fired, steps: details, notes: plan.notes,
-      message: fired.length + "件中" + succeeded + "件をModへ送信しました。ゲーム内の結果も確認してください。" };
+      // 送れなかった分（待ちがいっぱいなど）は再開しても実行されないので、送れた分があるときだけ書く。
+      message: fired.length + "件中" + succeeded + "件をModへ送信しました。ゲーム内の結果も確認してください。" + (paused && succeeded > 0 ? " 一時停止中です。再開すると実行されます。" : "") };
   } finally { testEventRunning = false; }
 });
 

@@ -38,6 +38,7 @@ argsは最大32項目。キーは英字開始の英数字・アンダースコ�
 - GameEvents.register の3つ目の引数（状態を返す Supplier）は、サーバーのスレッドだけで呼びます。呼ぶのは、サーバーの起動時、WebSocket の状態通知の1秒ごと、`/bridge/status` の要求ごと（tick と tick の間）です。ワールドやエンティティを読んでもかまいません。重い処理は避けてください。
 - Supplier が例外を出したとき、または返した値を JSON にできないとき（自分を含む Map、Gson が扱えない型など）も、BridgeMOD とサーバーは止まりません。そのゲームの状態だけが `{"ok":false,"error":"<例外の型>: <メッセージ>"}` になります。以前は、例外が tick から漏れてサーバーが落ちることがありました。状態には、文字列・数値・真偽値と、それらの List・Map を入れてください。
 - GameEvents.register は、複数のゲームMODから同時に呼ばれても登録が消えません。同じIDの二重登録は IllegalArgumentException になります。
+- BridgeMOD 1.8.0 から、配信者が妨害を一時停止している間は、BridgeMOD はゲームMODへ要求を渡しません。要求は BridgeMOD の待ちに残り、再開したあとに順に渡します。requestId と gameSessionId は変わりません。ゲームMOD自身の待ちにすでに入った分は、ゲームMOD側で動きます。
 
 ## リセットとゲーム番号
 

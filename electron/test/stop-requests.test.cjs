@@ -102,3 +102,20 @@ test('残す範囲に改行がない長い1行は、途中から残さずに捨�
   createStopRequestLog({ file: () => file, now: () => at, maxBytes: 1000 }).record('bridge', 'home:bridge');
   assert.equal(fs.readFileSync(file, 'utf8'), '2026-10-10 03:44:01.662 BRIDGE停止 ← 配信ホームのBRIDGE停止\n');
 });
+
+test('妨害の一時停止・再開も、出どころ付きで同じ記録に残す（2026-10-16）', t => {
+  assert.equal(stopOriginLabel('home:pause'), '配信ホームの一時停止');
+  assert.equal(stopOriginLabel('home:resume'), '配信ホームの再開');
+  assert.equal(stopOriginLabel('banner:resume'), '一時停止の帯の再開');
+  const file = path.join(tempDir(t), 'stop-requests.log');
+  const log = createStopRequestLog({ file: () => file, now: () => at });
+  log.record('pause', 'home:pause');
+  log.record('resume', 'banner:resume');
+  assert.equal(fs.readFileSync(file, 'utf8'),
+    '2026-10-10 03:44:01.662 妨害の一時停止 ← 配信ホームの一時停止\n' +
+    '2026-10-10 03:44:01.662 妨害の再開 ← 一時停止の帯の再開\n');
+  const declared = fs.readFileSync(path.resolve(__dirname, '../../src/types/electron.d.ts'), 'utf8').match(/export type PauseOrigin = ([^;]+);/);
+  assert.ok(declared, 'PauseOrigin の型がある');
+  const names = [...declared[1].matchAll(/"([^"]+)"/g)].map(m => m[1]);
+  assert.deepEqual(names.sort(), ['banner:resume', 'home:pause', 'home:resume']);
+});

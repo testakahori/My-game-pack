@@ -6,6 +6,7 @@ import EulerApiKeySettings from './EulerApiKeySettings';
 import { useUnsavedChanges } from "../UnsavedChanges";
 import type { GiftMapping } from "../types";
 import { stopConfirmMessage, stopState, type StopTarget } from "../lib/stopSafety";
+import type { PauseView } from "../lib/disruptionPause";
 
 type RunState = "stopped" | "starting" | "running" | "error";
 type LogType  = "info" | "ok" | "error" | "warn";
@@ -259,8 +260,11 @@ const WorldDiorama: React.FC = () => (
 );
 
 // ── メインコンポーネント ──────────────────────────────────
-const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNavigate }) => {
+const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?: PauseView; onDisruptionPause?: (pause: boolean) => Promise<string | null> }> = ({ onNavigate, disruption, onDisruptionPause }) => {
   const api = (window as any).mygamepack;
+  // 妨害の一時停止（2026-10-16）。状態は App の5秒ごとの mod:status から受け取る。
+  const [pauseBusy, setPauseBusy] = useState(false);
+  const [pauseNotice, setPauseNotice] = useState("");
 
   const [forgeState,  setForgeState]  = useState<RunState>("stopped");
   const [bridgeState, setBridgeState] = useState<RunState>("stopped");
@@ -460,7 +464,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
   // 稼働中のものを止めるときだけ確認する（配信中のうっかり停止を防ぐ。止まっていれば確認なしで実行）。
   // アプリの外で起動したサーバーはここから止められないので、止める対象に数えない。
   const confirmStop = (target: StopTarget) => {
-    const message = stopConfirmMessage(target, stopState(bridgeProcess, serverProc));
+    const message = stopConfirmMessage(target, { ...stopState(bridgeProcess, serverProc), disruptionPaused: disruption?.paused === true });
     return !message || window.confirm(message);
   };
 
@@ -934,6 +938,20 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void }> = ({ onNa
             </div>
             <p>サーバーとMinecraftは動かしたまま操作できます。いいね・ギフトの割り当ては保存後、数秒で自動反映されます。接続アカウントを変えたときはBRIDGEを再起動してください。</p>
           </section>
+          {disruption && onDisruptionPause ? (
+            <section className="cockpit-bridge-controls cockpit-pause-controls" aria-label="妨害の一時停止">
+              <strong>妨害の一時停止</strong>
+              <div className="cockpit-bridge-actions">
+                <button type="button" disabled={pauseBusy || !disruption.online}
+                  className={`cockpit-bridge-action ${disruption.paused ? "cockpit-bridge-action--start" : "cockpit-bridge-action--restart"}`}
+                  onClick={async () => { setPauseBusy(true); setPauseNotice((await onDisruptionPause(!disruption.paused)) || ""); setPauseBusy(false); }}>
+                  {disruption.paused ? "▶ 妨害を再開" : "⏸ 妨害を一時停止"}
+                </button>
+              </div>
+              {pauseNotice && <p role="alert">{pauseNotice}</p>}
+              <p>休憩や準備の間だけ妨害を止めます。止めている間に届いたギフト・いいねは預かり、再開すると送られた数どおり順に起きます。始まっている演出は最後まで続きます。サーバーを止める・再起動すると一時停止は解け、BridgeMOD で預かっていた分は消えます。</p>
+            </section>
+          ) : null}
           <details className="studio-advanced"><summary>ランチャー設定</summary>
           <div className="cockpit-launcher-config">
             <button type="button" onClick={handlePickLauncher}>🎮 ランチャーの場所を指定</button>
