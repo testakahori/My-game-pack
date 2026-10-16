@@ -1,4 +1,5 @@
 // src/components/DashboardPage.tsx
+import LaunchGuide from "./LaunchGuide";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AppPage } from "../types";
 import PreflightPanel from "./PreflightPanel";
@@ -592,7 +593,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
           "OP権限がまだ付与されていません。\n\n"
           + "マイクラIDが未設定のため、起動後の自動OP付与ができません。\n"
           + "OPが無いとゲームモード切替（F3+F4）やコマンドが使えません。\n\n"
-          + "ダッシュボードの「マイクラID」欄にプレイヤー名を保存してから\n"
+          + "配信ホームの「マイクラID」欄にプレイヤー名を保存してから\n"
           + "一括起動することをおすすめします。\n\n"
           + "このまま一括起動を続行しますか？"
         );
@@ -706,7 +707,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
           const granted = await api.minecraftGrantOp?.();
           addLog(granted?.message || `マイクラID「${appCfg.minecraftPlayerName}」にOP権限を付与しました。`, "ok");
         } else {
-          addLog("警告: マイクラID未設定のためOP権限を付与できませんでした。ダッシュボードでマイクラIDを保存してください。", "warn");
+          addLog("警告: マイクラID未設定のためOP権限を付与できませんでした。配信ホームでマイクラIDを保存してください。", "warn");
         }
       } catch (opErr: any) {
         addLog(`警告: OP権限を付与できませんでした（${opErr?.message ?? String(opErr)}）。ゲームモード切替やコマンドが使えない場合は、マイクラIDを保存し直してください。`, "warn");
@@ -857,21 +858,12 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
   };
 
   const pipeline = [
-    { label: "TikTok LIVE", value: tiktokConfigured ? `@${typedUsername}` : "未設定", icon: "tiktok", state: liveState === "live" ? "running" : liveState === "checking" ? "starting" : "stopped", tone: "green", runningText: "接続済み（配信中）" },
+    { label: "TikTok LIVE", value: tiktokConfigured ? `@${typedUsername}` : "未設定", icon: "tiktok", state: liveState === "live" ? "running" : liveState === "checking" ? "starting" : liveState === "error" ? "error" : "stopped", tone: "green", runningText: "接続済み（配信中）" },
     { label: "Forge Server", value: serverProc.running && serverProc.managed === false ? "起動済み（アプリ外）" : "Forge 1.20.1", icon: "▣", state: forgeState, tone: "red", runningText: "接続中" },
     { label: "Game", value: gameRunning ? "Minecraft 検知中" : worldDisplay, icon: "world", state: gameRunning ? "running" : "stopped", tone: "green", runningText: "起動中" },
     { label: "Bridge", value: "TikTok → Minecraft", icon: "⛓", state: bridgeState, tone: "red", runningText: "接続中" },
   ] as const;
 
-  const launchFlow = [
-    ["TIKTOK LIVE STUDIO でライブ接続", "接続済みなら「一括起動」へ進めます", "manual"],
-    ["Forgeサーバー起動", "Forge 1.20.1 が起動するまで待つ", stepForge],
-    ["Minecraft起動", "ランチャーを開いてサーバーに接続", gameRunning ? "done" : "pending"],
-    ["BRIDGE起動", "TikTok → BridgeMOD 接続", stepBridge],
-    ["配布ワールド選択", `${draft || "haihu_world/sakura"} を適用`, levelName ? "done" : "pending"],
-    ["MAP保存・動作設定", "監視・テスト・バックアップ確認", "done"],
-    ["TIKTOK LIVE 配信開始", "配信開始ボタンはLive Studio側で押します", "pending"],
-  ] as const;
 
   return (
     <div className="dashboard-page cockpit-page page-surface">
@@ -883,10 +875,22 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
             <div><h1>配信の準備をはじめよう</h1><p>TikTok LIVE STUDIOの接続後、MinecraftとBRIDGEを準備します</p></div>
           </div>
 
+          <div className="cockpit-launch-actions">
+            <div className="cockpit-main-actions">
+              <button type="button" onClick={handleAllStart} disabled={isBusy || allStopBusy} className="cockpit-all-start">
+                <span>▶</span> 一括起動
+              </button>
+              <button type="button" onClick={handleAllStop} disabled={allStartBusy || allStopBusy} className="cockpit-all-start cockpit-all-stop">
+                <span>■</span> 一括停止
+              </button>
+            </div>
+
+          </div>
+
           <div className="cockpit-pipeline">
             {pipeline.map((item, index) => (
               <React.Fragment key={item.label}>
-                <div className={`cockpit-node cockpit-node--${item.tone}`}>
+                <div className={`cockpit-node cockpit-node--${item.tone}`} data-state={item.state}>
                   <b>{item.label}</b>
                   <div className="cockpit-node-ring">
                     <span>{item.icon === "tiktok" ? <TikTokMark /> : item.icon === "world" ? <GrassBlockIcon /> : item.icon}</span>
@@ -901,17 +905,6 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
             ))}
           </div>
 
-          <div className="cockpit-launch-actions">
-            <div className="cockpit-main-actions">
-              <button type="button" onClick={handleAllStart} disabled={isBusy || allStopBusy} className="cockpit-all-start">
-                <span>▶</span> 一括起動
-              </button>
-              <button type="button" onClick={handleAllStop} disabled={allStartBusy || allStopBusy} className="cockpit-all-start cockpit-all-stop">
-                <span>■</span> 一括停止
-              </button>
-            </div>
-
-          </div>
           <p className="cockpit-all-start-note">TikTokはアカウントのライブ配信状態を30秒ごとに確認します。イベントの受信にはBRIDGEの起動が必要です。</p>
           {launchNotice && <p role={launchNotice.type === "error" ? "alert" : "status"} className={`cockpit-launch-notice cockpit-launch-notice--${launchNotice.type}`}>{launchNotice.text}</p>}
           {bridgeProcess.delivery?.authFailed ? (
@@ -968,26 +961,14 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
           </details>
         </section>
 
-        <aside className="cockpit-flow-panel">
-          <h2>ライブ手順 <small>（起動フロー）</small></h2>
-          <div className="cockpit-flow-list">
-            {launchFlow.map(([label, description, status], index) => (
-              <div className={`cockpit-flow-step cockpit-flow-step--${status}`} key={label}>
-                <span>{index + 1}</span>
-                <i>{index === 0 ? <TikTokMark /> : ["","▣","🎮","⛓","♟","⬡","◉"][index]}</i>
-                <div><b>{label}</b><small>{description}</small>{status === "done" ? <em>● 完了</em> : status === "manual" ? <em>● LIVE STUDIO側で確認</em> : <em>● 待機中</em>}</div>
-              </div>
-            ))}
-          </div>
-          <p className="cockpit-flow-note">初回は「初期セットアップ」でフォルダーを設定してください。</p>
-        </aside>
+        <LaunchGuide server={stepForge} bridge={stepBridge} gameRunning={gameRunning} live={liveState === "live"} world={levelName} />
 
         <div className="cockpit-lower-grid">
           <section className="cockpit-info-card">
           <h2><span><TikTokMark /></span> TikTok 接続設定</h2>
-          <label>アカウント</label>
+          <label htmlFor="stream-account">TikTokユーザー名</label>
           <div className="cockpit-account-row">
-            <b>@</b><input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="配信アカウント名（ID）" />
+            <b>@</b><input id="stream-account" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="配信アカウント名（ID）" />
             <em className={idApproved ? "is-approved" : "is-unapproved"}>● {idApproved ? "承認済み" : "非承認"}</em>
           </div>
           <button type="button" onClick={handleApplyBridge} disabled={applyBusy} className="cockpit-apply">
@@ -1002,10 +983,11 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
           </button>
 
           <EulerApiKeySettings bridgeRunning={bridgeProcess.running === true} bridgePid={bridgeProcess.pid} />
-          <label style={{ marginTop: 14 }}>マイクラID（OP自動付与）</label>
+          <label htmlFor="minecraft-player" style={{ marginTop: 14 }}>マイクラID（OP自動付与）</label>
           <div className="cockpit-account-row">
             <b>⛏</b>
             <input
+              id="minecraft-player"
               value={mcId}
               onChange={(e) => { setMcId(e.target.value); setMcIdMsg(null); }}
               placeholder="Minecraft のプレイヤーID"
@@ -1032,12 +1014,13 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
 
           <section className="cockpit-info-card cockpit-world-card">
           <h2><span><GrassBlockIcon /></span> 配信ワールド</h2>
-          <label>ワールド</label>
-          <select value={subfolder} disabled={worldLoading || worldSaving || allStartBusy || serverProc.running === true} onChange={(e) => setSubfolder(e.target.value)}>
+          <label htmlFor="stream-world">ワールド</label>
+          <select id="stream-world" value={subfolder} disabled={worldLoading || worldSaving || allStartBusy || serverProc.running === true} onChange={(e) => setSubfolder(e.target.value)}>
+            {!worldFolders.length && <option value={subfolder}>{worldLoading ? "読み込み中…" : "配布ワールドがありません"}</option>}
             {worldFolders.map((folder) => <option value={folder} key={folder}>{WORLD_PREFIX}/ {folder}</option>)}
           </select>
           <WorldDiorama />
-          <small>状態: <b>{worldSaving ? "保存中…" : levelName ? "起動準備OK" : "未設定"}</b></small>
+          <small>状態: <b>{worldSaving ? "保存中…" : !worldFolders.length ? "配布ワールドなし" : levelName ? "選択済み" : "未設定"}</b></small>
           {serverProc.running === true && <small className="cockpit-world-msg">サーバーの動作中はワールドを変えられません。停止してから選んでください。</small>}
           {worldMsg && <small role={worldMsg.type === "error" ? "alert" : "status"} className={`cockpit-world-msg cockpit-world-msg--${worldMsg.type}`}>{worldMsg.text}</small>}
           </section>

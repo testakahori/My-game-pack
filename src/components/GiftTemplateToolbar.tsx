@@ -66,9 +66,9 @@ export default function GiftTemplateToolbar({ ready, count, onResetEditor, onApp
     } catch (e) { setError('適用できませんでした: ' + String((e as Error)?.message || e)); }
     finally { finish(); }
   };
-  return <section className="gift-template-tools" aria-label="ギフト設定保存">
-    <div className="gift-template-toolbar"><div><b><i className="fa-regular fa-folder-open" />ギフト設定保存</b><p>保存済みの割り当てを、ゲーム別に使い分け・配布できます。</p></div><div className="gift-template-actions"><button className="studio-quiet" disabled={!ready || busy || count === 0} onClick={() => void save()}><i className="fa-solid fa-download" />ギフト設定保存</button><button className="studio-primary" disabled={!ready || busy} onClick={() => void open()}><i className="fa-solid fa-folder-open" />ギフト設定読込</button></div></div>
-    {count === 0 && <p className="panel-hint">ギフトとコマンドを登録すると、ギフト設定を保存できます。</p>}
+  return <section className="gift-template-tools" aria-label="設定ファイルの入出力">
+    <div className="gift-template-toolbar"><div><b><i className="fa-regular fa-folder-open" />設定ファイルの入出力</b><p>保存済みの割り当てをJSONファイルに書き出して、保管・配布できます。</p></div><div className="gift-template-actions"><button className="studio-quiet" disabled={!ready || busy || count === 0} onClick={() => void save()}><i className="fa-solid fa-download" />ファイルに書き出す</button><button className="studio-primary" disabled={!ready || busy} onClick={() => void open()}><i className="fa-solid fa-folder-open" />ファイルから読み込む</button></div></div>
+    {count === 0 && <p className="panel-hint">下の「割り当てを保存」で登録すると、ファイルへ書き出せます。</p>}
     <p className="panel-hint">アカウントやパスワード、コマンドのファイル本体は保存しません。配布先にも同じコマンドが必要です。</p>
     {busy && !preview && <p role="status" className="panel-hint">ファイルの選択・保存中…</p>}
     {notice && <p className="studio-notice" role="status">{notice}</p>}

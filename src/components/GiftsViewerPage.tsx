@@ -249,9 +249,9 @@ const GiftsViewerPage: React.FC<Props> = ({ bridgeRunning, modOnline }) => {
         </button>
         <div className="gift-catalog-search">
           <span>⌕</span>
-          <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="ギフト名・IDを検索..." />
+          <input aria-label="ギフト名・IDを検索" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="ギフト名・IDを検索..." />
         </div>
-        <select value={sort} onChange={(e) => { setSort(e.target.value as typeof sort); setPage(1); }}>
+        <select aria-label="ギフトの並び順" value={sort} onChange={(e) => { setSort(e.target.value as typeof sort); setPage(1); }}>
           <option value="costAsc">コスト 低→高</option>
           <option value="costDesc">コスト 高→低</option>
           <option value="nameAsc">名前 A→Z</option>
@@ -263,7 +263,7 @@ const GiftsViewerPage: React.FC<Props> = ({ bridgeRunning, modOnline }) => {
         <b>{filtered.length}</b> / {uniqueGifts.length} 件
       </p>
 
-      {err && <div className="gift-catalog-error">❌ {err}</div>}
+      {err && <div role="alert" className="gift-catalog-error">❌ {err}</div>}
 
       <section className="gift-catalog-stats-v2" aria-label="ギフト一覧サマリー">
         <div className="gift-stat-card gift-stat-card--cyan">
@@ -276,11 +276,11 @@ const GiftsViewerPage: React.FC<Props> = ({ bridgeRunning, modOnline }) => {
         </div>
         <div className="gift-stat-card gift-stat-card--green">
           <span className="gift-stat-card__icon"><DiamondIcon tone="green" /></span>
-          <div><small>最安ギフト</small><b>{minDiamond}<em>💎</em></b><p>{minGift ? `${minGift.name}（ID: ${minGift.id}）` : "—"}</p></div>
+          <div><small>最安ギフト</small><b>{minGift ? minDiamond : "—"}<em>💎</em></b><p>{minGift ? `${minGift.name}（ID: ${minGift.id}）` : "—"}</p></div>
         </div>
         <div className="gift-stat-card gift-stat-card--purple">
           <span className="gift-stat-card__icon"><DiamondIcon tone="purple" /></span>
-          <div><small>最高額ギフト</small><b>{maxDiamond.toLocaleString()}<em>💎</em></b><p>{maxGift ? `${maxGift.name}（ID: ${maxGift.id}）` : "—"}</p></div>
+          <div><small>最高額ギフト</small><b>{maxGift ? maxDiamond.toLocaleString() : "—"}<em>💎</em></b><p>{maxGift ? `${maxGift.name}（ID: ${maxGift.id}）` : "—"}</p></div>
         </div>
         <div className="gift-stat-card gift-stat-card--server" data-online={modOnline}>
           <span className="gift-stat-card__icon"><ServerLinkIcon /></span>
@@ -296,7 +296,7 @@ const GiftsViewerPage: React.FC<Props> = ({ bridgeRunning, modOnline }) => {
           </div>
           <div className="gift-view-mode">
             {(["grid", "list", "compact"] as const).map((mode) => (
-              <button key={mode} type="button" className={viewMode === mode ? "is-active" : ""} onClick={() => setViewMode(mode)}>
+              <button key={mode} type="button" aria-pressed={viewMode === mode} className={viewMode === mode ? "is-active" : ""} onClick={() => setViewMode(mode)}>
                 {mode === "grid" ? "▦ グリッド" : mode === "list" ? "☰ リスト" : "▥ コンパクト"}
               </button>
             ))}
@@ -304,8 +304,9 @@ const GiftsViewerPage: React.FC<Props> = ({ bridgeRunning, modOnline }) => {
         </div>
 
         {filtered.length === 0 ? (
-          <div className="gift-catalog-empty">
-            {loading ? "取得中…" : uniqueGifts.length === 0 ? "ギフトがありません" : "検索結果が0件です"}
+          <div className="gift-catalog-empty" role="status">
+            <p>{loading ? "取得中…" : uniqueGifts.length === 0 ? "ギフト一覧はまだ取得されていません。上でTikTokユーザー名を確認し、「更新」を押してください。" : "検索条件に一致するギフトがありません。"}</p>
+            {!loading && uniqueGifts.length > 0 && <button type="button" className="empty-state-action" onClick={() => { setQ(""); setPage(1); }}>検索をクリア</button>}
           </div>
         ) : (
           <div className={`gift-catalog-grid gift-catalog-grid--${viewMode}`}>
@@ -340,7 +341,7 @@ const GiftsViewerPage: React.FC<Props> = ({ bridgeRunning, modOnline }) => {
       </section>
 
       {toast && (
-        <div key={toast.id} className="gift-catalog-toast">
+        <div key={toast.id} role="status" className="gift-catalog-toast">
           {toast.msg}
         </div>
       )}

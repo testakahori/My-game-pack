@@ -1,6 +1,7 @@
 // src/components/EventSettings2Page.tsx
 // イベント設定②：ルーレット / デスルーレット / コメントギフト
 // デザインはイベント設定①（EventSettingsPage）を踏襲。
+import SaveBar from "./SaveBar";
 import React, { useCallback, useEffect, useState } from "react";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 import { commandOptionLabel } from "../lib/commandLabel";
@@ -94,6 +95,7 @@ function IdPicker({
       <label className="text-xs font-bold text-gray-400 mb-1.5 block">{label}</label>
       <div className="flex items-center gap-2">
         <select
+          aria-label={label}
           value={custom ? "__custom__" : value}
           onChange={(e) => {
             if (e.target.value === "__custom__") { setCustom(true); return; }
@@ -108,6 +110,7 @@ function IdPicker({
         {custom && (
           <input
             type="text"
+            aria-label={`${label}のカスタム値`}
             value={value}
             onChange={(e) => onChange(e.target.value)}
             placeholder={placeholder}
@@ -121,10 +124,12 @@ function IdPicker({
 
 // ── コマンドファイル選択 ─────────────────────────────────
 function CmdSelect({
+  label,
   value,
   onChange,
   commandFiles,
 }: {
+  label: string;
   value: string;
   onChange: (v: string) => void;
   commandFiles: CommandFile[];
@@ -132,6 +137,7 @@ function CmdSelect({
   const selected = commandFiles.find((f) => f.name === value);
   return (
     <select
+      aria-label={label}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       className="w-full bg-gray-900 border border-gray-600 rounded-xl px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
@@ -167,11 +173,12 @@ function RouletteItemsEditor({
           「＋ 項目を追加」でルーレットの中身を追加できます
         </div>
       )}
-      {items.map((item) => (
+      {items.map((item, index) => (
         <div key={item.id} className="grid grid-cols-1 md:grid-cols-[1fr_180px_70px_90px_70px_40px] gap-2 items-center bg-gray-900/50 border border-gray-700/60 rounded-xl p-2">
-          <CmdSelect value={item.commandFile} onChange={(v) => update(item.id, { commandFile: v, label: item.label || commandFiles.find(file => file.name === v)?.title || v.replace(/\.txt$/i, "") })} commandFiles={commandFiles} />
+          <CmdSelect label={`項目${index + 1}の実行コマンド`} value={item.commandFile} onChange={(v) => update(item.id, { commandFile: v, label: item.label || commandFiles.find(file => file.name === v)?.title || v.replace(/\.txt$/i, "") })} commandFiles={commandFiles} />
           <input
             type="text"
+            aria-label={`項目${index + 1}の表示ラベル`}
             value={item.label}
             onChange={(e) => update(item.id, { label: e.target.value })}
             placeholder="例: クリーパー地獄"
@@ -181,6 +188,7 @@ function RouletteItemsEditor({
             type="number"
             min={1}
             max={100}
+            aria-label={`項目${index + 1}の回数`}
             value={item.repeat}
             onChange={(e) => update(item.id, { repeat: Math.max(1, Math.min(100, Number(e.target.value) || 1)) })}
             title="当選時にこのコマンドを実行する回数"
@@ -190,6 +198,7 @@ function RouletteItemsEditor({
             type="number"
             min={1}
             max={100}
+            aria-label={`項目${index + 1}の重み`}
             value={item.weight}
             onChange={(e) => update(item.id, { weight: Math.max(1, Math.min(100, Number(e.target.value) || 1)) })}
             className="bg-gray-900 border border-gray-600 rounded-xl px-2 py-2.5 text-sm text-center text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
@@ -199,7 +208,7 @@ function RouletteItemsEditor({
             type="button"
             onClick={() => onChange(items.filter((i) => i.id !== item.id))}
             className="text-gray-500 hover:text-red-400 text-lg"
-            aria-label="項目を削除"
+            aria-label={`項目${index + 1}を削除`}
           >⌫</button>
         </div>
       ))}
@@ -255,7 +264,7 @@ function Section({
           </div>
         </div>
         <div className="flex items-center gap-3 shrink-0">
-          <ToggleSlider checked={enabled} onChange={onToggle} />
+          <ToggleSlider label={`${title}を有効にする`} checked={enabled} onChange={onToggle} />
           <button
             type="button"
             onClick={onSave}
@@ -424,8 +433,8 @@ const EventSettings2Page: React.FC = () => {
         </button>
       </div>
 
-      {msg && (
-        <div className={`px-4 py-3 rounded-xl text-sm font-medium ${
+      {msg && (msg.type === "error" || currentSnapshot === savedSnapshot) && (
+        <div role={msg.type === "error" ? "alert" : "status"} className={`px-4 py-3 rounded-xl text-sm font-medium ${
           msg.type === "ok"
             ? "bg-emerald-900/50 border border-emerald-500/30 text-emerald-300"
             : "bg-red-900/50 border border-red-500/30 text-red-300"
@@ -496,6 +505,7 @@ const EventSettings2Page: React.FC = () => {
             type="number"
             min={1}
             max={1000}
+            aria-label="発動する死亡回数"
             value={deathRoulette.everyDeaths}
             onChange={(e) => setDeathRoulette({ ...deathRoulette, everyDeaths: Math.max(1, Math.min(1000, Number(e.target.value) || 1)) })}
             className="w-20 bg-gray-900 border border-gray-600 rounded-xl px-2 py-2 text-sm text-center text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
@@ -546,13 +556,14 @@ const EventSettings2Page: React.FC = () => {
               「＋ ルールを追加」でコメントとコマンドの組み合わせを追加できます
             </div>
           )}
-          {commentRules.map((rule) => (
+          {commentRules.map((rule, index) => (
             <div key={rule.id} className={`border rounded-xl p-3 space-y-3 ${rule.enabled ? "bg-gray-900/50 border-gray-700/60" : "bg-gray-900/20 border-gray-800 opacity-70"}`}>
               <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_80px_auto_40px] gap-2 items-center">
                 <div>
                   <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1">コメント（含む文字列）</label>
                   <input
                     type="text"
+                    aria-label={`コメントルール${index + 1}の文字列`}
                     value={rule.match}
                     onChange={(e) => updateCommentRule(rule.id, { match: e.target.value })}
                     placeholder="例: クリーパー"
@@ -561,7 +572,7 @@ const EventSettings2Page: React.FC = () => {
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1">実行コマンド</label>
-                  <CmdSelect value={rule.commandFile} onChange={(v) => updateCommentRule(rule.id, { commandFile: v })} commandFiles={commandFiles} />
+                  <CmdSelect label={`コメントルール${index + 1}の実行コマンド`} value={rule.commandFile} onChange={(v) => updateCommentRule(rule.id, { commandFile: v })} commandFiles={commandFiles} />
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1">回数</label>
@@ -569,20 +580,21 @@ const EventSettings2Page: React.FC = () => {
                     type="number"
                     min={1}
                     max={100}
+                    aria-label={`コメントルール${index + 1}の回数`}
                     value={rule.repeat}
                     onChange={(e) => updateCommentRule(rule.id, { repeat: Math.max(1, Math.min(100, Number(e.target.value) || 1)) })}
                     className="w-full bg-gray-900 border border-gray-600 rounded-xl px-2 py-2.5 text-sm text-center text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
                   />
                 </div>
                 <div className="flex items-center gap-2 pt-4">
-                  <ToggleSlider checked={rule.enabled} onChange={() => updateCommentRule(rule.id, { enabled: !rule.enabled })} />
+                  <ToggleSlider label={`コメントルール${index + 1}を有効にする`} checked={rule.enabled} onChange={() => updateCommentRule(rule.id, { enabled: !rule.enabled })} />
                   <span className="text-xs text-gray-400">{rule.enabled ? "有効" : "無効"}</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setCommentRules((rules) => rules.filter((r) => r.id !== rule.id))}
                   className="text-gray-500 hover:text-red-400 text-lg pt-4"
-                  aria-label="ルールを削除"
+                  aria-label={`コメントルール${index + 1}を削除`}
                 >⌫</button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -620,6 +632,7 @@ const EventSettings2Page: React.FC = () => {
         保存後は BRIDGE が数秒で設定を自動再読込します（再起動でも可）。
         デスルーレットは Mod v1.2.0 以降のサーバーで動作します。
       </div>
+      <SaveBar dirty={Boolean(savedSnapshot) && currentSnapshot !== savedSnapshot} saving={saving} onSave={() => void save("イベント設定")} message={msg} />
     </div>
   );
 };

@@ -1,0 +1,128 @@
+/* 配信操作の見つけやすさと、設定画面の可読性。 */
+.ui-refresh { font-size: 14px; }
+.ui-refresh .app-content { scroll-padding-block: 20px 100px; }
+.ui-refresh :is(button, input, select, textarea, summary):focus-visible { outline: 3px solid #a9d9ff; outline-offset: 3px; }
+.ui-refresh :is(input, select, textarea) { min-width: 0; }
+.ui-refresh :is(input, select):not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]) { min-height: 38px; font-size: 14px; }
+.ui-refresh :is(.text-gray-500, .text-gray-600) { color: #a7b5cb; }
+.ui-refresh :is([class*="text-[7px]"], [class*="text-[9px]"], [class*="text-[10px]"], [class*="text-[11px]"]) { font-size: 12px; }
+.ui-refresh :is(.studio-nav-group button, .studio-sidebar-label b, .studio-subnav button) { font-size: 13px; min-height: 42px; }
+.ui-refresh :is(.studio-nav-group h2, .studio-sidebar-footer, .global-app-status, .panel-hint, .panel-field, .panel-template-description, .panel-template-name small, .panel-preview-footer, .panel-library-empty, .panel-preview-toolbar small, .panel-preview-toolbar b, .panel-segments button) { font-size: 12px; }
+.ui-refresh :is(.cockpit-node b, .cockpit-node small, .cockpit-node em, .cockpit-all-start-note, .cockpit-flow-step small, .cockpit-flow-step em, .cockpit-info-card label, .cockpit-info-card small, .events-header p, .event-simple-card p, .cmd-card__desc, .gift-catalog-meta) { font-size: 13px; line-height: 1.65; }
+.ui-refresh .cockpit-node[data-state=stopped] .cockpit-node-ring { border-color: #66758e; box-shadow: none; background: #182131; }
+.ui-refresh .cockpit-node[data-state=starting] .cockpit-node-ring { border-color: #e6c270; }
+.ui-refresh .cockpit-node[data-state=running] .cockpit-node-ring { border-color: #69dfb0; }
+.ui-refresh .cockpit-node[data-state=error] .cockpit-node-ring { border-color: #ff8b9d; }
+.ui-refresh .cockpit-pipeline { margin: 16px 0; }
+.ui-refresh .cockpit-flow-step { min-height: 70px; }
+.ui-refresh .cockpit-flow-list { list-style: none; padding: 0; }
+.ui-refresh .cockpit-flow-step--manual em { color: #e7ca8c; }
+.ui-refresh .current-game-label { flex-wrap: wrap; margin-bottom: 4px; }
+.current-game-label button { margin-left: auto; color: #b3e6f0; border: 1px solid #395267; border-radius: 6px; padding: 6px 10px; min-height: 36px; }
+.skip-to-content { position: fixed; top: 8px; left: 12px; z-index: 200; transform: translateY(-200%); padding: 10px 16px; background: #d9efff; color: #092035; border-radius: 6px; }
+.skip-to-content:focus { transform: translateY(0); }
+.ui-refresh .game-selector { padding: 16px 20px; margin-bottom: 0; }
+.ui-refresh .game-selector-main label { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.ui-refresh .game-selector-main label strong { white-space: nowrap; font-size: 14px; }
+.ui-refresh .game-selector-main select { flex: 1; min-width: 180px; width: auto; }
+.ui-refresh .game-selector small { font-size: 12px; }
+.ui-refresh .game-selector details { margin-top: 10px; }
+.ui-refresh .game-selector summary { padding-block: 6px; }
+.settings-save-bar { position: sticky; bottom: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; margin-top: 20px; background: #18293a; border: 1px solid #53738e; border-radius: 10px; box-shadow: 0 -6px 24px #0004; }
+.settings-save-bar strong, .settings-save-bar small { display: block; font-size: 13px; line-height: 1.6; }
+.settings-save-bar small { color: #b9cbdd; }
+.settings-save-bar button, .empty-state-action { min-height: 40px; padding: 9px 16px; border-radius: 7px; border: 1px solid #70dfd4; background: #69dfd0; color: #10242b; font-size: 14px; font-weight: 700; white-space: nowrap; }
+.settings-save-bar button:disabled { background: #283a4e; border-color: #4d6075; color: #a7b7ca; }
+.save-feedback { margin: 4px 0 0; font-size: 13px; }
+.save-feedback.is-error { color: #ffb9be; }
+.save-feedback.is-ok { color: #a4efd3; }
+.ui-refresh .toggle-slider { min-height: 34px; min-width: 80px; }
+.ui-refresh :is(.events-like-repeat button, .events-like-actions button) { min-width: 34px; min-height: 34px; font-size: 16px; }
+.ui-refresh .events-like-row { grid-template-columns: 150px 22px minmax(120px, 1fr) 132px 90px 116px; }
+.ui-refresh .events-like-columns { grid-template-columns: 150px 22px minmax(120px, 1fr) 132px 90px 116px; font-size: 12px; }
+.ui-refresh .events-like-status { gap: 4px; }
+.ui-refresh .events-like-status > span { display: none; }
+.ui-refresh .gift-template-tools { padding: 12px 16px; }
+.ui-refresh .gift-template-tools > .panel-hint { margin-top: 6px; }
+.ui-refresh .gift-catalog-empty, .catalog-empty-help { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 28px 20px; text-align: center; color: #bac8dc; font-size: 14px; line-height: 1.8; }
+.catalog-empty-help p, .gift-catalog-empty p { margin: 0; }
+.ui-refresh .gift-preview-art { height: 80px; }
+.gift-preview-placeholder { font-size: 32px; color: #9aaec7; }
+.ui-refresh .gift-flow-message { font-size: 14px; }
+.ui-refresh .gift-preview-route small, .ui-refresh .gift-preview-route b { font-size: 13px; }
+.ui-refresh .gift-view-mode button, .ui-refresh .cmd-category-chips button { min-height: 36px; font-size: 12px; }
+.ui-refresh .setup-complete-grid-v2 { margin-top: 22px; }
+.setup-status-heading { display: flex; align-items: center; gap: 18px; border: 1px solid #365d60; border-radius: 12px; padding: 24px; background: #142c2e; }
+.setup-status-heading > i { font-size: 32px; color: #86e3c4; }
+.setup-status-heading h1 { margin: 0; font-size: 24px; }
+.setup-status-heading p { color: #c1d9dc; line-height: 1.7; margin: 8px 0 0; }
+.ui-refresh .setup-env-row-v2 em { font-size: 12px; }
+.ui-refresh .setup-ready-banner-v2 { font-size: 14px; }
+@media (max-width: 1280px) {
+  .ui-refresh .events-like-columns { display: none; }
+  .ui-refresh .events-like-row { grid-template-columns: 150px minmax(150px, 1fr) 132px; padding: 14px; gap: 12px; border: 1px solid #35475e; border-radius: 9px; }
+  .ui-refresh .events-like-arrow { display: none; }
+  .ui-refresh .events-like-row .event-command-select { grid-column: 2; }
+  .ui-refresh .events-like-repeat { grid-column: 3; }
+  .ui-refresh .events-like-status { grid-column: 1; }
+  .ui-refresh .events-like-actions { grid-column: 3; justify-content: flex-end; }
+  .ui-refresh .events-like-label { display: none; }
+  .ui-refresh .cockpit-layout { grid-template-columns: minmax(0, 1fr); }
+  .ui-refresh .cockpit-layout > * { grid-column: 1; grid-row: auto; }
+  .ui-refresh .cockpit-flow-panel { display: block; }
+  .ui-refresh .cockpit-flow-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .ui-refresh .cockpit-flow-step { border-bottom: 1px solid #34425a; }
+}
+@media (max-width: 760px) {
+  .settings-save-bar { flex-wrap: wrap; }
+  .ui-refresh .events-like-row { grid-template-columns: minmax(0, 1fr); }
+  .ui-refresh .events-like-row > * { grid-column: 1 !important; }
+  .ui-refresh .cockpit-flow-list { grid-template-columns: minmax(0, 1fr); }
+  .ui-refresh .global-app-status time { display: none; }
+}
+
+.ui-refresh :is(.events-header p, .events-like-heading p, .events-like-heading h2 small, .events-summary-card small, .events-summary-card em, .gift-flow-heading p, .gift-preview-heading em, .gift-template-toolbar p, .gift-registered-empty, .panel-gift-grid b, .panel-gift-grid small) { font-size: 12px !important; line-height: 1.7; color: #b3c1d5; }
+.ui-refresh .events-header__actions button { font-size: 13px; }
+
+/* 色は稼働状態に対応させ、待機中の装飾を抑える。 */
+.ui-refresh .cockpit-flow-list::before { left: 12px; background: #34475c; box-shadow: none; }
+.ui-refresh .cockpit-flow-step > span { border: 1px solid #61748d; background: #172333; color: #ced9e7; box-shadow: none; }
+.ui-refresh .cockpit-flow-step--active > span { border-color: #ebcd89; color: #ebcd89; }
+.ui-refresh .cockpit-flow-step--done > span { border-color: #69dfb0; color: #69dfb0; }
+.ui-refresh .cockpit-flow-step--error > span { border-color: #ff8b9d; color: #ff8b9d; }
+.ui-refresh .cockpit-flow-step--error em { color: #ff8b9d; }
+.ui-refresh .cockpit-flow-step small { color: #a7b5c9; }
+.ui-refresh .cockpit-flow-note { font-size: 12px; color: #a7b5c9; line-height: 1.7; text-align: left; }
+.ui-refresh .cockpit-node[data-state=stopped] > em { color: #bdc9da; background: #273345; }
+.ui-refresh .cockpit-node[data-state=starting] > em { color: #ebcd89; background: #3d3423; }
+.ui-refresh .cockpit-node-ring span, .ui-refresh .cockpit-node-ring svg { filter: none; }
+.ui-refresh .cockpit-node[data-state=stopped] .cockpit-node-ring span { color: #97adc5; }
+.ui-refresh .cockpit-link { color: #71849d; }
+.ui-refresh .cockpit-link i { background: #34475c; box-shadow: none; }
+.ui-refresh .cockpit-panel-title p { font-size: 13px; line-height: 1.7; color: #a7b5c9; }
+.ui-refresh .cockpit-all-start:hover:not(:disabled) { background: #8beadd; }
+.ui-refresh .cockpit-all-stop:hover:not(:disabled) { background: #49303c; }
+@media (max-width: 1280px) { .ui-refresh .cockpit-flow-list::before { display: none; } }
+
+/* ギフト設定も操作を主役にし、プレビューの装飾は控えめにする。 */
+.ui-refresh .gift-preview-art { min-height: 100px; }
+.ui-refresh .gift-preview-art::before { width: 80px; height: 80px; border: 1px solid #49667c; background: #13283b; box-shadow: none; }
+.ui-refresh .gift-preview-art > span { width: 80px; height: 80px; display: grid; place-items: center; filter: none; }
+.ui-refresh .gift-preview-art .gift-preview-placeholder i { position: static; color: #9ac9da; text-shadow: none; font-size: 30px; }
+.ui-refresh :is(.gift-flow-panel, .gift-registered-panel, .gift-command-stage) { border-color: #354c64; background: #101d2e; box-shadow: none; }
+.ui-refresh :is(.gift-flow-heading h2, .gift-registered-heading h3) > span { border-color: #496c80; color: #a4e2e4; box-shadow: none; }
+.ui-refresh .gift-flow-source__ring { border-color: #496c80; box-shadow: none; background: #13283b; }
+.ui-refresh .gift-flow-link { color: #7795ab; }
+.ui-refresh .gift-flow-link i { background: #496c80; box-shadow: none; }
+.ui-refresh .gift-flow-link span { text-shadow: none; }
+.ui-refresh :is(.gift-flow-heading > button, .gift-registered-heading p, .gift-flow-source > small, .gift-command-stage label) { font-size: 12px; }
+.ui-refresh .gift-template-actions .studio-primary { background: #203849; color: #c8e7ef; border-color: #47697c; box-shadow: none; }
+.ui-refresh .gift-template-actions .studio-primary:hover:not(:disabled) { background: #2c4a5e; }
+.settings-save-bar[data-dirty=true] { border-color: #aa975f; }
+.settings-save-bar[data-dirty=true] strong { color: #efda9d; }
+
+.ui-refresh .toggle-slider > span { color: #263a4c; }
+.ui-refresh .toggle-slider[aria-checked=true] > span { color: #125440; }
+.ui-refresh .events-like-threshold { gap: 6px; }
+.ui-refresh .events-like-threshold input { width: 64px; }
+.ui-refresh .events-like-threshold > span { font-size: 12px; white-space: nowrap; color: #b3c1d5; }
