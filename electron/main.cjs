@@ -49,6 +49,11 @@ const {
   ensureDir, ensureConfigExists, getServerTemplatePath, getServerRoot, getBridgeBatDir,
   getNodeCommand, getGvDataDir, getGvSettingsPath, getGvToolPath,
 } = paths;
+const { createOperatorAuth } = require('./operator_auth.cjs');
+const operatorAuth = createOperatorAuth({ readAppConfig, writeAppConfig });
+// コンソール送信（server:command）などの強い操作は、main 側でもログイン済みかを確かめる。
+const { isOperatorAuthed } = operatorAuth;
+operatorAuth.register(ipcMain);
 function minecraftLocationOptions() {
   return { appData: app.getPath('appData'), currentFolder: readAppConfig().minecraftGameFolder, serverRoot: getServerRoot() };
 }
@@ -441,56 +446,6 @@ ipcMain.handle("gifts:openHtml", async () => {
   await shell.openPath(html);
   return { ok: true, html };
 });
-
-// --------------------
-// 運営ログイン認証
-// --------------------
-// リポジトリは public のため平文パスワードは一切置かない。PBKDF2ハッシュのみを埋め込む。
-// ログイン成功後は authEmail + authToken(HMAC) を app-config.json に保存し、次回起動時は
-// トークン再計算で照合する（パスワード自体は保存しない）。
-const OPERATOR_AUTH = {
-  salt: "fa2e3d72dcba1a83977e4cac983c5366",
-  hash: "8365be19bbae0379de9af9cb411e3883ae9faa82d6eb244ce5e1725a810d1c0c",
-  iterations: 210000,
-  keyLen: 32,
-};
-
-function verifyOperatorPassword(password) {
-  const derived = crypto.pbkdf2Sync(
-    String(password),
-    OPERATOR_AUTH.salt,
-    OPERATOR_AUTH.iterations,
-    OPERATOR_AUTH.keyLen,
-    "sha256"
-  );
-  const expected = Buffer.from(OPERATOR_AUTH.hash, "hex");
-  return derived.length === expected.length && crypto.timingSafeEqual(derived, expected);
-}
-
-function operatorLoginToken(email) {
-  return crypto
-    .createHmac("sha256", OPERATOR_AUTH.hash)
-    .update(String(email).trim().toLowerCase())
-    .digest("hex");
-}
-
-function isValidLoginEmail(email) {
-  const v = String(email || "").trim();
-  return v.length >= 5 && v.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
-}
-
-let failedAuthAttempts = 0;
-let authLockedUntil = 0;
-
-// 運営ログイン済みかどうか（auth:status と同じ判定）。UI 全体は LoginPage でゲートされて
-// いるが、コンソール送信のような強い操作は main 側でも二重に確認する（多層防御）。
-function isOperatorAuthed() {
-  try {
-    const cfg = readAppConfig();
-    const email = String(cfg.authEmail || "").trim();
-    return !!email && cfg.authToken === operatorLoginToken(email);
-  } catch { return false; }
-}
 
 // --------------------
 // Bridge: resources → serverFolder/bridge へ差分同期
@@ -2236,51 +2191,6 @@ ipcMain.handle("gv:settings:write", async (_event, v) => {
   const p = getGvSettingsPath();
   const next = { username: String(v?.username || "").trim().replace(/^@/, "") };
   fs.writeFileSync(p, JSON.stringify(next, null, 2), "utf-8");
-  return { ok: true };
-});
-
-// --------------------
-// IPC: 運営ログイン認証
-// --------------------
-ipcMain.handle("auth:status", async () => {
-  const cfg = readAppConfig();
-  const email = String(cfg.authEmail || "").trim();
-  if (!email || !cfg.authToken) return { authenticated: false, email: "" };
-  const valid = cfg.authToken === operatorLoginToken(email);
-  return { authenticated: valid, email: valid ? email : "" };
-});
-
-ipcMain.handle("auth:login", async (_event, payload) => {
-  const now = Date.now();
-  if (now < authLockedUntil) {
-    const seconds = Math.max(1, Math.ceil((authLockedUntil - now) / 1000));
-    return { ok: false, message: `ログイン試行が多すぎます。${seconds}秒後に再試行してください` };
-  }
-  const email = String(payload?.email || "").trim();
-  const password = String(payload?.password || "");
-  if (!isValidLoginEmail(email)) {
-    return { ok: false, message: "メールアドレスの形式が正しくありません" };
-  }
-  if (!verifyOperatorPassword(password)) {
-    failedAuthAttempts += 1;
-    if (failedAuthAttempts >= 5) {
-      failedAuthAttempts = 0;
-      authLockedUntil = Date.now() + 60000;
-    }
-    return { ok: false, message: "パスワードが違います" };
-  }
-  failedAuthAttempts = 0;
-  authLockedUntil = 0;
-  writeAppConfig({
-    authEmail: email,
-    authToken: operatorLoginToken(email),
-    authLoginAt: new Date().toISOString(),
-  });
-  return { ok: true, email };
-});
-
-ipcMain.handle("auth:logout", async () => {
-  writeAppConfig({ authEmail: "", authToken: "" });
   return { ok: true };
 });
 
