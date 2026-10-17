@@ -5,27 +5,22 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
 const http = require("http");
-const { ENGINE_PORTS, checkEngine, getSpeakers, flattenSpeakers, synthesize } = require("./tts.cjs");
 const { validateBridgeConfig } = require("./config_schema.cjs");
 const { RestartPolicy } = require("./restart_policy.cjs");
 const { runProc } = require("./process_runner.cjs");
 // サーバー・BRIDGE の停止を、出どころ（どのボタン・操作から来たか）付きで logs/stop-requests.log に残す。
 const { createStopRequestLog, isConsoleStop } = require("./stop_requests.cjs");
 const stopRequests = createStopRequestLog({ file: () => path.join(app.getPath("userData"), "logs", "stop-requests.log") });
-const { createSettingsBackups, atomicWrite, validCommand } = require("./settings_backups.cjs");
-const { commandFileProblem, usesBridgeModTransport } = require("../bridge/command_files.cjs");
+const { createSettingsBackups, validCommand } = require("./settings_backups.cjs");
+const { usesBridgeModTransport } = require("../bridge/command_files.cjs");
 const { bridgeModTokenPath, withBridgeModToken } = require("../bridge/bridge_mod_token.cjs");
-const { runPreflight } = require("./preflight.cjs");
 const { createStreamSessions, streamBuckets } = require("./stream_sessions.cjs");
 const { saveGiftPanelPng } = require("./image_export.cjs");
-const { EULA_URL, inspectSetup, inspectForgeClient, launchForgeInstaller, prepareServerEnvironment } = require("./initial_setup.cjs");
 const { migrateRetiredCommands } = require("./command_migration.cjs");
 const { exportStreamStatsMarkdown } = require("./stats_export.cjs");
-const { createGameProfiles } = require('./game_profiles.cjs');
-const { refreshGameModsAfterUpdate, gameModsOutdated } = require('./game_mods_refresh.cjs');
-const { availableGameCommands, assertGameCommands } = require('./game_command_scope.cjs');
-const { discoverMinecraftLocations, validateMinecraftFolder } = require('./minecraft_locations.cjs');
-const { tasklistNames, minecraftProcesses, readJavaCommandLines, switchBlockedMessage } = require('./minecraft_processes.cjs');
+const { refreshGameModsAfterUpdate } = require('./game_mods_refresh.cjs');
+const { assertGameCommands } = require('./game_command_scope.cjs');
+const { tasklistNames, minecraftProcesses, readJavaCommandLines } = require('./minecraft_processes.cjs');
 // main.cjs から分けた仕事（2026-10-17 設計書 docs/superpowers/specs/2026-10-17-main-split-design.md）。
 // electron は main だけが読み込み、必要なものを渡す。あとで定義するもの（サーバーの状態など）は、呼ばれたときに読む関数で渡す。
 const { createAppConfig } = require('./app_config.cjs');
@@ -53,93 +48,29 @@ const operatorAuth = createOperatorAuth({ readAppConfig, writeAppConfig });
 // コンソール送信（server:command）などの強い操作は、main 側でもログイン済みかを確かめる。
 const { isOperatorAuthed } = operatorAuth;
 operatorAuth.register(ipcMain);
-function minecraftLocationOptions() {
-  return { appData: app.getPath('appData'), currentFolder: readAppConfig().minecraftGameFolder, serverRoot: getServerRoot() };
-}
-let gameProfileBusy = false;
-const gameProfiles = createGameProfiles({
-  storage: () => path.join(app.getPath('userData'), 'game-profiles', crypto.createHash('sha256').update(path.resolve(getServerRoot())).digest('hex').slice(0, 16)),
-  serverRoot: () => getServerRoot(),
-  clientRoot: () => readAppConfig().minecraftGameFolder || path.join(app.getPath('appData'), '.minecraft'),
-  configPath: () => getConfigPath(),
-  bundledPackages: () => {
-    const folder = app.isPackaged ? path.join(process.resourcesPath, 'game-packs', 'saikutu') : path.resolve(__dirname, '..', 'build', 'game-packs', 'saikutu');
-    return fs.existsSync(path.join(folder, 'game.json')) ? [{ id: 'saikutu', folder }] : [];
-  },
-  displayJar: () => {
-    const dir = app.isPackaged ? path.join(getServerTemplatePath(), 'mods') : path.resolve(__dirname, '..', 'DisplayMod', 'build', 'libs');
-    const jars = fs.existsSync(dir) ? fs.readdirSync(dir).filter(n => /^displaymod-[0-9.]+\.jar$/.test(n)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true })) : [];
-    return jars.length ? path.join(dir, jars[0]) : null;
-  },
-  bridgeJar: () => {
-    const dir = app.isPackaged ? path.join(getServerTemplatePath(), 'mods') : path.resolve(__dirname, '..', 'BridgeMod', 'build', 'libs');
-    const jars = fs.existsSync(dir) ? fs.readdirSync(dir).filter(n => /^bridgemod-[0-9.]+\.jar$/.test(n)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true })) : [];
-    if (!jars.length) throw new Error('BridgeMODのjarがありません。開発版のビルドまたは配布ファイルを確認してください');
-    return path.join(dir, jars[0]);
-  },
-  ensureStopped: async () => {
-    assertMapIdle();
-    if (initialSetupRunning || serverStarting || serverStopping || bridgeProcRef || bridgeRestartTimer || (await getServerProcessStatus()).running) throw new Error('サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください');
-    const minecraft = await getMinecraftProcessStatus(true);
-    if (minecraft.running) throw new Error(switchBlockedMessage(minecraft.processes));
-  },
+const { createSetupIpc } = require('./setup_ipc.cjs');
+const setupIpc = createSetupIpc({
+  app, dialog, shell, spawnSync, getServerRoot, getGvDataDir,
+  assertGameProfileIdle: () => assertGameProfileIdle(), assertMapIdle: () => assertMapIdle(),
+  serverChild: () => serverProcRef,
 });
-function assertGameProfileIdle() {
-  if (gameProfileBusy || gameProfiles.list().recoveryRequired) throw new Error('ゲームの切替中、または切替の復旧が必要です。ホームのゲーム選択を確認してください');
-}
-async function gameProfileOperation(action) {
-  if (gameProfileBusy) throw new Error('ゲームの操作が進行中です');
-  gameProfileBusy = true;
-  try { return await action(); } finally { gameProfileBusy = false; }
-}
-// ホームのゲームの状態。どの応答にも、アプリの更新で MOD が古いままかとその理由を含める（PR #91 再レビュー）。
-function gamesStatus() {
-  const cfg = readAppConfig();
-  return { ...gameProfiles.list(), modsOutdatedAfterUpdate: gameModsOutdated(cfg, app.getVersion()), modsRefreshError: cfg.gameModsRefreshError || '' };
-}
-ipcMain.handle('games:list', () => gamesStatus());
-ipcMain.handle('games:activate', (_event, id) => gameProfileOperation(async () => {
-  const result = await gameProfiles.activate(id);
-  // 「保存」で今の版の MOD を置いたので、アプリ更新後の入れ替えは済んだことにする（2026-10-13）。
-  // 開発版は配布版とアプリ設定の場所が同じなので書かない。書けなくても切替は成功として返す（PR #91 レビュー）。
-  if (app.isPackaged) {
-    try { writeAppConfig({ gameModsVersion: app.getVersion(), gameModsRefreshFailed: '', gameModsRefreshError: '' }); }
-    catch (e) { console.warn("[games] アプリ更新後の入れ替えの記録を書けませんでした:", e?.message || e); }
-  }
-  return { ...result, ...gamesStatus() };
-}));
-ipcMain.handle('games:recover', () => gameProfileOperation(async () => { await gameProfiles.recover(); return gamesStatus(); }));
-ipcMain.handle('games:install', () => gameProfileOperation(async () => {
-  const selected = await dialog.showOpenDialog({ title: 'ゲームパックを登録', properties: ['openDirectory'] });
-  if (selected.canceled) return { canceled: true };
-  await gameProfiles.install(selected.filePaths[0]);
-  return gamesStatus();
-}));
-// ホームの「今すぐ入れ替える」：アプリの更新に合わせた入れ替えを、もう一度試す。「保存」と違ってほかの MOD を退避しない（PR #91 再レビュー）。
-ipcMain.handle('games:refreshMods', async () => {
-  if (!app.isPackaged) throw new Error('開発版では使えません。ゲームを「保存」してください');
-  const result = await refreshGameModsAfterUpdate({ version: app.getVersion(), readConfig: readAppConfig, writeConfig: writeAppConfig, profiles: gameProfiles, run: gameProfileOperation });
-  if (result.state === 'failed') throw new Error(result.error);
-  return gamesStatus();
+// 初期セットアップの「作業中」は setup_ipc.cjs が持つ。サーバーの起動・MAP・ゲームの切り替え・ウィンドウを閉じるときに見る。
+const { isRunning: isInitialSetupRunning } = setupIpc;
+setupIpc.register(ipcMain);
+const { createGamesIpc } = require('./games_ipc.cjs');
+const gamesIpc = createGamesIpc({
+  app, process, appDir: __dirname, dialog, readAppConfig, writeAppConfig, getServerRoot, getConfigPath, getServerTemplatePath,
+  assertMapIdle: () => assertMapIdle(),
+  isInitialSetupRunning: () => isInitialSetupRunning(),
+  isServerStarting: () => serverStarting,
+  isServerStopping: () => serverStopping,
+  isBridgeActive: () => Boolean(bridgeProcRef || bridgeRestartTimer),
+  getServerProcessStatus: () => getServerProcessStatus(),
+  getMinecraftProcessStatus: strict => getMinecraftProcessStatus(strict),
 });
-ipcMain.handle('games:clientFolders', () => discoverMinecraftLocations(minecraftLocationOptions()));
-async function saveMinecraftFolder(value, requireCandidate) {
-  const options = minecraftLocationOptions();
-  const { candidates } = await discoverMinecraftLocations(options);
-  const folder = await validateMinecraftFolder(value, { ...options, candidates, requireCandidate });
-  writeAppConfig({ minecraftGameFolder: folder });
-  return gameProfiles.list();
-}
-ipcMain.handle('games:selectClientFolder', (_event, folder) => gameProfileOperation(async () => {
-  if (gameProfiles.list().recoveryRequired) throw new Error('切替を復旧してから保存先を変更してください');
-  return saveMinecraftFolder(folder, true);
-}));
-ipcMain.handle('games:clientFolder', () => gameProfileOperation(async () => {
-  if (gameProfiles.list().recoveryRequired) throw new Error('切替を復旧してから保存先を変更してください');
-  const selected = await dialog.showOpenDialog({ title: 'Minecraftのゲームフォルダー（modsの1つ上）', properties: ['openDirectory'] });
-  if (selected.canceled) return { canceled: true };
-  return saveMinecraftFolder(selected.filePaths[0], false);
-}));
+// ゲームの切り替え中かは games_ipc.cjs が持つ。設定の保存・バックアップの復元・ウィンドウを閉じるときに見る。
+const { gameProfiles, isGameProfileBusy, assertGameProfileIdle, gameProfileOperation } = gamesIpc;
+gamesIpc.register(ipcMain);
 const eulerCredentials = require('./euler_credentials.cjs').createEulerCredentials({
   filePath: () => path.join(app.getPath('userData'), 'euler-credentials.json'), safeStorage,
 });
@@ -154,15 +85,37 @@ const settingsBackups = createSettingsBackups({
     backups: path.join(app.getPath("userData"), "settings-backups", crypto.createHash("sha256").update(path.resolve(getConfigPath())).digest("hex").slice(0, 16)),
   }),
   version: () => app.getVersion(), readTts: () => readTtsSettings(),
-  isRunning: () => Boolean(bridgeProcRef || bridgeRestartTimer || mapOperationBusy || serverStarting || gameProfileBusy || gameProfiles.list().recoveryRequired),
+  isRunning: () => Boolean(bridgeProcRef || bridgeRestartTimer || mapOperationBusy || serverStarting || isGameProfileBusy() || gameProfiles.list().recoveryRequired),
 });
+const { createTtsIpc } = require('./tts_ipc.cjs');
+const ttsIpc = createTtsIpc({ app, process, shell, spawn, getBridgeBatDir, getConfigPath, settingsBackups });
+const { getTtsSettingsPath, readTtsSettings } = ttsIpc;
+ttsIpc.register(ipcMain);
+const { createBridgeSettings } = require('./bridge_settings.cjs');
+const bridgeSettings = createBridgeSettings({
+  app, dialog, shell, getConfigPath, ensureConfigExists, getBridgeBatDir, getServerRoot, getGiftsMinPath, getGiftsMetaPath,
+  getInstalledBridgeRoot, getBridgeDir, gameProfiles, assertGameProfileIdle, settingsBackups, readTtsSettings,
+  requestBridgeMod: (...args) => requestBridgeMod(...args),
+  isBridgeRunning: () => Boolean(bridgeProcRef),
+});
+const { readSavedBridgeConfig, writeBridgeConfig, selectableCommandNames } = bridgeSettings;
+bridgeSettings.register(ipcMain);
+const { createGiftsViewer } = require('./gifts_viewer.cjs');
+const giftsViewer = createGiftsViewer({
+  BrowserWindow, shell, net, clipboard, nativeImage, runProc, eulerCredentials,
+  getConfigPath, getGiftsDir, getGiftsMinPath, getGiftsMetaPath, getGiftsHtmlPath, ensureDir,
+  getGvDataDir, getGvSettingsPath, getGvToolPath, getNodeCommand,
+  ensureNodeRuntimeAvailable: () => ensureNodeRuntimeAvailable(),
+});
+const { autoUpdateGiftsIfStale } = giftsViewer;
+giftsViewer.register(ipcMain);
 
 const isDev = process.env.ELECTRON_DEV === "1";
 const { createAppWindow } = require('./window.cjs');
 // 保存・準備中（初期セットアップ・MAP の作業・サーバーの起動と停止・ゲームの切り替え）はウィンドウを閉じない。
 // 名前のある関数にして、テストから5つの作業ごとに確かめる（main.cjs の分割 PR1 レビュー）。
 function isAppBusy() {
-  return initialSetupRunning || mapOperationBusy || serverStarting || serverStopping || gameProfileBusy;
+  return isInitialSetupRunning() || mapOperationBusy || serverStarting || serverStopping || isGameProfileBusy();
 }
 const appWindow = createAppWindow({ BrowserWindow, session, dialog, shell, appDir: __dirname, isDev, isBusy: () => isAppBusy() });
 const { installProdOnlyCsp, createWindow } = appWindow;
@@ -204,139 +157,7 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-// --------------------
-// IPC: config read/write
-// --------------------
-ipcMain.handle("config:read", async () => {
-  const configPath = getConfigPath();
-  ensureConfigExists(configPath);
-
-  const raw = fs.readFileSync(configPath, "utf-8");
-  return JSON.parse(raw);
-});
-
-const { updateGiftMapping } = require("./gift_mapping.cjs");
-
-// 保存済みの設定（読めなければ null）。前からある割り当てを、新しい問題と区別するために使う。
-function readSavedBridgeConfig() {
-  try { return JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch { return null; }
-}
-
-function writeBridgeConfig(nextConfig, { alsoKnown = [] } = {}) {
-  assertGameProfileIdle();
-  assertGameCommands(nextConfig, selectableCommandNames(), gameProfiles.list());
-  const validation = validateBridgeConfig(nextConfig, { previous: [readSavedBridgeConfig(), ...alsoKnown] });
-  if (!validation.ok) throw new Error(`設定エラー:\n${validation.errors.join("\n")}`);
-  const configPath = getConfigPath();
-  ensureConfigExists(configPath);
-
-  // commandsDir を常にセットアップフォルダ内の絶対パスに固定
-  const bridgeDir = getBridgeBatDir();
-  const commandsDirAbs = path.join(bridgeDir, "commands", "minecraft");
-  const merged = { ...nextConfig };
-  if (merged.options) {
-    merged.options = { ...merged.options, commandsDir: commandsDirAbs };
-  }
-
-  const json = JSON.stringify(merged, null, 2);
-  if (json.length > 2_000_000) throw new Error("Config too large.");
-
-  if (fs.readFileSync(configPath, "utf8") !== json) settingsBackups.create("automatic");
-  atomicWrite(configPath, json);
-  return { ok: true };
-}
-
-ipcMain.handle("config:write", async (_event, nextConfig) => writeBridgeConfig(nextConfig));
-ipcMain.handle("config:mappings:write", async (_event, mappings) => {
-  const configPath = getConfigPath();
-  ensureConfigExists(configPath);
-  return writeBridgeConfig({ ...JSON.parse(fs.readFileSync(configPath, "utf8")), mappings });
-});
-
-ipcMain.handle("config:giftMapping:save", (_event, request) => {
-  const configPath = getConfigPath();
-  ensureConfigExists(configPath);
-  const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
-  const names = selectableCommandNames();
-  const next = updateGiftMapping(JSON.parse(fs.readFileSync(configPath, "utf8")), request, names);
-  // Keep read / compare / write synchronous so another IPC cannot interleave.
-  writeBridgeConfig(next);
-  return { ok: true, mappings: next.mappings };
-});
-
-const { createGiftTemplates } = require("./gift_templates.cjs");
-const giftTemplates = createGiftTemplates({
-  dialog, appVersion: () => app.getVersion(), writeConfig: writeBridgeConfig,
-  context: () => { const configPath = getConfigPath(); ensureConfigExists(configPath); return { configPath, commands: readCommandMetadata() }; },
-});
-ipcMain.handle("giftTemplate:save", () => giftTemplates.save());
-ipcMain.handle("giftTemplate:open", () => giftTemplates.open());
-ipcMain.handle("giftTemplate:apply", (_event, token) => giftTemplates.apply(token));
-ipcMain.handle("giftTemplate:cancel", (_event, token) => giftTemplates.cancel(token));
-
-ipcMain.handle("config:path", async () => {
-  return getConfigPath();
-});
-
-ipcMain.handle("settings:backups:list", () => settingsBackups.list());
-ipcMain.handle("settings:backups:create", () => settingsBackups.create("manual"));
-ipcMain.handle("settings:backups:restore", (_event, id) => { assertGameProfileIdle(); return settingsBackups.restore(id); });
-let preflightTask = null;
-ipcMain.handle("preflight:run", () => {
-  if (!preflightTask) preflightTask = runPreflight({
-    configPath: getConfigPath(), serverRoot: getServerRoot(),
-    commandsDir: path.join(getBridgeBatDir(), "commands", "minecraft"),
-    giftsPath: getGiftsMinPath(), giftsMetaPath: getGiftsMetaPath(),
-    modStatus: async () => { try { return { ...(await requestBridgeMod("GET", "/bridge/status")), online: true }; } catch (e) { return { online: false, authFailed: e?.authFailed === true, error: e?.message || "" }; } },
-    bridgeStatus: () => {
-      let runtime = {};
-      try { runtime = JSON.parse(fs.readFileSync(path.join(getBridgeBatDir(), "runtime-status.json"), "utf8")); } catch {}
-      return { running: Boolean(bridgeProcRef), tiktok: runtime.tiktok };
-    },
-    ttsStatus: async () => { const settings = readTtsSettings(); return { enabled: settings.enabled, engine: settings.engine, online: settings.enabled ? await checkEngine(settings.engine) : false }; },
-  }).finally(() => { preflightTask = null; });
-  return preflightTask;
-});
-
-ipcMain.handle("config:validate", async (_event, value) => validateBridgeConfig(value, { previous: [readSavedBridgeConfig()] }));
-
-// ✅ preload側の「bridgeRoot / bridgeDir」ズレ事故を防ぐため両方返す
-ipcMain.handle("bridge:root", async () => getInstalledBridgeRoot());
-ipcMain.handle("bridge:dir", async () => getBridgeDir());
 ipcMain.handle("bridge:syncStatus", () => bridgeSyncState);
-
-// --------------------
-// IPC: Gifts read (UIタブ用)
-// --------------------
-ipcMain.handle("gifts:read", async () => {
-  const minPath = getGiftsMinPath();
-  const metaPath = getGiftsMetaPath();
-
-  if (!fs.existsSync(minPath)) {
-    return { gifts: [], meta: null, exists: false };
-  }
-
-  const gifts = JSON.parse(fs.readFileSync(minPath, "utf-8"));
-  let meta = null;
-  if (fs.existsSync(metaPath)) meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
-
-  return { gifts, meta, exists: true, minPath, metaPath };
-});
-
-// フォルダ/HTMLを開く（便利）
-ipcMain.handle("gifts:openFolder", async () => {
-  const dir = getGiftsDir();
-  ensureDir(dir);
-  await shell.openPath(dir);
-  return { ok: true, dir };
-});
-
-ipcMain.handle("gifts:openHtml", async () => {
-  const html = getGiftsHtmlPath();
-  if (!fs.existsSync(html)) throw new Error(`gifts.html not found: ${html}`);
-  await shell.openPath(html);
-  return { ok: true, html };
-});
 
 // --------------------
 // Bridge: resources → serverFolder/bridge へ差分同期
@@ -976,7 +797,7 @@ async function startServer(resumeAfterMap = false) {
   if (serverStarting || serverStopping) throw new Error("サーバーを起動・停止中です。完了までお待ちください。");
   serverStarting = true;
   try {
-  if (initialSetupRunning) throw new Error("環境構築が完了するまでお待ちください。");
+  if (isInitialSetupRunning()) throw new Error("環境構築が完了するまでお待ちください。");
   const dir = getServerRoot();
   const bat = path.join(dir, "run.bat");
   if (!fs.existsSync(bat)) throw new Error(`run.bat not found: ${bat}`);
@@ -1620,7 +1441,7 @@ async function stopMapServer(origin) {
 async function runMapOperation(origin, action) {
   assertGameProfileIdle();
   assertMapIdle();
-  if (initialSetupRunning || serverStarting || serverStopping) throw new Error('サーバーの準備・停止が終わるまでお待ちください。');
+  if (isInitialSetupRunning() || serverStarting || serverStopping) throw new Error('サーバーの準備・停止が終わるまでお待ちください。');
   mapOperationBusy = true;
   const restartServer = Boolean(serverProcRef), restartBridge = Boolean(bridgeProcRef || bridgeRestartTimer);
   try {
@@ -1795,84 +1616,6 @@ ipcMain.handle("server:props:write", async (_event, updates) => {
 });
 
 // --------------------
-// IPC: フォルダ選択ダイアログ
-// --------------------
-ipcMain.handle("dialog:pickFolder", async (_event, title) => {
-  const { canceled, filePaths } = await dialog.showOpenDialog({
-    properties: ["openDirectory"],
-    title: title || "フォルダを選択",
-  });
-  if (canceled || filePaths.length === 0) return { canceled: true, path: "" };
-  return { canceled: false, path: filePaths[0] };
-});
-
-// ファイル選択ダイアログ（Minecraftランチャーの場所指定などに使用）
-ipcMain.handle("dialog:pickFile", async (_event, options) => {
-  const title = String(options?.title || "ファイルを選択");
-  const filters = Array.isArray(options?.filters) && options.filters.length > 0
-    ? options.filters
-    : [{ name: "実行ファイル", extensions: ["exe"] }];
-  const { canceled, filePaths } = await dialog.showOpenDialog({
-    properties: ["openFile"],
-    title,
-    filters,
-  });
-  if (canceled || filePaths.length === 0) return { canceled: true, path: "" };
-  return { canceled: false, path: filePaths[0] };
-});
-
-ipcMain.handle("folder:open", async (_event, folderPath) => {
-  if (!folderPath || typeof folderPath !== "string") throw new Error("folderPath is required");
-  if (!fs.existsSync(folderPath)) throw new Error(`フォルダが見つかりません: ${folderPath}`);
-  const error = await shell.openPath(folderPath);
-  if (error) throw new Error(error);
-  return { ok: true, path: folderPath };
-});
-
-// --------------------
-// IPC: 同梱資材から初期設定を構築（PowerShell・外部コンソール不要）
-// --------------------
-let initialSetupRunning = false;
-let initialSetupState = { state: "idle", message: "" };
-ipcMain.handle("server:setup:status", () => initialSetupState);
-async function setupServerAtPath(folderPath) {
-  assertGameProfileIdle();
-  assertMapIdle();
-  if (!folderPath || typeof folderPath !== "string") throw new Error("folderPath is required");
-  if (initialSetupRunning) throw new Error("環境構築が進行中です。完了までお待ちください。");
-  if (serverProcRef) throw new Error("Minecraftサーバーを停止してから環境構築を実行してください。");
-  initialSetupRunning = true;
-  initialSetupState = { state: "running", message: "Minecraft利用規約への同意を確認しています…" };
-  try {
-    let eulaAccepted = false;
-    try { eulaAccepted = /^\s*eula\s*=\s*true\s*$/m.test(fs.readFileSync(path.join(folderPath, "eula.txt"), "utf8")); } catch {}
-    if (!eulaAccepted) {
-      const choice = await dialog.showMessageBox({
-        type: "question", title: "Minecraft 利用規約への同意",
-        message: "Minecraftの利用規約（EULA）に同意して、サーバー環境を構築しますか？",
-        detail: `${EULA_URL}\n\n保存先: ${folderPath}\n「規約を開く」で内容を確認できます。`,
-        buttons: ["同意して構築", "規約を開く", "キャンセル"], defaultId: 2, cancelId: 2, noLink: true,
-      });
-      if (choice.response === 1) await shell.openExternal(EULA_URL);
-      if (choice.response !== 0) {
-        initialSetupState = { state: "idle", message: "環境構築をキャンセルしました。" };
-        return { ok: false, canceled: true };
-      }
-      eulaAccepted = true;
-    }
-    const result = await prepareServerEnvironment(folderPath, { eulaAccepted,
-      onProgress: message => { initialSetupState = { state: "running", message }; },
-    });
-    initialSetupState = { state: "done", message: `環境構築が完了しました。配信ワールド: ${result.world}` };
-    return result;
-  } catch (error) {
-    initialSetupState = { state: "error", message: String(error?.message || error) };
-    throw error;
-  } finally { initialSetupRunning = false; }
-}
-ipcMain.handle("server:setup:atPath", (_event, folderPath) => setupServerAtPath(folderPath));
-
-// --------------------
 // IPC: RCONパスワード.txt 読み込み
 // --------------------
 ipcMain.handle("server:rconpassword:read", async () => {
@@ -1894,196 +1637,6 @@ ipcMain.handle("server:gamerules:apply", async () => {
 });
 // No new datapack is written. Old packs are retired only while the server is stopped.
 ipcMain.handle("server:datapack:deployNightVision", () => ({ ok: true, managedBy: "BridgeMOD" }));
-
-// --------------------
-// IPC: Forgeインストーラーを同梱Javaで直接起動
-// --------------------
-ipcMain.handle("server:forgeInstall", () => launchForgeInstaller(getServerRoot()));
-
-ipcMain.handle("server:forgeInstall:atPath", (_event, folderPath) => {
-  if (!folderPath || typeof folderPath !== "string") throw new Error("folderPath is required");
-  return launchForgeInstaller(folderPath);
-});
-ipcMain.handle("server:forgeClientStatus", () => inspectForgeClient(path.join(app.getPath("appData"), ".minecraft")));
-
-// --------------------
-// IPC: 初期セットアップ
-// --------------------
-ipcMain.handle("server:setup", () => setupServerAtPath(getServerRoot()));
-
-// --------------------
-// IPC: Gifts update (bat不要化)
-// --------------------
-ipcMain.handle("gifts:update", async (_event, username) => {
-  const result = await updateGifts(username);
-  return {
-    ...result,
-    giftsDir: result.dir,
-    minPath: getGiftsMinPath(),
-    htmlPath: getGiftsHtmlPath(),
-  };
-});
-
-// ====================
-// IPC: GiftsViewer 統合 (gv:* プレフィックス)
-// ====================
-
-// --------------------
-// GiftsViewer（場所は paths.cjs）
-// --------------------
-async function autoUpdateGiftsIfStale() {
-  let bridgeCfg = {};
-  try { bridgeCfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch {}
-  const username = String(bridgeCfg.tiktokUsername || "").trim().replace(/^@/, "");
-  if (!username) return { skipped: "username" };
-  const metaPath = path.join(getGvDataDir(), "gifts.meta.json");
-  try {
-    const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
-    const age = Date.now() - Date.parse(meta.generatedAt);
-    if (meta.username === username && meta.count > 0 && age >= 0 && age < 86400000 &&
-        fs.existsSync(path.join(getGvDataDir(), "gifts.min.json"))) return { skipped: "fresh" };
-  } catch { /* 壊れたメタデータも再取得する */ }
-  await updateGifts(username);
-  console.log(`[gifts:auto-update] updated for @${username}`);
-  return { ok: true };
-}
-
-// --------------------
-// gv:gifts:read
-// --------------------
-ipcMain.handle("gv:gifts:read", async () => {
-  const dir = getGvDataDir();
-  const minPath = path.join(dir, "gifts.min.json");
-  const metaPath = path.join(dir, "gifts.meta.json");
-
-  if (!fs.existsSync(minPath)) return { gifts: [], meta: null, exists: false };
-
-  const gifts = JSON.parse(fs.readFileSync(minPath, "utf-8"));
-  const meta = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, "utf-8")) : null;
-
-  return { gifts, meta, exists: true };
-});
-
-// --------------------
-// gv:gifts:update
-// --------------------
-let giftUpdateTask = null;
-let giftUpdateUsername = "";
-
-async function updateGifts(username) {
-  const user = String(username || "").trim().replace(/^@/, "");
-  if (!/^[\w.]{1,64}$/.test(user)) throw new Error("TikTok IDを入力してください（英数字・ピリオド・アンダースコア）。");
-  if (giftUpdateTask) {
-    if (giftUpdateUsername !== user) throw new Error("別のアカウントのギフトを更新中です。完了してからお試しください。");
-    return giftUpdateTask;
-  }
-  giftUpdateUsername = user;
-  giftUpdateTask = performGiftUpdate(user);
-  try { return await giftUpdateTask; }
-  finally { giftUpdateTask = null; giftUpdateUsername = ""; }
-}
-
-async function performGiftUpdate(user) {
-  const fetchTool = getGvToolPath("fetch_gifts.cjs");
-  const htmlTool = getGvToolPath("gifts_to_html.cjs");
-
-  if (!fs.existsSync(fetchTool)) throw new Error(`fetch_gifts.cjs not found: ${fetchTool}`);
-  if (!fs.existsSync(htmlTool)) throw new Error(`gifts_to_html.cjs not found: ${htmlTool}`);
-
-  const dir = getGvDataDir();
-  await ensureNodeRuntimeAvailable();
-  const nodeCmd = getNodeCommand();
-
-  // 失敗時に既存データを壊さないよう、取得・HTML生成が完了してから置き換える。
-  const staging = fs.mkdtempSync(path.join(dir, ".update-"));
-  try {
-    const { env } = eulerCredentials.runtime();
-    await runProc(nodeCmd, [fetchTool, user, "--out", staging], dir, { timeoutMs: 60000, env });
-    await runProc(nodeCmd, [htmlTool, "--in", path.join(staging, "gifts.min.json"), "--out", staging], dir, { timeoutMs: 15000 });
-    const gifts = JSON.parse(fs.readFileSync(path.join(staging, "gifts.min.json"), "utf8"));
-    const meta = JSON.parse(fs.readFileSync(path.join(staging, "gifts.meta.json"), "utf8"));
-    if (!Array.isArray(gifts) || !gifts.length || meta.username !== user || meta.count !== gifts.length) {
-      throw new Error("ギフトデータの検証に失敗しました。保存済みの一覧は変更していません。");
-    }
-    const files = ["gifts.full.json", "gifts.min.json", "gifts.html", "gifts.meta.json"];
-    for (const name of files) {
-      if (!fs.statSync(path.join(staging, name)).isFile()) throw new Error(`取得ファイルが不正です: ${name}`);
-    }
-    for (const name of files) {
-      fs.renameSync(path.join(staging, name), path.join(dir, name));
-    }
-    for (const win of BrowserWindow.getAllWindows()) win.webContents.send("gifts:updated", meta);
-    return { ok: true, dir, meta };
-  } finally {
-    fs.rmSync(staging, { recursive: true, force: true });
-  }
-}
-
-ipcMain.handle("gv:gifts:update", async (_event, username) => updateGifts(username));
-
-// --------------------
-// gv:gifts:openFolder
-// --------------------
-ipcMain.handle("gv:gifts:openFolder", async () => {
-  const dir = getGvDataDir();
-  await shell.openPath(dir);
-  return { ok: true, dir };
-});
-
-// --------------------
-// gv:gifts:openHtml
-// --------------------
-ipcMain.handle("gv:gifts:openHtml", async () => {
-  const html = path.join(getGvDataDir(), "gifts.html");
-  if (!fs.existsSync(html)) throw new Error(`gifts.html not found: ${html}`);
-  await shell.openPath(html);
-  return { ok: true, html };
-});
-
-// --------------------
-// gv:gifts:fetchImageBase64
-// --------------------
-const { fetchGiftImage } = require("./gift_image.cjs");
-ipcMain.handle("gv:gifts:fetchImageBase64", (_event, url) =>
-  fetchGiftImage(url, (input, init) => net.fetch(input, init)));
-
-// --------------------
-// gv:gifts:copyPngDataUrl
-// --------------------
-ipcMain.handle("clipboard:writeText", (_event, text) => {
-  if (typeof text !== "string" || text.length > 65536) {
-    throw new Error("コピーする文字列が不正です");
-  }
-  clipboard.writeText(text);
-  return { ok: true };
-});
-
-ipcMain.handle("gv:gifts:copyPngDataUrl", async (_event, dataUrl) => {
-  if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/png;base64,")) throw new Error("PNG Data URL is invalid");
-  if (dataUrl.length > 14 * 1024 * 1024) throw new Error("PNG is too large (max 10MB)");
-
-  const image = nativeImage.createFromDataURL(dataUrl);
-  if (image.isEmpty()) throw new Error("Failed to decode PNG image");
-
-  clipboard.writeImage(image);
-  return { ok: true };
-});
-
-// --------------------
-// gv:settings:read / write
-// --------------------
-ipcMain.handle("gv:settings:read", async () => {
-  const p = getGvSettingsPath();
-  if (!fs.existsSync(p)) return { username: "" };
-  return JSON.parse(fs.readFileSync(p, "utf-8"));
-});
-
-ipcMain.handle("gv:settings:write", async (_event, v) => {
-  const p = getGvSettingsPath();
-  const next = { username: String(v?.username || "").trim().replace(/^@/, "") };
-  fs.writeFileSync(p, JSON.stringify(next, null, 2), "utf-8");
-  return { ok: true };
-});
 
 // --------------------
 // IPC: サーバーテンプレートをコピー（空フォルダ対応）
@@ -2166,79 +1719,6 @@ ipcMain.handle("server:copyTemplate", async (_event, targetFolder) => {
 ipcMain.handle("server:copyTemplateStatus", () => copyTemplateState);
 
 // --------------------
-// IPC: bridge/commands/minecraft/ 内の .txt ファイル一覧
-// --------------------
-function selectableCommandNames() {
-  const dir = path.join(getBridgeBatDir(), 'commands', 'minecraft');
-  if (!fs.existsSync(dir)) return [];
-  const names = fs.readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isFile()).map(entry => entry.name);
-  return availableGameCommands(names, gameProfiles.list()).sort();
-}
-ipcMain.handle("bridge:commands:list", () => readCommandMetadata().map(({ name, title, invalidName }) => ({ name, title, ...(invalidName ? { invalidName } : {}) })));
-
-// --------------------
-// IPC: bridge/commands/minecraft/ の TITLE + CATEGORY + 説明文 メタ情報一覧
-// --------------------
-function readCommandMetadata() {
-  const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
-  if (!fs.existsSync(dir)) return [];
-  const files = selectableCommandNames();
-  return files.map((name) => {
-    let title = name;
-    let category = "";
-    let description = "";
-    try {
-      const content = fs.readFileSync(path.join(dir, name), "utf8");
-      const titleMatch = content.match(/^#\s*TITLE:\s*(.+)$/m);
-      if (titleMatch) title = titleMatch[1].trim();
-      const catMatch = content.match(/^#\s*CATEGORY:\s*(.+)$/m);
-      if (catMatch) category = catMatch[1].trim();
-      // 説明文はファイル先頭の // コメント行（コマンド一覧ページの表示用）
-      const descMatch = content.match(/^\/\/\s*(.+)$/m);
-      if (descMatch) description = descMatch[1].trim();
-    } catch {}
-    // Explorer で作った「ネコ.txt」「tnt - コピー.txt」なども一覧には出るが、BridgeMOD では実行できない。
-    // title はルーレット名やギフト画像にそのまま使われるので変えず、印だけを付ける（割り当てた保存は理由付きで止まる）。
-    return { name, title, category, description, ...(commandFileProblem(name) ? { invalidName: true } : {}) };
-  });
-}
-ipcMain.handle("bridge:commands:readMeta", () => readCommandMetadata());
-
-// --------------------
-// IPC: bridge/commands/minecraft/ にTXTを書き込む
-// --------------------
-ipcMain.handle("bridge:commands:write", async (_event, { filename, content }) => {
-  assertGameProfileIdle();
-  if (/^game_(umetate|run|saikutu)_/.test(filename || '')) throw new Error('ゲームパックのコマンドはパックを再登録して更新してください');
-  if (!filename || typeof filename !== "string" || !filename.endsWith(".txt")) {
-    throw new Error("Invalid filename: must be a .txt file");
-  }
-  if (typeof content !== "string") throw new Error("content must be a string");
-  if (filename !== path.basename(filename) || filename.includes("/") || filename.includes("\\")) {
-    throw new Error("Invalid filename: path separators are not allowed");
-  }
-  const nameProblem = commandFileProblem(filename);
-  if (nameProblem) throw new Error(nameProblem);
-  if (Buffer.byteLength(content, "utf8") > 1024 * 1024) throw new Error("command file is too large (max 1MB)");
-  const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
-  fs.mkdirSync(dir, { recursive: true });
-  const fullPath = path.join(dir, filename);
-  if (fs.existsSync(getConfigPath())) settingsBackups.create("automatic");
-  atomicWrite(fullPath, content);
-  return { ok: true, path: fullPath };
-});
-
-// --------------------
-// IPC: bridge/commands/minecraft/ をエクスプローラーで開く
-// --------------------
-ipcMain.handle("bridge:commands:openFolder", async () => {
-  const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
-  fs.mkdirSync(dir, { recursive: true });
-  await shell.openPath(dir);
-  return { ok: true };
-});
-
-// --------------------
 // IPC: haihu_world/ 内のサブフォルダ一覧
 // --------------------
 ipcMain.handle("server:worlds:list", async () => {
@@ -2247,243 +1727,4 @@ ipcMain.handle("server:worlds:list", async () => {
   return fs.readdirSync(dir, { withFileTypes: true })
     .filter((e) => e.isDirectory())
     .map((e) => e.name);
-});
-
-// --------------------
-// IPC: セットアップ完了チェック
-// --------------------
-ipcMain.handle("server:checkSetupComplete", async () => {
-  const dir = getServerRoot();
-  return inspectSetup(dir);
-});
-
-// --------------------
-// IPC: 完了画面「検出された環境」の実測（旧: 固定配列のハードコード）
-// --------------------
-ipcMain.handle("setup:inspectEnvironment", async () => {
-  const dir = getServerRoot();
-  const hasLibraries = fs.existsSync(path.join(dir, "libraries"));
-  const hasRunBat = fs.existsSync(path.join(dir, "run.bat"));
-
-  let forgeVersion = "";
-  let minecraftVersion = "";
-  try {
-    forgeVersion = require("./forge_version.cjs").detectServerForgeVersion(dir);
-    minecraftVersion = forgeVersion.split("-")[0] || "";
-  } catch { /* 検出できなければ未検出のまま */ }
-
-  let javaVersion = "";
-  try {
-    const result = spawnSync("java", ["-version"], { encoding: "utf8" });
-    // java -version は多くのJDKでstderrに出力する
-    const out = String(result.stderr || result.stdout || "").split("\n")[0].trim();
-    if (out) javaVersion = out;
-  } catch { /* javaがPATHに無ければ未検出のまま */ }
-
-  const modsDir = path.join(dir, "mods");
-  let bridgeModJar = "";
-  try {
-    if (fs.existsSync(modsDir)) {
-      bridgeModJar = fs.readdirSync(modsDir).find((f) => /^bridgemod-.*\.jar$/i.test(f)) || "";
-    }
-  } catch { /* ignore */ }
-
-  const giftsMetaPath = path.join(getGvDataDir(), "gifts.meta.json");
-  let tiktokApiFresh = false;
-  let tiktokApiAgeMs = null;
-  if (fs.existsSync(giftsMetaPath)) {
-    tiktokApiAgeMs = Date.now() - fs.statSync(giftsMetaPath).mtimeMs;
-    tiktokApiFresh = tiktokApiAgeMs < 24 * 60 * 60 * 1000;
-  }
-
-  return {
-    forge: { detected: hasLibraries || hasRunBat, version: forgeVersion || "未検出" },
-    minecraft: { detected: Boolean(minecraftVersion), version: minecraftVersion || "未検出" },
-    java: { detected: Boolean(javaVersion), version: javaVersion || "未検出（PATHにjavaがありません）" },
-    bridge: { detected: true, version: app.getVersion() },
-    bridgeMod: { detected: Boolean(bridgeModJar), version: bridgeModJar || "未検出" },
-    tiktokApi: {
-      detected: tiktokApiFresh,
-      version: tiktokApiAgeMs === null
-        ? "未確認（gifts.meta.jsonなし）"
-        : tiktokApiFresh
-        ? "接続 OK（ギフトデータ取得済み）"
-        : "未確認（ギフトデータが24時間以上前）",
-    },
-  };
-});
-
-// --------------------
-// TTS (読み上げ)
-// --------------------
-const TTS_DEFAULTS = {
-  engine: "voicevox",
-  speakerId: 2,
-  speedScale: 1.2,
-  pitchScale: 0.0,
-  intonationScale: 1.0,
-  volume: 1.0,
-  enabled: true,
-  commentEnabled: true,
-  giftEnabled: true,
-  giftTemplate: "{sender}さんから{gift}が来たよ！",
-};
-
-function clampNumber(value, min, max, fallback) {
-  const number = Number(value);
-  return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback;
-}
-
-function normalizeTtsSettings(settings) {
-  const value = { ...TTS_DEFAULTS, ...(settings && typeof settings === "object" ? settings : {}) };
-  return {
-    engine: value.engine === "aivis" ? "aivis" : "voicevox",
-    speakerId: Math.trunc(clampNumber(value.speakerId, 0, Number.MAX_SAFE_INTEGER, TTS_DEFAULTS.speakerId)),
-    speedScale: clampNumber(value.speedScale, 0.5, 2.0, TTS_DEFAULTS.speedScale),
-    pitchScale: clampNumber(value.pitchScale, -0.15, 0.15, TTS_DEFAULTS.pitchScale),
-    intonationScale: clampNumber(value.intonationScale, 0.0, 2.0, TTS_DEFAULTS.intonationScale),
-    volume: clampNumber(value.volume, 0.0, 2.0, TTS_DEFAULTS.volume),
-    enabled: value.enabled !== false,
-    commentEnabled: value.commentEnabled !== false,
-    giftEnabled: value.giftEnabled !== false,
-    giftTemplate: String(value.giftTemplate || TTS_DEFAULTS.giftTemplate).slice(0, 200),
-  };
-}
-
-function getTtsSettingsPath() {
-  return path.join(app.getPath("userData"), "tts-settings.json");
-}
-
-function readTtsSettingsFile(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return null;
-  try {
-    return normalizeTtsSettings(JSON.parse(fs.readFileSync(filePath, "utf-8")));
-  } catch {
-    return null;
-  }
-}
-
-function readTtsSettings() {
-  // ライブコメントを処理する bridge/index.js は bridge/tts-settings.json を読む。
-  // ここで userData 側を先に読むと、UIが起動するエンジンとBridgeが使用する
-  // エンジンが食い違い、正常に保存済みでも無音になるためBridge側を正とする。
-  const bridgeSettings = readTtsSettingsFile(path.join(getBridgeBatDir(), "tts-settings.json"));
-  if (bridgeSettings) return bridgeSettings;
-  return readTtsSettingsFile(getTtsSettingsPath()) || { ...TTS_DEFAULTS };
-}
-
-function writeTtsSettings(settings) {
-  const normalized = normalizeTtsSettings(settings);
-  const p = getTtsSettingsPath();
-  // bridge フォルダにも同期（bridge/index.js が読む）
-  const bridgeTtsPath = path.join(getBridgeBatDir(), "tts-settings.json");
-  fs.mkdirSync(path.dirname(bridgeTtsPath), { recursive: true });
-  fs.writeFileSync(bridgeTtsPath, JSON.stringify(normalized, null, 2), "utf-8");
-  fs.writeFileSync(p, JSON.stringify(normalized, null, 2), "utf-8");
-  return normalized;
-}
-
-ipcMain.handle("tts:settings:read", () => readTtsSettings());
-
-ipcMain.handle("tts:settings:write", (_event, settings) => {
-  if (fs.existsSync(getConfigPath()) && JSON.stringify(readTtsSettings()) !== JSON.stringify(settings)) settingsBackups.create("automatic");
-  return { ok: true, settings: writeTtsSettings(settings) };
-});
-
-ipcMain.handle("tts:checkEngine", async (_event, engine) => {
-  return await checkEngine(engine);
-});
-
-ipcMain.handle("tts:getSpeakers", async (_event, engine) => {
-  try {
-    const raw = await getSpeakers(engine);
-    return flattenSpeakers(raw);
-  } catch {
-    return [];
-  }
-});
-
-const ENGINE_EXE_PATHS = {
-  voicevox: [
-    path.join(require("os").homedir(), "AppData", "Local", "Programs", "VOICEVOX", "VOICEVOX.exe"),
-    path.join(process.env.LOCALAPPDATA || "", "Programs", "VOICEVOX", "VOICEVOX.exe"),
-    path.join(process.env.PROGRAMFILES || "", "VOICEVOX", "VOICEVOX.exe"),
-  ],
-  aivis: [
-    path.join(require("os").homedir(), "AppData", "Local", "Programs", "AivisSpeech", "AivisSpeech.exe"),
-    path.join(process.env.LOCALAPPDATA || "", "Programs", "AivisSpeech", "AivisSpeech.exe"),
-    path.join(process.env.PROGRAMFILES || "", "AivisSpeech", "AivisSpeech.exe"),
-  ],
-};
-
-function resolveEngineExe(engine) {
-  const candidates = ENGINE_EXE_PATHS[engine] || [];
-  return candidates.find((candidate) => candidate && fs.existsSync(candidate)) || null;
-}
-
-async function waitForTtsEngine(engine, timeoutMs = 60000) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    if (await checkEngine(engine)) return true;
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-  return false;
-}
-
-ipcMain.handle("tts:launchEngine", async (_event, engine) => {
-  if (!ENGINE_PORTS[engine]) {
-    return { ok: false, message: `未対応の読み上げエンジンです: ${engine}` };
-  }
-  if (await checkEngine(engine)) {
-    return { ok: true, alreadyRunning: true, message: "すでに起動しています。" };
-  }
-
-  const exePath = resolveEngineExe(engine);
-  if (!exePath) {
-    const expected = (ENGINE_EXE_PATHS[engine] || []).filter(Boolean).join("\n");
-    return { ok: false, message: `実行ファイルが見つかりません。公式サイトからインストールしてください。\n${expected}` };
-  }
-  try {
-    await new Promise((resolve, reject) => {
-      const child = spawn(exePath, [], { cwd: path.dirname(exePath), detached: true, stdio: "ignore" });
-      child.once("error", reject);
-      child.once("spawn", () => { child.unref(); resolve(); });
-    });
-  } catch (spawnError) {
-    const shellError = await shell.openPath(exePath);
-    if (shellError) {
-      return { ok: false, message: spawnError?.message || shellError };
-    }
-  }
-
-  try {
-    const ready = await waitForTtsEngine(engine);
-    if (ready) {
-      return { ok: true, message: "起動しました。" };
-    }
-    const port = ENGINE_PORTS[engine];
-    return { ok: false, message: `起動は実行しましたが、APIがまだ応答していません。${port}番ポートで起動しているか確認してください。` };
-  } catch (e) {
-    return { ok: false, message: e.message };
-  }
-});
-
-ipcMain.handle("tts:test", async (_event, settings) => {
-  try {
-    const normalized = normalizeTtsSettings(settings);
-    const ok = await checkEngine(normalized.engine);
-    if (!ok) return { ok: false, message: "エンジンが起動していません" };
-    const text = ((settings?.testText && String(settings.testText).trim()) || "テスト再生。こんにちは！").slice(0, 200);
-    const wav = await synthesize(
-      normalized.engine,
-      text,
-      normalized.speakerId,
-      normalized.speedScale,
-      normalized.pitchScale,
-      normalized.intonationScale
-    );
-    return { ok: true, base64: wav.toString("base64") };
-  } catch (e) {
-    return { ok: false, message: e.message };
-  }
 });

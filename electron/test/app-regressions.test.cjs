@@ -105,11 +105,82 @@ test('配線: サーバーの起動中は保存先を変えず、作業中（5�
   await assert.rejects(app.invoke('app:config:write', { serverFolder: app.root }), /サーバーの起動中は保存先を変更できません。/);
   app.evaluate('serverStarting = false;');
   assert.equal(app.evaluate('isAppBusy()'), false);
-  for (const flag of ['initialSetupRunning', 'mapOperationBusy', 'serverStarting', 'serverStopping', 'gameProfileBusy']) {
+  // 初期セットアップは setup_ipc.cjs、ゲームの操作は games_ipc.cjs が持つので、下のテストで本当に作業中にして確かめる（main.cjs の分割 PR2）。
+  for (const flag of ['mapOperationBusy', 'serverStarting', 'serverStopping']) {
     app.evaluate(`${flag} = true;`);
     assert.equal(app.evaluate('isAppBusy()'), true, flag);
     app.evaluate(`${flag} = false;`);
   }
+});
+
+// 初期セットアップは setup_ipc.cjs が持つ（main.cjs の分割 PR2）。main のサーバーの起動・MAP の作業は、その「作業中」を関数で見る。
+test('配線: 初期セットアップの間は、ウィンドウを閉じず、サーバーの起動と MAP の作業を止める', async t => {
+  let answerEula;
+  const app = loadApp(t, undefined, {}, { showMessageBox: () => new Promise(resolve => { answerEula = resolve; }) });
+  const target = path.join(app.root, 'setup-target');
+  fs.mkdirSync(target);
+  const setup = app.invoke('server:setup:atPath', target);
+  assert.equal(app.evaluate('isAppBusy()'), true);
+  await assert.rejects(app.invoke('server:start'), /環境構築が完了するまでお待ちください。/);
+  await assert.rejects(app.invoke('world:backup'), /サーバーの準備・停止が終わるまでお待ちください。/);
+  answerEula({ response: 2 });
+  assert.equal((await setup).canceled, true);
+  assert.equal(app.evaluate('isAppBusy()'), false);
+});
+
+// ゲームの切り替えは games_ipc.cjs が持つ（main.cjs の分割 PR2）。止める判定は、main が渡す各作業の「作業中」の関数で見る。
+test('配線: ゲームの切り替えは、初期セットアップ・サーバーの起動と停止・BRIDGE の再起動待ち・MAP の作業の間は止める', async t => {
+  let answerEula;
+  const app = loadApp(t, undefined, {}, { showMessageBox: () => new Promise(resolve => { answerEula = resolve; }) });
+  for (const [set, reset] of [['serverStarting = true', 'serverStarting = false'], ['serverStopping = true', 'serverStopping = false'], ['bridgeRestartTimer = 1', 'bridgeRestartTimer = null']]) {
+    app.evaluate(set);
+    await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, set);
+    app.evaluate(reset);
+  }
+  app.evaluate('mapOperationBusy = true');
+  await assert.rejects(app.invoke('games:recover'), /MAPを保存・読込中です。/);
+  app.evaluate('mapOperationBusy = false');
+  const target = path.join(app.root, 'setup-target');
+  fs.mkdirSync(target);
+  const setup = app.invoke('server:setup:atPath', target);
+  await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/);
+  answerEula({ response: 2 });
+  await setup;
+});
+
+// BRIDGE の子プロセス（bridgeProcRef）とサーバーの稼働（getServerProcessStatus）も、main から渡した関数で見る（main.cjs の分割 PR2 の最終レビュー）。
+test('配線: ゲームの切り替えは、BRIDGE やサーバーが動いている間は止める', async t => {
+  const app = loadApp(t);
+  app.setBridge(fakeBridge(() => undefined).child);
+  await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, 'BRIDGE');
+  app.evaluate('bridgeProcRef = null; bridgePid = null;');
+  app.setServer({ pid: 4321, exitCode: null, signalCode: null });
+  await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, 'server');
+  app.evaluate('serverProcRef = null; serverPid = null;');
+});
+
+test('配線: ゲームの操作の間（パックのフォルダーを選んでいる間）は、ウィンドウを閉じない', async t => {
+  let answerFolder;
+  const app = loadApp(t, undefined, {}, { showOpenDialog: () => new Promise(resolve => { answerFolder = resolve; }) });
+  const install = app.invoke('games:install');
+  assert.equal(app.evaluate('isAppBusy()'), true);
+  answerFolder({ canceled: true, filePaths: [] });
+  assert.equal((await install).canceled, true);
+  assert.equal(app.evaluate('isAppBusy()'), false);
+});
+
+// 配信前チェックは bridge_settings.cjs が持つ（main.cjs の分割 PR2）。BRIDGE の子プロセス・BridgeMOD の通信・読み上げの設定は main から受け取る。
+test('配線: 配信前チェックは、main の BRIDGE の子プロセス・BridgeMOD・読み上げの設定を見る', async t => {
+  const app = loadApp(t);
+  await bridgeModStatus(t, app);
+  app.invoke('tts:settings:write', { enabled: false });
+  app.setBridge(fakeBridge(() => undefined).child);
+  fs.writeFileSync(path.join(app.root, 'bridge', 'runtime-status.json'), JSON.stringify({ tiktok: { state: 'connected', username: 'akahoridouma' } }));
+  const report = await app.invoke('preflight:run');
+  const status = id => report.checks.find(row => row.id === id).status;
+  assert.equal(status('bridge'), 'ok');
+  assert.equal(status('mod'), 'ok');
+  assert.equal(status('tts'), 'skip');
 });
 
 // テスト発火を受ける偽の BRIDGE。届いた問い合わせを記録し、answer の戻り値を返事として返す（undefined なら返さない）。

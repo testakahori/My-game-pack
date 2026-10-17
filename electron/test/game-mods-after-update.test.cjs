@@ -193,13 +193,15 @@ test('アプリの起動と、手動インストールのあとの初期セッ�
   assert.match(write, /if \(!wasSetupComplete && readAppConfig\(\)\.setupComplete === true\) setTimeout\(\(\) => \{ refreshGameModsOnStartup\(\)\.catch\(/);
   assert.match(read('electron/game_mods_refresh.cjs'), /await run\(\(\) => profiles\.refreshMods\(\)\);/, '「保存」の activate ではなく、jar だけを入れ替える');
   // ホームのゲームの状態は、どの応答でも「MODが古いまま」とその理由を含める（PR #91 再レビュー）。
-  assert.match(main, /function gamesStatus\(\) \{\s*const cfg = readAppConfig\(\);\s*return \{ \.\.\.gameProfiles\.list\(\), modsOutdatedAfterUpdate: gameModsOutdated\(cfg, app\.getVersion\(\)\), modsRefreshError: cfg\.gameModsRefreshError \|\| '' \};/);
-  assert.match(main, /ipcMain\.handle\('games:list', \(\) => gamesStatus\(\)\);/);
-  const activate = main.slice(main.indexOf("ipcMain.handle('games:activate'"), main.indexOf("ipcMain.handle('games:recover'"));
+  // games:* は electron/games_ipc.cjs へ移した（2026-10-17 main.cjs の分割 PR2）。
+  const games = read('electron/games_ipc.cjs');
+  assert.match(games, /function gamesStatus\(\) \{\s*const cfg = readAppConfig\(\);\s*return \{ \.\.\.gameProfiles\.list\(\), modsOutdatedAfterUpdate: gameModsOutdated\(cfg, app\.getVersion\(\)\), modsRefreshError: cfg\.gameModsRefreshError \|\| '' \};/);
+  assert.match(games, /ipcMain\.handle\('games:list', \(\) => gamesStatus\(\)\);/);
+  const activate = games.slice(games.indexOf("ipcMain.handle('games:activate'"), games.indexOf("ipcMain.handle('games:recover'"));
   assert.match(activate, /if \(app\.isPackaged\) \{\s*try \{ writeAppConfig\(\{ gameModsVersion: app\.getVersion\(\), gameModsRefreshFailed: '', gameModsRefreshError: '' \}\); \}/, '開発版では書かない。書けなくても切替は成功として返す');
   assert.match(activate, /return \{ \.\.\.result, \.\.\.gamesStatus\(\) \};/);
   // 「今すぐ入れ替える」：「保存」と違ってほかの MOD を退避しない、アプリの更新に合わせた入れ替えをもう一度試す（PR #91 再レビュー）。
-  const now = main.slice(main.indexOf("ipcMain.handle('games:refreshMods'"), main.indexOf("ipcMain.handle('games:clientFolders'"));
+  const now = games.slice(games.indexOf("ipcMain.handle('games:refreshMods'"), games.indexOf("ipcMain.handle('games:clientFolders'"));
   assert.match(now, /refreshGameModsAfterUpdate\(\{ version: app\.getVersion\(\), readConfig: readAppConfig, writeConfig: writeAppConfig, profiles: gameProfiles, run: gameProfileOperation \}\)/);
   assert.match(now, /if \(result\.state === 'failed'\) throw new Error\(result\.error\);/);
   assert.match(read('electron/preload.cjs'), /gamesRefreshMods: \(\) => ipcRenderer\.invoke\('games:refreshMods'\),/);
