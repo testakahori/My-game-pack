@@ -246,7 +246,16 @@
        - BRIDGE の起動と taskkill の `spawn` に `'error'` の受け手がない（node が見つからないなどの非同期のエラーは、main の捕まえられない例外になる）。
        - `bridge:processStatus` は呼ばれるたびに PowerShell の `Get-CimInstance` を同期で動かし、最大1.5秒 main を止める（ホーム・統計・運用センターなどが呼ぶ）。
        - main.cjs の `validCommand` の読み込みは使われていない（PR6 で整理する）。
-     - **次にやること**：PR #115 の CI を見て、ユーザーの許可を得てマージ。そのあと PR6（main.cjs を配線だけにする仕上げ・行数の見張りテスト（main.cjs 400行以下、`electron/*.cjs` は各800行以下）・AGENTS.md）の計画を書く。PR6 で設計書の分割は終わり（PR は全部で6本）。
+     - PR5 は CI（3つとも通った）のあと、ユーザーの許可を得てマージした（PR #115、マージコミット 1121925）。
+     - PR6（仕上げ。最後の1本）の計画を書いた：`docs/superpowers/plans/2026-10-18-main-split-pr6.md`。ブランチ `refactor/main-split-6`（1121925 から切った。origin に push 済み、PR はまだ）。中身は4つ：
+       1. 行数の見張りテスト `electron/test/file-size-limits.test.cjs`（main.cjs 400行・ほかの `electron/*.cjs` 各800行を超えたら CI で止める）
+       2. テストが main の式を写していた「ゲームの選択の記録の場所」を、`games_ipc.cjs` の `getGameProfilesDir` から読む（設計書 6 の置き換えの最後の1つ）
+       3. main.cjs の使われていない `validCommand`・`isAppBusy` の古いコメントの書き直し（PR2 で後回しにしたもの）と、AGENTS.md の分けたファイルの一覧
+       4. `npm run verify`（476件の見込み）・本物の Electron で読むだけの確かめ・HANDOFF
+     - **次にやること**（10-18 夜、ユーザーが PC の電源を落とすので中断）：
+       1. ブランチ `refactor/main-split-6` に切り替え、ユーザーに PR6 の計画を見てもらい、実装の進め方（このセッションで実装／サブエージェント）を選んでもらう。PR1〜PR5 はどれも「このセッションで実装」。
+       2. 計画の Task 1〜4 → 最終レビュー（別のレビュー役、opus）→ 軽い指摘をどうするか聞く → PR → CI → ユーザーの許可を得てマージ。
+       3. PR6 で main.cjs の分割は終わり（PR は全部で6本）。そのあとは 9番の残りの大きい問題（P8 運営ログインの偽造など）から、ユーザーに選んでもらう。
      - PR1 の最終レビュー：重大 0・重要 3（テストの穴。直した）・軽い 6（ユーザーの指示で直した）。分ける前と後の main.cjs を同じ偽物の electron で比べ、動きの違いは0件。
      - PR1 で見つけた小さい問題（このPRでは直さない）：
        - Tailwind は git が追跡しているファイル全体からクラス名を拾う。文書に `\` + 16進数の場所（scratchpad の場所など）を書くとビルドが止まる。`src/index.css` で読む範囲を絞る（Codex の UI の作業と重なるので別の PR）。それまでは `electron/test/docs-css-safe.test.cjs` が見張る。
