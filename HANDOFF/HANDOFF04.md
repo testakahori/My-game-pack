@@ -212,15 +212,15 @@
      - PR1（土台）：ipc の窓口の一覧を固定するテスト、`app_config.cjs`・`paths.cjs`・`operator_auth.cjs`・`window.cjs`。PR #110、ブランチ `refactor/main-split-1`。main.cjs は 2,954行 → 2,489行。
      - PR1 は開発版を本物の Electron で起動し、外から操作して確かめた（ログイン・ウィンドウの操作・アプリ設定の保存・CSP・外部リンク・移動の制限）。共有のアプリ設定は確かめたあと元に戻した。
      - PR1 は、Codex が D 側の作業コピーで UI/UX を直していたので、scratchpad の worktree（`wt-split`）で進めた。
-     - PR2（端の仕事）：`setup_ipc.cjs`・`games_ipc.cjs`・`tts_ipc.cjs`・`bridge_settings.cjs`・`gifts_viewer.cjs`（ipc 58個）。ブランチ `refactor/main-split-2`。main.cjs は 2,489行 → 1,730行。計画は `docs/superpowers/plans/2026-10-17-main-split-pr2.md`。
+     - PR2（端の仕事）：`setup_ipc.cjs`・`games_ipc.cjs`・`tts_ipc.cjs`・`bridge_settings.cjs`・`gifts_viewer.cjs`（ipc 58個）。PR #112、ブランチ `refactor/main-split-2`。main.cjs は 2,489行 → 1,730行。計画は `docs/superpowers/plans/2026-10-17-main-split-pr2.md`。
      - PR2 から D 側の作業コピーで進めている（Codex の UI の作業が終わったため）。開発版を本物の Electron で起動し、移した ipc 17個を画面の中から読むだけで確かめた（すべて OK。アプリ設定・BRIDGE の設定は変わらず）。開発版のサーバーは TOP でゲームを保存していないので、コマンドの一覧は空になる（前からの決まり）。
      - PR2 で、テストが main の中の変数（`initialSetupRunning`・`gameProfileBusy`）を書き換えていた所は、規約の確認やフォルダー選択の画面を待たせて本当に作業中にする形に変えた。
-     - **PR2 の次にやること（10-17 の中断時点）**
-       - 状態：実装は6つの作業すべて完了（commit 済み、まだ push していない）。`npm run verify` 429/429、本物の Electron での確認も OK。
-       - 最終レビュー（別のレビュー役・最も強いモデル）を頼んだところで、ユーザーが PC の電源を切るため中断した。結果は受け取っていない。
-       - 次は、最終レビューをやり直す（`superpowers:executing-plans` の Final Review。差分は `git diff 4d4dd2d..refactor/main-split-2`、計画の Review Focus と記録の Ruling を渡す）。
-       - 記録（ledger）は D 側の `.superpowers/sdd/2026-10-17-main-split-pr2/progress.md`（git の管理外）。Ruling は3件（検索の当たりすぎ2件、テストの件数の元が古かった件、開発版ではコマンドの一覧が空になる件）。
-       - 重要な指摘を直したら、push して PR を出し、CI を見て、ユーザーの許可を得てマージ。そのあと PR3（`bridge_sync.cjs`）の計画へ。
+     - PR2 の最終レビュー（別のレビュー役。途中でユーザーが PC の電源を切ったので、10-17 夕に再開して完了）：判定は「マージしてよい」。重大 0・重要 0・軽い 2。
+       - 移した5つのブロックを分ける前の main.cjs と1行ずつ比べ、決めた置き換え以外は元のままだった。main の配線の取り違えもなかった。
+       - 軽い指摘1（テストの穴）は重要に上げて直した：ゲームの切り替えが「BRIDGE が動いている」「サーバーが動いている」で止まることを main を通して確かめるテストがなかった。PR4・PR5 でこの配線を付け替えるので先に足した（main の配線をわざと壊すと落ちることも確かめた）。`npm run verify` 430/430。
+       - 実装中の判断（Ruling）は4件：検索の当たりすぎ2件、テストの件数の元が古かった件、開発版ではコマンドの一覧が空になる件。どれも PR #112 の説明に書いた。
+       - PR6 に回すこと：`isAppBusy` のコメント「5つの作業ごとに確かめる」は、今は3つのテストに分かれているので書き直す。
+     - **次にやること**：PR #112 の CI を見て、ユーザーの許可を得てマージ。そのあと PR3（`bridge_sync.cjs`：BRIDGE の配布）の計画を書く。
      - PR1 の最終レビュー：重大 0・重要 3（テストの穴。直した）・軽い 6（ユーザーの指示で直した）。分ける前と後の main.cjs を同じ偽物の electron で比べ、動きの違いは0件。
      - PR1 で見つけた小さい問題（このPRでは直さない）：
        - Tailwind は git が追跡しているファイル全体からクラス名を拾う。文書に `\` + 16進数の場所（scratchpad の場所など）を書くとビルドが止まる。`src/index.css` で読む範囲を絞る（Codex の UI の作業と重なるので別の PR）。それまでは `electron/test/docs-css-safe.test.cjs` が見張る。
