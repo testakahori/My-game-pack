@@ -27,9 +27,10 @@ test('配信の記録の状態: main から受け取った BRIDGE の子プロ�
 test('起動のときの履歴の整理: 古い配列の履歴を JSONL に直し、30日より古い行を消す', t => {
   const x = setup(t);
   const file = path.join(x.bridge, 'operations-history.json');
-  const old = new Date(Date.now() - 40 * 86400000).toISOString(), recent = new Date().toISOString();
-  fs.writeFileSync(file, JSON.stringify([{ at: recent, commandFile: 'new.txt' }, { at: old, commandFile: 'old.txt' }]));
+  const old = new Date(Date.now() - 40 * 86400000).toISOString(), recent = new Date(Date.now() - 60000).toISOString(), newest = new Date().toISOString();
+  // 古い配列の履歴は新しい順。JSONL は古い順に並べ直す（残る行を2つにして、並びも確かめる。PR5 の最終レビュー）。
+  fs.writeFileSync(file, JSON.stringify([{ at: newest, commandFile: 'newest.txt' }, { at: recent, commandFile: 'new.txt' }, { at: old, commandFile: 'old.txt' }]));
   x.operationsStats.pruneOperationsHistoryOldRows(30);
-  assert.deepEqual(fs.readFileSync(file, 'utf8').trim().split('\n').map(line => JSON.parse(line).commandFile), ['new.txt']);
-  assert.deepEqual(x.invoke('operations:history').map(row => row.commandFile), ['new.txt']);
+  assert.deepEqual(fs.readFileSync(file, 'utf8').trim().split('\n').map(line => JSON.parse(line).commandFile), ['new.txt', 'newest.txt']);
+  assert.deepEqual(x.invoke('operations:history').map(row => row.commandFile), ['newest.txt', 'new.txt']);
 });

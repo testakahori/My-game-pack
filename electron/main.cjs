@@ -1,7 +1,6 @@
 // electron/main.cjs
 const { app, BrowserWindow, ipcMain, session, net, shell, clipboard, nativeImage, dialog, safeStorage } = require("electron");
 const path = require("path");
-const fs = require("fs");
 const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
 const { runProc } = require("./process_runner.cjs");

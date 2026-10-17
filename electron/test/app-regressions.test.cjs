@@ -69,9 +69,11 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
   });
   vm.runInContext(fs.readFileSync(mainPath, "utf8"), context, { filename: mainPath });
   // Ordinary regression cases start after the user saved Survival on TOP.
-  vm.runInContext(`var fixtureGameState = path.join(app.getPath('userData'), 'game-profiles', crypto.createHash('sha256').update(path.resolve(getServerRoot())).digest('hex').slice(0, 16), 'profiles.json');
-    fs.mkdirSync(path.dirname(fixtureGameState), { recursive: true });
-    fs.writeFileSync(fixtureGameState, JSON.stringify({ format: 1, active: 'common', packages: {}, profiles: {}, appliedFormat: 3, appliedRoots: [path.resolve(getServerRoot()), path.resolve(app.getPath('appData'), '.minecraft')] }));`, context);
+  // 場所は main の中で決め、書くのはテストの fs で行う（main は fs を読み込まなくなった。main.cjs の分割 PR5 の最終レビュー）。
+  context.fixtureGameState = vm.runInContext(`path.join(app.getPath('userData'), 'game-profiles', crypto.createHash('sha256').update(path.resolve(getServerRoot())).digest('hex').slice(0, 16), 'profiles.json')`, context);
+  const appliedRoots = vm.runInContext(`[path.resolve(getServerRoot()), path.resolve(app.getPath('appData'), '.minecraft')]`, context);
+  fs.mkdirSync(path.dirname(context.fixtureGameState), { recursive: true });
+  fs.writeFileSync(context.fixtureGameState, JSON.stringify({ format: 1, active: 'common', packages: {}, profiles: {}, appliedFormat: 3, appliedRoots: [...appliedRoots] }));
   return { root, configPath, notifications, copiedTexts, clearGameSelection: () => fs.unlinkSync(context.fixtureGameState), invoke: (name, ...args) => handlers.get(name)({}, ...args),
     // ipc の窓口の名前（main.cjs の分割で増えたり減ったりしていないかを確かめる。2026-10-17）。
     channels: () => [...handlers.keys()].sort(), onChannels: () => [...onChannels].sort(),
@@ -206,18 +208,46 @@ test('配線: サーバーの起動中は、MAP の作業を始めない', async
 });
 
 // BRIDGE が動いているか（再起動の待ちを含む）は bridge_process が持つ（main.cjs の分割 PR5）。
-test('配線: MAP の作業は、BRIDGE が動いて（再起動を待って）いれば止めてから行い、あとで起動し直す', async t => {
-  const app = loadApp(t);
-  // 開発版の決まった場所のサーバー（loadApp がここでゲームを「保存」済みにしている。保存先を変えると BRIDGE の起動が TOP の確かめで止まる）。
+// MAP の作業の相手にする、開発版の決まった場所のサーバー（loadApp がここでゲームを「保存」済みにしている。保存先を変えると BRIDGE の起動が TOP の確かめで止まる）。
+function mapServerFixture(app) {
   const server = path.join(app.root, 'server', 'Douma_Craft');
   fs.mkdirSync(path.join(server, 'world'), { recursive: true });
   fs.writeFileSync(path.join(server, 'world', 'level.dat'), 'world');
   fs.writeFileSync(path.join(server, 'server.properties'), 'level-name=world\nserver-port=39974\n');
+}
+
+test('配線: MAP の作業は、BRIDGE が動いて（再起動を待って）いれば止めてから行い、あとで起動し直す', async t => {
+  const app = loadApp(t);
+  mapServerFixture(app);
   const back = app.pretend('bridgeProcess.isActive', () => true);
   const result = await app.invoke('world:saves:save', 'with-bridge');
   back();
   assert.equal(result.saved.name, 'with-bridge');
   assert.match(result.restartError, /Bridge entry not found/, 'あとで BRIDGE を起動し直そうとした（この偽の環境には BRIDGE がない）');
+});
+
+// 止める相手は main の BRIDGE の子プロセス（stopBridge の配線。PR5 の最終レビュー）。
+test('配線: MAP の作業は、動いている BRIDGE の子プロセスに止める指示を送り、止まってから行う', async t => {
+  const app = loadApp(t);
+  mapServerFixture(app);
+  const bridge = fakeBridge(message => {
+    if (message.type === 'shutdown') setImmediate(() => { bridge.child.exitCode = 0; bridge.child.emit('exit', 0, null); });
+  });
+  app.setBridge(bridge.child);
+  const result = await app.invoke('world:saves:save', 'stop-bridge');
+  assert.equal(result.saved.name, 'stop-bridge');
+  // attach で持たせた子プロセスには、終わったら手放す受け手（launchBridge が付ける）がない。止める指示が届いたことだけを見る。
+  assert.deepEqual(bridge.asked.map(message => message.type), ['shutdown']);
+  assert.match(result.restartError, /Bridge entry not found/, 'あとで BRIDGE を起動し直そうとした（この偽の環境には BRIDGE がない）');
+});
+
+// ゲームの切り替えの最中・復旧が必要な間は、BRIDGE を起動しない（bridge_process に渡す assertGameProfileIdle の配線。PR5 の最終レビュー）。
+test('配線: ゲームの切り替えの復旧が必要な間は、BRIDGE を起動しない', async t => {
+  const app = loadApp(t);
+  const list = app.evaluate('gameProfiles.list');
+  const back = app.pretend('gameProfiles.list', () => ({ ...list(), recoveryRequired: true }));
+  await assert.rejects(app.invoke('bridge:launch'), /ゲームの切替中、または切替の復旧が必要です。/);
+  back();
 });
 
 test('配線: MAP の作業中は、BRIDGE の起動・停止・再起動をしない', async t => {
