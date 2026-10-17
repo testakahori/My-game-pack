@@ -127,8 +127,9 @@ const serverProcess = createServerProcess({
   requestBridgeMod: (...args) => requestBridgeMod(...args),
   authFailedMessage: () => BRIDGE_MOD_AUTH_FAILED,
 });
-// サーバーの子プロセス・起動中・停止中は server_process.cjs が持つ。main とほかのモジュールは、呼ばれたときに serverProcess.xxx() で読む
-// （テストが差し替えて配線を確かめるので、分割代入で受けない）。
+// サーバーの子プロセス・起動中・停止中は server_process.cjs が持つ。main とほかのモジュールは、それを読む関数（child・isStarting・isStopping
+// など）を呼ばれたときに serverProcess.xxx() で読み、分割代入では受けない（テストが差し替えて配線を確かめるため）。
+// 下の操作の関数（ログ・起動・停止・状態の確かめ・終了待ち）は差し替えないので、分割代入で受けてよい。
 const { appendLog: appendServerLog, startServer, stopMapServer, getServerProcessStatus, waitChildExit } = serverProcess;
 serverProcess.register(ipcMain);
 const { createMapOperations } = require('./map_operations.cjs');

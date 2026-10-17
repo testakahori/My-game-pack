@@ -204,6 +204,44 @@ test('配線: サーバーの起動中は、MAP の作業を始めない', async
   back();
 });
 
+test('配線: サーバーが動いている間の OP の付与は、BridgeMOD の応答を確かめてから送る', async t => {
+  const app = loadApp(t);
+  const seen = [];
+  await bridgeModStatus(t, app, req => { seen.push(`${req.method} ${req.url}`); return { ok: true }; });
+  await app.invoke('app:config:write', { minecraftPlayerName: 'Steve_01' });
+  app.setServer({ pid: 1, exitCode: null, signalCode: null });
+  assert.deepEqual(plainJson(await app.invoke('minecraft:grantOp')), { ok: true, name: 'Steve_01' });
+  assert.deepEqual(seen, ['GET /bridge/status', 'POST /bridge/event']);
+  app.setServer(null);
+});
+
+test('配線: MAP の保存は、保存の直前にもサーバーが止まっていることを serverProcess の関数で確かめる', async t => {
+  const app = loadApp(t);
+  await app.invoke('app:config:write', { serverFolder: app.root });
+  fs.mkdirSync(path.join(app.root, 'world'));
+  fs.writeFileSync(path.join(app.root, 'world', 'level.dat'), 'world');
+  fs.writeFileSync(path.join(app.root, 'server.properties'), 'level-name=world\nserver-port=39972\n');
+  const back = app.pretend('serverProcess.assertMapServerStopped', async () => { throw new Error('サーバーが停止していません。MAP操作を中止しました。'); });
+  await assert.rejects(app.invoke('world:saves:save', 'x'), /サーバーが停止していません。MAP操作を中止しました。/);
+  back();
+  assert.equal(fs.existsSync(path.join(app.root, 'map-saves')), false);
+});
+
+test('配線: サーバーの起動の前に、中断した MAP の読込の後始末を map_operations に頼む', async t => {
+  const app = loadApp(t);
+  await app.invoke('app:config:write', { serverFolder: app.root });
+  fs.writeFileSync(path.join(app.root, 'server.properties'), 'level-name=world\nserver-port=39973\n');
+  fs.writeFileSync(path.join(app.root, 'run.bat'), 'must never execute');
+  const child = new (require('node:events').EventEmitter)();
+  Object.assign(child, { pid: 123458, stdout: new (require('node:stream').PassThrough)(), stderr: new (require('node:stream').PassThrough)() });
+  app.mockServerSpawn(() => child);
+  let recovered = 0;
+  const back = app.pretend('mapOperations.mapSaves.recover', async () => { recovered++; });
+  assert.equal((await app.invoke('server:start')).ok, true);
+  back();
+  assert.equal(recovered, 1);
+});
+
 test('配線: ゲームの操作の間（パックのフォルダーを選んでいる間）は、ウィンドウを閉じない', async t => {
   let answerFolder;
   const app = loadApp(t, undefined, {}, { showOpenDialog: () => new Promise(resolve => { answerFolder = resolve; }) });

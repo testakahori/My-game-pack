@@ -9,13 +9,15 @@ function createServerProcess({
   app, process, spawn, getServerRoot, getBridgeBatDir, getConfigPath, assertGameProfileIdle, assertMapIdle,
   isInitialSetupRunning, recoverMapSaves, requestBridgeMod, authFailedMessage, isOperatorAuthed, stopRequests,
 }) {
-  // --------------------
-  // IPC: サーバー起動 (run.bat)
-  // --------------------
+  // サーバーの状態（子プロセス・ログ・起動中・停止中・停止の待ち）。使う関数より先に置く（main.cjs の分割 PR4 の最終レビュー）。
   let serverPid  = null;
   let serverProcRef = null;
   const SERVER_LOG_LIMIT = 500;
   const serverLogBuffer = [];
+  let serverStarting = false;
+  let serverStopping = false;
+  // 保存の完了の待ち（実際の停止は 120 秒待つ）。テストで待ちを短くするためにだけ setStopWaitMs で変える。
+  let stopWaitMs = 120000;
 
   function appendServerLog(message) {
     const text = String(message ?? "").replace(/\r/g, "");
@@ -121,9 +123,6 @@ function createServerProcess({
     return { running: true, managed: false, pid: null, modReady, modAuthFailed };
   }
 
-  let serverStarting = false;
-  let serverStopping = false;
-
   async function portIsOpen(port, host = '127.0.0.1') {
     return new Promise((resolve, reject) => {
       const socket = require('node:net').connect({ port, host });
@@ -171,8 +170,6 @@ function createServerProcess({
     await assertMapServerStopped();
   }
 
-  // 保存の完了の待ち（実際の停止は 120 秒待つ）。テストで待ちを短くするためにだけ setStopWaitMs で変える。
-  let stopWaitMs = 120000;
   function setStopWaitMs(ms) { stopWaitMs = ms; }
   // 子プロセスを持たせる（起動の処理と、テストの偽の子プロセスが使う）。
   function attach(child) { serverProcRef = child || null; serverPid = child?.pid || null; }
@@ -182,6 +179,9 @@ function createServerProcess({
   function isStopping() { return serverStopping; }
 
   function register(ipcMain) {
+    // --------------------
+    // IPC: サーバー起動 (run.bat)
+    // --------------------
     ipcMain.handle("server:start", () => startServer());
 
     // --------------------
