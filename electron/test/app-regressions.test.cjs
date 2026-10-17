@@ -242,6 +242,70 @@ test('配線: サーバーの起動の前に、中断した MAP の読込の後�
   assert.equal(recovered, 1);
 });
 
+// BRIDGE 側の窓口は bridge_process・bridge_mod_client・operations_stats へ移す（main.cjs の分割 PR5）。分ける前の動きをここで固定する。
+test('BRIDGE の状態・再起動: 動いている BRIDGE の pid と稼働を返し、再起動は止めてから起動し直す', async t => {
+  const { EventEmitter } = require('node:events');
+  const app = loadApp(t);
+  fs.writeFileSync(path.join(app.root, 'bridge', 'index.js'), '');
+  const pids = [];
+  app.mockServerSpawn(() => {
+    const child = new EventEmitter();
+    const pid = 30000 + pids.length;
+    pids.push(pid);
+    Object.assign(child, { pid, stdout: new EventEmitter(), stderr: new EventEmitter(), connected: true, exitCode: null, signalCode: null,
+      send: () => setImmediate(() => { child.exitCode = 0; child.emit('exit', 0); }) });
+    return child;
+  });
+  assert.equal((await app.invoke('bridge:launch')).pid, 30000);
+  const status = await app.invoke('bridge:processStatus');
+  assert.deepEqual([status.running, status.pid, status.restartCount], [true, 30000, 0]);
+  assert.equal((await app.invoke('bridge:restart', 'home:restart')).pid, 30001);
+  assert.deepEqual(pids, [30000, 30001]);
+  assert.ok((await app.invoke('bridge:logs')).lines.some(line => line.includes('[BRIDGE] PID 30001 で起動しました')));
+  await app.invoke('bridge:stop');
+  assert.equal((await app.invoke('bridge:processStatus')).running, false);
+});
+
+test('操作の履歴と統計: JSONL の履歴を新しい順に返し、コマンド・送り主ごとに回数で数え、消すと空にする', async t => {
+  const app = loadApp(t);
+  const history = path.join(app.root, 'bridge', 'operations-history.json');
+  const at = minutes => new Date(Date.now() - minutes * 60000).toISOString();
+  fs.writeFileSync(history, [
+    { at: at(3), sender: 'alice', commandFile: 'zombie.txt', count: 2, ok: true },
+    { at: at(2), sender: 'bob', commandFile: 'zombie.txt', count: 0, ok: false },
+    { at: at(1), sender: 'alice', commandFile: 'tnt.txt', ok: true },
+  ].map(row => JSON.stringify(row)).join('\n') + '\n');
+  assert.deepEqual(plainJson((await app.invoke('operations:history')).map(row => row.commandFile)), ['tnt.txt', 'zombie.txt', 'zombie.txt']);
+  assert.deepEqual(plainJson(await app.invoke('operations:stats')), { total: 3, succeeded: 2, failed: 1,
+    topCommands: [{ name: 'zombie.txt', count: 2 }, { name: 'tnt.txt', count: 1 }],
+    topSenders: [{ name: 'alice', count: 3 }, { name: 'bob', count: 0 }] });
+  assert.deepEqual(plainJson(await app.invoke('operations:history:clear')), { ok: true });
+  assert.equal(fs.readFileSync(history, 'utf8'), '[]');
+  assert.deepEqual(plainJson(await app.invoke('operations:history')), []);
+});
+
+test('配信の受取額: 配信ごとに受取額を保存し、知らない配信は止める', async t => {
+  const app = loadApp(t);
+  const session = await app.invoke('stream:session:start', '受取額テスト');
+  await new Promise(resolve => setTimeout(resolve, 5));
+  await app.invoke('stream:session:end', { id: session.id });
+  const stream = (await app.invoke('operations:streamStats', 90)).streams[0];
+  assert.deepEqual(plainJson(app.invoke('operations:earnings:save', stream.id, 1200.5)), { ok: true });
+  const saved = JSON.parse(fs.readFileSync(path.join(app.root, 'bridge', 'stream-earnings.json'), 'utf8'));
+  assert.deepEqual(saved.map(row => [row.id, row.amount, row.currency]), [[stream.id, 1200.5, 'JPY']]);
+  assert.throws(() => app.invoke('operations:earnings:save', 'missing', 1), /配信が見つかりません。/);
+});
+
+test('ギフト案内画像の保存: PNG だけを、選んだ場所に保存する', async t => {
+  let savePath;
+  const app = loadApp(t, undefined, undefined, { showSaveDialog: async () => ({ canceled: false, filePath: savePath }) });
+  savePath = path.join(app.root, 'panel.png');
+  const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0]).toString('base64');
+  assert.deepEqual(plainJson(await app.invoke('image:saveGiftPanel', { dataUrl: 'data:image/png;base64,' + png, filename: 'panel.png' })), { canceled: false, path: savePath });
+  assert.deepEqual([...fs.readFileSync(savePath)].slice(0, 8), [137, 80, 78, 71, 13, 10, 26, 10]);
+  await assert.rejects(app.invoke('image:saveGiftPanel', { dataUrl: 'data:image/jpeg;base64,AAAA' }), /PNG画像のデータが不正です。/);
+});
+
 test('配線: ゲームの操作の間（パックのフォルダーを選んでいる間）は、ウィンドウを閉じない', async t => {
   let answerFolder;
   const app = loadApp(t, undefined, {}, { showOpenDialog: () => new Promise(resolve => { answerFolder = resolve; }) });
