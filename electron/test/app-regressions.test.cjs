@@ -158,6 +158,20 @@ test('配線: ゲームの操作の間（パックのフォルダーを選んで
   assert.equal(app.evaluate('isAppBusy()'), false);
 });
 
+// 配信前チェックは bridge_settings.cjs が持つ（main.cjs の分割 PR2）。BRIDGE の子プロセス・BridgeMOD の通信・読み上げの設定は main から受け取る。
+test('配線: 配信前チェックは、main の BRIDGE の子プロセス・BridgeMOD・読み上げの設定を見る', async t => {
+  const app = loadApp(t);
+  await bridgeModStatus(t, app);
+  app.invoke('tts:settings:write', { enabled: false });
+  app.setBridge(fakeBridge(() => undefined).child);
+  fs.writeFileSync(path.join(app.root, 'bridge', 'runtime-status.json'), JSON.stringify({ tiktok: { state: 'connected', username: 'akahoridouma' } }));
+  const report = await app.invoke('preflight:run');
+  const status = id => report.checks.find(row => row.id === id).status;
+  assert.equal(status('bridge'), 'ok');
+  assert.equal(status('mod'), 'ok');
+  assert.equal(status('tts'), 'skip');
+});
+
 // テスト発火を受ける偽の BRIDGE。届いた問い合わせを記録し、answer の戻り値を返事として返す（undefined なら返さない）。
 function fakeBridge(answer, { connected = true } = {}) {
   const { EventEmitter } = require('node:events');

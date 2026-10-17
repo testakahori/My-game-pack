@@ -5,23 +5,21 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
 const http = require("http");
-const { checkEngine } = require("./tts.cjs");
 const { validateBridgeConfig } = require("./config_schema.cjs");
 const { RestartPolicy } = require("./restart_policy.cjs");
 const { runProc } = require("./process_runner.cjs");
 // サーバー・BRIDGE の停止を、出どころ（どのボタン・操作から来たか）付きで logs/stop-requests.log に残す。
 const { createStopRequestLog, isConsoleStop } = require("./stop_requests.cjs");
 const stopRequests = createStopRequestLog({ file: () => path.join(app.getPath("userData"), "logs", "stop-requests.log") });
-const { createSettingsBackups, atomicWrite, validCommand } = require("./settings_backups.cjs");
-const { commandFileProblem, usesBridgeModTransport } = require("../bridge/command_files.cjs");
+const { createSettingsBackups, validCommand } = require("./settings_backups.cjs");
+const { usesBridgeModTransport } = require("../bridge/command_files.cjs");
 const { bridgeModTokenPath, withBridgeModToken } = require("../bridge/bridge_mod_token.cjs");
-const { runPreflight } = require("./preflight.cjs");
 const { createStreamSessions, streamBuckets } = require("./stream_sessions.cjs");
 const { saveGiftPanelPng } = require("./image_export.cjs");
 const { migrateRetiredCommands } = require("./command_migration.cjs");
 const { exportStreamStatsMarkdown } = require("./stats_export.cjs");
 const { refreshGameModsAfterUpdate } = require('./game_mods_refresh.cjs');
-const { availableGameCommands, assertGameCommands } = require('./game_command_scope.cjs');
+const { assertGameCommands } = require('./game_command_scope.cjs');
 const { tasklistNames, minecraftProcesses, readJavaCommandLines } = require('./minecraft_processes.cjs');
 // main.cjs から分けた仕事（2026-10-17 設計書 docs/superpowers/specs/2026-10-17-main-split-design.md）。
 // electron は main だけが読み込み、必要なものを渡す。あとで定義するもの（サーバーの状態など）は、呼ばれたときに読む関数で渡す。
@@ -93,6 +91,15 @@ const { createTtsIpc } = require('./tts_ipc.cjs');
 const ttsIpc = createTtsIpc({ app, process, shell, spawn, getBridgeBatDir, getConfigPath, settingsBackups });
 const { getTtsSettingsPath, readTtsSettings } = ttsIpc;
 ttsIpc.register(ipcMain);
+const { createBridgeSettings } = require('./bridge_settings.cjs');
+const bridgeSettings = createBridgeSettings({
+  app, dialog, shell, getConfigPath, ensureConfigExists, getBridgeBatDir, getServerRoot, getGiftsMinPath, getGiftsMetaPath,
+  getInstalledBridgeRoot, getBridgeDir, gameProfiles, assertGameProfileIdle, settingsBackups, readTtsSettings,
+  requestBridgeMod: (...args) => requestBridgeMod(...args),
+  isBridgeRunning: () => Boolean(bridgeProcRef),
+});
+const { readSavedBridgeConfig, writeBridgeConfig, selectableCommandNames } = bridgeSettings;
+bridgeSettings.register(ipcMain);
 
 const isDev = process.env.ELECTRON_DEV === "1";
 const { createAppWindow } = require('./window.cjs');
@@ -141,105 +148,6 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-// --------------------
-// IPC: config read/write
-// --------------------
-ipcMain.handle("config:read", async () => {
-  const configPath = getConfigPath();
-  ensureConfigExists(configPath);
-
-  const raw = fs.readFileSync(configPath, "utf-8");
-  return JSON.parse(raw);
-});
-
-const { updateGiftMapping } = require("./gift_mapping.cjs");
-
-// 保存済みの設定（読めなければ null）。前からある割り当てを、新しい問題と区別するために使う。
-function readSavedBridgeConfig() {
-  try { return JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch { return null; }
-}
-
-function writeBridgeConfig(nextConfig, { alsoKnown = [] } = {}) {
-  assertGameProfileIdle();
-  assertGameCommands(nextConfig, selectableCommandNames(), gameProfiles.list());
-  const validation = validateBridgeConfig(nextConfig, { previous: [readSavedBridgeConfig(), ...alsoKnown] });
-  if (!validation.ok) throw new Error(`設定エラー:\n${validation.errors.join("\n")}`);
-  const configPath = getConfigPath();
-  ensureConfigExists(configPath);
-
-  // commandsDir を常にセットアップフォルダ内の絶対パスに固定
-  const bridgeDir = getBridgeBatDir();
-  const commandsDirAbs = path.join(bridgeDir, "commands", "minecraft");
-  const merged = { ...nextConfig };
-  if (merged.options) {
-    merged.options = { ...merged.options, commandsDir: commandsDirAbs };
-  }
-
-  const json = JSON.stringify(merged, null, 2);
-  if (json.length > 2_000_000) throw new Error("Config too large.");
-
-  if (fs.readFileSync(configPath, "utf8") !== json) settingsBackups.create("automatic");
-  atomicWrite(configPath, json);
-  return { ok: true };
-}
-
-ipcMain.handle("config:write", async (_event, nextConfig) => writeBridgeConfig(nextConfig));
-ipcMain.handle("config:mappings:write", async (_event, mappings) => {
-  const configPath = getConfigPath();
-  ensureConfigExists(configPath);
-  return writeBridgeConfig({ ...JSON.parse(fs.readFileSync(configPath, "utf8")), mappings });
-});
-
-ipcMain.handle("config:giftMapping:save", (_event, request) => {
-  const configPath = getConfigPath();
-  ensureConfigExists(configPath);
-  const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
-  const names = selectableCommandNames();
-  const next = updateGiftMapping(JSON.parse(fs.readFileSync(configPath, "utf8")), request, names);
-  // Keep read / compare / write synchronous so another IPC cannot interleave.
-  writeBridgeConfig(next);
-  return { ok: true, mappings: next.mappings };
-});
-
-const { createGiftTemplates } = require("./gift_templates.cjs");
-const giftTemplates = createGiftTemplates({
-  dialog, appVersion: () => app.getVersion(), writeConfig: writeBridgeConfig,
-  context: () => { const configPath = getConfigPath(); ensureConfigExists(configPath); return { configPath, commands: readCommandMetadata() }; },
-});
-ipcMain.handle("giftTemplate:save", () => giftTemplates.save());
-ipcMain.handle("giftTemplate:open", () => giftTemplates.open());
-ipcMain.handle("giftTemplate:apply", (_event, token) => giftTemplates.apply(token));
-ipcMain.handle("giftTemplate:cancel", (_event, token) => giftTemplates.cancel(token));
-
-ipcMain.handle("config:path", async () => {
-  return getConfigPath();
-});
-
-ipcMain.handle("settings:backups:list", () => settingsBackups.list());
-ipcMain.handle("settings:backups:create", () => settingsBackups.create("manual"));
-ipcMain.handle("settings:backups:restore", (_event, id) => { assertGameProfileIdle(); return settingsBackups.restore(id); });
-let preflightTask = null;
-ipcMain.handle("preflight:run", () => {
-  if (!preflightTask) preflightTask = runPreflight({
-    configPath: getConfigPath(), serverRoot: getServerRoot(),
-    commandsDir: path.join(getBridgeBatDir(), "commands", "minecraft"),
-    giftsPath: getGiftsMinPath(), giftsMetaPath: getGiftsMetaPath(),
-    modStatus: async () => { try { return { ...(await requestBridgeMod("GET", "/bridge/status")), online: true }; } catch (e) { return { online: false, authFailed: e?.authFailed === true, error: e?.message || "" }; } },
-    bridgeStatus: () => {
-      let runtime = {};
-      try { runtime = JSON.parse(fs.readFileSync(path.join(getBridgeBatDir(), "runtime-status.json"), "utf8")); } catch {}
-      return { running: Boolean(bridgeProcRef), tiktok: runtime.tiktok };
-    },
-    ttsStatus: async () => { const settings = readTtsSettings(); return { enabled: settings.enabled, engine: settings.engine, online: settings.enabled ? await checkEngine(settings.engine) : false }; },
-  }).finally(() => { preflightTask = null; });
-  return preflightTask;
-});
-
-ipcMain.handle("config:validate", async (_event, value) => validateBridgeConfig(value, { previous: [readSavedBridgeConfig()] }));
-
-// ✅ preload側の「bridgeRoot / bridgeDir」ズレ事故を防ぐため両方返す
-ipcMain.handle("bridge:root", async () => getInstalledBridgeRoot());
-ipcMain.handle("bridge:dir", async () => getBridgeDir());
 ipcMain.handle("bridge:syncStatus", () => bridgeSyncState);
 
 // --------------------
@@ -2007,79 +1915,6 @@ ipcMain.handle("server:copyTemplate", async (_event, targetFolder) => {
 });
 
 ipcMain.handle("server:copyTemplateStatus", () => copyTemplateState);
-
-// --------------------
-// IPC: bridge/commands/minecraft/ 内の .txt ファイル一覧
-// --------------------
-function selectableCommandNames() {
-  const dir = path.join(getBridgeBatDir(), 'commands', 'minecraft');
-  if (!fs.existsSync(dir)) return [];
-  const names = fs.readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isFile()).map(entry => entry.name);
-  return availableGameCommands(names, gameProfiles.list()).sort();
-}
-ipcMain.handle("bridge:commands:list", () => readCommandMetadata().map(({ name, title, invalidName }) => ({ name, title, ...(invalidName ? { invalidName } : {}) })));
-
-// --------------------
-// IPC: bridge/commands/minecraft/ の TITLE + CATEGORY + 説明文 メタ情報一覧
-// --------------------
-function readCommandMetadata() {
-  const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
-  if (!fs.existsSync(dir)) return [];
-  const files = selectableCommandNames();
-  return files.map((name) => {
-    let title = name;
-    let category = "";
-    let description = "";
-    try {
-      const content = fs.readFileSync(path.join(dir, name), "utf8");
-      const titleMatch = content.match(/^#\s*TITLE:\s*(.+)$/m);
-      if (titleMatch) title = titleMatch[1].trim();
-      const catMatch = content.match(/^#\s*CATEGORY:\s*(.+)$/m);
-      if (catMatch) category = catMatch[1].trim();
-      // 説明文はファイル先頭の // コメント行（コマンド一覧ページの表示用）
-      const descMatch = content.match(/^\/\/\s*(.+)$/m);
-      if (descMatch) description = descMatch[1].trim();
-    } catch {}
-    // Explorer で作った「ネコ.txt」「tnt - コピー.txt」なども一覧には出るが、BridgeMOD では実行できない。
-    // title はルーレット名やギフト画像にそのまま使われるので変えず、印だけを付ける（割り当てた保存は理由付きで止まる）。
-    return { name, title, category, description, ...(commandFileProblem(name) ? { invalidName: true } : {}) };
-  });
-}
-ipcMain.handle("bridge:commands:readMeta", () => readCommandMetadata());
-
-// --------------------
-// IPC: bridge/commands/minecraft/ にTXTを書き込む
-// --------------------
-ipcMain.handle("bridge:commands:write", async (_event, { filename, content }) => {
-  assertGameProfileIdle();
-  if (/^game_(umetate|run|saikutu)_/.test(filename || '')) throw new Error('ゲームパックのコマンドはパックを再登録して更新してください');
-  if (!filename || typeof filename !== "string" || !filename.endsWith(".txt")) {
-    throw new Error("Invalid filename: must be a .txt file");
-  }
-  if (typeof content !== "string") throw new Error("content must be a string");
-  if (filename !== path.basename(filename) || filename.includes("/") || filename.includes("\\")) {
-    throw new Error("Invalid filename: path separators are not allowed");
-  }
-  const nameProblem = commandFileProblem(filename);
-  if (nameProblem) throw new Error(nameProblem);
-  if (Buffer.byteLength(content, "utf8") > 1024 * 1024) throw new Error("command file is too large (max 1MB)");
-  const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
-  fs.mkdirSync(dir, { recursive: true });
-  const fullPath = path.join(dir, filename);
-  if (fs.existsSync(getConfigPath())) settingsBackups.create("automatic");
-  atomicWrite(fullPath, content);
-  return { ok: true, path: fullPath };
-});
-
-// --------------------
-// IPC: bridge/commands/minecraft/ をエクスプローラーで開く
-// --------------------
-ipcMain.handle("bridge:commands:openFolder", async () => {
-  const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
-  fs.mkdirSync(dir, { recursive: true });
-  await shell.openPath(dir);
-  return { ok: true };
-});
 
 // --------------------
 // IPC: haihu_world/ 内のサブフォルダ一覧
