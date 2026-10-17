@@ -5,7 +5,6 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
 const http = require("http");
-const { validateBridgeConfig } = require("./config_schema.cjs");
 const { RestartPolicy } = require("./restart_policy.cjs");
 const { runProc } = require("./process_runner.cjs");
 // サーバー・BRIDGE の停止を、出どころ（どのボタン・操作から来たか）付きで logs/stop-requests.log に残す。
@@ -24,7 +23,7 @@ const { createAppConfig } = require('./app_config.cjs');
 const appConfig = createAppConfig({
   app,
   assertGameProfileIdle: () => assertGameProfileIdle(),
-  assertMapIdle: () => assertMapIdle(),
+  assertMapIdle: () => mapOperations.assertIdle(),
   isServerStarting: () => serverProcess.isStarting(),
   getConfigPath: () => getConfigPath(),
   getSettingsBackups: () => settingsBackups,
@@ -48,7 +47,7 @@ operatorAuth.register(ipcMain);
 const { createSetupIpc } = require('./setup_ipc.cjs');
 const setupIpc = createSetupIpc({
   app, dialog, shell, spawnSync, getServerRoot, getGvDataDir,
-  assertGameProfileIdle: () => assertGameProfileIdle(), assertMapIdle: () => assertMapIdle(),
+  assertGameProfileIdle: () => assertGameProfileIdle(), assertMapIdle: () => mapOperations.assertIdle(),
   serverChild: () => serverProcess.child(),
 });
 // 初期セットアップの「作業中」は setup_ipc.cjs が持つ。サーバーの起動・MAP・ゲームの切り替え・ウィンドウを閉じるときに見る。
@@ -57,7 +56,7 @@ setupIpc.register(ipcMain);
 const { createGamesIpc } = require('./games_ipc.cjs');
 const gamesIpc = createGamesIpc({
   app, process, appDir: __dirname, dialog, readAppConfig, writeAppConfig, getServerRoot, getConfigPath, getServerTemplatePath,
-  assertMapIdle: () => assertMapIdle(),
+  assertMapIdle: () => mapOperations.assertIdle(),
   isInitialSetupRunning: () => isInitialSetupRunning(),
   isServerStarting: () => serverProcess.isStarting(),
   isServerStopping: () => serverProcess.isStopping(),
@@ -82,7 +81,7 @@ const settingsBackups = createSettingsBackups({
     backups: path.join(app.getPath("userData"), "settings-backups", crypto.createHash("sha256").update(path.resolve(getConfigPath())).digest("hex").slice(0, 16)),
   }),
   version: () => app.getVersion(), readTts: () => readTtsSettings(),
-  isRunning: () => Boolean(bridgeProcRef || bridgeRestartTimer || mapOperationBusy || serverProcess.isStarting() || isGameProfileBusy() || gameProfiles.list().recoveryRequired),
+  isRunning: () => Boolean(bridgeProcRef || bridgeRestartTimer || mapOperations.isBusy() || serverProcess.isStarting() || isGameProfileBusy() || gameProfiles.list().recoveryRequired),
 });
 const { createTtsIpc } = require('./tts_ipc.cjs');
 const ttsIpc = createTtsIpc({ app, process, shell, spawn, getBridgeBatDir, getConfigPath, settingsBackups });
@@ -122,9 +121,9 @@ minecraftClient.register(ipcMain);
 const { createServerProcess } = require('./server_process.cjs');
 const serverProcess = createServerProcess({
   app, process, spawn, getServerRoot, getBridgeBatDir, getConfigPath, assertGameProfileIdle, isOperatorAuthed, stopRequests,
-  assertMapIdle: () => assertMapIdle(),
+  assertMapIdle: () => mapOperations.assertIdle(),
   isInitialSetupRunning: () => isInitialSetupRunning(),
-  recoverMapSaves: () => mapSaves.recover(),
+  recoverMapSaves: () => mapOperations.mapSaves.recover(),
   requestBridgeMod: (...args) => requestBridgeMod(...args),
   authFailedMessage: () => BRIDGE_MOD_AUTH_FAILED,
 });
@@ -132,13 +131,27 @@ const serverProcess = createServerProcess({
 // （テストが差し替えて配線を確かめるので、分割代入で受けない）。
 const { appendLog: appendServerLog, startServer, stopMapServer, getServerProcessStatus, waitChildExit } = serverProcess;
 serverProcess.register(ipcMain);
+const { createMapOperations } = require('./map_operations.cjs');
+const mapOperations = createMapOperations({
+  getServerRoot, getBridgeBatDir, getConfigPath, assertGameProfileIdle, readSavedBridgeConfig, writeBridgeConfig, startServer, stopMapServer,
+  isInitialSetupRunning: () => isInitialSetupRunning(),
+  isServerStarting: () => serverProcess.isStarting(),
+  isServerStopping: () => serverProcess.isStopping(),
+  serverChild: () => serverProcess.child(),
+  assertMapServerStopped: () => serverProcess.assertMapServerStopped(),
+  isBridgeActive: () => Boolean(bridgeProcRef || bridgeRestartTimer),
+  stopBridge: origin => stopBridge(origin),
+  launchBridge: () => launchBridge(),
+});
+// MAP の作業中は map_operations.cjs が持つ。main とほかのモジュールは、呼ばれたときに mapOperations.xxx() で読む。
+mapOperations.register(ipcMain);
 
 const isDev = process.env.ELECTRON_DEV === "1";
 const { createAppWindow } = require('./window.cjs');
 // 保存・準備中（初期セットアップ・MAP の作業・サーバーの起動と停止・ゲームの切り替え）はウィンドウを閉じない。
 // 名前のある関数にして、テストから5つの作業ごとに確かめる（main.cjs の分割 PR1 レビュー）。
 function isAppBusy() {
-  return isInitialSetupRunning() || mapOperationBusy || serverProcess.isStarting() || serverProcess.isStopping() || isGameProfileBusy();
+  return isInitialSetupRunning() || mapOperations.isBusy() || serverProcess.isStarting() || serverProcess.isStopping() || isGameProfileBusy();
 }
 const appWindow = createAppWindow({ BrowserWindow, session, dialog, shell, appDir: __dirname, isDev, isBusy: () => isAppBusy() });
 const { installProdOnlyCsp, createWindow } = appWindow;
@@ -333,18 +346,18 @@ async function stopBridge(origin) {
   return { ok: true };
 }
 
-ipcMain.handle("bridge:launch", async () => { assertMapIdle(); return launchBridge(); });
+ipcMain.handle("bridge:launch", async () => { mapOperations.assertIdle(); return launchBridge(); });
 
 // --------------------
 // IPC: Bridge 停止
 // --------------------
-ipcMain.handle("bridge:stop", async (_event, origin) => { assertMapIdle(); return stopBridge(origin); });
+ipcMain.handle("bridge:stop", async (_event, origin) => { mapOperations.assertIdle(); return stopBridge(origin); });
 
 // --------------------
 // IPC: Bridge 再起動（停止完了を待ってから起動する。UI側の stop→launch 連打は使わない）
 // --------------------
 ipcMain.handle("bridge:restart", async (_event, origin) => {
-  assertMapIdle();
+  mapOperations.assertIdle();
   await stopBridge(origin);
   await new Promise((r) => setTimeout(r, 400)); // ポート/ファイル解放の猶予
   return launchBridge();
@@ -668,64 +681,6 @@ ipcMain.handle("operations:history:clear", () => {
   fs.writeFileSync(getOperationsHistoryPath(), "[]", "utf8"); return { ok: true };
 });
 
-let mapOperationBusy = false;
-function assertMapIdle() {
-  if (mapOperationBusy || mapSaves.isBusy()) throw new Error('MAPを保存・読込中です。完了までお待ちください。');
-}
-const mapSaves = require('./map_saves.cjs').createMapSaves({ getRoot: getServerRoot, assertStopped: () => serverProcess.assertMapServerStopped() });
-async function runMapOperation(origin, action) {
-  assertGameProfileIdle();
-  assertMapIdle();
-  if (isInitialSetupRunning() || serverProcess.isStarting() || serverProcess.isStopping()) throw new Error('サーバーの準備・停止が終わるまでお待ちください。');
-  mapOperationBusy = true;
-  const restartServer = Boolean(serverProcess.child()), restartBridge = Boolean(bridgeProcRef || bridgeRestartTimer);
-  try {
-    if (restartBridge) await stopBridge(origin);
-    await stopMapServer(origin);
-    const result = await action();
-    let restartError = '';
-    try {
-      if (restartServer) await startServer(true);
-      if (restartBridge) await launchBridge();
-    } catch (error) { restartError = error.message; }
-    return { ok: true, ...result, restarted: restartServer, restartError };
-  } finally { mapOperationBusy = false; }
-}
-ipcMain.handle('world:saves:list', async () => ({ ...(await mapSaves.list()), busy: mapOperationBusy || mapSaves.isBusy() }));
-ipcMain.handle('world:saves:save', (_event, name) => runMapOperation('map:save', async () => ({ saved: await mapSaves.save(name) })));
-ipcMain.handle('world:saves:load', (_event, id) => runMapOperation('map:load', () => mapSaves.load(id)));
-
-async function createWorldBackup() {
-  const saved = await mapSaves.save('', 'manual');
-  return { ok: true, path: path.join(getServerRoot(), 'map-saves', saved.id), reason, message: 'MAPを保存しました: ' + saved.name };
-}
-ipcMain.handle('world:backup', () => runMapOperation('map:backup', () => createWorldBackup()));
-
-function getPresetDir() {
-  const dir = path.join(getBridgeBatDir(), "presets");
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-ipcMain.handle("presets:list", () =>
-  fs.readdirSync(getPresetDir()).filter(name => name.endsWith(".json")).sort()
-);
-ipcMain.handle("presets:save", (_event, name) => {
-  const safe = String(name || "").trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").slice(0, 60);
-  if (!safe) throw new Error("プリセット名が空です");
-  fs.copyFileSync(getConfigPath(), path.join(getPresetDir(), `${safe}.json`));
-  return { ok: true };
-});
-ipcMain.handle("presets:load", (_event, name) => {
-  const safe = path.basename(String(name || ""));
-  const source = path.join(getPresetDir(), safe);
-  if (!fs.existsSync(source)) throw new Error("プリセットがありません");
-  const value = JSON.parse(fs.readFileSync(source, "utf8"));
-  // 以前保存したプリセットは、その中の割り当ても「前からあるもの」として扱う（使えない名前は警告に留める）。
-  const validation = validateBridgeConfig(value, { previous: [readSavedBridgeConfig(), value] });
-  if (!validation.ok) throw new Error(validation.errors.join("\n"));
-  writeBridgeConfig(value, { alsoKnown: [value] });
-  return { ok: true, config: value };
-});
 ipcMain.handle("operations:stats", () => {
   const rows = readOperationsHistory();
   const byCommand = {};
@@ -783,7 +738,7 @@ ipcMain.handle("server:props:read", async () => {
 // IPC: server.properties 書き込み
 // --------------------
 ipcMain.handle("server:props:write", async (_event, updates) => {
-  assertMapIdle();
+  mapOperations.assertIdle();
   if (typeof updates !== "object" || updates === null) throw new Error("updates must be an object");
 
   const propsPath = path.join(getServerRoot(), "server.properties");

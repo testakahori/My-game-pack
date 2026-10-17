@@ -117,10 +117,8 @@ test('配線: サーバーの起動中は保存先を変えず、作業中（5�
   restore();
   assert.equal(app.evaluate('isAppBusy()'), false);
   // 初期セットアップは setup_ipc.cjs、ゲームの操作は games_ipc.cjs が持つので、下のテストで本当に作業中にして確かめる（main.cjs の分割 PR2）。
-  app.evaluate('mapOperationBusy = true;');
-  assert.equal(app.evaluate('isAppBusy()'), true, 'mapOperationBusy');
-  app.evaluate('mapOperationBusy = false;');
-  for (const target of ['serverProcess.isStarting', 'serverProcess.isStopping']) {
+  // MAP の作業中は map_operations.cjs、サーバーの起動中・停止中は server_process.cjs の関数を差し替えて確かめる（main.cjs の分割 PR4）。
+  for (const target of ['mapOperations.isBusy', 'serverProcess.isStarting', 'serverProcess.isStopping']) {
     const back = app.pretend(target, () => true);
     assert.equal(app.evaluate('isAppBusy()'), true, target);
     back();
@@ -155,9 +153,10 @@ test('配線: ゲームの切り替えは、初期セットアップ・サーバ
   app.evaluate('bridgeRestartTimer = 1');
   await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, 'bridgeRestartTimer');
   app.evaluate('bridgeRestartTimer = null');
-  app.evaluate('mapOperationBusy = true');
+  // MAP の作業中は map_operations.cjs が持つ。main が mapOperations.assertIdle で見ていることを、差し替えて確かめる（main.cjs の分割 PR4）。
+  const back = app.pretend('mapOperations.assertIdle', () => { throw new Error('MAPを保存・読込中です。完了までお待ちください。'); });
   await assert.rejects(app.invoke('games:recover'), /MAPを保存・読込中です。/);
-  app.evaluate('mapOperationBusy = false');
+  back();
   const target = path.join(app.root, 'setup-target');
   fs.mkdirSync(target);
   const setup = app.invoke('server:setup:atPath', target);
