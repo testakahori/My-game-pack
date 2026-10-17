@@ -234,7 +234,19 @@
      - テストがほとんどなかった窓口（server.properties・RCON パスワード・配布ワールド・OP の付与・ゲームルールの古い窓口・プリセット・Minecraft の起動・コンソールの送信）は、分ける前に main を通したテスト6件で固定した（main をわざと6か所壊すと、それぞれ落ちる）。
      - 開発版を本物の Electron で起動し、PR2〜PR4 で移した ipc 27個を読むだけで確かめた（すべて OK。RCON パスワードは表示していない）。`npm run verify` 449/449。
      - PR4 の最終レビュー（別のレビュー役）：重大 0・重要 1・軽い 3。移したコードと main の配線は決めた置き換え以外は元のまま。重要 1（初期セットアップ・設定の復元・MAP の作業がサーバーと MAP の状態を見る配線に、壊しても落ちるテストがなかった）は直した。軽い3件もユーザーの指示（10-17「直してから PR」）で直した（前から守られていなかった配線3つのテスト、main のコメント、server_process の宣言の並び）。`npm run verify` 455/455。
-     - **次にやること**：PR #114 の CI を見て、ユーザーの許可を得てマージ。そのあと PR5（`bridge_process`・`bridge_mod_client`・`operations_stats`）の計画を書く。PR5 ではテストの `setBridge`・`shortenTestEventReply`・`bridgeRestartTimer` の書き換えを置き換え、main に残した `waitForBridgeMod`・`requestBridgeMod`・`BRIDGE_MOD_AUTH_FAILED` を移す。使われていない `killBridgeByCommandLine` も見る。
+     - PR4 は CI のあと、ユーザーの許可を得てマージした（PR #114、マージコミット e7d757d）。
+     - PR5（BRIDGE 側）：`operations_stats.cjs`・`bridge_mod_client.cjs`・`bridge_process.cjs`（ipc 24個）。PR #115、ブランチ `refactor/main-split-5`。main.cjs は 671行 → 218行（最終レビューの直しで `fs` の読み込みを消したあと）。誰も呼んでいなかった `killBridgeByCommandLine` は消した。計画は `docs/superpowers/plans/2026-10-17-main-split-pr5.md`。
+     - テストが main の変数を書き換える所（`bridgeProcRef`・`bridgeRestartTimer`・`testEventReplyMs`）は、`bridgeProcess.attach`・`bridgeModClient.setTestEventReplyMs`・`pretend` に置き換えた。これでテストが main の変数を書き換える所はなくなった。
+     - テストがなかった窓口（BRIDGE の状態と再起動・操作の履歴と統計・受取額・ギフト案内画像）は、分ける前に main を通したテスト4件で固定した。
+     - PR5 で書き換えた main の配線を1か所ずつ壊して、どれもテストが落ちることを確かめた（bridgeModClient の `serverChild` だけは時間切れの道でしか使わないので、モジュールのテストで確かめる）。BRIDGE の起動・停止・再起動が MAP の作業中に止まる配線にはテストがなかったので足した。
+     - 開発版を本物の Electron で起動し、PR2〜PR5 で移した ipc 35個を読むだけで確かめた（すべて OK。BRIDGE の起動・停止・テスト発火・一時停止は呼んでいない）。`npm run verify` 471/471。
+     - PR5 の最終レビュー（別のレビュー役）：重大 0・重要 0・軽い 5。移したコードは決めた置き換え以外は元のまま（1行ずつ突き合わせた）。軽い5件はユーザーの指示（10-18「直してから PR」）で直した：MAP の作業が本当に BRIDGE に止める指示を送ることと、ゲームの切り替えの復旧が必要な間は BRIDGE を起動しないことのテスト（どちらも配線を壊すと落ちる）、操作履歴を JSONL に直したあとの並び順のテスト、テストの下ごしらえが main の `fs` を借りていた所（main は `fs` を読み込まなくなった）、`bridge/index.js` の古いコメント。`npm run verify` 473/473。
+     - PR5 で見つけた前からの動き（移したコードの中。直していない）：
+       - 自動再起動を待っている間に BRIDGE を起動すると、BRIDGE が2つ動く（`launchBridge` が再起動の待ちのタイマーを消さない。待っている間はホームの「起動」が押せる）。ギフトが2回動き、停止しても新しい方しか止まらない。直すなら `launchBridge` の最初でタイマーを止める（別の PR で）。
+       - BRIDGE の起動と taskkill の `spawn` に `'error'` の受け手がない（node が見つからないなどの非同期のエラーは、main の捕まえられない例外になる）。
+       - `bridge:processStatus` は呼ばれるたびに PowerShell の `Get-CimInstance` を同期で動かし、最大1.5秒 main を止める（ホーム・統計・運用センターなどが呼ぶ）。
+       - main.cjs の `validCommand` の読み込みは使われていない（PR6 で整理する）。
+     - **次にやること**：PR #115 の CI を見て、ユーザーの許可を得てマージ。そのあと PR6（main.cjs を配線だけにする仕上げ・行数の見張りテスト（main.cjs 400行以下、`electron/*.cjs` は各800行以下）・AGENTS.md）の計画を書く。PR6 で設計書の分割は終わり（PR は全部で6本）。
      - PR1 の最終レビュー：重大 0・重要 3（テストの穴。直した）・軽い 6（ユーザーの指示で直した）。分ける前と後の main.cjs を同じ偽物の electron で比べ、動きの違いは0件。
      - PR1 で見つけた小さい問題（このPRでは直さない）：
        - Tailwind は git が追跡しているファイル全体からクラス名を拾う。文書に `\` + 16進数の場所（scratchpad の場所など）を書くとビルドが止まる。`src/index.css` で読む範囲を絞る（Codex の UI の作業と重なるので別の PR）。それまでは `electron/test/docs-css-safe.test.cjs` が見張る。

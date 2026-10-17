@@ -774,7 +774,7 @@ function sendBridgeExec({ host, port }, commands, listenerName = "system") {
 // operations-history.json は bridge（このプロセス）と electron（main）の両方が書き込む。
 // 従来の「全体読み込み→unshift→全体書き込み」は同時書き込みで履歴が巻き戻る事故があったため、
 // 追記のみ（JSONL: 1行1イベント・古い順）に変更した。旧フォーマット（JSON配列）は初回書き込み時に
-// その場で変換する。electron/main.cjs 側にも同じ変換ロジックがある（どちらが先に書いても安全）。
+// その場で変換する。electron/operations_stats.cjs 側にも同じ変換ロジックがある（どちらが先に書いても安全）。
 function migrateOperationsHistoryToJsonlIfNeeded(historyPath) {
   let raw = "";
   try { raw = fs.readFileSync(historyPath, "utf8"); } catch { return; }

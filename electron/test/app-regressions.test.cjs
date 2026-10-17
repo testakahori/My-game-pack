@@ -69,9 +69,11 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
   });
   vm.runInContext(fs.readFileSync(mainPath, "utf8"), context, { filename: mainPath });
   // Ordinary regression cases start after the user saved Survival on TOP.
-  vm.runInContext(`var fixtureGameState = path.join(app.getPath('userData'), 'game-profiles', crypto.createHash('sha256').update(path.resolve(getServerRoot())).digest('hex').slice(0, 16), 'profiles.json');
-    fs.mkdirSync(path.dirname(fixtureGameState), { recursive: true });
-    fs.writeFileSync(fixtureGameState, JSON.stringify({ format: 1, active: 'common', packages: {}, profiles: {}, appliedFormat: 3, appliedRoots: [path.resolve(getServerRoot()), path.resolve(app.getPath('appData'), '.minecraft')] }));`, context);
+  // 場所は main の中で決め、書くのはテストの fs で行う（main は fs を読み込まなくなった。main.cjs の分割 PR5 の最終レビュー）。
+  context.fixtureGameState = vm.runInContext(`path.join(app.getPath('userData'), 'game-profiles', crypto.createHash('sha256').update(path.resolve(getServerRoot())).digest('hex').slice(0, 16), 'profiles.json')`, context);
+  const appliedRoots = vm.runInContext(`[path.resolve(getServerRoot()), path.resolve(app.getPath('appData'), '.minecraft')]`, context);
+  fs.mkdirSync(path.dirname(context.fixtureGameState), { recursive: true });
+  fs.writeFileSync(context.fixtureGameState, JSON.stringify({ format: 1, active: 'common', packages: {}, profiles: {}, appliedFormat: 3, appliedRoots: [...appliedRoots] }));
   return { root, configPath, notifications, copiedTexts, clearGameSelection: () => fs.unlinkSync(context.fixtureGameState), invoke: (name, ...args) => handlers.get(name)({}, ...args),
     // ipc の窓口の名前（main.cjs の分割で増えたり減ったりしていないかを確かめる。2026-10-17）。
     channels: () => [...handlers.keys()].sort(), onChannels: () => [...onChannels].sort(),
@@ -90,8 +92,8 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
       return () => { context.__pretendValue = original; vm.runInContext(`${target} = __pretendValue;`, context); };
     },
     // テスト発火を受ける BRIDGE の代わり（ipc の通り道つきの子プロセス）。
-    setBridge: child => { context.fixtureBridge = child; vm.runInContext('bridgeProcRef = fixtureBridge; bridgePid = fixtureBridge?.pid || null;', context); },
-    shortenTestEventReply: () => vm.runInContext('testEventReplyMs = 50;', context),
+    setBridge: child => { context.fixtureBridge = child; vm.runInContext('bridgeProcess.attach(fixtureBridge);', context); },
+    shortenTestEventReply: () => vm.runInContext('bridgeModClient.setTestEventReplyMs(50);', context),
   };
 }
 
@@ -150,9 +152,10 @@ test('配線: ゲームの切り替えは、初期セットアップ・サーバ
     await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, target);
     back();
   }
-  app.evaluate('bridgeRestartTimer = 1');
-  await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, 'bridgeRestartTimer');
-  app.evaluate('bridgeRestartTimer = null');
+  // BRIDGE の再起動待ちは bridge_process.cjs が持つ。isActive を差し替えて確かめる（main.cjs の分割 PR5）。
+  const backBridge = app.pretend('bridgeProcess.isActive', () => true);
+  await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, 'bridgeProcess.isActive');
+  backBridge();
   // MAP の作業中は map_operations.cjs が持つ。main が mapOperations.assertIdle で見ていることを、差し替えて確かめる（main.cjs の分割 PR4）。
   const back = app.pretend('mapOperations.assertIdle', () => { throw new Error('MAPを保存・読込中です。完了までお待ちください。'); });
   await assert.rejects(app.invoke('games:recover'), /MAPを保存・読込中です。/);
@@ -165,12 +168,12 @@ test('配線: ゲームの切り替えは、初期セットアップ・サーバ
   await setup;
 });
 
-// BRIDGE の子プロセス（bridgeProcRef）とサーバーの稼働（getServerProcessStatus）も、main から渡した関数で見る（main.cjs の分割 PR2 の最終レビュー）。
+// BRIDGE の子プロセス（bridgeProcess.child()）とサーバーの稼働（getServerProcessStatus）も、main から渡した関数で見る（main.cjs の分割 PR2 の最終レビュー）。
 test('配線: ゲームの切り替えは、BRIDGE やサーバーが動いている間は止める', async t => {
   const app = loadApp(t);
   app.setBridge(fakeBridge(() => undefined).child);
   await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, 'BRIDGE');
-  app.evaluate('bridgeProcRef = null; bridgePid = null;');
+  app.setBridge(null);
   app.setServer({ pid: 4321, exitCode: null, signalCode: null });
   await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, 'server');
   app.setServer(null);
@@ -189,7 +192,7 @@ test('配線: サーバーが動いている間は、初期セットアップを
 test('配線: サーバーの起動中・MAP の作業中は、設定のバックアップを復元しない', async t => {
   const app = loadApp(t);
   const backup = await app.invoke('settings:backups:create');
-  for (const target of ['serverProcess.isStarting', 'mapOperations.isBusy']) {
+  for (const target of ['serverProcess.isStarting', 'mapOperations.isBusy', 'bridgeProcess.isActive']) {
     const back = app.pretend(target, () => true);
     await assert.rejects(async () => app.invoke('settings:backups:restore', backup.id), /復元する前にBridgeを停止してください。/, target);
     back();
@@ -202,6 +205,64 @@ test('配線: サーバーの起動中は、MAP の作業を始めない', async
   const back = app.pretend('serverProcess.isStarting', () => true);
   await assert.rejects(app.invoke('world:saves:save', 'x'), /サーバーの準備・停止が終わるまでお待ちください。/);
   back();
+});
+
+// BRIDGE が動いているか（再起動の待ちを含む）は bridge_process が持つ（main.cjs の分割 PR5）。
+// MAP の作業の相手にする、開発版の決まった場所のサーバー（loadApp がここでゲームを「保存」済みにしている。保存先を変えると BRIDGE の起動が TOP の確かめで止まる）。
+function mapServerFixture(app) {
+  const server = path.join(app.root, 'server', 'Douma_Craft');
+  fs.mkdirSync(path.join(server, 'world'), { recursive: true });
+  fs.writeFileSync(path.join(server, 'world', 'level.dat'), 'world');
+  fs.writeFileSync(path.join(server, 'server.properties'), 'level-name=world\nserver-port=39974\n');
+}
+
+test('配線: MAP の作業は、BRIDGE が動いて（再起動を待って）いれば止めてから行い、あとで起動し直す', async t => {
+  const app = loadApp(t);
+  mapServerFixture(app);
+  const back = app.pretend('bridgeProcess.isActive', () => true);
+  const result = await app.invoke('world:saves:save', 'with-bridge');
+  back();
+  assert.equal(result.saved.name, 'with-bridge');
+  assert.match(result.restartError, /Bridge entry not found/, 'あとで BRIDGE を起動し直そうとした（この偽の環境には BRIDGE がない）');
+});
+
+// 止める相手は main の BRIDGE の子プロセス（stopBridge の配線。PR5 の最終レビュー）。
+test('配線: MAP の作業は、動いている BRIDGE の子プロセスに止める指示を送り、止まってから行う', async t => {
+  const app = loadApp(t);
+  mapServerFixture(app);
+  const bridge = fakeBridge(message => {
+    if (message.type === 'shutdown') setImmediate(() => { bridge.child.exitCode = 0; bridge.child.emit('exit', 0, null); });
+  });
+  app.setBridge(bridge.child);
+  const result = await app.invoke('world:saves:save', 'stop-bridge');
+  assert.equal(result.saved.name, 'stop-bridge');
+  // attach で持たせた子プロセスには、終わったら手放す受け手（launchBridge が付ける）がない。止める指示が届いたことだけを見る。
+  assert.deepEqual(bridge.asked.map(message => message.type), ['shutdown']);
+  assert.match(result.restartError, /Bridge entry not found/, 'あとで BRIDGE を起動し直そうとした（この偽の環境には BRIDGE がない）');
+});
+
+// ゲームの切り替えの最中・復旧が必要な間は、BRIDGE を起動しない（bridge_process に渡す assertGameProfileIdle の配線。PR5 の最終レビュー）。
+test('配線: ゲームの切り替えの復旧が必要な間は、BRIDGE を起動しない', async t => {
+  const app = loadApp(t);
+  const list = app.evaluate('gameProfiles.list');
+  const back = app.pretend('gameProfiles.list', () => ({ ...list(), recoveryRequired: true }));
+  await assert.rejects(app.invoke('bridge:launch'), /ゲームの切替中、または切替の復旧が必要です。/);
+  back();
+});
+
+test('配線: MAP の作業中は、BRIDGE の起動・停止・再起動をしない', async t => {
+  const app = loadApp(t);
+  const back = app.pretend('mapOperations.assertIdle', () => { throw new Error('MAPを保存・読込中です。完了までお待ちください。'); });
+  for (const channel of ['bridge:launch', 'bridge:stop', 'bridge:restart']) await assert.rejects(app.invoke(channel, 'home:stop'), /MAPを保存・読込中です。/, channel);
+  back();
+});
+
+test('配線: 配信の記録の状態は、main の BRIDGE の子プロセスで見張り中かを決める', async t => {
+  const app = loadApp(t);
+  assert.equal((await app.invoke('stream:session:status')).monitoring, false);
+  app.setBridge(fakeBridge(() => undefined).child);
+  assert.equal((await app.invoke('stream:session:status')).monitoring, true);
+  app.setBridge(null);
 });
 
 test('配線: サーバーが動いている間の OP の付与は、BridgeMOD の応答を確かめてから送る', async t => {
@@ -240,6 +301,101 @@ test('配線: サーバーの起動の前に、中断した MAP の読込の後�
   assert.equal((await app.invoke('server:start')).ok, true);
   back();
   assert.equal(recovered, 1);
+});
+
+// BRIDGE 側の窓口は bridge_process・bridge_mod_client・operations_stats へ移す（main.cjs の分割 PR5）。分ける前の動きをここで固定する。
+test('BRIDGE の状態・再起動: 動いている BRIDGE の pid と稼働を返し、再起動は止めてから起動し直す', async t => {
+  const { EventEmitter } = require('node:events');
+  const app = loadApp(t);
+  fs.writeFileSync(path.join(app.root, 'bridge', 'index.js'), '');
+  const pids = [];
+  app.mockServerSpawn(() => {
+    const child = new EventEmitter();
+    const pid = 30000 + pids.length;
+    pids.push(pid);
+    Object.assign(child, { pid, stdout: new EventEmitter(), stderr: new EventEmitter(), connected: true, exitCode: null, signalCode: null,
+      send: () => setImmediate(() => { child.exitCode = 0; child.emit('exit', 0); }) });
+    return child;
+  });
+  assert.equal((await app.invoke('bridge:launch')).pid, 30000);
+  const status = await app.invoke('bridge:processStatus');
+  assert.deepEqual([status.running, status.pid, status.restartCount], [true, 30000, 0]);
+  assert.equal((await app.invoke('bridge:restart', 'home:restart')).pid, 30001);
+  assert.deepEqual(pids, [30000, 30001]);
+  assert.ok((await app.invoke('bridge:logs')).lines.some(line => line.includes('[BRIDGE] PID 30001 で起動しました')));
+  await app.invoke('bridge:stop');
+  assert.equal((await app.invoke('bridge:processStatus')).running, false);
+});
+
+test('操作の履歴と統計: JSONL の履歴を新しい順に返し、コマンド・送り主ごとに回数で数え、消すと空にする', async t => {
+  const app = loadApp(t);
+  const history = path.join(app.root, 'bridge', 'operations-history.json');
+  const at = minutes => new Date(Date.now() - minutes * 60000).toISOString();
+  fs.writeFileSync(history, [
+    { at: at(3), sender: 'alice', commandFile: 'zombie.txt', count: 2, ok: true },
+    { at: at(2), sender: 'bob', commandFile: 'zombie.txt', count: 0, ok: false },
+    { at: at(1), sender: 'alice', commandFile: 'tnt.txt', ok: true },
+  ].map(row => JSON.stringify(row)).join('\n') + '\n');
+  assert.deepEqual(plainJson((await app.invoke('operations:history')).map(row => row.commandFile)), ['tnt.txt', 'zombie.txt', 'zombie.txt']);
+  assert.deepEqual(plainJson(await app.invoke('operations:stats')), { total: 3, succeeded: 2, failed: 1,
+    topCommands: [{ name: 'zombie.txt', count: 2 }, { name: 'tnt.txt', count: 1 }],
+    topSenders: [{ name: 'alice', count: 3 }, { name: 'bob', count: 0 }] });
+  assert.deepEqual(plainJson(await app.invoke('operations:history:clear')), { ok: true });
+  assert.equal(fs.readFileSync(history, 'utf8'), '[]');
+  assert.deepEqual(plainJson(await app.invoke('operations:history')), []);
+});
+
+test('配信の受取額: 配信ごとに受取額を保存し、知らない配信は止める', async t => {
+  const app = loadApp(t);
+  const session = await app.invoke('stream:session:start', '受取額テスト');
+  await new Promise(resolve => setTimeout(resolve, 5));
+  await app.invoke('stream:session:end', { id: session.id });
+  const stream = (await app.invoke('operations:streamStats', 90)).streams[0];
+  assert.deepEqual(plainJson(app.invoke('operations:earnings:save', stream.id, 1200.5)), { ok: true });
+  const saved = JSON.parse(fs.readFileSync(path.join(app.root, 'bridge', 'stream-earnings.json'), 'utf8'));
+  assert.deepEqual(saved.map(row => [row.id, row.amount, row.currency]), [[stream.id, 1200.5, 'JPY']]);
+  assert.throws(() => app.invoke('operations:earnings:save', 'missing', 1), /配信が見つかりません。/);
+});
+
+test('ギフト案内画像の保存: PNG だけを、選んだ場所に保存する', async t => {
+  let savePath;
+  const app = loadApp(t, undefined, undefined, { showSaveDialog: async () => ({ canceled: false, filePath: savePath }) });
+  savePath = path.join(app.root, 'panel.png');
+  const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0]).toString('base64');
+  assert.deepEqual(plainJson(await app.invoke('image:saveGiftPanel', { dataUrl: 'data:image/png;base64,' + png, filename: 'panel.png' })), { canceled: false, path: savePath });
+  assert.deepEqual([...fs.readFileSync(savePath)].slice(0, 8), [137, 80, 78, 71, 13, 10, 26, 10]);
+  await assert.rejects(app.invoke('image:saveGiftPanel', { dataUrl: 'data:image/jpeg;base64,AAAA' }), /PNG画像のデータが不正です。/);
+});
+
+// BridgeMOD の認証の失敗の文言とサーバーのログは、bridge_mod_client から main・server_process へ渡す（main.cjs の分割 PR5）。
+async function bridgeModForbidden(t, app) {
+  const mod = require('node:http').createServer((_req, res) => { res.writeHead(403); res.end('{}'); });
+  await new Promise(resolve => mod.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => mod.close(resolve)));
+  const cfg = JSON.parse(fs.readFileSync(app.configPath)); cfg.options.bridgeModHost = '127.0.0.1'; cfg.options.bridgeModPort = mod.address().port;
+  fs.writeFileSync(app.configPath, JSON.stringify(cfg));
+}
+
+test('配線: 起動済みのサーバーで BridgeMOD の認証に失敗したら、BridgeMOD の文言で止める', async t => {
+  const app = loadApp(t);
+  await app.invoke('app:config:write', { serverFolder: app.root });
+  const game = require('node:net').createServer(socket => socket.end());
+  await new Promise(resolve => game.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => game.close(resolve)));
+  fs.writeFileSync(path.join(app.root, 'server.properties'), `level-name=world\nserver-port=${game.address().port}\n`);
+  fs.writeFileSync(path.join(app.root, 'run.bat'), 'must never execute');
+  await bridgeModForbidden(t, app);
+  await assert.rejects(app.invoke('server:start'), /起動済みのサーバーが見つかりましたが、BridgeMODは応答していますが、認証に失敗しました。/);
+});
+
+test('配線: OP の付与の前の待ちで BridgeMOD の認証に失敗したら、サーバーのログに書く', async t => {
+  const app = loadApp(t);
+  await bridgeModForbidden(t, app);
+  await app.invoke('app:config:write', { minecraftPlayerName: 'Steve_01' });
+  app.setServer({ pid: 1, exitCode: null, signalCode: null });
+  await assert.rejects(app.invoke('minecraft:grantOp'), /認証に失敗しました/);
+  assert.ok((await app.invoke('server:logs')).lines.some(line => line.includes('[SERVER] BridgeMODは応答していますが、認証に失敗しました。')));
+  app.setServer(null);
 });
 
 test('配線: ゲームの操作の間（パックのフォルダーを選んでいる間）は、ウィンドウを閉じない', async t => {
