@@ -1,4 +1,5 @@
-// electron/main.cjs
+// electron/main.cjs：アプリの起動と終了、各モジュールを作って必要なものを渡す配線だけを持つ（2026-10-17 設計書 docs/superpowers/specs/2026-10-17-main-split-design.md）。
+// 仕事の処理は electron/ の各モジュールに置く。main.cjs は 400 行以下、ほかの electron/*.cjs は各 800 行以下（electron/test/file-size-limits.test.cjs が見張る）。
 const { app, BrowserWindow, ipcMain, session, net, shell, clipboard, nativeImage, dialog, safeStorage } = require("electron");
 const path = require("path");
 const crypto = require("crypto");
@@ -7,7 +8,7 @@ const { runProc } = require("./process_runner.cjs");
 // サーバー・BRIDGE の停止を、出どころ（どのボタン・操作から来たか）付きで logs/stop-requests.log に残す。
 const { createStopRequestLog } = require("./stop_requests.cjs");
 const stopRequests = createStopRequestLog({ file: () => path.join(app.getPath("userData"), "logs", "stop-requests.log") });
-const { createSettingsBackups, validCommand } = require("./settings_backups.cjs");
+const { createSettingsBackups } = require("./settings_backups.cjs");
 const { assertGameCommands } = require('./game_command_scope.cjs');
 // main.cjs から分けた仕事（2026-10-17 設計書 docs/superpowers/specs/2026-10-17-main-split-design.md）。
 // electron は main だけが読み込み、必要なものを渡す。あとで定義するもの（サーバーの状態など）は、呼ばれたときに読む関数で渡す。
@@ -173,7 +174,7 @@ bridgeProcess.register(ipcMain);
 const isDev = process.env.ELECTRON_DEV === "1";
 const { createAppWindow } = require('./window.cjs');
 // 保存・準備中（初期セットアップ・MAP の作業・サーバーの起動と停止・ゲームの切り替え）はウィンドウを閉じない。
-// 名前のある関数にして、テストから5つの作業ごとに確かめる（main.cjs の分割 PR1 レビュー）。
+// 名前のある関数にして、テストから作業ごとに確かめる（MAP・サーバーの起動と停止は差し替えて、初期セットアップ・ゲームの操作は本当に作業中にして）。
 function isAppBusy() {
   return isInitialSetupRunning() || mapOperations.isBusy() || serverProcess.isStarting() || serverProcess.isStopping() || isGameProfileBusy();
 }
