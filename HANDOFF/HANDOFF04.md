@@ -208,7 +208,7 @@
        - options の変更の注意は、キーを並べてから比べる（並びが変わっただけでは出さない）。
        - レビューで足りないと言われた「配信の終了でテストのいいねが取りやめになる」のテストも足した。
      - 開発版の画面での目視（イベントテストの画面・BRIDGE が止まっているときの表示）はまだ。
-   - main.cjs の大きさ（10-17 から進行中。設計書 `docs/superpowers/specs/2026-10-17-main-split-design.md`。PR 6本で仕事ごとのファイルに分ける）
+   - ~~main.cjs の大きさ~~（10-17〜18 直した。設計書 `docs/superpowers/specs/2026-10-17-main-split-design.md`。PR 6本で仕事ごとのファイルに分けた）
      - PR1（土台）：ipc の窓口の一覧を固定するテスト、`app_config.cjs`・`paths.cjs`・`operator_auth.cjs`・`window.cjs`。PR #110、ブランチ `refactor/main-split-1`。main.cjs は 2,954行 → 2,489行。
      - PR1 は開発版を本物の Electron で起動し、外から操作して確かめた（ログイン・ウィンドウの操作・アプリ設定の保存・CSP・外部リンク・移動の制限）。共有のアプリ設定は確かめたあと元に戻した。
      - PR1 は、Codex が D 側の作業コピーで UI/UX を直していたので、scratchpad の worktree（`wt-split`）で進めた。
@@ -247,15 +247,11 @@
        - `bridge:processStatus` は呼ばれるたびに PowerShell の `Get-CimInstance` を同期で動かし、最大1.5秒 main を止める（ホーム・統計・運用センターなどが呼ぶ）。
        - main.cjs の `validCommand` の読み込みは使われていない（PR6 で整理する）。
      - PR5 は CI（3つとも通った）のあと、ユーザーの許可を得てマージした（PR #115、マージコミット 1121925）。
-     - PR6（仕上げ。最後の1本）の計画を書いた：`docs/superpowers/plans/2026-10-18-main-split-pr6.md`。ブランチ `refactor/main-split-6`（1121925 から切った。origin に push 済み、PR はまだ）。中身は4つ：
-       1. 行数の見張りテスト `electron/test/file-size-limits.test.cjs`（main.cjs 400行・ほかの `electron/*.cjs` 各800行を超えたら CI で止める）
-       2. テストが main の式を写していた「ゲームの選択の記録の場所」を、`games_ipc.cjs` の `getGameProfilesDir` から読む（設計書 6 の置き換えの最後の1つ）
-       3. main.cjs の使われていない `validCommand`・`isAppBusy` の古いコメントの書き直し（PR2 で後回しにしたもの）と、AGENTS.md の分けたファイルの一覧
-       4. `npm run verify`（476件の見込み）・本物の Electron で読むだけの確かめ・HANDOFF
-     - **次にやること**（10-18 夜、ユーザーが PC の電源を落とすので中断）：
-       1. ブランチ `refactor/main-split-6` に切り替え、ユーザーに PR6 の計画を見てもらい、実装の進め方（このセッションで実装／サブエージェント）を選んでもらう。PR1〜PR5 はどれも「このセッションで実装」。
-       2. 計画の Task 1〜4 → 最終レビュー（別のレビュー役、opus）→ 軽い指摘をどうするか聞く → PR → CI → ユーザーの許可を得てマージ。
-       3. PR6 で main.cjs の分割は終わり（PR は全部で6本）。そのあとは 9番の残りの大きい問題（P8 運営ログインの偽造など）から、ユーザーに選んでもらう。
+     - PR6（仕上げ。最後の1本）：行数の見張りテスト（`electron/test/file-size-limits.test.cjs`。main.cjs 400行・`electron/*.cjs` 各800行を超えたら CI で止まる）、ゲームの選択の記録の場所を `games_ipc.cjs` の `getGameProfilesDir` から読む（テストに式の写しを残さない。設計書 6 の置き換えの最後の1つ）、main.cjs の使われていない `validCommand` と古いコメント（`isAppBusy` は PR2 で後回しにしたもの）、AGENTS.md の分けたファイルの一覧。ブランチ `refactor/main-split-6`。計画は `docs/superpowers/plans/2026-10-18-main-split-pr6.md`。
+     - 見張りのテストは、写した `electron/` の main.cjs に200行足すと「electron/main.cjs は 418 行（上限 400 行）。足す前に、仕事ごとのファイルに分けてください」で落ちることを確かめた。
+     - 開発版を本物の Electron で起動し、PR2〜PR5 で移した ipc 35個を読むだけで確かめた（すべて OK）。`npm run verify` 476/476。
+     - 分割はこれで終わり。main.cjs は 2,954行 → 219行、ipc の窓口116個は1つも変えていない。テストが main の変数を書き換える所・main の式を写す所も残っていない。
+     - **次にやること**：PR6 の最終レビュー（別のレビュー役、opus）→ 軽い指摘をどうするか聞く → PR → CI → ユーザーの許可を得てマージ。そのあとは 9番の残りの大きい問題（P8 運営ログインの偽造など）から、ユーザーに選んでもらう。
      - PR1 の最終レビュー：重大 0・重要 3（テストの穴。直した）・軽い 6（ユーザーの指示で直した）。分ける前と後の main.cjs を同じ偽物の electron で比べ、動きの違いは0件。
      - PR1 で見つけた小さい問題（このPRでは直さない）：
        - Tailwind は git が追跡しているファイル全体からクラス名を拾う。文書に `\` + 16進数の場所（scratchpad の場所など）を書くとビルドが止まる。`src/index.css` で読む範囲を絞る（Codex の UI の作業と重なるので別の PR）。それまでは `electron/test/docs-css-safe.test.cjs` が見張る。
