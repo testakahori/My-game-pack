@@ -91,7 +91,7 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
     },
     // テスト発火を受ける BRIDGE の代わり（ipc の通り道つきの子プロセス）。
     setBridge: child => { context.fixtureBridge = child; vm.runInContext('bridgeProcRef = fixtureBridge; bridgePid = fixtureBridge?.pid || null;', context); },
-    shortenTestEventReply: () => vm.runInContext('testEventReplyMs = 50;', context),
+    shortenTestEventReply: () => vm.runInContext('bridgeModClient.setTestEventReplyMs(50);', context),
   };
 }
 
@@ -304,6 +304,37 @@ test('ギフト案内画像の保存: PNG だけを、選んだ場所に保存�
   assert.deepEqual(plainJson(await app.invoke('image:saveGiftPanel', { dataUrl: 'data:image/png;base64,' + png, filename: 'panel.png' })), { canceled: false, path: savePath });
   assert.deepEqual([...fs.readFileSync(savePath)].slice(0, 8), [137, 80, 78, 71, 13, 10, 26, 10]);
   await assert.rejects(app.invoke('image:saveGiftPanel', { dataUrl: 'data:image/jpeg;base64,AAAA' }), /PNG画像のデータが不正です。/);
+});
+
+// BridgeMOD の認証の失敗の文言とサーバーのログは、bridge_mod_client から main・server_process へ渡す（main.cjs の分割 PR5）。
+async function bridgeModForbidden(t, app) {
+  const mod = require('node:http').createServer((_req, res) => { res.writeHead(403); res.end('{}'); });
+  await new Promise(resolve => mod.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => mod.close(resolve)));
+  const cfg = JSON.parse(fs.readFileSync(app.configPath)); cfg.options.bridgeModHost = '127.0.0.1'; cfg.options.bridgeModPort = mod.address().port;
+  fs.writeFileSync(app.configPath, JSON.stringify(cfg));
+}
+
+test('配線: 起動済みのサーバーで BridgeMOD の認証に失敗したら、BridgeMOD の文言で止める', async t => {
+  const app = loadApp(t);
+  await app.invoke('app:config:write', { serverFolder: app.root });
+  const game = require('node:net').createServer(socket => socket.end());
+  await new Promise(resolve => game.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => game.close(resolve)));
+  fs.writeFileSync(path.join(app.root, 'server.properties'), `level-name=world\nserver-port=${game.address().port}\n`);
+  fs.writeFileSync(path.join(app.root, 'run.bat'), 'must never execute');
+  await bridgeModForbidden(t, app);
+  await assert.rejects(app.invoke('server:start'), /起動済みのサーバーが見つかりましたが、BridgeMODは応答していますが、認証に失敗しました。/);
+});
+
+test('配線: OP の付与の前の待ちで BridgeMOD の認証に失敗したら、サーバーのログに書く', async t => {
+  const app = loadApp(t);
+  await bridgeModForbidden(t, app);
+  await app.invoke('app:config:write', { minecraftPlayerName: 'Steve_01' });
+  app.setServer({ pid: 1, exitCode: null, signalCode: null });
+  await assert.rejects(app.invoke('minecraft:grantOp'), /認証に失敗しました/);
+  assert.ok((await app.invoke('server:logs')).lines.some(line => line.includes('[SERVER] BridgeMODは応答していますが、認証に失敗しました。')));
+  app.setServer(null);
 });
 
 test('配線: ゲームの操作の間（パックのフォルダーを選んでいる間）は、ウィンドウを閉じない', async t => {
