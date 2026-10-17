@@ -235,7 +235,7 @@
      - 開発版を本物の Electron で起動し、PR2〜PR4 で移した ipc 27個を読むだけで確かめた（すべて OK。RCON パスワードは表示していない）。`npm run verify` 449/449。
      - PR4 の最終レビュー（別のレビュー役）：重大 0・重要 1・軽い 3。移したコードと main の配線は決めた置き換え以外は元のまま。重要 1（初期セットアップ・設定の復元・MAP の作業がサーバーと MAP の状態を見る配線に、壊しても落ちるテストがなかった）は直した。軽い3件もユーザーの指示（10-17「直してから PR」）で直した（前から守られていなかった配線3つのテスト、main のコメント、server_process の宣言の並び）。`npm run verify` 455/455。
      - PR4 は CI のあと、ユーザーの許可を得てマージした（PR #114、マージコミット e7d757d）。
-     - PR5（BRIDGE 側）：`operations_stats.cjs`・`bridge_mod_client.cjs`・`bridge_process.cjs`（ipc 24個）。ブランチ `refactor/main-split-5`。main.cjs は 671行 → 219行。誰も呼んでいなかった `killBridgeByCommandLine` は消した。計画は `docs/superpowers/plans/2026-10-17-main-split-pr5.md`。
+     - PR5（BRIDGE 側）：`operations_stats.cjs`・`bridge_mod_client.cjs`・`bridge_process.cjs`（ipc 24個）。ブランチ `refactor/main-split-5`。main.cjs は 671行 → 218行（最終レビューの直しで `fs` の読み込みを消したあと）。誰も呼んでいなかった `killBridgeByCommandLine` は消した。計画は `docs/superpowers/plans/2026-10-17-main-split-pr5.md`。
      - テストが main の変数を書き換える所（`bridgeProcRef`・`bridgeRestartTimer`・`testEventReplyMs`）は、`bridgeProcess.attach`・`bridgeModClient.setTestEventReplyMs`・`pretend` に置き換えた。これでテストが main の変数を書き換える所はなくなった。
      - テストがなかった窓口（BRIDGE の状態と再起動・操作の履歴と統計・受取額・ギフト案内画像）は、分ける前に main を通したテスト4件で固定した。
      - PR5 で書き換えた main の配線を1か所ずつ壊して、どれもテストが落ちることを確かめた（bridgeModClient の `serverChild` だけは時間切れの道でしか使わないので、モジュールのテストで確かめる）。BRIDGE の起動・停止・再起動が MAP の作業中に止まる配線にはテストがなかったので足した。
