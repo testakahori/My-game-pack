@@ -229,11 +229,12 @@
      - PR3 の最終レビュー（別のレビュー役）：重大 0・重要 0・軽い 3。移したコードは決めた置き換え以外は元のまま。軽い3件はユーザーの指示（10-17「直してから PR」）で直した：テンプレートのコピーのテストが、モジュールが自分の `__dirname` を使っても通ってしまっていた（テストにだけ置くコマンド txt を足した）、コメント2か所。
      - PR3 で見つけた前からの動き（移したコードの中。直していない）：BridgeMOD の jar の入れ替えの前に確かめるポートは、保存されているサーバーフォルダーのもので、入れ替える先のものではない。起動時の同期が失敗すると、ゲーム MOD の入れ替えも飛ばす。テンプレートのコピーを同時に2回呼ぶと、進み具合を分け合う。
      - PR3 は CI のあと、ユーザーの許可を得てマージした（PR #113、マージコミット 3e10a4f）。
-     - PR4（サーバー側）：`minecraft_client.cjs`・`server_process.cjs`・`map_operations.cjs`・`server_files.cjs`（ipc 21個）。ブランチ `refactor/main-split-4`。main.cjs は 1,097行 → 670行。計画は `docs/superpowers/plans/2026-10-17-main-split-pr4.md`。
+     - PR4（サーバー側）：`minecraft_client.cjs`・`server_process.cjs`・`map_operations.cjs`・`server_files.cjs`（ipc 21個）。PR #114、ブランチ `refactor/main-split-4`。main.cjs は 1,097行 → 671行。計画は `docs/superpowers/plans/2026-10-17-main-split-pr4.md`。
      - テストが main の変数（`serverProcRef`・`serverStarting`・`serverStopping`・`mapOperationBusy`・`waitChildExit`）を書き換えていた所は、`serverProcess.attach`・`setStopWaitMs` と、モジュールの関数を一時的に差し替える `pretend` に置き換えた。main とほかのモジュールは、サーバーと MAP の「作業中か」を呼ばれたときに `serverProcess.isStarting()`・`mapOperations.isBusy()` などで読む（分割代入で受けない）。
      - テストがほとんどなかった窓口（server.properties・RCON パスワード・配布ワールド・OP の付与・ゲームルールの古い窓口・プリセット・Minecraft の起動・コンソールの送信）は、分ける前に main を通したテスト6件で固定した（main をわざと6か所壊すと、それぞれ落ちる）。
      - 開発版を本物の Electron で起動し、PR2〜PR4 で移した ipc 27個を読むだけで確かめた（すべて OK。RCON パスワードは表示していない）。`npm run verify` 449/449。
-     - **次にやること**：PR4 の最終レビュー → PR → CI → ユーザーの許可を得てマージ。そのあと PR5（`bridge_process`・`bridge_mod_client`・`operations_stats`）の計画を書く。PR5 ではテストの `setBridge`・`shortenTestEventReply`・`bridgeRestartTimer` の書き換えを置き換え、main に残した `waitForBridgeMod`・`requestBridgeMod`・`BRIDGE_MOD_AUTH_FAILED` を移す。使われていない `killBridgeByCommandLine` も見る。
+     - PR4 の最終レビュー（別のレビュー役）：重大 0・重要 1・軽い 3。移したコードと main の配線は決めた置き換え以外は元のまま。重要 1（初期セットアップ・設定の復元・MAP の作業がサーバーと MAP の状態を見る配線に、壊しても落ちるテストがなかった）は直した。軽い3件もユーザーの指示（10-17「直してから PR」）で直した（前から守られていなかった配線3つのテスト、main のコメント、server_process の宣言の並び）。`npm run verify` 455/455。
+     - **次にやること**：PR #114 の CI を見て、ユーザーの許可を得てマージ。そのあと PR5（`bridge_process`・`bridge_mod_client`・`operations_stats`）の計画を書く。PR5 ではテストの `setBridge`・`shortenTestEventReply`・`bridgeRestartTimer` の書き換えを置き換え、main に残した `waitForBridgeMod`・`requestBridgeMod`・`BRIDGE_MOD_AUTH_FAILED` を移す。使われていない `killBridgeByCommandLine` も見る。
      - PR1 の最終レビュー：重大 0・重要 3（テストの穴。直した）・軽い 6（ユーザーの指示で直した）。分ける前と後の main.cjs を同じ偽物の electron で比べ、動きの違いは0件。
      - PR1 で見つけた小さい問題（このPRでは直さない）：
        - Tailwind は git が追跡しているファイル全体からクラス名を拾う。文書に `\` + 16進数の場所（scratchpad の場所など）を書くとビルドが止まる。`src/index.css` で読む範囲を絞る（Codex の UI の作業と重なるので別の PR）。それまでは `electron/test/docs-css-safe.test.cjs` が見張る。
