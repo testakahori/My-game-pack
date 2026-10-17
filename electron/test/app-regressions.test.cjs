@@ -79,8 +79,16 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
     evaluate: code => vm.runInContext(code, context),
     usePackagedPaths: () => { app.isPackaged = true; },
     mockServerSpawn: fn => { serverSpawn = fn; },
-    setServer: child => { context.fixtureChild = child; vm.runInContext('serverProcRef = fixtureChild; serverPid = fixtureChild?.pid || null;', context); },
-    shortenServerWait: () => vm.runInContext('const originalWait = waitChildExit; waitChildExit = child => originalWait(child, 30);', context),
+    // サーバーの子プロセスは server_process.cjs が持つ（main.cjs の分割 PR4）。
+    setServer: child => { context.fixtureChild = child; vm.runInContext('serverProcess.attach(fixtureChild);', context); },
+    shortenServerWait: () => vm.runInContext('serverProcess.setStopWaitMs(30);', context),
+    // モジュールが外に出す関数を、確かめる間だけ差し替える（main の配線の確かめ用。main.cjs の分割 PR4）。元に戻す関数を返す。
+    pretend: (target, replacement) => {
+      const original = vm.runInContext(target, context);
+      context.__pretendValue = replacement;
+      vm.runInContext(`${target} = __pretendValue;`, context);
+      return () => { context.__pretendValue = original; vm.runInContext(`${target} = __pretendValue;`, context); };
+    },
     // テスト発火を受ける BRIDGE の代わり（ipc の通り道つきの子プロセス）。
     setBridge: child => { context.fixtureBridge = child; vm.runInContext('bridgeProcRef = fixtureBridge; bridgePid = fixtureBridge?.pid || null;', context); },
     shortenTestEventReply: () => vm.runInContext('testEventReplyMs = 50;', context),
@@ -103,15 +111,19 @@ test('ipc の窓口の一覧は、main.cjs を分けても変わらない（116�
 // モジュールのテストは代わりの関数を渡すので、main の配線の取り違え（別の変数を読む・1つ抜ける）はここで止める。
 test('配線: サーバーの起動中は保存先を変えず、作業中（5つのどれか）はウィンドウを閉じない', async t => {
   const app = loadApp(t);
-  app.evaluate('serverStarting = true;');
+  // サーバーの起動中・停止中は server_process.cjs が持つ。main が serverProcess の関数で見ていることを、差し替えて確かめる（main.cjs の分割 PR4）。
+  const restore = app.pretend('serverProcess.isStarting', () => true);
   await assert.rejects(app.invoke('app:config:write', { serverFolder: app.root }), /サーバーの起動中は保存先を変更できません。/);
-  app.evaluate('serverStarting = false;');
+  restore();
   assert.equal(app.evaluate('isAppBusy()'), false);
   // 初期セットアップは setup_ipc.cjs、ゲームの操作は games_ipc.cjs が持つので、下のテストで本当に作業中にして確かめる（main.cjs の分割 PR2）。
-  for (const flag of ['mapOperationBusy', 'serverStarting', 'serverStopping']) {
-    app.evaluate(`${flag} = true;`);
-    assert.equal(app.evaluate('isAppBusy()'), true, flag);
-    app.evaluate(`${flag} = false;`);
+  app.evaluate('mapOperationBusy = true;');
+  assert.equal(app.evaluate('isAppBusy()'), true, 'mapOperationBusy');
+  app.evaluate('mapOperationBusy = false;');
+  for (const target of ['serverProcess.isStarting', 'serverProcess.isStopping']) {
+    const back = app.pretend(target, () => true);
+    assert.equal(app.evaluate('isAppBusy()'), true, target);
+    back();
   }
 });
 
@@ -134,11 +146,15 @@ test('配線: 初期セットアップの間は、ウィンドウを閉じず、
 test('配線: ゲームの切り替えは、初期セットアップ・サーバーの起動と停止・BRIDGE の再起動待ち・MAP の作業の間は止める', async t => {
   let answerEula;
   const app = loadApp(t, undefined, {}, { showMessageBox: () => new Promise(resolve => { answerEula = resolve; }) });
-  for (const [set, reset] of [['serverStarting = true', 'serverStarting = false'], ['serverStopping = true', 'serverStopping = false'], ['bridgeRestartTimer = 1', 'bridgeRestartTimer = null']]) {
-    app.evaluate(set);
-    await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, set);
-    app.evaluate(reset);
+  // サーバーの起動中・停止中は server_process.cjs の関数を差し替えて確かめる（main.cjs の分割 PR4）。
+  for (const target of ['serverProcess.isStarting', 'serverProcess.isStopping']) {
+    const back = app.pretend(target, () => true);
+    await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, target);
+    back();
   }
+  app.evaluate('bridgeRestartTimer = 1');
+  await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, 'bridgeRestartTimer');
+  app.evaluate('bridgeRestartTimer = null');
   app.evaluate('mapOperationBusy = true');
   await assert.rejects(app.invoke('games:recover'), /MAPを保存・読込中です。/);
   app.evaluate('mapOperationBusy = false');
@@ -158,7 +174,7 @@ test('配線: ゲームの切り替えは、BRIDGE やサーバーが動いて�
   app.evaluate('bridgeProcRef = null; bridgePid = null;');
   app.setServer({ pid: 4321, exitCode: null, signalCode: null });
   await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, 'server');
-  app.evaluate('serverProcRef = null; serverPid = null;');
+  app.setServer(null);
 });
 
 test('配線: ゲームの操作の間（パックのフォルダーを選んでいる間）は、ウィンドウを閉じない', async t => {
@@ -255,7 +271,7 @@ test('配線: BridgeMOD の jar の入れ替えは、サーバーが動いてい
   const target = path.join(app.root, 'target');
   app.setServer({ pid: 4321, exitCode: null, signalCode: null });
   await assert.rejects(app.invoke('bridge:extractTo', target), /BridgeMODを入れ替える前にMinecraftサーバーを停止してください/, 'child');
-  app.evaluate('serverProcRef = null; serverPid = null;');
+  app.setServer(null);
   const listener = require('node:net').createServer();
   await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise(resolve => listener.close(resolve)));
