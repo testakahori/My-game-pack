@@ -90,7 +90,7 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
       return () => { context.__pretendValue = original; vm.runInContext(`${target} = __pretendValue;`, context); };
     },
     // テスト発火を受ける BRIDGE の代わり（ipc の通り道つきの子プロセス）。
-    setBridge: child => { context.fixtureBridge = child; vm.runInContext('bridgeProcRef = fixtureBridge; bridgePid = fixtureBridge?.pid || null;', context); },
+    setBridge: child => { context.fixtureBridge = child; vm.runInContext('bridgeProcess.attach(fixtureBridge);', context); },
     shortenTestEventReply: () => vm.runInContext('bridgeModClient.setTestEventReplyMs(50);', context),
   };
 }
@@ -150,9 +150,10 @@ test('配線: ゲームの切り替えは、初期セットアップ・サーバ
     await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, target);
     back();
   }
-  app.evaluate('bridgeRestartTimer = 1');
-  await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, 'bridgeRestartTimer');
-  app.evaluate('bridgeRestartTimer = null');
+  // BRIDGE の再起動待ちは bridge_process.cjs が持つ。isActive を差し替えて確かめる（main.cjs の分割 PR5）。
+  const backBridge = app.pretend('bridgeProcess.isActive', () => true);
+  await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, 'bridgeProcess.isActive');
+  backBridge();
   // MAP の作業中は map_operations.cjs が持つ。main が mapOperations.assertIdle で見ていることを、差し替えて確かめる（main.cjs の分割 PR4）。
   const back = app.pretend('mapOperations.assertIdle', () => { throw new Error('MAPを保存・読込中です。完了までお待ちください。'); });
   await assert.rejects(app.invoke('games:recover'), /MAPを保存・読込中です。/);
@@ -165,12 +166,12 @@ test('配線: ゲームの切り替えは、初期セットアップ・サーバ
   await setup;
 });
 
-// BRIDGE の子プロセス（bridgeProcRef）とサーバーの稼働（getServerProcessStatus）も、main から渡した関数で見る（main.cjs の分割 PR2 の最終レビュー）。
+// BRIDGE の子プロセス（bridgeProcess.child()）とサーバーの稼働（getServerProcessStatus）も、main から渡した関数で見る（main.cjs の分割 PR2 の最終レビュー）。
 test('配線: ゲームの切り替えは、BRIDGE やサーバーが動いている間は止める', async t => {
   const app = loadApp(t);
   app.setBridge(fakeBridge(() => undefined).child);
   await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, 'BRIDGE');
-  app.evaluate('bridgeProcRef = null; bridgePid = null;');
+  app.setBridge(null);
   app.setServer({ pid: 4321, exitCode: null, signalCode: null });
   await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, 'server');
   app.setServer(null);
@@ -189,7 +190,7 @@ test('配線: サーバーが動いている間は、初期セットアップを
 test('配線: サーバーの起動中・MAP の作業中は、設定のバックアップを復元しない', async t => {
   const app = loadApp(t);
   const backup = await app.invoke('settings:backups:create');
-  for (const target of ['serverProcess.isStarting', 'mapOperations.isBusy']) {
+  for (const target of ['serverProcess.isStarting', 'mapOperations.isBusy', 'bridgeProcess.isActive']) {
     const back = app.pretend(target, () => true);
     await assert.rejects(async () => app.invoke('settings:backups:restore', backup.id), /復元する前にBridgeを停止してください。/, target);
     back();
@@ -202,6 +203,36 @@ test('配線: サーバーの起動中は、MAP の作業を始めない', async
   const back = app.pretend('serverProcess.isStarting', () => true);
   await assert.rejects(app.invoke('world:saves:save', 'x'), /サーバーの準備・停止が終わるまでお待ちください。/);
   back();
+});
+
+// BRIDGE が動いているか（再起動の待ちを含む）は bridge_process が持つ（main.cjs の分割 PR5）。
+test('配線: MAP の作業は、BRIDGE が動いて（再起動を待って）いれば止めてから行い、あとで起動し直す', async t => {
+  const app = loadApp(t);
+  // 開発版の決まった場所のサーバー（loadApp がここでゲームを「保存」済みにしている。保存先を変えると BRIDGE の起動が TOP の確かめで止まる）。
+  const server = path.join(app.root, 'server', 'Douma_Craft');
+  fs.mkdirSync(path.join(server, 'world'), { recursive: true });
+  fs.writeFileSync(path.join(server, 'world', 'level.dat'), 'world');
+  fs.writeFileSync(path.join(server, 'server.properties'), 'level-name=world\nserver-port=39974\n');
+  const back = app.pretend('bridgeProcess.isActive', () => true);
+  const result = await app.invoke('world:saves:save', 'with-bridge');
+  back();
+  assert.equal(result.saved.name, 'with-bridge');
+  assert.match(result.restartError, /Bridge entry not found/, 'あとで BRIDGE を起動し直そうとした（この偽の環境には BRIDGE がない）');
+});
+
+test('配線: MAP の作業中は、BRIDGE の起動・停止・再起動をしない', async t => {
+  const app = loadApp(t);
+  const back = app.pretend('mapOperations.assertIdle', () => { throw new Error('MAPを保存・読込中です。完了までお待ちください。'); });
+  for (const channel of ['bridge:launch', 'bridge:stop', 'bridge:restart']) await assert.rejects(app.invoke(channel, 'home:stop'), /MAPを保存・読込中です。/, channel);
+  back();
+});
+
+test('配線: 配信の記録の状態は、main の BRIDGE の子プロセスで見張り中かを決める', async t => {
+  const app = loadApp(t);
+  assert.equal((await app.invoke('stream:session:status')).monitoring, false);
+  app.setBridge(fakeBridge(() => undefined).child);
+  assert.equal((await app.invoke('stream:session:status')).monitoring, true);
+  app.setBridge(null);
 });
 
 test('配線: サーバーが動いている間の OP の付与は、BridgeMOD の応答を確かめてから送る', async t => {

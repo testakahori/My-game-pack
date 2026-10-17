@@ -4,13 +4,11 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
-const { RestartPolicy } = require("./restart_policy.cjs");
 const { runProc } = require("./process_runner.cjs");
 // サーバー・BRIDGE の停止を、出どころ（どのボタン・操作から来たか）付きで logs/stop-requests.log に残す。
 const { createStopRequestLog } = require("./stop_requests.cjs");
 const stopRequests = createStopRequestLog({ file: () => path.join(app.getPath("userData"), "logs", "stop-requests.log") });
 const { createSettingsBackups, validCommand } = require("./settings_backups.cjs");
-const { bridgeModTokenPath } = require("../bridge/bridge_mod_token.cjs");
 const { assertGameCommands } = require('./game_command_scope.cjs');
 // main.cjs から分けた仕事（2026-10-17 設計書 docs/superpowers/specs/2026-10-17-main-split-design.md）。
 // electron は main だけが読み込み、必要なものを渡す。あとで定義するもの（サーバーの状態など）は、呼ばれたときに読む関数で渡す。
@@ -55,7 +53,7 @@ const gamesIpc = createGamesIpc({
   isInitialSetupRunning: () => isInitialSetupRunning(),
   isServerStarting: () => serverProcess.isStarting(),
   isServerStopping: () => serverProcess.isStopping(),
-  isBridgeActive: () => Boolean(bridgeProcRef || bridgeRestartTimer),
+  isBridgeActive: () => bridgeProcess.isActive(),
   getServerProcessStatus: () => getServerProcessStatus(),
   getMinecraftProcessStatus: strict => minecraftClient.getMinecraftProcessStatus(strict),
 });
@@ -65,7 +63,6 @@ gamesIpc.register(ipcMain);
 const eulerCredentials = require('./euler_credentials.cjs').createEulerCredentials({
   filePath: () => path.join(app.getPath('userData'), 'euler-credentials.json'), safeStorage,
 });
-let bridgeEulerRevision = null;
 const settingsBackups = createSettingsBackups({
   validateRestore: (config, commands) => assertGameCommands(config, [...selectableCommandNames(), ...Object.keys(commands).filter(name => !name.startsWith('game_'))], gameProfiles.list()),
   paths: () => ({
@@ -75,7 +72,7 @@ const settingsBackups = createSettingsBackups({
     backups: path.join(app.getPath("userData"), "settings-backups", crypto.createHash("sha256").update(path.resolve(getConfigPath())).digest("hex").slice(0, 16)),
   }),
   version: () => app.getVersion(), readTts: () => readTtsSettings(),
-  isRunning: () => Boolean(bridgeProcRef || bridgeRestartTimer || mapOperations.isBusy() || serverProcess.isStarting() || isGameProfileBusy() || gameProfiles.list().recoveryRequired),
+  isRunning: () => Boolean(bridgeProcess.isActive() || mapOperations.isBusy() || serverProcess.isStarting() || isGameProfileBusy() || gameProfiles.list().recoveryRequired),
 });
 const { createTtsIpc } = require('./tts_ipc.cjs');
 const ttsIpc = createTtsIpc({ app, process, shell, spawn, getBridgeBatDir, getConfigPath, settingsBackups });
@@ -86,7 +83,7 @@ const bridgeSettings = createBridgeSettings({
   app, dialog, shell, getConfigPath, ensureConfigExists, getBridgeBatDir, getServerRoot, getGiftsMinPath, getGiftsMetaPath,
   getInstalledBridgeRoot, getBridgeDir, gameProfiles, assertGameProfileIdle, settingsBackups, readTtsSettings,
   requestBridgeMod: (...args) => requestBridgeMod(...args),
-  isBridgeRunning: () => Boolean(bridgeProcRef),
+  isBridgeRunning: () => Boolean(bridgeProcess.child()),
 });
 const { readSavedBridgeConfig, writeBridgeConfig, selectableCommandNames } = bridgeSettings;
 bridgeSettings.register(ipcMain);
@@ -134,7 +131,7 @@ const mapOperations = createMapOperations({
   isServerStopping: () => serverProcess.isStopping(),
   serverChild: () => serverProcess.child(),
   assertMapServerStopped: () => serverProcess.assertMapServerStopped(),
-  isBridgeActive: () => Boolean(bridgeProcRef || bridgeRestartTimer),
+  isBridgeActive: () => bridgeProcess.isActive(),
   stopBridge: origin => stopBridge(origin),
   launchBridge: () => launchBridge(),
 });
@@ -150,7 +147,7 @@ const serverFiles = createServerFiles({
 });
 serverFiles.register(ipcMain);
 const { createOperationsStats } = require('./operations_stats.cjs');
-const operationsStats = createOperationsStats({ BrowserWindow, dialog, getBridgeBatDir, bridgeChild: () => bridgeProcRef });
+const operationsStats = createOperationsStats({ BrowserWindow, dialog, getBridgeBatDir, bridgeChild: () => bridgeProcess.child() });
 // 起動のときに古い操作履歴を整理する（app.whenReady の中で呼ぶ）。
 const { pruneOperationsHistoryOldRows } = operationsStats;
 operationsStats.register(ipcMain);
@@ -158,11 +155,21 @@ const { createBridgeModClient } = require('./bridge_mod_client.cjs');
 const bridgeModClient = createBridgeModClient({
   getConfigPath, getServerRoot, stopRequests, selectableCommandNames, gameProfiles, appendServerLog,
   serverChild: () => serverProcess.child(),
-  bridgeChild: () => bridgeProcRef,
+  bridgeChild: () => bridgeProcess.child(),
 });
 // BridgeMOD との通信は bridge_mod_client.cjs が持つ。配信前チェック・サーバーの起動・OP の付与・ゲームルールが使う。
 const { requestBridgeMod, waitForBridgeMod } = bridgeModClient;
 bridgeModClient.register(ipcMain);
+const { createBridgeProcess } = require('./bridge_process.cjs');
+const bridgeProcess = createBridgeProcess({
+  process, spawn, spawnSync, shell, runProc, stopRequests, eulerCredentials, getBridgeBatDir, getServerRoot, getConfigPath, getNodeCommand, getGvToolPath,
+  getBridgeEntryPoint, ensureNodeRuntimeAvailable, assertGameProfileIdle, selectableCommandNames, gameProfiles, waitChildExit,
+  assertMapIdle: () => mapOperations.assertIdle(),
+});
+// BRIDGE の子プロセス・再起動の待ちは bridge_process.cjs が持つ。main とほかのモジュールは、それを読む関数（child・isActive）を
+// 呼ばれたときに bridgeProcess.xxx() で読み、分割代入では受けない（テストが差し替えて配線を確かめるため）。下の操作の関数は受けてよい。
+const { launchBridge, stopBridge } = bridgeProcess;
+bridgeProcess.register(ipcMain);
 
 const isDev = process.env.ELECTRON_DEV === "1";
 const { createAppWindow } = require('./window.cjs');
@@ -210,184 +217,3 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
-
-let bridgePid  = null;
-let bridgeProcRef = null;
-let bridgeStopRequested = false;
-let bridgeRestartTimer = null;
-const bridgeRestartPolicy = new RestartPolicy();
-const BRIDGE_LOG_LIMIT = 300;
-const bridgeLogBuffer = [];
-
-function appendBridgeLog(message) {
-  const text = String(message ?? "").replace(/\r/g, "");
-  for (const line of text.split("\n")) {
-    const trimmed = line.trimEnd();
-    if (!trimmed) continue;
-    bridgeLogBuffer.push(`[${new Date().toLocaleTimeString("ja-JP")}] ${trimmed}`);
-  }
-  if (bridgeLogBuffer.length > BRIDGE_LOG_LIMIT) {
-    bridgeLogBuffer.splice(0, bridgeLogBuffer.length - BRIDGE_LOG_LIMIT);
-  }
-}
-
-function pipeBridgeStream(stream, prefix) {
-  if (!stream) return;
-  stream.on("data", (chunk) => {
-    appendBridgeLog(`${prefix} ${chunk.toString("utf8")}`);
-  });
-}
-
-function getProcessMetrics(pid) {
-  if (!pid || process.platform !== "win32") return { cpuPercent: null, memMb: null };
-  try {
-    const result = spawnSync("powershell.exe", [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      `$p=Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | Where-Object {$_.IDProcess -eq ${Number(pid)}} | Select-Object -First 1 PercentProcessorTime,WorkingSet; if ($p) { "$($p.PercentProcessorTime)|$([math]::Round($p.WorkingSet/1MB,1))" }`,
-    ], { windowsHide: true, timeout: 1500, encoding: "utf8" });
-    const raw = String(result.stdout || "").trim();
-    const [cpu, mem] = raw.split("|");
-    return {
-      cpuPercent: Number.isFinite(Number(cpu)) ? Number(cpu) : null,
-      memMb: Number.isFinite(Number(mem)) ? Number(mem) : null,
-    };
-  } catch {
-    return { cpuPercent: null, memMb: null };
-  }
-}
-
-const checkTikTokLive = require("./tiktok_live_status.cjs").createLiveStatusChecker({
-  query: async username => {
-    await ensureNodeRuntimeAvailable();
-    const tool = getGvToolPath("live_status.cjs");
-    const { env } = eulerCredentials.runtime();
-    const result = await runProc(getNodeCommand(), [tool, username], path.dirname(tool), { timeoutMs: 20000, env });
-    return JSON.parse(result.out.trim());
-  },
-});
-ipcMain.handle("tiktok:liveStatus", (_event, username) => checkTikTokLive(username));
-const eulerStatus = () => eulerCredentials.status(bridgeEulerRevision, Boolean(bridgeProcRef));
-ipcMain.handle('euler:status', eulerStatus);
-ipcMain.handle('euler:save', (_event, key) => {
-  eulerCredentials.save(key);
-  checkTikTokLive.clearCache();
-  return eulerStatus();
-});
-ipcMain.handle('euler:clear', () => {
-  eulerCredentials.clear();
-  checkTikTokLive.clearCache();
-  return eulerStatus();
-});
-ipcMain.handle('euler:openPortal', () => shell.openExternal('https://www.eulerstream.com/dashboard'));
-
-// --------------------
-// IPC: Bridge 起動（同梱 node 優先、なければ PATH の node）
-// --------------------
-// 前セッション由来を含む「このBridge」の node プロセスだけをコマンドラインで特定して停止する。
-// PID直killはPID再利用で無関係なプロセスを殺す危険があるため、commandLine一致で限定する。
-function killBridgeByCommandLine() {
-  if (process.platform !== "win32") return;
-  try {
-    const dir = getBridgeBatDir().replace(/'/g, "''");
-    const ps =
-      "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' " +
-      "-and $_.CommandLine -like '*config.minecraft.json*' " +
-      `-and $_.CommandLine -like '*${dir}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
-    spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps], { windowsHide: true, timeout: 5000 });
-  } catch { /* ベストエフォート */ }
-}
-
-async function launchBridge() {
-  assertGameProfileIdle();
-  assertGameCommands(JSON.parse(fs.readFileSync(getConfigPath(), "utf8")), selectableCommandNames(), gameProfiles.list());
-  const dir = getBridgeBatDir();
-  const indexJs = getBridgeEntryPoint(dir);
-  if (!fs.existsSync(indexJs)) throw new Error(`Bridge entry not found: ${indexJs}`);
-
-  await ensureNodeRuntimeAvailable();
-  const nodeCmd = getNodeCommand();
-
-  bridgeStopRequested = false;
-  bridgeRestartPolicy.start();
-  const spawnOnce = () => {
-    const { env, revision } = eulerCredentials.runtime();
-    appendBridgeLog(`[BRIDGE] 起動します: ${indexJs}`);
-    // BridgeMOD の認証トークンはサーバーフォルダーにある。開発時は bridge とサーバーの場所が離れているので明示する。
-    const child = spawn(nodeCmd, [indexJs, "--config", path.join(dir, "config.minecraft.json")], {
-      cwd: dir, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"],
-      env: { ...env, BRIDGE_MOD_TOKEN_FILE: bridgeModTokenPath(getServerRoot()) },
-    });
-    bridgeEulerRevision = revision;
-    bridgeProcRef = child;
-    bridgePid = child.pid;
-    appendBridgeLog(`[BRIDGE] PID ${bridgePid} で起動しました`);
-    pipeBridgeStream(child.stdout, "[stdout]");
-    pipeBridgeStream(child.stderr, "[stderr]");
-    child.on("exit", (code, signal) => {
-      appendBridgeLog(`[BRIDGE] 終了しました code=${code ?? "null"} signal=${signal ?? "null"}`);
-      if (bridgeProcRef === child) { bridgePid = null; bridgeProcRef = null; }
-      if (!bridgeStopRequested && bridgeRestartPolicy.shouldRestart()) {
-        const backoffMs = bridgeRestartPolicy.nextDelayMs ? bridgeRestartPolicy.nextDelayMs() : 2000;
-        appendBridgeLog(`[BRIDGE] ${Math.round(backoffMs / 1000)}秒後に自動再起動します`);
-        bridgeRestartTimer = setTimeout(() => {
-          bridgeRestartTimer = null;
-          try { spawnOnce(); } catch (error) { appendBridgeLog(`[BRIDGE] ${error.message}`); }
-        }, backoffMs);
-      } else if (bridgeRestartPolicy.exhausted && bridgeRestartPolicy.exhausted()) {
-        appendBridgeLog("[BRIDGE] 自動再起動の上限に達しました。設定を確認して手動で再起動してください。");
-      }
-    });
-  };
-  if (!bridgeProcRef) spawnOnce();
-
-  return { ok: true, pid: bridgePid };
-}
-
-// origin はどのボタン・操作から止めたか（stop_requests.cjs の名前）。ログ欄と logs/stop-requests.log に残す。
-async function stopBridge(origin) {
-  bridgeStopRequested = true;
-  bridgeRestartPolicy.requestStop();
-  if (bridgeRestartTimer) { clearTimeout(bridgeRestartTimer); bridgeRestartTimer = null; }
-  const child = bridgeProcRef;
-  if (!child) return { ok: true };
-  appendBridgeLog(`[BRIDGE] 停止します（${stopRequests.record("bridge", origin)}）`);
-  if (child.connected) {
-    const ended = waitChildExit(child, 7000);
-    child.send({ type: 'shutdown' }, error => { if (error) appendBridgeLog('[BRIDGE] ' + error.message); });
-    if (await ended) return { ok: true };
-  }
-  const ended = waitChildExit(child, 5000);
-  try { spawn('taskkill.exe', ['/F', '/T', '/PID', String(child.pid)], { windowsHide: true }); } catch {}
-  if (!await ended) throw new Error('Bridgeを停止できませんでした。ログを確認してください。');
-  return { ok: true };
-}
-
-ipcMain.handle("bridge:launch", async () => { mapOperations.assertIdle(); return launchBridge(); });
-
-// --------------------
-// IPC: Bridge 停止
-// --------------------
-ipcMain.handle("bridge:stop", async (_event, origin) => { mapOperations.assertIdle(); return stopBridge(origin); });
-
-// --------------------
-// IPC: Bridge 再起動（停止完了を待ってから起動する。UI側の stop→launch 連打は使わない）
-// --------------------
-ipcMain.handle("bridge:restart", async (_event, origin) => {
-  mapOperations.assertIdle();
-  await stopBridge(origin);
-  await new Promise((r) => setTimeout(r, 400)); // ポート/ファイル解放の猶予
-  return launchBridge();
-});
-ipcMain.handle("bridge:processStatus", () => {
-  const status = bridgeRestartPolicy.status(bridgePid);
-  let runtime = {};
-  try {
-    runtime = JSON.parse(fs.readFileSync(path.join(getBridgeBatDir(), "runtime-status.json"), "utf8"));
-  } catch {}
-  return { ...status, ...getProcessMetrics(bridgePid), tiktok: status.running ? (runtime.tiktok || null) : null, recording: status.running ? (runtime.recording || null) : null,
-    delivery: status.running ? (runtime.delivery || null) : null };
-});
-
-ipcMain.handle("bridge:logs", () => ({ ok: true, lines: [...bridgeLogBuffer] }));
