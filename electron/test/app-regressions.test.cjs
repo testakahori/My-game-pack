@@ -64,7 +64,7 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
     require: requireMock, __dirname: path.join(root, "electron"), console,
     process: Object.assign(Object.create(process), { resourcesPath: path.join(root, 'resources') }),
     Buffer, URL, AbortSignal, fetch, setTimeout, clearTimeout, setInterval, clearInterval,
-    // 本物の Electron の main にもある。テンプレートのコピーは25件ごとに setImmediate で一息つく（main.cjs の分割 PR3）。
+    // 本物の Electron の main にもある。分ける前の main のテンプレートのコピーが、25件ごとに setImmediate で一息ついていた（main.cjs の分割 PR3）。
     setImmediate, clearImmediate,
   });
   vm.runInContext(fs.readFileSync(mainPath, "utf8"), context, { filename: mainPath });
@@ -233,7 +233,10 @@ test('配布: サーバーテンプレートのコピーは、今あるファイ
   const target = path.join(app.root, 'target');
   fs.mkdirSync(target);
   fs.writeFileSync(path.join(target, 'run.bat'), 'old');
+  // テストにだけ置くコマンド。本物のリポジトリにはないので、main から受け取った appDir（偽の __dirname）の1つ上から写したときだけ届く（PR3 の最終レビュー）。
+  fs.writeFileSync(path.join(app.root, 'bridge', 'commands', 'minecraft', 'fixture_only.txt'), 'say fixture\n');
   assert.deepEqual(plainJson(await app.invoke('server:copyTemplate', target)), { ok: true });
+  assert.ok(fs.existsSync(path.join(target, 'bridge', 'commands', 'minecraft', 'fixture_only.txt')), '開発版のコマンド txt は appDir の1つ上から写す');
   assert.equal(fs.readFileSync(path.join(target, 'run.bat'), 'utf8'), 'old');
   assert.equal(fs.readFileSync(path.join(target, 'world', 'level.dat'), 'utf8'), 'world');
   assert.ok(fs.existsSync(path.join(target, 'bridge', 'commands', 'minecraft', 'zombie.txt')));

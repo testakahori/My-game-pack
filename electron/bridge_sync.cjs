@@ -615,6 +615,9 @@ function createBridgeSync({
       return { ok: true, dst, stats: result.stats };
     });
 
+    // --------------------
+    // IPC: サーバーテンプレートをコピー（空フォルダ対応。手伝いの関数は上の同じ見出しの所）
+    // --------------------
     ipcMain.handle("server:copyTemplate", async (_event, targetFolder) => {
       assertGameProfileIdle();
       if (!targetFolder || typeof targetFolder !== "string") throw new Error("targetFolder is required");
