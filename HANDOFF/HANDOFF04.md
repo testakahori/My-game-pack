@@ -215,6 +215,12 @@
      - PR2（端の仕事）：`setup_ipc.cjs`・`games_ipc.cjs`・`tts_ipc.cjs`・`bridge_settings.cjs`・`gifts_viewer.cjs`（ipc 58個）。ブランチ `refactor/main-split-2`。main.cjs は 2,489行 → 1,730行。計画は `docs/superpowers/plans/2026-10-17-main-split-pr2.md`。
      - PR2 から D 側の作業コピーで進めている（Codex の UI の作業が終わったため）。開発版を本物の Electron で起動し、移した ipc 17個を画面の中から読むだけで確かめた（すべて OK。アプリ設定・BRIDGE の設定は変わらず）。開発版のサーバーは TOP でゲームを保存していないので、コマンドの一覧は空になる（前からの決まり）。
      - PR2 で、テストが main の中の変数（`initialSetupRunning`・`gameProfileBusy`）を書き換えていた所は、規約の確認やフォルダー選択の画面を待たせて本当に作業中にする形に変えた。
+     - **PR2 の次にやること（10-17 の中断時点）**
+       - 状態：実装は6つの作業すべて完了（commit 済み、まだ push していない）。`npm run verify` 429/429、本物の Electron での確認も OK。
+       - 最終レビュー（別のレビュー役・最も強いモデル）を頼んだところで、ユーザーが PC の電源を切るため中断した。結果は受け取っていない。
+       - 次は、最終レビューをやり直す（`superpowers:executing-plans` の Final Review。差分は `git diff 4d4dd2d..refactor/main-split-2`、計画の Review Focus と記録の Ruling を渡す）。
+       - 記録（ledger）は D 側の `.superpowers/sdd/2026-10-17-main-split-pr2/progress.md`（git の管理外）。Ruling は3件（検索の当たりすぎ2件、テストの件数の元が古かった件、開発版ではコマンドの一覧が空になる件）。
+       - 重要な指摘を直したら、push して PR を出し、CI を見て、ユーザーの許可を得てマージ。そのあと PR3（`bridge_sync.cjs`）の計画へ。
      - PR1 の最終レビュー：重大 0・重要 3（テストの穴。直した）・軽い 6（ユーザーの指示で直した）。分ける前と後の main.cjs を同じ偽物の electron で比べ、動きの違いは0件。
      - PR1 で見つけた小さい問題（このPRでは直さない）：
        - Tailwind は git が追跡しているファイル全体からクラス名を拾う。文書に `\` + 16進数の場所（scratchpad の場所など）を書くとビルドが止まる。`src/index.css` で読む範囲を絞る（Codex の UI の作業と重なるので別の PR）。それまでは `electron/test/docs-css-safe.test.cjs` が見張る。
