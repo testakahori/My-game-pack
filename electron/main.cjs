@@ -5,11 +5,10 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
 const http = require("http");
-const { validateBridgeConfig } = require("./config_schema.cjs");
 const { RestartPolicy } = require("./restart_policy.cjs");
 const { runProc } = require("./process_runner.cjs");
 // サーバー・BRIDGE の停止を、出どころ（どのボタン・操作から来たか）付きで logs/stop-requests.log に残す。
-const { createStopRequestLog, isConsoleStop } = require("./stop_requests.cjs");
+const { createStopRequestLog } = require("./stop_requests.cjs");
 const stopRequests = createStopRequestLog({ file: () => path.join(app.getPath("userData"), "logs", "stop-requests.log") });
 const { createSettingsBackups, validCommand } = require("./settings_backups.cjs");
 const { usesBridgeModTransport } = require("../bridge/command_files.cjs");
@@ -18,15 +17,14 @@ const { createStreamSessions, streamBuckets } = require("./stream_sessions.cjs")
 const { saveGiftPanelPng } = require("./image_export.cjs");
 const { exportStreamStatsMarkdown } = require("./stats_export.cjs");
 const { assertGameCommands } = require('./game_command_scope.cjs');
-const { tasklistNames, minecraftProcesses, readJavaCommandLines } = require('./minecraft_processes.cjs');
 // main.cjs から分けた仕事（2026-10-17 設計書 docs/superpowers/specs/2026-10-17-main-split-design.md）。
 // electron は main だけが読み込み、必要なものを渡す。あとで定義するもの（サーバーの状態など）は、呼ばれたときに読む関数で渡す。
 const { createAppConfig } = require('./app_config.cjs');
 const appConfig = createAppConfig({
   app,
   assertGameProfileIdle: () => assertGameProfileIdle(),
-  assertMapIdle: () => assertMapIdle(),
-  isServerStarting: () => serverStarting,
+  assertMapIdle: () => mapOperations.assertIdle(),
+  isServerStarting: () => serverProcess.isStarting(),
   getConfigPath: () => getConfigPath(),
   getSettingsBackups: () => settingsBackups,
   refreshGameModsOnStartup: () => refreshGameModsOnStartup(),
@@ -49,8 +47,8 @@ operatorAuth.register(ipcMain);
 const { createSetupIpc } = require('./setup_ipc.cjs');
 const setupIpc = createSetupIpc({
   app, dialog, shell, spawnSync, getServerRoot, getGvDataDir,
-  assertGameProfileIdle: () => assertGameProfileIdle(), assertMapIdle: () => assertMapIdle(),
-  serverChild: () => serverProcRef,
+  assertGameProfileIdle: () => assertGameProfileIdle(), assertMapIdle: () => mapOperations.assertIdle(),
+  serverChild: () => serverProcess.child(),
 });
 // 初期セットアップの「作業中」は setup_ipc.cjs が持つ。サーバーの起動・MAP・ゲームの切り替え・ウィンドウを閉じるときに見る。
 const { isRunning: isInitialSetupRunning } = setupIpc;
@@ -58,13 +56,13 @@ setupIpc.register(ipcMain);
 const { createGamesIpc } = require('./games_ipc.cjs');
 const gamesIpc = createGamesIpc({
   app, process, appDir: __dirname, dialog, readAppConfig, writeAppConfig, getServerRoot, getConfigPath, getServerTemplatePath,
-  assertMapIdle: () => assertMapIdle(),
+  assertMapIdle: () => mapOperations.assertIdle(),
   isInitialSetupRunning: () => isInitialSetupRunning(),
-  isServerStarting: () => serverStarting,
-  isServerStopping: () => serverStopping,
+  isServerStarting: () => serverProcess.isStarting(),
+  isServerStopping: () => serverProcess.isStopping(),
   isBridgeActive: () => Boolean(bridgeProcRef || bridgeRestartTimer),
   getServerProcessStatus: () => getServerProcessStatus(),
-  getMinecraftProcessStatus: strict => getMinecraftProcessStatus(strict),
+  getMinecraftProcessStatus: strict => minecraftClient.getMinecraftProcessStatus(strict),
 });
 // ゲームの切り替え中かは games_ipc.cjs が持つ。設定の保存・バックアップの復元・ウィンドウを閉じるときに見る。
 const { gameProfiles, isGameProfileBusy, assertGameProfileIdle, gameProfileOperation } = gamesIpc;
@@ -83,7 +81,7 @@ const settingsBackups = createSettingsBackups({
     backups: path.join(app.getPath("userData"), "settings-backups", crypto.createHash("sha256").update(path.resolve(getConfigPath())).digest("hex").slice(0, 16)),
   }),
   version: () => app.getVersion(), readTts: () => readTtsSettings(),
-  isRunning: () => Boolean(bridgeProcRef || bridgeRestartTimer || mapOperationBusy || serverStarting || isGameProfileBusy() || gameProfiles.list().recoveryRequired),
+  isRunning: () => Boolean(bridgeProcRef || bridgeRestartTimer || mapOperations.isBusy() || serverProcess.isStarting() || isGameProfileBusy() || gameProfiles.list().recoveryRequired),
 });
 const { createTtsIpc } = require('./tts_ipc.cjs');
 const ttsIpc = createTtsIpc({ app, process, shell, spawn, getBridgeBatDir, getConfigPath, settingsBackups });
@@ -111,19 +109,59 @@ const { createBridgeSync } = require('./bridge_sync.cjs');
 const bridgeSync = createBridgeSync({
   app, process, appDir: __dirname, BrowserWindow, runProc, readAppConfig, writeAppConfig, getBridgeBatDir, getServerTemplatePath,
   gameProfiles, gameProfileOperation, assertGameProfileIdle,
-  serverChild: () => serverProcRef,
-  isServerPortOpen: () => isServerPortOpen(),
+  serverChild: () => serverProcess.child(),
+  isServerPortOpen: () => serverProcess.isServerPortOpen(),
 });
 // BRIDGE の配布は bridge_sync.cjs が持つ。起動時の同期・BRIDGE の起動・ギフトの取得・配信の確認が使う。
 const { ensureNodeRuntimeAvailable, getBridgeEntryPoint, scheduleBridgeSync, refreshGameModsOnStartup } = bridgeSync;
 bridgeSync.register(ipcMain);
+const { createMinecraftClient } = require('./minecraft_client.cjs');
+const minecraftClient = createMinecraftClient({ process, spawn, readAppConfig, assertGameProfileIdle });
+minecraftClient.register(ipcMain);
+const { createServerProcess } = require('./server_process.cjs');
+const serverProcess = createServerProcess({
+  app, process, spawn, getServerRoot, getBridgeBatDir, getConfigPath, assertGameProfileIdle, isOperatorAuthed, stopRequests,
+  assertMapIdle: () => mapOperations.assertIdle(),
+  isInitialSetupRunning: () => isInitialSetupRunning(),
+  recoverMapSaves: () => mapOperations.mapSaves.recover(),
+  requestBridgeMod: (...args) => requestBridgeMod(...args),
+  authFailedMessage: () => BRIDGE_MOD_AUTH_FAILED,
+});
+// サーバーの子プロセス・起動中・停止中は server_process.cjs が持つ。main とほかのモジュールは、それを読む関数（child・isStarting・isStopping
+// など）を呼ばれたときに serverProcess.xxx() で読み、分割代入では受けない（テストが差し替えて配線を確かめるため）。
+// 下の操作の関数（ログ・起動・停止・状態の確かめ・終了待ち）は差し替えないので、分割代入で受けてよい。
+const { appendLog: appendServerLog, startServer, stopMapServer, getServerProcessStatus, waitChildExit } = serverProcess;
+serverProcess.register(ipcMain);
+const { createMapOperations } = require('./map_operations.cjs');
+const mapOperations = createMapOperations({
+  getServerRoot, getBridgeBatDir, getConfigPath, assertGameProfileIdle, readSavedBridgeConfig, writeBridgeConfig, startServer, stopMapServer,
+  isInitialSetupRunning: () => isInitialSetupRunning(),
+  isServerStarting: () => serverProcess.isStarting(),
+  isServerStopping: () => serverProcess.isStopping(),
+  serverChild: () => serverProcess.child(),
+  assertMapServerStopped: () => serverProcess.assertMapServerStopped(),
+  isBridgeActive: () => Boolean(bridgeProcRef || bridgeRestartTimer),
+  stopBridge: origin => stopBridge(origin),
+  launchBridge: () => launchBridge(),
+});
+// MAP の作業中は map_operations.cjs が持つ。main とほかのモジュールは、呼ばれたときに mapOperations.xxx() で読む。
+mapOperations.register(ipcMain);
+const { createServerFiles } = require('./server_files.cjs');
+const serverFiles = createServerFiles({
+  getServerRoot, getBridgeBatDir, readAppConfig,
+  assertMapIdle: () => mapOperations.assertIdle(),
+  serverChild: () => serverProcess.child(),
+  waitForBridgeMod: () => waitForBridgeMod(),
+  requestBridgeMod: (...args) => requestBridgeMod(...args),
+});
+serverFiles.register(ipcMain);
 
 const isDev = process.env.ELECTRON_DEV === "1";
 const { createAppWindow } = require('./window.cjs');
 // 保存・準備中（初期セットアップ・MAP の作業・サーバーの起動と停止・ゲームの切り替え）はウィンドウを閉じない。
 // 名前のある関数にして、テストから5つの作業ごとに確かめる（main.cjs の分割 PR1 レビュー）。
 function isAppBusy() {
-  return isInitialSetupRunning() || mapOperationBusy || serverStarting || serverStopping || isGameProfileBusy();
+  return isInitialSetupRunning() || mapOperations.isBusy() || serverProcess.isStarting() || serverProcess.isStopping() || isGameProfileBusy();
 }
 const appWindow = createAppWindow({ BrowserWindow, session, dialog, shell, appDir: __dirname, isDev, isBusy: () => isAppBusy() });
 const { installProdOnlyCsp, createWindow } = appWindow;
@@ -165,13 +203,6 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-// --------------------
-// IPC: サーバー起動 (run.bat)
-// --------------------
-let serverPid  = null;
-let serverProcRef = null;
-const SERVER_LOG_LIMIT = 500;
-const serverLogBuffer = [];
 let bridgePid  = null;
 let bridgeProcRef = null;
 let bridgeStopRequested = false;
@@ -219,150 +250,6 @@ function getProcessMetrics(pid) {
   }
 }
 
-function appendServerLog(message) {
-  const text = String(message ?? "").replace(/\r/g, "");
-  for (const line of text.split("\n")) {
-    const trimmed = line.trimEnd();
-    if (!trimmed) continue;
-    serverLogBuffer.push(`[${new Date().toLocaleTimeString("ja-JP")}] ${trimmed}`);
-  }
-  if (serverLogBuffer.length > SERVER_LOG_LIMIT) {
-    serverLogBuffer.splice(0, serverLogBuffer.length - SERVER_LOG_LIMIT);
-  }
-}
-
-function pipeServerStream(stream, prefix) {
-  if (!stream) return;
-  stream.on("data", (chunk) => {
-    appendServerLog(`${prefix}${chunk.toString("utf8")}`);
-  });
-}
-
-async function startServer(resumeAfterMap = false) {
-  assertGameProfileIdle();
-  if (!resumeAfterMap) assertMapIdle();
-  if (serverStarting || serverStopping) throw new Error("サーバーを起動・停止中です。完了までお待ちください。");
-  serverStarting = true;
-  try {
-  if (isInitialSetupRunning()) throw new Error("環境構築が完了するまでお待ちください。");
-  const dir = getServerRoot();
-  const bat = path.join(dir, "run.bat");
-  if (!fs.existsSync(bat)) throw new Error(`run.bat not found: ${bat}`);
-  if (serverProcRef) return { ok: true, alreadyRunning: true, backup: null };
-
-  // アプリを開き直しても、動作中のサーバーを再起動したりMAPに触れたりしない。
-  const existing = await getServerProcessStatus();
-  if (existing.running) {
-    if (existing.modAuthFailed) throw new Error(`起動済みのサーバーが見つかりましたが、${BRIDGE_MOD_AUTH_FAILED}`);
-    if (!existing.modReady) throw new Error("起動済みのサーバーが見つかりましたが、MyGamePackのModに接続できません。サーバーの起動完了とModの設定を確認してください。");
-    appendServerLog("[SERVER] 起動済みのサーバーを使用します（このアプリからの停止・MAP操作はできません）");
-    return { ok: true, alreadyRunning: true, external: true, backup: null };
-  }
-
-  await mapSaves.recover();
-  require('./bridge_mod_migration.cjs').retireLegacyEnvironment(dir);
-  // MAPは「保存する」を押した時だけ作成。旧autoBackup設定が残っていても自動保存しない。
-
-  // 黒い別窓は開かず、出力をアプリ内（ダッシュボードのForgeログ）へ取り込む。
-  // run.bat 末尾の pause は NO_PAUSE=1 で無効化される。stdin は stop コマンド送信用。
-  serverLogBuffer.length = 0;
-  appendServerLog("[SERVER] Forgeサーバーを起動します");
-
-  // 重力反転などの浮遊系コマンドで「このワールドでは飛行が禁止されています」キックが
-  // 出ないよう、起動前に allow-flight=true を強制する（server.properties は起動時にのみ
-  // 読み込まれるため、ここが唯一の安全な適用タイミング）。
-  try {
-    const propsPath = path.join(dir, "server.properties");
-    if (fs.existsSync(propsPath)) {
-      const props = fs.readFileSync(propsPath, "utf8");
-      // (\r?) を捕捉して戻すことで CRLF ファイルの行末を LF に変えてしまわないようにする
-      if (/^allow-flight=false[ \t]*\r?$/m.test(props)) {
-        fs.writeFileSync(propsPath, props.replace(/^allow-flight=false[ \t]*(\r?)$/m, "allow-flight=true$1"), "utf8");
-        appendServerLog("[SERVER] allow-flight=true を適用しました（浮遊コマンドのキック対策）");
-      }
-    }
-  } catch { /* 設定に失敗しても起動は続行 */ }
-  // 開発版（パッケージ前）は、BRIDGE とゲームの切替がリポジトリの bridge/commands/minecraft を使う。
-  // BridgeMOD はふだんサーバーフォルダーの bridge/commands/minecraft を読むので、同じ場所を環境変数で教える。
-  // インストール版はどちらもサーバーフォルダーなので渡さない（利用者の環境に残っていても消す）。
-  const serverEnv = { ...process.env, NO_PAUSE: "1" };
-  if (app.isPackaged) delete serverEnv.BRIDGE_MOD_COMMANDS_DIR;
-  else serverEnv.BRIDGE_MOD_COMMANDS_DIR = path.join(getBridgeBatDir(), "commands", "minecraft");
-  const proc = spawn("cmd.exe", ["/c", bat], {
-    cwd: dir,
-    windowsHide: true,
-    stdio: ["pipe", "pipe", "pipe"],
-    env: serverEnv,
-  });
-  serverProcRef = proc;
-  serverPid = proc.pid;
-  pipeServerStream(proc.stdout, "");
-  pipeServerStream(proc.stderr, "[stderr] ");
-  proc.on("error", (e) => appendServerLog(`[SERVER] 起動エラー: ${e?.message || e}`));
-  proc.on("exit", (code, signal) => {
-    appendServerLog(`[SERVER] 終了しました code=${code ?? "null"} signal=${signal ?? "null"}`);
-    if (serverProcRef === proc) { serverPid = null; serverProcRef = null; }
-  });
-
-  return { ok: true };
-  } finally { serverStarting = false; }
-}
-ipcMain.handle("server:start", () => startServer());
-
-// --------------------
-// IPC: サーバー停止（保存完了を待ち、保存中の強制終了はしない）
-// --------------------
-ipcMain.handle("server:stop", async (_event, origin) => {
-  assertMapIdle();
-  if (serverStarting || serverStopping) throw new Error("サーバーを起動・停止中です。完了までお待ちください。");
-  const proc = serverProcRef;
-  if (!proc) {
-    if ((await getServerProcessStatus()).running) throw new Error("このアプリを開く前から起動しているサーバーです。起動した画面で stop を実行してください。BRIDGEは単独で停止できます。");
-    return { ok: true, alreadyStopped: true, graceful: true };
-  }
-  serverStopping = true;
-  try {
-    await stopMapServer(origin);
-    return { ok: true, graceful: true };
-  } finally { serverStopping = false; }
-});
-
-// --------------------
-// IPC: サーバーログ・稼働状態（ダッシュボードのForgeログパネル用）
-// --------------------
-ipcMain.handle("server:logs", () => ({ ok: true, lines: [...serverLogBuffer] }));
-
-// Forgeサーバーのコンソールへコマンドを1行送る（op 付与やデバッグの脱出ハッチ）。
-// 先頭の "/" は付けても付けなくてもよい（コンソールでは不要なので取り除く）。
-ipcMain.handle("server:command", async (_event, command) => {
-  assertMapIdle();
-  if (!isOperatorAuthed()) throw new Error("運営ログインが必要です。ログインし直してからコンソールコマンドを送信してください。");
-  const cmd = String(command || "").trim().replace(/^\//, "");
-  if (!cmd) throw new Error("コマンドが空です");
-  if (/[\r\n]/.test(cmd)) throw new Error("コマンドは1行で入力してください");
-  if (!serverProcRef?.stdin?.writable) throw new Error("Minecraftサーバーが起動していません");
-  appendServerLog(`> ${cmd}`);
-  if (isConsoleStop(cmd)) stopRequests.record("server", "console");
-  serverProcRef.stdin.write(cmd + "\n");
-  return { ok: true };
-});
-async function getServerProcessStatus() {
-  if (serverProcRef) return { running: true, managed: true, pid: serverPid };
-  const listening = await isServerPortOpen();
-  if (!listening) return { running: false, managed: false, pid: null };
-  let modReady = false, modAuthFailed = false;
-  try {
-    const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8"));
-    const host = String(cfg.options?.bridgeModHost || cfg.options?.doumaModHost || "127.0.0.1").toLowerCase();
-    if (["127.0.0.1", "localhost", "::1"].includes(host)) {
-      const status = await requestBridgeMod("GET", "/bridge/status");
-      modReady = status.ok === true && Number.isFinite(status.tps) && typeof status.player?.online === "boolean";
-    }
-  } catch (e) { modAuthFailed = e?.authFailed === true; /* ポートは開いている。Modが準備中なら再起動せず案内する。 */ }
-  return { running: true, managed: false, pid: null, modReady, modAuthFailed };
-}
-ipcMain.handle("server:processStatus", getServerProcessStatus);
-
 const checkTikTokLive = require("./tiktok_live_status.cjs").createLiveStatusChecker({
   query: async username => {
     await ensureNodeRuntimeAvailable();
@@ -386,35 +273,6 @@ ipcMain.handle('euler:clear', () => {
   return eulerStatus();
 });
 ipcMain.handle('euler:openPortal', () => shell.openExternal('https://www.eulerstream.com/dashboard'));
-
-// --------------------
-// IPC: Minecraft ランチャー/ゲーム本体の稼働検知（Gameノード表示用）
-// --------------------
-// 数える名前と java.exe の見分け方は minecraft_processes.cjs にある。
-async function getMinecraftProcessStatus(strict = false) {
-  if (process.platform !== "win32") return { running: false, processes: [] };
-  const csv = await new Promise((resolve) => {
-    let out = "";
-    let settled = false;
-    const finish = () => { if (!settled) { settled = true; resolve(out); } };
-    let p;
-    try {
-      p = spawn("tasklist.exe", ["/FO", "CSV", "/NH"], { windowsHide: true });
-    } catch {
-      return finish();
-    }
-    p.stdout.on("data", (d) => (out += d.toString("utf8")));
-    p.on("close", finish);
-    p.on("error", finish);
-    setTimeout(() => { try { p.kill(); } catch { /* ignore */ } finish(); }, 4000);
-  });
-  if (strict && !String(csv).trim()) throw new Error('Minecraftの停止状態を確認できません。切替を中止しました');
-  const names = tasklistNames(csv);
-  const javaCommandLines = strict && names.includes('java.exe') ? await readJavaCommandLines() : null;
-  const processes = minecraftProcesses(names, { strict, javaCommandLines });
-  return { running: processes.length > 0, processes };
-}
-ipcMain.handle("minecraft:status", () => getMinecraftProcessStatus());
 
 // --------------------
 // IPC: Bridge 起動（同梱 node 優先、なければ PATH の node）
@@ -498,18 +356,18 @@ async function stopBridge(origin) {
   return { ok: true };
 }
 
-ipcMain.handle("bridge:launch", async () => { assertMapIdle(); return launchBridge(); });
+ipcMain.handle("bridge:launch", async () => { mapOperations.assertIdle(); return launchBridge(); });
 
 // --------------------
 // IPC: Bridge 停止
 // --------------------
-ipcMain.handle("bridge:stop", async (_event, origin) => { assertMapIdle(); return stopBridge(origin); });
+ipcMain.handle("bridge:stop", async (_event, origin) => { mapOperations.assertIdle(); return stopBridge(origin); });
 
 // --------------------
 // IPC: Bridge 再起動（停止完了を待ってから起動する。UI側の stop→launch 連打は使わない）
 // --------------------
 ipcMain.handle("bridge:restart", async (_event, origin) => {
-  assertMapIdle();
+  mapOperations.assertIdle();
   await stopBridge(origin);
   await new Promise((r) => setTimeout(r, 400)); // ポート/ファイル解放の猶予
   return launchBridge();
@@ -729,10 +587,6 @@ ipcMain.handle("stream:session:start", (_event, title) => streamSessions.start(t
 ipcMain.handle("stream:session:end", (_event, value) => streamSessions.end(value?.id, value?.endedAt));
 ipcMain.handle("image:saveGiftPanel", (_event, value) => saveGiftPanelPng(dialog, value));
 
-// --------------------
-// IPC: マイクラIDへ OP 権限を付与（_op.txt を書いて Mod 経由で実行）
-// --------------------
-
 // Mod HTTP (25576) が応答するまで待つ。Forge起動直後はワールド読み込み中でまだ
 // 待ち受けが開いておらず、即送信すると ECONNREFUSED になる（一括起動時の
 // OP自動付与とゲームルール適用が毎回「スキップ」されていた真因）。
@@ -756,13 +610,13 @@ async function waitForBridgeMod(timeoutMs = 150000, intervalMs = 3000) {
   const reportAuthFailure = () => { appendServerLog(`[SERVER] ${BRIDGE_MOD_AUTH_FAILED}（トークンファイル: ${bridgeModTokenPath(getServerRoot())}）`); return false; };
   if (await quickCheck()) { bridgeModWaitTimedOutFor = null; return true; }
   if (authFailed) return reportAuthFailure();
-  if (serverProcRef && bridgeModWaitTimedOutFor === serverProcRef) return false;
+  if (serverProcess.child() && bridgeModWaitTimedOutFor === serverProcess.child()) return false;
   appendServerLog("[SERVER] Mod（BridgeMod）のHTTP応答を待っています。ワールド読み込み完了（Done表示）までお待ちください…");
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    if (Date.now() >= deadline || !serverProcRef) {
-      if (serverProcRef) {
-        bridgeModWaitTimedOutFor = serverProcRef;
+    if (Date.now() >= deadline || !serverProcess.child()) {
+      if (serverProcess.child()) {
+        bridgeModWaitTimedOutFor = serverProcess.child();
         appendServerLog("[SERVER] Modの応答待ちがタイムアウトしました（HTTP:25576）。mods/ の bridgemod jar 配置とサーバーログを確認してください。");
       }
       return false;
@@ -777,167 +631,11 @@ async function waitForBridgeMod(timeoutMs = 150000, intervalMs = 3000) {
   }
 }
 
-// サーバー停止中でも OP を付与できるよう ops.json へ直接書く。
-// 過去に一度でもログインしていれば usercache.json から UUID を引ける。
-function grantOpOffline(name) {
-  const root = getServerRoot();
-  let cache = [];
-  try { cache = JSON.parse(fs.readFileSync(path.join(root, "usercache.json"), "utf8")); } catch {}
-  const entry = Array.isArray(cache)
-    ? cache.find((c) => c && String(c.name || "").toLowerCase() === name.toLowerCase())
-    : null;
-  if (!entry?.uuid) return false;
-  const opsPath = path.join(root, "ops.json");
-  let ops = [];
-  try { ops = JSON.parse(fs.readFileSync(opsPath, "utf8")); } catch {}
-  if (!Array.isArray(ops)) ops = [];
-  if (!ops.some((o) => o && String(o.name || "").toLowerCase() === name.toLowerCase())) {
-    ops.push({ uuid: entry.uuid, name: entry.name, level: 4, bypassesPlayerLimit: false });
-    fs.writeFileSync(opsPath, JSON.stringify(ops, null, 2) + "\n", "utf8");
-  }
-  return true;
-}
-
-ipcMain.handle("minecraft:grantOp", async () => {
-  const name = String(readAppConfig().minecraftPlayerName || "").trim();
-  if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) {
-    throw new Error("マイクラIDが未設定か形式が不正です（英数字と_で3〜16文字）。ダッシュボードで保存してください。");
-  }
-  const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "_op.txt"), `# TITLE: OP付与\nop ${name}\n`, "utf8");
-  try {
-    // サーバー起動直後ならワールド読み込み完了（Mod HTTP 開通）まで待ってから送る
-    if (serverProcRef) await waitForBridgeMod();
-    await requestBridgeMod("POST", "/bridge/event", {
-      type: "other", key: "_op", count: 1, listenerName: "system", announce: false,
-    });
-  } catch (e) {
-    const msg = String(e?.message || e);
-    if (/ECONNREFUSED|timeout|ENOTFOUND|ECONNRESET/i.test(msg)) {
-      // サーバー停止中：ops.json へ直接登録（次回起動から有効）
-      if (!serverProcRef && grantOpOffline(name)) {
-        return { ok: true, name, offline: true, message: `サーバー停止中のため ops.json に直接登録しました。次回サーバー起動から「${name}」はOPになります。` };
-      }
-      if (!serverProcRef) {
-        throw new Error("Minecraftサーバーが起動しておらず、過去のログイン記録も無いため付与できません。一度サーバーに接続（ログイン）してから再度お試しください。");
-      }
-      throw new Error("Minecraftサーバーは起動中ですが、Mod（BridgeMod）に接続できません。ワールドの読み込み完了（コンソールに Done 表示）を待ってから再度お試しください。");
-    }
-    throw e;
-  }
-  return { ok: true, name };
-});
 ipcMain.handle("operations:history", () => readOperationsHistory());
 ipcMain.handle("operations:history:clear", () => {
   fs.writeFileSync(getOperationsHistoryPath(), "[]", "utf8"); return { ok: true };
 });
 
-let mapOperationBusy = false;
-let serverStarting = false;
-let serverStopping = false;
-function assertMapIdle() {
-  if (mapOperationBusy || mapSaves.isBusy()) throw new Error('MAPを保存・読込中です。完了までお待ちください。');
-}
-async function portIsOpen(port, host = '127.0.0.1') {
-  return new Promise((resolve, reject) => {
-    const socket = require('node:net').connect({ port, host });
-    socket.setTimeout(1200);
-    socket.once('connect', () => { socket.destroy(); resolve(true); });
-    socket.once('timeout', () => { socket.destroy(); reject(new Error('サーバーの稼働状態を確認できません。時間をおいて再試行してください。')); });
-    socket.once('error', error => { socket.destroy(); if (['ECONNREFUSED', 'EADDRNOTAVAIL'].includes(error.code)) resolve(false); else reject(error); });
-  });
-}
-async function assertMapServerStopped() {
-  if (serverProcRef || serverPid) throw new Error('サーバーが停止していません。MAP操作を中止しました。');
-  if (await isServerPortOpen()) throw new Error('別のMinecraftサーバーが起動しています。停止してからMAPを操作してください。');
-}
-async function isServerPortOpen() {
-  if (!fs.existsSync(path.join(getServerRoot(), 'server.properties'))) return false;
-  const props = fs.readFileSync(path.join(getServerRoot(), 'server.properties'), 'utf8');
-  const port = Number(props.match(/^server-port=(.+)$/m)?.[1]?.trim() || 25565);
-  const host = props.match(/^server-ip=(.+)$/m)?.[1]?.trim();
-  for (const address of new Set(['127.0.0.1', '::1', ...(host && host !== '0.0.0.0' && host !== '::' ? [host] : [])])) {
-    if (await portIsOpen(port, address)) return true;
-  }
-  return false;
-}
-const mapSaves = require('./map_saves.cjs').createMapSaves({ getRoot: getServerRoot, assertStopped: assertMapServerStopped });
-function waitChildExit(child, timeoutMs) {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
-  return new Promise(resolve => {
-    const done = value => { clearTimeout(timer); child.removeListener('exit', ended); resolve(value); };
-    const ended = () => done(true);
-    const timer = setTimeout(() => done(false), timeoutMs);
-    child.once('exit', ended);
-  });
-}
-// サーバーへ stop を書くのはここだけ（コンソールコマンドを除く）。origin はどのボタン・操作から止めたか。
-async function stopMapServer(origin) {
-  const child = serverProcRef;
-  if (!child) { await assertMapServerStopped(); return; }
-  if (!child.stdin?.writable) throw new Error('サーバーに保存・停止を送信できません。ダッシュボードで停止してください。');
-  const ended = waitChildExit(child, 120000);
-  appendServerLog(`[SERVER] ワールドを保存して停止します（${stopRequests.record('server', origin)}）`);
-  child.stdin.write('stop\n');
-  if (!await ended) throw new Error('サーバーの保存・停止がまだ完了していません。強制終了せずに待機しています。Forgeログを確認し、停止完了後に再試行してください。');
-  if (serverProcRef === child) { serverProcRef = null; serverPid = null; }
-  if (child.exitCode !== 0) throw new Error('サーバーが正常終了しませんでした。Forgeログを確認してください。');
-  await assertMapServerStopped();
-}
-async function runMapOperation(origin, action) {
-  assertGameProfileIdle();
-  assertMapIdle();
-  if (isInitialSetupRunning() || serverStarting || serverStopping) throw new Error('サーバーの準備・停止が終わるまでお待ちください。');
-  mapOperationBusy = true;
-  const restartServer = Boolean(serverProcRef), restartBridge = Boolean(bridgeProcRef || bridgeRestartTimer);
-  try {
-    if (restartBridge) await stopBridge(origin);
-    await stopMapServer(origin);
-    const result = await action();
-    let restartError = '';
-    try {
-      if (restartServer) await startServer(true);
-      if (restartBridge) await launchBridge();
-    } catch (error) { restartError = error.message; }
-    return { ok: true, ...result, restarted: restartServer, restartError };
-  } finally { mapOperationBusy = false; }
-}
-ipcMain.handle('world:saves:list', async () => ({ ...(await mapSaves.list()), busy: mapOperationBusy || mapSaves.isBusy() }));
-ipcMain.handle('world:saves:save', (_event, name) => runMapOperation('map:save', async () => ({ saved: await mapSaves.save(name) })));
-ipcMain.handle('world:saves:load', (_event, id) => runMapOperation('map:load', () => mapSaves.load(id)));
-
-async function createWorldBackup() {
-  const saved = await mapSaves.save('', 'manual');
-  return { ok: true, path: path.join(getServerRoot(), 'map-saves', saved.id), reason, message: 'MAPを保存しました: ' + saved.name };
-}
-ipcMain.handle('world:backup', () => runMapOperation('map:backup', () => createWorldBackup()));
-
-function getPresetDir() {
-  const dir = path.join(getBridgeBatDir(), "presets");
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-ipcMain.handle("presets:list", () =>
-  fs.readdirSync(getPresetDir()).filter(name => name.endsWith(".json")).sort()
-);
-ipcMain.handle("presets:save", (_event, name) => {
-  const safe = String(name || "").trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").slice(0, 60);
-  if (!safe) throw new Error("プリセット名が空です");
-  fs.copyFileSync(getConfigPath(), path.join(getPresetDir(), `${safe}.json`));
-  return { ok: true };
-});
-ipcMain.handle("presets:load", (_event, name) => {
-  const safe = path.basename(String(name || ""));
-  const source = path.join(getPresetDir(), safe);
-  if (!fs.existsSync(source)) throw new Error("プリセットがありません");
-  const value = JSON.parse(fs.readFileSync(source, "utf8"));
-  // 以前保存したプリセットは、その中の割り当ても「前からあるもの」として扱う（使えない名前は警告に留める）。
-  const validation = validateBridgeConfig(value, { previous: [readSavedBridgeConfig(), value] });
-  if (!validation.ok) throw new Error(validation.errors.join("\n"));
-  writeBridgeConfig(value, { alsoKnown: [value] });
-  return { ok: true, config: value };
-});
 ipcMain.handle("operations:stats", () => {
   const rows = readOperationsHistory();
   const byCommand = {};
@@ -971,127 +669,3 @@ ipcMain.handle('operations:stats:export', (_event, streamId) => exportStreamStat
 ipcMain.handle("operations:earnings:save", (_event, id, amount) => require("./stream_earnings.cjs").saveEarnings(path.join(getBridgeBatDir(), "stream-earnings.json"), computeStreamStats().streams, id, amount));
 
 ipcMain.handle("operations:streamStats", (_event, gapMinutes) => computeStreamStats(gapMinutes));
-
-// --------------------
-// IPC: Minecraft 起動
-// --------------------
-function getMinecraftLauncherCandidates() {
-  const cfg = readAppConfig();
-  const list = [];
-  if (cfg.minecraftLauncherPath) list.push(cfg.minecraftLauncherPath); // 設定で明示指定を最優先
-  list.push(
-    "C:\\Program Files (x86)\\Minecraft Launcher\\MinecraftLauncher.exe",
-    "C:\\XboxGames\\Minecraft Launcher\\Content\\Minecraft.exe",
-    path.join(process.env.LOCALAPPDATA || "", "Programs", "Minecraft Launcher", "MinecraftLauncher.exe"),
-    path.join(process.env.PROGRAMFILES || "", "Minecraft Launcher", "MinecraftLauncher.exe"),
-    path.join(process.env["ProgramFiles(x86)"] || "", "Minecraft Launcher", "MinecraftLauncher.exe"),
-  );
-  return list.filter(Boolean);
-}
-
-ipcMain.handle("minecraft:launch", async () => {
-  assertGameProfileIdle();
-  const candidates = getMinecraftLauncherCandidates();
-  const found = candidates.find((p) => fs.existsSync(p));
-  if (found) {
-    spawn(found, [], { detached: true, stdio: "ignore" }).unref();
-    return { ok: true, path: found };
-  }
-  // Microsoft Store 版をシェル経由で起動（存在すれば開く。無ければ何も起きないだけ）
-  try {
-    spawn("explorer.exe", ["shell:AppsFolder\\Microsoft.4297127D64EC6_8wekyb3d8bbwe!Minecraft"],
-      { detached: true, stdio: "ignore" }).unref();
-    return { ok: true, viaShell: true };
-  } catch {
-    throw new Error(
-      "Minecraft ランチャーが見つかりませんでした。手動で起動するか、ランチャーの場所を設定してください。\n確認したパス:\n" +
-      candidates.join("\n")
-    );
-  }
-});
-
-// --------------------
-// IPC: server.properties 読み込み
-// --------------------
-ipcMain.handle("server:props:read", async () => {
-  const propsPath = path.join(getServerRoot(), "server.properties");
-  if (!fs.existsSync(propsPath)) throw new Error(`server.properties not found: ${propsPath}`);
-
-  const text = fs.readFileSync(propsPath, "utf-8");
-  const props = {};
-  for (const line of text.split(/\r?\n/)) {
-    if (line.startsWith("#") || !line.includes("=")) continue;
-    const idx = line.indexOf("=");
-    const key = line.slice(0, idx).trim();
-    const val = line.slice(idx + 1); // 末尾スペース等を保持
-    props[key] = val;
-  }
-  return props;
-});
-
-// --------------------
-// IPC: server.properties 書き込み
-// --------------------
-ipcMain.handle("server:props:write", async (_event, updates) => {
-  assertMapIdle();
-  if (typeof updates !== "object" || updates === null) throw new Error("updates must be an object");
-
-  const propsPath = path.join(getServerRoot(), "server.properties");
-  if (!fs.existsSync(propsPath)) throw new Error(`server.properties not found: ${propsPath}`);
-
-  let text = fs.readFileSync(propsPath, "utf-8");
-
-  for (const [key, value] of Object.entries(updates)) {
-    const lines = text.split(/\r?\n/);
-    let found = false;
-    const updated = lines.map((line) => {
-      if (line.startsWith("#") || !line.includes("=")) return line;
-      const idx = line.indexOf("=");
-      const k = line.slice(0, idx).trim();
-      if (k === key) {
-        found = true;
-        return `${key}=${value}`;
-      }
-      return line;
-    });
-    if (!found) updated.push(`${key}=${value}`);
-    text = updated.join("\n");
-  }
-
-  fs.writeFileSync(propsPath, text, "utf-8");
-  return { ok: true };
-});
-
-// --------------------
-// IPC: RCONパスワード.txt 読み込み
-// --------------------
-ipcMain.handle("server:rconpassword:read", async () => {
-  const txtPath = path.join(getServerRoot(), "RCON_password.txt");
-  if (!fs.existsSync(txtPath)) return { found: false, password: "" };
-  const raw = fs.readFileSync(txtPath, "utf-8").trim();
-  return { found: true, password: raw };
-});
-
-// --------------------
-// IPC: ゲームルール一括適用（RCON）
-// --------------------
-// Environment is owned by BridgeMOD; this legacy IPC now verifies it only.
-ipcMain.handle("server:gamerules:apply", async () => {
-  if (serverProcRef) await waitForBridgeMod();
-  const status = await requestBridgeMod("GET", "/bridge/status");
-  if (status.environmentFixed !== true) throw new Error("固定環境に対応したBridgeMODが必要です");
-  return { ok: true, transport: "bridge_mod" };
-});
-// No new datapack is written. Old packs are retired only while the server is stopped.
-ipcMain.handle("server:datapack:deployNightVision", () => ({ ok: true, managedBy: "BridgeMOD" }));
-
-// --------------------
-// IPC: haihu_world/ 内のサブフォルダ一覧
-// --------------------
-ipcMain.handle("server:worlds:list", async () => {
-  const dir = path.join(getServerRoot(), "haihu_world");
-  if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
-    .map((e) => e.name);
-});
