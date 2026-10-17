@@ -8,7 +8,8 @@ const path = require('node:path');
 
 const LIMITS = { main: 400, other: 800 };
 
-// wc -l と同じ数え方（改行の数。最後の行に改行がなければ1を足す）。CRLF も LF も同じ数になる。
+// エディターと同じ行数（改行の数。最後の行に改行がなければ1を足す）。CRLF も LF も同じ数になる。
+// wc -l は最後の改行がない行を数えないので、そのときだけ wc -l より1多い（厳しい方に数える）。
 function lineCount(text) {
   const newlines = (text.match(/\n/g) || []).length;
   return newlines + (text && !text.endsWith('\n') ? 1 : 0);
@@ -25,12 +26,17 @@ function oversizedFiles(dir) {
     .filter(x => x.lines > x.limit);
 }
 
+// 落ちたときの文（1ファイル1行）。
+function oversizedMessage(over) {
+  return over.map(x => `electron/${x.file} は ${x.lines} 行（上限 ${x.limit} 行）。足す前に、仕事ごとのファイルに分けてください（AGENTS.md）。`).join('\n');
+}
+
 test('行数の見張り: electron/main.cjs は 400 行以下、electron/ の直下のほかの .cjs は各 800 行以下', () => {
   const over = oversizedFiles(path.resolve(__dirname, '..'));
-  assert.deepEqual(over, [], over.map(x => `electron/${x.file} は ${x.lines} 行（上限 ${x.limit} 行）。足す前に、仕事ごとのファイルに分けてください（AGENTS.md）。`).join('\n'));
+  assert.deepEqual(over, [], oversizedMessage(over));
 });
 
-test('行数の見張り: 数え方は wc -l と同じ（CRLF・最後の改行なしも）。上限ちょうどは通し、超えたファイルだけを名前の順に出す。下のフォルダーと .cjs 以外は見ない', t => {
+test('行数の見張り: 数え方はエディターの行数（CRLF も LF も同じ、最後の改行なしも1行）。上限ちょうどは通し、超えたファイルだけを名前の順に、行数と上限の分かる文で出す。下のフォルダーと .cjs 以外は見ない', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'file-size-limits-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const lines = (n, eol = '\r\n', last = true) => Array.from({ length: n }, (_, i) => `// ${i}`).join(eol) + (last ? eol : '');
@@ -50,6 +56,12 @@ test('行数の見張り: 数え方は wc -l と同じ（CRLF・最後の改行�
     { file: 'main.cjs', lines: 401, limit: 400 },
     { file: 'new_module.cjs', lines: 900, limit: 800 },
   ]);
+  // 落ちたときの文で、どのファイルが何行で、上限はいくつか、どうすればよいかが分かる（PR6 の最終レビュー）。
+  assert.equal(oversizedMessage(oversizedFiles(dir)), [
+    'electron/big.cjs は 801 行（上限 800 行）。足す前に、仕事ごとのファイルに分けてください（AGENTS.md）。',
+    'electron/main.cjs は 401 行（上限 400 行）。足す前に、仕事ごとのファイルに分けてください（AGENTS.md）。',
+    'electron/new_module.cjs は 900 行（上限 800 行）。足す前に、仕事ごとのファイルに分けてください（AGENTS.md）。',
+  ].join('\n'));
   fs.writeFileSync(path.join(dir, 'main.cjs'), lines(400));
   assert.equal(oversizedFiles(dir).some(x => x.file === 'main.cjs'), false, '400 行ちょうどは通す');
 });

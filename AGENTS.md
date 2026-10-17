@@ -42,8 +42,10 @@
   - `src/index.css`（約7,500行）
 - `electron/main.cjs` は、アプリの起動と終了、各モジュールの配線だけを持ちます（2026-10-17〜18 に分けました。設計書 `docs/superpowers/specs/2026-10-17-main-split-design.md`）。新しい ipc や処理は、その仕事を持つモジュールに足します。
   - 行数の上限：`electron/main.cjs` は 400 行、ほかの `electron/*.cjs` は各 800 行です。超えると `electron/test/file-size-limits.test.cjs` が落ち、CI で止まります。超えそうなときは、足す前に分けます。
-  - モジュールは `createXxx(deps)` を1つだけ外に出し、ipc は `register(ipcMain)` で自分で登録します。`electron`・`child_process` は main だけが読み込んで渡します（テストの `loadApp` が偽物に差し替えるため）。
-  - 作業中かを読む関数（`serverProcess.isStarting()`・`bridgeProcess.isActive()` など）は、分割代入で受けず、呼ばれたときにオブジェクトから読みます（テストが差し替えて配線を確かめるため）。
+  - 下の一覧の分けたファイルは、`createXxx(deps)` を1つだけ外に出し、ipc は `register(ipcMain)` で自分で登録します。`electron`・`child_process` は自分で読み込まず、main から受け取ります（テストの `loadApp` は main.cjs が読み込むものだけを偽物に差し替えるため）。
+    - 前からある `initial_setup.cjs`・`minecraft_processes.cjs`・`process_runner.cjs`・`world_setup.cjs` は `child_process` を自分で読み込みます。`loadApp` でも本物が動くので、テストでは呼ばれない形にするか、関数を渡して差し替えます。`preload.cjs` は画面側なので `electron` を読み込みます。
+  - サーバー・BRIDGE・MAP の作業中かを読む関数（`serverProcess.child()`・`isStarting()`・`isStopping()`、`bridgeProcess.child()`・`isActive()`、`mapOperations.isBusy()`・`assertIdle()`）は、分割代入で受けず、呼ばれたときにオブジェクトから読みます（テストが差し替えて配線を確かめるため）。
+    - 初期セットアップとゲームの切り替えの作業中（`isInitialSetupRunning`・`isGameProfileBusy`・`assertGameProfileIdle`）は、テストが本当に作業中にして確かめるので、main は分割代入で受けています。
   - 分けたファイル（`electron/`）：
     - `paths.cjs`：配置の場所
     - `app_config.cjs`：アプリ設定と更新
@@ -52,10 +54,10 @@
     - `setup_ipc.cjs`：初期セットアップ・Forge・環境の実測・フォルダー選択
     - `games_ipc.cjs`：ゲームの選択・切り替え・Minecraft の保存先
     - `tts_ipc.cjs`：読み上げ
-    - `bridge_settings.cjs`：BRIDGE の設定・ギフトの割り当て・テンプレート・配信前チェック・コマンド txt
+    - `bridge_settings.cjs`：BRIDGE の設定・ギフトの割り当て・テンプレート・設定のバックアップ・配信前チェック・コマンド txt・設定ファイルと BRIDGE の場所（`config:path`・`bridge:root`・`bridge:dir`）
     - `gifts_viewer.cjs`：ギフト一覧
     - `bridge_sync.cjs`：BRIDGE の配布・サーバーテンプレートのコピー・BRIDGE の展開
-    - `server_process.cjs`：サーバーの起動・停止・ログ・状態
+    - `server_process.cjs`：サーバーの起動・停止・ログ・状態・コンソールへの送信
     - `map_operations.cjs`：MAP の保存・読込・プリセット
     - `server_files.cjs`：server.properties・RCON パスワード・配布ワールド・OP の付与・ゲームルール
     - `minecraft_client.cjs`：Minecraft の起動と稼働の確かめ
