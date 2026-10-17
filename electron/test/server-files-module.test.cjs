@@ -1,0 +1,39 @@
+// server.properties・RCON パスワード・配布ワールド・OP の付与・ゲームルールの古い窓口（main.cjs から分けた。2026-10-17 設計書 docs/superpowers/specs/2026-10-17-main-split-design.md）。
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { createServerFiles } = require('../server_files.cjs');
+
+function setup(t, { running = false, mapBusy = false } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'server-files-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const bridge = path.join(root, 'bridge'), calls = [], config = {}, handlers = new Map();
+  createServerFiles({
+    getServerRoot: () => root, getBridgeBatDir: () => bridge, readAppConfig: () => config,
+    assertMapIdle: () => { if (mapBusy) throw new Error('MAPを保存・読込中です。完了までお待ちください。'); },
+    serverChild: () => (running ? { pid: 1 } : null),
+    waitForBridgeMod: async () => { calls.push('wait'); return true; },
+    requestBridgeMod: async (...args) => { calls.push(args); return { ok: true, environmentFixed: true }; },
+  }).register({ handle: (name, fn) => handlers.set(name, fn) });
+  return { root, bridge, calls, config, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
+}
+
+test('OP の付与と古いゲームルールの窓口: サーバーが動いていれば BridgeMOD の応答を待ってから、main から受け取った通信で送る', async t => {
+  const x = setup(t, { running: true });
+  x.config.minecraftPlayerName = 'Steve_01';
+  assert.deepEqual(await x.invoke('minecraft:grantOp'), { ok: true, name: 'Steve_01' });
+  assert.deepEqual(x.calls, ['wait', ['POST', '/bridge/event', { type: 'other', key: '_op', count: 1, listenerName: 'system', announce: false }]]);
+  assert.equal(fs.readFileSync(path.join(x.bridge, 'commands', 'minecraft', '_op.txt'), 'utf8'), '# TITLE: OP付与\nop Steve_01\n');
+  x.calls.length = 0;
+  assert.deepEqual(await x.invoke('server:gamerules:apply'), { ok: true, transport: 'bridge_mod' });
+  assert.deepEqual(x.calls, ['wait', ['GET', '/bridge/status']]);
+});
+
+test('server.properties の書き込み: 先に MAP の作業中でないかを確かめる', async t => {
+  const x = setup(t, { mapBusy: true });
+  fs.writeFileSync(path.join(x.root, 'server.properties'), 'motd=old\n');
+  await assert.rejects(x.invoke('server:props:write', { motd: 'new' }), /MAPを保存・読込中です/);
+  assert.equal(fs.readFileSync(path.join(x.root, 'server.properties'), 'utf8'), 'motd=old\n');
+});

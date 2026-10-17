@@ -145,6 +145,15 @@ const mapOperations = createMapOperations({
 });
 // MAP の作業中は map_operations.cjs が持つ。main とほかのモジュールは、呼ばれたときに mapOperations.xxx() で読む。
 mapOperations.register(ipcMain);
+const { createServerFiles } = require('./server_files.cjs');
+const serverFiles = createServerFiles({
+  getServerRoot, getBridgeBatDir, readAppConfig,
+  assertMapIdle: () => mapOperations.assertIdle(),
+  serverChild: () => serverProcess.child(),
+  waitForBridgeMod: () => waitForBridgeMod(),
+  requestBridgeMod: (...args) => requestBridgeMod(...args),
+});
+serverFiles.register(ipcMain);
 
 const isDev = process.env.ELECTRON_DEV === "1";
 const { createAppWindow } = require('./window.cjs');
@@ -577,10 +586,6 @@ ipcMain.handle("stream:session:start", (_event, title) => streamSessions.start(t
 ipcMain.handle("stream:session:end", (_event, value) => streamSessions.end(value?.id, value?.endedAt));
 ipcMain.handle("image:saveGiftPanel", (_event, value) => saveGiftPanelPng(dialog, value));
 
-// --------------------
-// IPC: マイクラIDへ OP 権限を付与（_op.txt を書いて Mod 経由で実行）
-// --------------------
-
 // Mod HTTP (25576) が応答するまで待つ。Forge起動直後はワールド読み込み中でまだ
 // 待ち受けが開いておらず、即送信すると ECONNREFUSED になる（一括起動時の
 // OP自動付与とゲームルール適用が毎回「スキップ」されていた真因）。
@@ -625,57 +630,6 @@ async function waitForBridgeMod(timeoutMs = 150000, intervalMs = 3000) {
   }
 }
 
-// サーバー停止中でも OP を付与できるよう ops.json へ直接書く。
-// 過去に一度でもログインしていれば usercache.json から UUID を引ける。
-function grantOpOffline(name) {
-  const root = getServerRoot();
-  let cache = [];
-  try { cache = JSON.parse(fs.readFileSync(path.join(root, "usercache.json"), "utf8")); } catch {}
-  const entry = Array.isArray(cache)
-    ? cache.find((c) => c && String(c.name || "").toLowerCase() === name.toLowerCase())
-    : null;
-  if (!entry?.uuid) return false;
-  const opsPath = path.join(root, "ops.json");
-  let ops = [];
-  try { ops = JSON.parse(fs.readFileSync(opsPath, "utf8")); } catch {}
-  if (!Array.isArray(ops)) ops = [];
-  if (!ops.some((o) => o && String(o.name || "").toLowerCase() === name.toLowerCase())) {
-    ops.push({ uuid: entry.uuid, name: entry.name, level: 4, bypassesPlayerLimit: false });
-    fs.writeFileSync(opsPath, JSON.stringify(ops, null, 2) + "\n", "utf8");
-  }
-  return true;
-}
-
-ipcMain.handle("minecraft:grantOp", async () => {
-  const name = String(readAppConfig().minecraftPlayerName || "").trim();
-  if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) {
-    throw new Error("マイクラIDが未設定か形式が不正です（英数字と_で3〜16文字）。ダッシュボードで保存してください。");
-  }
-  const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "_op.txt"), `# TITLE: OP付与\nop ${name}\n`, "utf8");
-  try {
-    // サーバー起動直後ならワールド読み込み完了（Mod HTTP 開通）まで待ってから送る
-    if (serverProcess.child()) await waitForBridgeMod();
-    await requestBridgeMod("POST", "/bridge/event", {
-      type: "other", key: "_op", count: 1, listenerName: "system", announce: false,
-    });
-  } catch (e) {
-    const msg = String(e?.message || e);
-    if (/ECONNREFUSED|timeout|ENOTFOUND|ECONNRESET/i.test(msg)) {
-      // サーバー停止中：ops.json へ直接登録（次回起動から有効）
-      if (!serverProcess.child() && grantOpOffline(name)) {
-        return { ok: true, name, offline: true, message: `サーバー停止中のため ops.json に直接登録しました。次回サーバー起動から「${name}」はOPになります。` };
-      }
-      if (!serverProcess.child()) {
-        throw new Error("Minecraftサーバーが起動しておらず、過去のログイン記録も無いため付与できません。一度サーバーに接続（ログイン）してから再度お試しください。");
-      }
-      throw new Error("Minecraftサーバーは起動中ですが、Mod（BridgeMod）に接続できません。ワールドの読み込み完了（コンソールに Done 表示）を待ってから再度お試しください。");
-    }
-    throw e;
-  }
-  return { ok: true, name };
-});
 ipcMain.handle("operations:history", () => readOperationsHistory());
 ipcMain.handle("operations:history:clear", () => {
   fs.writeFileSync(getOperationsHistoryPath(), "[]", "utf8"); return { ok: true };
@@ -714,89 +668,3 @@ ipcMain.handle('operations:stats:export', (_event, streamId) => exportStreamStat
 ipcMain.handle("operations:earnings:save", (_event, id, amount) => require("./stream_earnings.cjs").saveEarnings(path.join(getBridgeBatDir(), "stream-earnings.json"), computeStreamStats().streams, id, amount));
 
 ipcMain.handle("operations:streamStats", (_event, gapMinutes) => computeStreamStats(gapMinutes));
-
-// --------------------
-// IPC: server.properties 読み込み
-// --------------------
-ipcMain.handle("server:props:read", async () => {
-  const propsPath = path.join(getServerRoot(), "server.properties");
-  if (!fs.existsSync(propsPath)) throw new Error(`server.properties not found: ${propsPath}`);
-
-  const text = fs.readFileSync(propsPath, "utf-8");
-  const props = {};
-  for (const line of text.split(/\r?\n/)) {
-    if (line.startsWith("#") || !line.includes("=")) continue;
-    const idx = line.indexOf("=");
-    const key = line.slice(0, idx).trim();
-    const val = line.slice(idx + 1); // 末尾スペース等を保持
-    props[key] = val;
-  }
-  return props;
-});
-
-// --------------------
-// IPC: server.properties 書き込み
-// --------------------
-ipcMain.handle("server:props:write", async (_event, updates) => {
-  mapOperations.assertIdle();
-  if (typeof updates !== "object" || updates === null) throw new Error("updates must be an object");
-
-  const propsPath = path.join(getServerRoot(), "server.properties");
-  if (!fs.existsSync(propsPath)) throw new Error(`server.properties not found: ${propsPath}`);
-
-  let text = fs.readFileSync(propsPath, "utf-8");
-
-  for (const [key, value] of Object.entries(updates)) {
-    const lines = text.split(/\r?\n/);
-    let found = false;
-    const updated = lines.map((line) => {
-      if (line.startsWith("#") || !line.includes("=")) return line;
-      const idx = line.indexOf("=");
-      const k = line.slice(0, idx).trim();
-      if (k === key) {
-        found = true;
-        return `${key}=${value}`;
-      }
-      return line;
-    });
-    if (!found) updated.push(`${key}=${value}`);
-    text = updated.join("\n");
-  }
-
-  fs.writeFileSync(propsPath, text, "utf-8");
-  return { ok: true };
-});
-
-// --------------------
-// IPC: RCONパスワード.txt 読み込み
-// --------------------
-ipcMain.handle("server:rconpassword:read", async () => {
-  const txtPath = path.join(getServerRoot(), "RCON_password.txt");
-  if (!fs.existsSync(txtPath)) return { found: false, password: "" };
-  const raw = fs.readFileSync(txtPath, "utf-8").trim();
-  return { found: true, password: raw };
-});
-
-// --------------------
-// IPC: ゲームルール一括適用（RCON）
-// --------------------
-// Environment is owned by BridgeMOD; this legacy IPC now verifies it only.
-ipcMain.handle("server:gamerules:apply", async () => {
-  if (serverProcess.child()) await waitForBridgeMod();
-  const status = await requestBridgeMod("GET", "/bridge/status");
-  if (status.environmentFixed !== true) throw new Error("固定環境に対応したBridgeMODが必要です");
-  return { ok: true, transport: "bridge_mod" };
-});
-// No new datapack is written. Old packs are retired only while the server is stopped.
-ipcMain.handle("server:datapack:deployNightVision", () => ({ ok: true, managedBy: "BridgeMOD" }));
-
-// --------------------
-// IPC: haihu_world/ 内のサブフォルダ一覧
-// --------------------
-ipcMain.handle("server:worlds:list", async () => {
-  const dir = path.join(getServerRoot(), "haihu_world");
-  if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
-    .map((e) => e.name);
-});
