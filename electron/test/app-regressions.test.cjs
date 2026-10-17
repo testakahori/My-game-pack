@@ -176,6 +176,34 @@ test('配線: ゲームの切り替えは、BRIDGE やサーバーが動いて�
   app.setServer(null);
 });
 
+// 初期セットアップ・設定の復元・MAP の作業も、サーバーと MAP の状態を serverProcess・mapOperations の関数で見る（main.cjs の分割 PR4 の最終レビュー）。
+test('配線: サーバーが動いている間は、初期セットアップを始めない', async t => {
+  const app = loadApp(t);
+  const target = path.join(app.root, 'setup-target');
+  fs.mkdirSync(target);
+  app.setServer({ pid: 1, exitCode: null, signalCode: null });
+  await assert.rejects(app.invoke('server:setup:atPath', target), /Minecraftサーバーを停止してから環境構築を実行してください。/);
+  app.setServer(null);
+});
+
+test('配線: サーバーの起動中・MAP の作業中は、設定のバックアップを復元しない', async t => {
+  const app = loadApp(t);
+  const backup = await app.invoke('settings:backups:create');
+  for (const target of ['serverProcess.isStarting', 'mapOperations.isBusy']) {
+    const back = app.pretend(target, () => true);
+    await assert.rejects(async () => app.invoke('settings:backups:restore', backup.id), /復元する前にBridgeを停止してください。/, target);
+    back();
+  }
+  await app.invoke('settings:backups:restore', backup.id);
+});
+
+test('配線: サーバーの起動中は、MAP の作業を始めない', async t => {
+  const app = loadApp(t);
+  const back = app.pretend('serverProcess.isStarting', () => true);
+  await assert.rejects(app.invoke('world:saves:save', 'x'), /サーバーの準備・停止が終わるまでお待ちください。/);
+  back();
+});
+
 test('配線: ゲームの操作の間（パックのフォルダーを選んでいる間）は、ウィンドウを閉じない', async t => {
   let answerFolder;
   const app = loadApp(t, undefined, {}, { showOpenDialog: () => new Promise(resolve => { answerFolder = resolve; }) });
