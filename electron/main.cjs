@@ -13,9 +13,6 @@ const stopRequests = createStopRequestLog({ file: () => path.join(app.getPath("u
 const { createSettingsBackups, validCommand } = require("./settings_backups.cjs");
 const { usesBridgeModTransport } = require("../bridge/command_files.cjs");
 const { bridgeModTokenPath, withBridgeModToken } = require("../bridge/bridge_mod_token.cjs");
-const { createStreamSessions, streamBuckets } = require("./stream_sessions.cjs");
-const { saveGiftPanelPng } = require("./image_export.cjs");
-const { exportStreamStatsMarkdown } = require("./stats_export.cjs");
 const { assertGameCommands } = require('./game_command_scope.cjs');
 // main.cjs から分けた仕事（2026-10-17 設計書 docs/superpowers/specs/2026-10-17-main-split-design.md）。
 // electron は main だけが読み込み、必要なものを渡す。あとで定義するもの（サーバーの状態など）は、呼ばれたときに読む関数で渡す。
@@ -71,7 +68,6 @@ const eulerCredentials = require('./euler_credentials.cjs').createEulerCredentia
   filePath: () => path.join(app.getPath('userData'), 'euler-credentials.json'), safeStorage,
 });
 let bridgeEulerRevision = null;
-const streamSessions = createStreamSessions(() => path.join(getBridgeBatDir(), "stream-sessions.json"));
 const settingsBackups = createSettingsBackups({
   validateRestore: (config, commands) => assertGameCommands(config, [...selectableCommandNames(), ...Object.keys(commands).filter(name => !name.startsWith('game_'))], gameProfiles.list()),
   paths: () => ({
@@ -155,6 +151,11 @@ const serverFiles = createServerFiles({
   requestBridgeMod: (...args) => requestBridgeMod(...args),
 });
 serverFiles.register(ipcMain);
+const { createOperationsStats } = require('./operations_stats.cjs');
+const operationsStats = createOperationsStats({ BrowserWindow, dialog, getBridgeBatDir, bridgeChild: () => bridgeProcRef });
+// 起動のときに古い操作履歴を整理する（app.whenReady の中で呼ぶ）。
+const { pruneOperationsHistoryOldRows } = operationsStats;
+operationsStats.register(ipcMain);
 
 const isDev = process.env.ELECTRON_DEV === "1";
 const { createAppWindow } = require('./window.cjs');
@@ -416,75 +417,6 @@ function requestBridgeMod(method, requestPath, body, configOverride) {
   });
 }
 
-function getOperationsHistoryPath() { return path.join(getBridgeBatDir(), "operations-history.json"); }
-
-// operations-history.json は bridge（Node）と electron（main）の両方が書き込む。
-// 従来の「全体読み込み→unshift→全体書き込み」は同時書き込みで履歴が巻き戻る事故があったため、
-// 追記のみ（JSONL: 1行1イベント、古い順）に変更した。読み出し時に新しい順へ変換して返す。
-// 旧フォーマット（JSON配列、新しい順）のファイルもそのまま読めるよう互換を維持する。
-function readOperationsHistory() {
-  let raw = "";
-  try { raw = fs.readFileSync(getOperationsHistoryPath(), "utf8"); } catch { return []; }
-  const trimmed = raw.trim();
-  if (!trimmed) return [];
-  if (trimmed.startsWith("[")) {
-    // 旧フォーマット（JSON配列）
-    try { return JSON.parse(trimmed); } catch { return []; }
-  }
-  const rows = [];
-  for (const line of trimmed.split("\n")) {
-    const t = line.trim();
-    if (!t) continue;
-    try { rows.push(JSON.parse(t)); } catch { /* 壊れた行はスキップ */ }
-  }
-  return rows.reverse(); // 新しい順
-}
-
-// 旧バージョン（JSON配列・新しい順）で運用していたファイルをJSONL（1行1イベント・古い順）へ
-// その場で一度だけ変換する。以降は追記のみで済むため、bridgeとelectronの同時書き込みで
-// 履歴が巻き戻る事故が起きなくなる。
-function migrateOperationsHistoryToJsonlIfNeeded(historyPath) {
-  let raw = "";
-  try { raw = fs.readFileSync(historyPath, "utf8"); } catch { return; }
-  const trimmed = raw.trim();
-  if (!trimmed.startsWith("[")) return; // 既にJSONL、または空
-  let rows;
-  try { rows = JSON.parse(trimmed); } catch { return; }
-  if (!Array.isArray(rows)) return;
-  const oldestFirst = [...rows].reverse(); // 旧フォーマットは新しい順→古い順に戻す
-  const lines = oldestFirst.map((row) => JSON.stringify(row)).join("\n");
-  fs.writeFileSync(historyPath, lines ? lines + "\n" : "", "utf8");
-}
-
-// 30日より古いイベント履歴を起動時に削除（配信集計リストの保持期間）
-function pruneOperationsHistoryOldRows(days = 30) {
-  const historyPath = getOperationsHistoryPath();
-  try {
-    migrateOperationsHistoryToJsonlIfNeeded(historyPath);
-    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-    const lines = fs.readFileSync(historyPath, "utf8").split("\n").filter((l) => l.trim());
-    const kept = lines.filter((line) => {
-      try { return (Date.parse(JSON.parse(line).at) || 0) >= cutoff; } catch { return false; }
-    });
-    if (kept.length !== lines.length) {
-      fs.writeFileSync(historyPath, kept.length ? kept.join("\n") + "\n" : "", "utf8");
-      console.log(`[stats] pruned operations history: ${lines.length} -> ${kept.length} rows (${days}d)`);
-    }
-  } catch { /* ファイルが無ければ何もしない */ }
-}
-
-// bridge が記録する視聴者数メトリクス（stream-metrics.jsonl）を読む
-function readViewerMetrics() {
-  const p = path.join(getBridgeBatDir(), "stream-metrics.jsonl");
-  try {
-    return fs.readFileSync(p, "utf8").split("\n").filter(Boolean)
-      .map((line) => { try { return JSON.parse(line); } catch { return null; } })
-      .filter(Boolean)
-      .map((r) => ({ t: Date.parse(r.at) || 0, viewers: Number(r.viewers) || 0 }))
-      .filter((r) => r.t > 0);
-  } catch { return []; }
-}
-
 ipcMain.handle("mod:status", async () => {
   try { return { online: true, ...(await requestBridgeMod("GET", "/bridge/status")) }; }
   catch (e) { return { online: false, authFailed: e?.authFailed === true, error: e.message }; }
@@ -576,17 +508,6 @@ ipcMain.handle("mod:testEvent", async (_event, value) => {
   } finally { testEventRunning = false; }
 });
 
-ipcMain.handle("stream:session:status", () => {
-  const sessions = streamSessions.read();
-  const current = streamBuckets([], sessions, 90 * 60000).find(s => s.source === 'automatic' && s.active);
-  let runtime = {};
-  try { runtime = JSON.parse(fs.readFileSync(path.join(getBridgeBatDir(), 'runtime-status.json'), 'utf8')); } catch {}
-  return { active: current && bridgeProcRef ? sessions.find(s => s.id === current.id) : null, monitoring: Boolean(bridgeProcRef), error: bridgeProcRef ? runtime.recording?.error || '' : '' };
-});
-ipcMain.handle("stream:session:start", (_event, title) => streamSessions.start(title));
-ipcMain.handle("stream:session:end", (_event, value) => streamSessions.end(value?.id, value?.endedAt));
-ipcMain.handle("image:saveGiftPanel", (_event, value) => saveGiftPanelPng(dialog, value));
-
 // Mod HTTP (25576) が応答するまで待つ。Forge起動直後はワールド読み込み中でまだ
 // 待ち受けが開いておらず、即送信すると ECONNREFUSED になる（一括起動時の
 // OP自動付与とゲームルール適用が毎回「スキップ」されていた真因）。
@@ -630,42 +551,3 @@ async function waitForBridgeMod(timeoutMs = 150000, intervalMs = 3000) {
     if (authFailed) return reportAuthFailure();
   }
 }
-
-ipcMain.handle("operations:history", () => readOperationsHistory());
-ipcMain.handle("operations:history:clear", () => {
-  fs.writeFileSync(getOperationsHistoryPath(), "[]", "utf8"); return { ok: true };
-});
-
-ipcMain.handle("operations:stats", () => {
-  const rows = readOperationsHistory();
-  const byCommand = {};
-  const bySender = {};
-  let succeeded = 0;
-  for (const row of rows) {
-    if (row.ok) succeeded++;
-    // 回数0の行（音・粒子だけ失敗）を1回と数えない（PR #85 レビュー。stream_statistics と同じ数え方）。
-    const count = Number(row.count);
-    const amount = Number.isFinite(count) && count >= 0 ? count : 1;
-    byCommand[row.commandFile || "unknown"] = (byCommand[row.commandFile || "unknown"] || 0) + amount;
-    bySender[row.sender || "unknown"] = (bySender[row.sender || "unknown"] || 0) + amount;
-  }
-  const top = (obj) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, 10)
-    .map(([name, count]) => ({ name, count }));
-  return { total: rows.length, succeeded, failed: rows.length - succeeded,
-    topCommands: top(byCommand), topSenders: top(bySender) };
-});
-
-// 配信単位（per-stream）の統計。
-// operations-history.json のイベントを時刻ギャップで「配信セッション」に分割し、
-// 配信ごとにギフト数・発動数・失敗数・最頻ギフト・トップギフターを集計する。
-// gapMinutes 以上イベントが途切れたら別の配信とみなす（既定90分）。
-function computeStreamStats(gapMinutes) {
-  return require('./stream_statistics.cjs').computeStreamStats({ rows: readOperationsHistory(), sessions: streamSessions.read(), viewerMetrics: readViewerMetrics(), audience: require("../bridge/audience_stats.cjs").readAudienceStats(path.join(getBridgeBatDir(), "stream-audience.json")), earnings: require("./stream_earnings.cjs").readEarnings(path.join(getBridgeBatDir(), "stream-earnings.json")), gapMinutes });
-}
-ipcMain.handle('operations:stats:export', (_event, streamId) => exportStreamStatsMarkdown({
-  stats: computeStreamStats(), streamId, dialog, parent: BrowserWindow.getFocusedWindow(),
-}));
-
-ipcMain.handle("operations:earnings:save", (_event, id, amount) => require("./stream_earnings.cjs").saveEarnings(path.join(getBridgeBatDir(), "stream-earnings.json"), computeStreamStats().streams, id, amount));
-
-ipcMain.handle("operations:streamStats", (_event, gapMinutes) => computeStreamStats(gapMinutes));

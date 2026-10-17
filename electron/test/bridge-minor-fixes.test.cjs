@@ -38,8 +38,9 @@ test('時限倍率のあとの回数は、本番もテスト発火も同じ関�
 });
 
 test('運用の統計は、回数0の行（音・粒子だけ失敗）を1回と数えない（PR #85 レビュー）', () => {
-  const main = read('electron/main.cjs');
-  const stats = main.slice(main.indexOf('const byCommand = {};'), main.indexOf('const top = (obj)'));
+  // 運用の統計は electron/operations_stats.cjs へ移した（2026-10-17 main.cjs の分割 PR5）。
+  const source = read('electron/operations_stats.cjs');
+  const stats = source.slice(source.indexOf('const byCommand = {};'), source.indexOf('const top = (obj)'));
   assert.match(stats, /const count = Number\(row\.count\);\s*const amount = Number\.isFinite\(count\) && count >= 0 \? count : 1;/);
 });
 
