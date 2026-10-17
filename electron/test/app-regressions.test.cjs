@@ -105,8 +105,8 @@ test('配線: サーバーの起動中は保存先を変えず、作業中（5�
   await assert.rejects(app.invoke('app:config:write', { serverFolder: app.root }), /サーバーの起動中は保存先を変更できません。/);
   app.evaluate('serverStarting = false;');
   assert.equal(app.evaluate('isAppBusy()'), false);
-  // 初期セットアップは setup_ipc.cjs が持つので、下のテストで本当に作業中にして確かめる（main.cjs の分割 PR2）。
-  for (const flag of ['mapOperationBusy', 'serverStarting', 'serverStopping', 'gameProfileBusy']) {
+  // 初期セットアップは setup_ipc.cjs、ゲームの操作は games_ipc.cjs が持つので、下のテストで本当に作業中にして確かめる（main.cjs の分割 PR2）。
+  for (const flag of ['mapOperationBusy', 'serverStarting', 'serverStopping']) {
     app.evaluate(`${flag} = true;`);
     assert.equal(app.evaluate('isAppBusy()'), true, flag);
     app.evaluate(`${flag} = false;`);
@@ -125,6 +125,36 @@ test('配線: 初期セットアップの間は、ウィンドウを閉じず、
   await assert.rejects(app.invoke('world:backup'), /サーバーの準備・停止が終わるまでお待ちください。/);
   answerEula({ response: 2 });
   assert.equal((await setup).canceled, true);
+  assert.equal(app.evaluate('isAppBusy()'), false);
+});
+
+// ゲームの切り替えは games_ipc.cjs が持つ（main.cjs の分割 PR2）。止める判定は、main が渡す各作業の「作業中」の関数で見る。
+test('配線: ゲームの切り替えは、初期セットアップ・サーバーの起動と停止・BRIDGE の再起動待ち・MAP の作業の間は止める', async t => {
+  let answerEula;
+  const app = loadApp(t, undefined, {}, { showMessageBox: () => new Promise(resolve => { answerEula = resolve; }) });
+  for (const [set, reset] of [['serverStarting = true', 'serverStarting = false'], ['serverStopping = true', 'serverStopping = false'], ['bridgeRestartTimer = 1', 'bridgeRestartTimer = null']]) {
+    app.evaluate(set);
+    await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, set);
+    app.evaluate(reset);
+  }
+  app.evaluate('mapOperationBusy = true');
+  await assert.rejects(app.invoke('games:recover'), /MAPを保存・読込中です。/);
+  app.evaluate('mapOperationBusy = false');
+  const target = path.join(app.root, 'setup-target');
+  fs.mkdirSync(target);
+  const setup = app.invoke('server:setup:atPath', target);
+  await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/);
+  answerEula({ response: 2 });
+  await setup;
+});
+
+test('配線: ゲームの操作の間（パックのフォルダーを選んでいる間）は、ウィンドウを閉じない', async t => {
+  let answerFolder;
+  const app = loadApp(t, undefined, {}, { showOpenDialog: () => new Promise(resolve => { answerFolder = resolve; }) });
+  const install = app.invoke('games:install');
+  assert.equal(app.evaluate('isAppBusy()'), true);
+  answerFolder({ canceled: true, filePaths: [] });
+  assert.equal((await install).canceled, true);
   assert.equal(app.evaluate('isAppBusy()'), false);
 });
 

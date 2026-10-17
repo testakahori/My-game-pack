@@ -20,11 +20,9 @@ const { createStreamSessions, streamBuckets } = require("./stream_sessions.cjs")
 const { saveGiftPanelPng } = require("./image_export.cjs");
 const { migrateRetiredCommands } = require("./command_migration.cjs");
 const { exportStreamStatsMarkdown } = require("./stats_export.cjs");
-const { createGameProfiles } = require('./game_profiles.cjs');
-const { refreshGameModsAfterUpdate, gameModsOutdated } = require('./game_mods_refresh.cjs');
+const { refreshGameModsAfterUpdate } = require('./game_mods_refresh.cjs');
 const { availableGameCommands, assertGameCommands } = require('./game_command_scope.cjs');
-const { discoverMinecraftLocations, validateMinecraftFolder } = require('./minecraft_locations.cjs');
-const { tasklistNames, minecraftProcesses, readJavaCommandLines, switchBlockedMessage } = require('./minecraft_processes.cjs');
+const { tasklistNames, minecraftProcesses, readJavaCommandLines } = require('./minecraft_processes.cjs');
 // main.cjs から分けた仕事（2026-10-17 設計書 docs/superpowers/specs/2026-10-17-main-split-design.md）。
 // electron は main だけが読み込み、必要なものを渡す。あとで定義するもの（サーバーの状態など）は、呼ばれたときに読む関数で渡す。
 const { createAppConfig } = require('./app_config.cjs');
@@ -61,93 +59,20 @@ const setupIpc = createSetupIpc({
 // 初期セットアップの「作業中」は setup_ipc.cjs が持つ。サーバーの起動・MAP・ゲームの切り替え・ウィンドウを閉じるときに見る。
 const { isRunning: isInitialSetupRunning } = setupIpc;
 setupIpc.register(ipcMain);
-function minecraftLocationOptions() {
-  return { appData: app.getPath('appData'), currentFolder: readAppConfig().minecraftGameFolder, serverRoot: getServerRoot() };
-}
-let gameProfileBusy = false;
-const gameProfiles = createGameProfiles({
-  storage: () => path.join(app.getPath('userData'), 'game-profiles', crypto.createHash('sha256').update(path.resolve(getServerRoot())).digest('hex').slice(0, 16)),
-  serverRoot: () => getServerRoot(),
-  clientRoot: () => readAppConfig().minecraftGameFolder || path.join(app.getPath('appData'), '.minecraft'),
-  configPath: () => getConfigPath(),
-  bundledPackages: () => {
-    const folder = app.isPackaged ? path.join(process.resourcesPath, 'game-packs', 'saikutu') : path.resolve(__dirname, '..', 'build', 'game-packs', 'saikutu');
-    return fs.existsSync(path.join(folder, 'game.json')) ? [{ id: 'saikutu', folder }] : [];
-  },
-  displayJar: () => {
-    const dir = app.isPackaged ? path.join(getServerTemplatePath(), 'mods') : path.resolve(__dirname, '..', 'DisplayMod', 'build', 'libs');
-    const jars = fs.existsSync(dir) ? fs.readdirSync(dir).filter(n => /^displaymod-[0-9.]+\.jar$/.test(n)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true })) : [];
-    return jars.length ? path.join(dir, jars[0]) : null;
-  },
-  bridgeJar: () => {
-    const dir = app.isPackaged ? path.join(getServerTemplatePath(), 'mods') : path.resolve(__dirname, '..', 'BridgeMod', 'build', 'libs');
-    const jars = fs.existsSync(dir) ? fs.readdirSync(dir).filter(n => /^bridgemod-[0-9.]+\.jar$/.test(n)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true })) : [];
-    if (!jars.length) throw new Error('BridgeMODのjarがありません。開発版のビルドまたは配布ファイルを確認してください');
-    return path.join(dir, jars[0]);
-  },
-  ensureStopped: async () => {
-    assertMapIdle();
-    if (isInitialSetupRunning() || serverStarting || serverStopping || bridgeProcRef || bridgeRestartTimer || (await getServerProcessStatus()).running) throw new Error('サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください');
-    const minecraft = await getMinecraftProcessStatus(true);
-    if (minecraft.running) throw new Error(switchBlockedMessage(minecraft.processes));
-  },
+const { createGamesIpc } = require('./games_ipc.cjs');
+const gamesIpc = createGamesIpc({
+  app, process, appDir: __dirname, dialog, readAppConfig, writeAppConfig, getServerRoot, getConfigPath, getServerTemplatePath,
+  assertMapIdle: () => assertMapIdle(),
+  isInitialSetupRunning: () => isInitialSetupRunning(),
+  isServerStarting: () => serverStarting,
+  isServerStopping: () => serverStopping,
+  isBridgeActive: () => Boolean(bridgeProcRef || bridgeRestartTimer),
+  getServerProcessStatus: () => getServerProcessStatus(),
+  getMinecraftProcessStatus: strict => getMinecraftProcessStatus(strict),
 });
-function assertGameProfileIdle() {
-  if (gameProfileBusy || gameProfiles.list().recoveryRequired) throw new Error('ゲームの切替中、または切替の復旧が必要です。ホームのゲーム選択を確認してください');
-}
-async function gameProfileOperation(action) {
-  if (gameProfileBusy) throw new Error('ゲームの操作が進行中です');
-  gameProfileBusy = true;
-  try { return await action(); } finally { gameProfileBusy = false; }
-}
-// ホームのゲームの状態。どの応答にも、アプリの更新で MOD が古いままかとその理由を含める（PR #91 再レビュー）。
-function gamesStatus() {
-  const cfg = readAppConfig();
-  return { ...gameProfiles.list(), modsOutdatedAfterUpdate: gameModsOutdated(cfg, app.getVersion()), modsRefreshError: cfg.gameModsRefreshError || '' };
-}
-ipcMain.handle('games:list', () => gamesStatus());
-ipcMain.handle('games:activate', (_event, id) => gameProfileOperation(async () => {
-  const result = await gameProfiles.activate(id);
-  // 「保存」で今の版の MOD を置いたので、アプリ更新後の入れ替えは済んだことにする（2026-10-13）。
-  // 開発版は配布版とアプリ設定の場所が同じなので書かない。書けなくても切替は成功として返す（PR #91 レビュー）。
-  if (app.isPackaged) {
-    try { writeAppConfig({ gameModsVersion: app.getVersion(), gameModsRefreshFailed: '', gameModsRefreshError: '' }); }
-    catch (e) { console.warn("[games] アプリ更新後の入れ替えの記録を書けませんでした:", e?.message || e); }
-  }
-  return { ...result, ...gamesStatus() };
-}));
-ipcMain.handle('games:recover', () => gameProfileOperation(async () => { await gameProfiles.recover(); return gamesStatus(); }));
-ipcMain.handle('games:install', () => gameProfileOperation(async () => {
-  const selected = await dialog.showOpenDialog({ title: 'ゲームパックを登録', properties: ['openDirectory'] });
-  if (selected.canceled) return { canceled: true };
-  await gameProfiles.install(selected.filePaths[0]);
-  return gamesStatus();
-}));
-// ホームの「今すぐ入れ替える」：アプリの更新に合わせた入れ替えを、もう一度試す。「保存」と違ってほかの MOD を退避しない（PR #91 再レビュー）。
-ipcMain.handle('games:refreshMods', async () => {
-  if (!app.isPackaged) throw new Error('開発版では使えません。ゲームを「保存」してください');
-  const result = await refreshGameModsAfterUpdate({ version: app.getVersion(), readConfig: readAppConfig, writeConfig: writeAppConfig, profiles: gameProfiles, run: gameProfileOperation });
-  if (result.state === 'failed') throw new Error(result.error);
-  return gamesStatus();
-});
-ipcMain.handle('games:clientFolders', () => discoverMinecraftLocations(minecraftLocationOptions()));
-async function saveMinecraftFolder(value, requireCandidate) {
-  const options = minecraftLocationOptions();
-  const { candidates } = await discoverMinecraftLocations(options);
-  const folder = await validateMinecraftFolder(value, { ...options, candidates, requireCandidate });
-  writeAppConfig({ minecraftGameFolder: folder });
-  return gameProfiles.list();
-}
-ipcMain.handle('games:selectClientFolder', (_event, folder) => gameProfileOperation(async () => {
-  if (gameProfiles.list().recoveryRequired) throw new Error('切替を復旧してから保存先を変更してください');
-  return saveMinecraftFolder(folder, true);
-}));
-ipcMain.handle('games:clientFolder', () => gameProfileOperation(async () => {
-  if (gameProfiles.list().recoveryRequired) throw new Error('切替を復旧してから保存先を変更してください');
-  const selected = await dialog.showOpenDialog({ title: 'Minecraftのゲームフォルダー（modsの1つ上）', properties: ['openDirectory'] });
-  if (selected.canceled) return { canceled: true };
-  return saveMinecraftFolder(selected.filePaths[0], false);
-}));
+// ゲームの切り替え中かは games_ipc.cjs が持つ。設定の保存・バックアップの復元・ウィンドウを閉じるときに見る。
+const { gameProfiles, isGameProfileBusy, assertGameProfileIdle, gameProfileOperation } = gamesIpc;
+gamesIpc.register(ipcMain);
 const eulerCredentials = require('./euler_credentials.cjs').createEulerCredentials({
   filePath: () => path.join(app.getPath('userData'), 'euler-credentials.json'), safeStorage,
 });
@@ -162,7 +87,7 @@ const settingsBackups = createSettingsBackups({
     backups: path.join(app.getPath("userData"), "settings-backups", crypto.createHash("sha256").update(path.resolve(getConfigPath())).digest("hex").slice(0, 16)),
   }),
   version: () => app.getVersion(), readTts: () => readTtsSettings(),
-  isRunning: () => Boolean(bridgeProcRef || bridgeRestartTimer || mapOperationBusy || serverStarting || gameProfileBusy || gameProfiles.list().recoveryRequired),
+  isRunning: () => Boolean(bridgeProcRef || bridgeRestartTimer || mapOperationBusy || serverStarting || isGameProfileBusy() || gameProfiles.list().recoveryRequired),
 });
 
 const isDev = process.env.ELECTRON_DEV === "1";
@@ -170,7 +95,7 @@ const { createAppWindow } = require('./window.cjs');
 // 保存・準備中（初期セットアップ・MAP の作業・サーバーの起動と停止・ゲームの切り替え）はウィンドウを閉じない。
 // 名前のある関数にして、テストから5つの作業ごとに確かめる（main.cjs の分割 PR1 レビュー）。
 function isAppBusy() {
-  return isInitialSetupRunning() || mapOperationBusy || serverStarting || serverStopping || gameProfileBusy;
+  return isInitialSetupRunning() || mapOperationBusy || serverStarting || serverStopping || isGameProfileBusy();
 }
 const appWindow = createAppWindow({ BrowserWindow, session, dialog, shell, appDir: __dirname, isDev, isBusy: () => isAppBusy() });
 const { installProdOnlyCsp, createWindow } = appWindow;
