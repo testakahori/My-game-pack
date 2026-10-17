@@ -266,6 +266,87 @@ test('配線: BridgeMOD の jar の入れ替えは、サーバーが動いてい
   await assert.rejects(app.invoke('bridge:extractTo', target), /BridgeMODを入れ替える前にMinecraftサーバーを停止してください/, 'port');
 });
 
+// サーバー側の窓口は server_files・map_operations・minecraft_client・server_process へ移す（main.cjs の分割 PR4）。分ける前の動きをここで固定する。
+test('サーバーのファイル: server.properties の読み書き・RCON パスワード・配布ワールドの一覧は、サーバーフォルダーの中を見る', async t => {
+  const app = loadApp(t);
+  const server = path.join(app.root, 'srv');
+  fs.mkdirSync(path.join(server, 'haihu_world', 'stage1'), { recursive: true });
+  fs.writeFileSync(path.join(server, 'haihu_world', 'note.txt'), '');
+  await app.invoke('app:config:write', { serverFolder: server });
+  await assert.rejects(app.invoke('server:props:read'), /server\.properties not found/);
+  const props = path.join(server, 'server.properties');
+  fs.writeFileSync(props, '#comment\r\nlevel-name=world\r\nmotd=hello \r\n');
+  assert.deepEqual(plainJson(await app.invoke('server:props:read')), { 'level-name': 'world', motd: 'hello ' });
+  assert.deepEqual(plainJson(await app.invoke('server:props:write', { motd: 'changed', 'allow-flight': 'true' })), { ok: true });
+  assert.equal(fs.readFileSync(props, 'utf8'), '#comment\nlevel-name=world\nmotd=changed\n\nallow-flight=true');
+  assert.deepEqual(plainJson(await app.invoke('server:rconpassword:read')), { found: false, password: '' });
+  fs.writeFileSync(path.join(server, 'RCON_password.txt'), ' fixture-rcon \n');
+  assert.deepEqual(plainJson(await app.invoke('server:rconpassword:read')), { found: true, password: 'fixture-rcon' });
+  assert.deepEqual(plainJson(await app.invoke('server:worlds:list')), ['stage1']);
+});
+
+test('OP の付与: マイクラID の形を確かめ、サーバーが止まっていれば、ログインしたことのある ID を ops.json に直接書く', async t => {
+  const app = loadApp(t);
+  const server = path.join(app.root, 'srv');
+  fs.mkdirSync(server);
+  await app.invoke('app:config:write', { serverFolder: server, minecraftPlayerName: 'x' });
+  await assert.rejects(app.invoke('minecraft:grantOp'), /マイクラIDが未設定か形式が不正です/);
+  await app.invoke('app:config:write', { minecraftPlayerName: 'Steve_01' });
+  fs.writeFileSync(path.join(server, 'usercache.json'), JSON.stringify([{ name: 'Steve_01', uuid: 'uuid-1' }]));
+  // BridgeMOD にはつながらない（空いているポートを向ける）。
+  const closed = require('node:net').createServer();
+  await new Promise(resolve => closed.listen(0, '127.0.0.1', resolve));
+  const port = closed.address().port;
+  await new Promise(resolve => closed.close(resolve));
+  const cfg = JSON.parse(fs.readFileSync(app.configPath)); cfg.options.bridgeModPort = port;
+  fs.writeFileSync(app.configPath, JSON.stringify(cfg));
+  const result = await app.invoke('minecraft:grantOp');
+  assert.equal(result.offline, true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(server, 'ops.json'), 'utf8')), [{ uuid: 'uuid-1', name: 'Steve_01', level: 4, bypassesPlayerLimit: false }]);
+  assert.equal(fs.readFileSync(path.join(app.root, 'bridge', 'commands', 'minecraft', '_op.txt'), 'utf8'), '# TITLE: OP付与\nop Steve_01\n');
+});
+
+test('ゲームルールの古い窓口: BridgeMOD が固定環境に対応していれば ok、そうでなければ止める', async t => {
+  const app = loadApp(t);
+  let fixed = true;
+  await bridgeModStatus(t, app, () => ({ ok: true, environmentFixed: fixed }));
+  assert.deepEqual(plainJson(await app.invoke('server:gamerules:apply')), { ok: true, transport: 'bridge_mod' });
+  fixed = false;
+  await assert.rejects(app.invoke('server:gamerules:apply'), /固定環境に対応したBridgeMODが必要です/);
+  assert.deepEqual(plainJson(await app.invoke('server:datapack:deployNightVision')), { ok: true, managedBy: 'BridgeMOD' });
+});
+
+test('プリセット: 設定を名前を付けて保存し、一覧に出し、読み込むと設定へ戻す（名前の使えない文字は _ にする）', async t => {
+  const app = loadApp(t);
+  assert.deepEqual(plainJson(app.invoke('presets:save', 'a/b:c')), { ok: true });
+  assert.deepEqual(plainJson(app.invoke('presets:list')), ['a_b_c.json']);
+  await app.invoke('config:write', { ...(await app.invoke('config:read')), tiktokUsername: 'other_id' });
+  assert.equal(app.invoke('presets:load', 'a_b_c.json').config.tiktokUsername, 'akahoridouma');
+  assert.equal((await app.invoke('config:read')).tiktokUsername, 'akahoridouma');
+  assert.throws(() => app.invoke('presets:save', '  '), /プリセット名が空です/);
+  assert.throws(() => app.invoke('presets:load', 'missing.json'), /プリセットがありません/);
+});
+
+test('Minecraft の起動: アプリ設定で指定したランチャーを、切り離した子プロセスで開く', async t => {
+  const app = loadApp(t);
+  const launcher = path.join(app.root, 'MyLauncher.exe');
+  fs.writeFileSync(launcher, '');
+  await app.invoke('app:config:write', { minecraftLauncherPath: launcher });
+  const spawned = [];
+  app.mockServerSpawn((cmd, args, options) => { spawned.push([cmd, args, options]); return { unref() {} }; });
+  assert.deepEqual(plainJson(await app.invoke('minecraft:launch')), { ok: true, path: launcher });
+  assert.deepEqual(plainJson(spawned), [[launcher, [], { detached: true, stdio: 'ignore' }]]);
+});
+
+test('コンソールの送信: 運営ログインしていなければ、動いているサーバーにも送らない', async t => {
+  const app = loadApp(t);
+  const written = [];
+  app.setServer({ pid: 1, exitCode: null, signalCode: null, stdin: { writable: true, write: text => written.push(text) } });
+  await assert.rejects(app.invoke('server:command', '/say hi'), /運営ログインが必要です/);
+  assert.deepEqual(written, []);
+  app.setServer(null);
+});
+
 // テスト発火を受ける偽の BRIDGE。届いた問い合わせを記録し、answer の戻り値を返事として返す（undefined なら返さない）。
 function fakeBridge(answer, { connected = true } = {}) {
   const { EventEmitter } = require('node:events');
