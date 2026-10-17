@@ -148,6 +148,17 @@ test('配線: ゲームの切り替えは、初期セットアップ・サーバ
   await setup;
 });
 
+// BRIDGE の子プロセス（bridgeProcRef）とサーバーの稼働（getServerProcessStatus）も、main から渡した関数で見る（main.cjs の分割 PR2 の最終レビュー）。
+test('配線: ゲームの切り替えは、BRIDGE やサーバーが動いている間は止める', async t => {
+  const app = loadApp(t);
+  app.setBridge(fakeBridge(() => undefined).child);
+  await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, 'BRIDGE');
+  app.evaluate('bridgeProcRef = null; bridgePid = null;');
+  app.setServer({ pid: 4321, exitCode: null, signalCode: null });
+  await assert.rejects(app.invoke('games:recover'), /サーバーとBRIDGEを停止し、セットアップの完了を待ってから切り替えてください/, 'server');
+  app.evaluate('serverProcRef = null; serverPid = null;');
+});
+
 test('配線: ゲームの操作の間（パックのフォルダーを選んでいる間）は、ウィンドウを閉じない', async t => {
   let answerFolder;
   const app = loadApp(t, undefined, {}, { showOpenDialog: () => new Promise(resolve => { answerFolder = resolve; }) });
