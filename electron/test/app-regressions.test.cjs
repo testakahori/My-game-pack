@@ -105,11 +105,27 @@ test('配線: サーバーの起動中は保存先を変えず、作業中（5�
   await assert.rejects(app.invoke('app:config:write', { serverFolder: app.root }), /サーバーの起動中は保存先を変更できません。/);
   app.evaluate('serverStarting = false;');
   assert.equal(app.evaluate('isAppBusy()'), false);
-  for (const flag of ['initialSetupRunning', 'mapOperationBusy', 'serverStarting', 'serverStopping', 'gameProfileBusy']) {
+  // 初期セットアップは setup_ipc.cjs が持つので、下のテストで本当に作業中にして確かめる（main.cjs の分割 PR2）。
+  for (const flag of ['mapOperationBusy', 'serverStarting', 'serverStopping', 'gameProfileBusy']) {
     app.evaluate(`${flag} = true;`);
     assert.equal(app.evaluate('isAppBusy()'), true, flag);
     app.evaluate(`${flag} = false;`);
   }
+});
+
+// 初期セットアップは setup_ipc.cjs が持つ（main.cjs の分割 PR2）。main のサーバーの起動・MAP の作業は、その「作業中」を関数で見る。
+test('配線: 初期セットアップの間は、ウィンドウを閉じず、サーバーの起動と MAP の作業を止める', async t => {
+  let answerEula;
+  const app = loadApp(t, undefined, {}, { showMessageBox: () => new Promise(resolve => { answerEula = resolve; }) });
+  const target = path.join(app.root, 'setup-target');
+  fs.mkdirSync(target);
+  const setup = app.invoke('server:setup:atPath', target);
+  assert.equal(app.evaluate('isAppBusy()'), true);
+  await assert.rejects(app.invoke('server:start'), /環境構築が完了するまでお待ちください。/);
+  await assert.rejects(app.invoke('world:backup'), /サーバーの準備・停止が終わるまでお待ちください。/);
+  answerEula({ response: 2 });
+  assert.equal((await setup).canceled, true);
+  assert.equal(app.evaluate('isAppBusy()'), false);
 });
 
 // テスト発火を受ける偽の BRIDGE。届いた問い合わせを記録し、answer の戻り値を返事として返す（undefined なら返さない）。
