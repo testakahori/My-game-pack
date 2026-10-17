@@ -64,6 +64,8 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
     require: requireMock, __dirname: path.join(root, "electron"), console,
     process: Object.assign(Object.create(process), { resourcesPath: path.join(root, 'resources') }),
     Buffer, URL, AbortSignal, fetch, setTimeout, clearTimeout, setInterval, clearInterval,
+    // 本物の Electron の main にもある。分ける前の main のテンプレートのコピーが、25件ごとに setImmediate で一息ついていた（main.cjs の分割 PR3）。
+    setImmediate, clearImmediate,
   });
   vm.runInContext(fs.readFileSync(mainPath, "utf8"), context, { filename: mainPath });
   // Ordinary regression cases start after the user saved Survival on TOP.
@@ -181,6 +183,87 @@ test('配線: 配信前チェックは、main の BRIDGE の子プロセス・Br
   assert.equal(status('bridge'), 'ok');
   assert.equal(status('mod'), 'ok');
   assert.equal(status('tts'), 'skip');
+});
+
+// 配布版の同梱 BRIDGE（resources/bridge）の代わり。bundle の実行環境（node.exe 4バイト）・設定・コマンド txt を置く。
+function packagedBridgeResources(app) {
+  const src = path.join(app.root, 'resources', 'bridge');
+  fs.mkdirSync(path.join(src, 'node'), { recursive: true });
+  fs.mkdirSync(path.join(src, 'commands', 'minecraft'), { recursive: true });
+  fs.writeFileSync(path.join(src, 'index.js'), '// bridge');
+  fs.writeFileSync(path.join(src, 'index.bundle.cjs'), '// bundle');
+  fs.writeFileSync(path.join(src, 'node', 'node.exe'), 'node');
+  fs.writeFileSync(path.join(src, 'bridge-runtime-manifest.json'), JSON.stringify({ runtimeKind: 'bundle', nodeExeBytes: 4 }));
+  fs.writeFileSync(path.join(src, 'config.minecraft.json'), JSON.stringify({ tiktokUsername: 'template_user', rcon: { password: 'template-pass' }, mappings: [] }));
+  fs.writeFileSync(path.join(src, 'commands', 'minecraft', 'zombie.txt'), 'say zombie\n');
+  return src;
+}
+
+// BRIDGE の配布は bridge_sync.cjs へ移す（main.cjs の分割 PR3）。分ける前の動きをここで固定する。
+test('配布: 初期セットアップの BRIDGE の展開は、同梱の BRIDGE を写し、新しい設定からアカウントを消し、2回目は利用者の設定を残す（配布版）', async t => {
+  const app = loadApp(t);
+  app.usePackagedPaths();
+  packagedBridgeResources(app);
+  assert.deepEqual(plainJson(await app.invoke('bridge:syncStatus')), { state: 'idle', phase: '', error: '', stats: null, updatedAt: null });
+  const target = path.join(app.root, 'target');
+  const dst = path.join(target, 'bridge');
+  const first = await app.invoke('bridge:extractTo', target);
+  assert.equal(first.dst, dst);
+  assert.equal(first.stats.runtime.reason, 'adopt-existing');
+  for (const file of ['index.js', 'index.bundle.cjs', path.join('node', 'node.exe'), path.join('commands', 'minecraft', 'zombie.txt')]) assert.ok(fs.existsSync(path.join(dst, file)), file);
+  assert.ok(!fs.existsSync(path.join(dst, 'bridge-runtime-manifest.json')), '同梱の作業用ファイルは写さない');
+  const config = JSON.parse(fs.readFileSync(path.join(dst, 'config.minecraft.json'), 'utf8'));
+  assert.equal(config.tiktokUsername, '');
+  assert.equal(config.rcon.password, '');
+  assert.equal((await app.invoke('app:config:read')).bridgeVersion, 'test');
+  fs.writeFileSync(path.join(dst, 'config.minecraft.json'), JSON.stringify({ ...config, tiktokUsername: 'my_account' }));
+  fs.writeFileSync(path.join(dst, 'commands', 'minecraft', 'giant.txt'), 'say old\n');
+  const second = await app.invoke('bridge:extractTo', target);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dst, 'config.minecraft.json'), 'utf8')).tiktokUsername, 'my_account');
+  assert.ok(!fs.existsSync(path.join(dst, 'commands', 'minecraft', 'giant.txt')), '廃止したコマンドは消す');
+  assert.equal(second.stats.removedFiles, 1);
+});
+
+test('配布: サーバーテンプレートのコピーは、今あるファイルを上書きせず、コマンド txt も置き、進み具合を返す（開発版）', async t => {
+  const app = loadApp(t);
+  const template = path.join(app.root, 'server', 'Douma_Craft');
+  fs.mkdirSync(path.join(template, 'world'), { recursive: true });
+  fs.writeFileSync(path.join(template, 'run.bat'), 'new');
+  fs.writeFileSync(path.join(template, 'world', 'level.dat'), 'world');
+  const target = path.join(app.root, 'target');
+  fs.mkdirSync(target);
+  fs.writeFileSync(path.join(target, 'run.bat'), 'old');
+  // テストにだけ置くコマンド。本物のリポジトリにはないので、main から受け取った appDir（偽の __dirname）の1つ上から写したときだけ届く（PR3 の最終レビュー）。
+  fs.writeFileSync(path.join(app.root, 'bridge', 'commands', 'minecraft', 'fixture_only.txt'), 'say fixture\n');
+  assert.deepEqual(plainJson(await app.invoke('server:copyTemplate', target)), { ok: true });
+  assert.ok(fs.existsSync(path.join(target, 'bridge', 'commands', 'minecraft', 'fixture_only.txt')), '開発版のコマンド txt は appDir の1つ上から写す');
+  assert.equal(fs.readFileSync(path.join(target, 'run.bat'), 'utf8'), 'old');
+  assert.equal(fs.readFileSync(path.join(target, 'world', 'level.dat'), 'utf8'), 'world');
+  assert.ok(fs.existsSync(path.join(target, 'bridge', 'commands', 'minecraft', 'zombie.txt')));
+  const total = 2 + fs.readdirSync(path.join(app.root, 'bridge', 'commands', 'minecraft')).length;
+  assert.deepEqual(plainJson(await app.invoke('server:copyTemplateStatus')), { state: 'done', copied: total, total, error: '' });
+});
+
+// BridgeMOD の jar の入れ替えは、サーバーの子プロセスとポートの稼働を見て止める（PR4 でこの2つの持ち主が変わる）。
+test('配線: BridgeMOD の jar の入れ替えは、サーバーが動いている間（子プロセス・ポートのどちらでも）は止める', async t => {
+  const app = loadApp(t);
+  app.usePackagedPaths();
+  packagedBridgeResources(app);
+  const mods = path.join(app.root, 'resources', 'server', 'Douma_Craft', 'mods');
+  fs.mkdirSync(mods, { recursive: true });
+  fs.writeFileSync(path.join(mods, 'bridgemod-9.9.9.jar'), 'jar');
+  const target = path.join(app.root, 'target');
+  app.setServer({ pid: 4321, exitCode: null, signalCode: null });
+  await assert.rejects(app.invoke('bridge:extractTo', target), /BridgeMODを入れ替える前にMinecraftサーバーを停止してください/, 'child');
+  app.evaluate('serverProcRef = null; serverPid = null;');
+  const listener = require('node:net').createServer();
+  await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => listener.close(resolve)));
+  const running = path.join(app.root, 'running-server');
+  fs.mkdirSync(running);
+  fs.writeFileSync(path.join(running, 'server.properties'), `server-port=${listener.address().port}\n`);
+  await app.invoke('app:config:write', { serverFolder: running });
+  await assert.rejects(app.invoke('bridge:extractTo', target), /BridgeMODを入れ替える前にMinecraftサーバーを停止してください/, 'port');
 });
 
 // テスト発火を受ける偽の BRIDGE。届いた問い合わせを記録し、answer の戻り値を返事として返す（undefined なら返さない）。

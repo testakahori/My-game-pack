@@ -177,10 +177,11 @@ test('まだ一度もゲームを「保存」していないときは何もし�
 });
 
 test('アプリの起動と、手動インストールのあとの初期セットアップの完了で入れ替え、ホームへ知らせる。「保存」したら済んだことにする', () => {
-  const main = read('electron/main.cjs');
-  const schedule = main.slice(main.indexOf('function scheduleBridgeSync()'), main.indexOf('async function ensureBridgeExtracted()'));
+  // 起動時の同期とゲーム MOD の入れ替えは electron/bridge_sync.cjs へ移した（2026-10-17 main.cjs の分割 PR3）。
+  const sync = read('electron/bridge_sync.cjs');
+  const schedule = sync.slice(sync.indexOf('function scheduleBridgeSync()'), sync.indexOf('async function ensureBridgeExtracted()'));
   assert.match(schedule, /ensureBridgeExtracted\(\)\s*\.then\(\(\) => refreshGameModsOnStartup\(\)\)/);
-  const startup = main.slice(main.indexOf('async function refreshGameModsOnStartup('), main.indexOf('async function ensureBridgeExtracted()'));
+  const startup = sync.slice(sync.indexOf('async function refreshGameModsOnStartup('), sync.indexOf('async function ensureBridgeExtracted()'));
   assert.match(startup, /if \(!app\.isPackaged\) return;/, '開発版では何もしない（アプリ設定は配布版と同じ場所）');
   assert.match(startup, /if \(!cfg\.setupComplete \|\| !cfg\.serverFolder\) return;/, 'セットアップ前は何もしない');
   assert.match(startup, /refreshGameModsAfterUpdate\(\{ version: app\.getVersion\(\), readConfig: readAppConfig, writeConfig: writeAppConfig, profiles: gameProfiles, run: gameProfileOperation \}\)/);
