@@ -17,8 +17,10 @@ function createGamesIpc({
     return { appData: app.getPath('appData'), currentFolder: readAppConfig().minecraftGameFolder, serverRoot: getServerRoot() };
   }
   let gameProfileBusy = false;
+  // ゲームの選択の記録の場所。テストが記録を用意するときにも使う。
+  const getGameProfilesDir = () => path.join(app.getPath('userData'), 'game-profiles', crypto.createHash('sha256').update(path.resolve(getServerRoot())).digest('hex').slice(0, 16));
   const gameProfiles = createGameProfiles({
-    storage: () => path.join(app.getPath('userData'), 'game-profiles', crypto.createHash('sha256').update(path.resolve(getServerRoot())).digest('hex').slice(0, 16)),
+    storage: getGameProfilesDir,
     serverRoot: () => getServerRoot(),
     clientRoot: () => readAppConfig().minecraftGameFolder || path.join(app.getPath('appData'), '.minecraft'),
     configPath: () => getConfigPath(),
@@ -108,7 +110,7 @@ function createGamesIpc({
     }));
   }
 
-  return { gameProfiles, isGameProfileBusy, assertGameProfileIdle, gameProfileOperation, gamesStatus, register };
+  return { gameProfiles, isGameProfileBusy, assertGameProfileIdle, gameProfileOperation, gamesStatus, getGameProfilesDir, register };
 }
 
 module.exports = { createGamesIpc };

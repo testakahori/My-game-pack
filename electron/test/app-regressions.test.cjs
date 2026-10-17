@@ -69,8 +69,8 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
   });
   vm.runInContext(fs.readFileSync(mainPath, "utf8"), context, { filename: mainPath });
   // Ordinary regression cases start after the user saved Survival on TOP.
-  // 場所は main の中で決め、書くのはテストの fs で行う（main は fs を読み込まなくなった。main.cjs の分割 PR5 の最終レビュー）。
-  context.fixtureGameState = vm.runInContext(`path.join(app.getPath('userData'), 'game-profiles', crypto.createHash('sha256').update(path.resolve(getServerRoot())).digest('hex').slice(0, 16), 'profiles.json')`, context);
+  // 場所は games_ipc が出し、書くのはテストの fs で行う（テストに場所の式の写しを持たない。main.cjs の分割 PR6）。
+  context.fixtureGameState = path.join(vm.runInContext('gamesIpc.getGameProfilesDir()', context), 'profiles.json');
   const appliedRoots = vm.runInContext(`[path.resolve(getServerRoot()), path.resolve(app.getPath('appData'), '.minecraft')]`, context);
   fs.mkdirSync(path.dirname(context.fixtureGameState), { recursive: true });
   fs.writeFileSync(context.fixtureGameState, JSON.stringify({ format: 1, active: 'common', packages: {}, profiles: {}, appliedFormat: 3, appliedRoots: [...appliedRoots] }));
