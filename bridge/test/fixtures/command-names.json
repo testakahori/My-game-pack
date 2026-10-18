@@ -1,0 +1,23 @@
+[
+  { "name": "neko", "ok": true },
+  { "name": "neko.txt", "ok": true },
+  { "name": "tnt.v2", "ok": true },
+  { "name": "tnt.v2.txt", "ok": true },
+  { "name": "TNT.TXT", "ok": true },
+  { "name": "game_saikutu_x.y", "ok": true },
+  { "name": "A-b_c.9", "ok": true },
+  { "name": "..", "ok": true },
+  { "name": ".", "ok": true },
+  { "name": "a..b", "ok": true },
+  { "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "ok": true },
+  { "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "ok": false },
+  { "name": "a b", "ok": false },
+  { "name": "ネコ", "ok": false },
+  { "name": "tnt - コピー.txt", "ok": false },
+  { "name": "../x", "ok": false },
+  { "name": "a/b", "ok": false },
+  { "name": "a\\b", "ok": false },
+  { "name": "a:b", "ok": false },
+  { "name": ".txt", "ok": false },
+  { "name": "", "ok": false }
+]

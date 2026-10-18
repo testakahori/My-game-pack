@@ -15,8 +15,9 @@ try {
   const classes = path.join(temp, 'classes'), fixture = path.join(temp, 'fixture');
   fs.mkdirSync(classes); fs.mkdirSync(fixture);
   execFileSync(bin('javac'), ['-encoding', 'UTF-8', '-d', classes,
-    ...['BridgeAuth', 'JumpPhysics', 'ListenerNames', 'StormPlan', 'api/ProtectedBlockIds'].map(name => main + name + '.java'),
-    ...['BridgeAuthContractTest', 'JumpPhysicsContractTest', 'ListenerNamesContractTest', 'ListenerNamesParity', 'StormPlanContractTest', 'ProtectedBlockIdsContractTest'].map(name => contract + name + '.java'),
+    ...['BridgeAuth', 'JumpPhysics', 'ListenerNames', 'StormPlan', 'api/ProtectedBlockIds', 'CommandText', 'CommandRouting'].map(name => main + name + '.java'),
+    ...['BridgeAuthContractTest', 'JumpPhysicsContractTest', 'ListenerNamesContractTest', 'ListenerNamesParity', 'StormPlanContractTest', 'ProtectedBlockIdsContractTest',
+      'CommandRoutingContractTest', 'CommandTextParity', 'CommandKeyParity'].map(name => contract + name + '.java'),
     saikutu + 'Shockwave.java', saikutu + 'LoadedArea.java', saikutuContract + 'ShockwaveContractTest.java'],
     { cwd: root, windowsHide: true, stdio: 'inherit' });
   const run = (name, ...args) => execFileSync(bin('java'), ['-Xmx64m', '-Dfile.encoding=UTF-8', '-Dstdout.encoding=UTF-8', '-cp', classes, name.includes('.') ? name : 'jp.douma.bridgemod.' + name, ...args],
@@ -26,6 +27,7 @@ try {
   run('ListenerNamesContractTest');
   run('StormPlanContractTest');
   run('ProtectedBlockIdsContractTest');
+  run('CommandRoutingContractTest');
   run('jp.douma.saikutumod.ShockwaveContractTest');
   // 視聴者名の規則は Bridge（bridge/tiktok_events.cjs の safeDisplayName）と MOD（ListenerNames）の2か所にある。
   // 境目になりやすい名前を両方に通し、1つでも結果が違えば失敗にする（Bridge は空なら次の候補の ID へ、MOD は viewer にする）。
@@ -56,6 +58,41 @@ try {
     : [`  input ${hex(name)}: Bridge ${hex(safeDisplayName(name) || 'viewer')} / MOD ${results[i]}`]);
   if (mismatches.length) throw new Error('ListenerNames parity: Bridge and MOD disagree\n' + mismatches.join('\n'));
   console.log(`ListenerNames parity: ${names.length} names match safeDisplayName`);
+
+  // コマンド txt の読み方（bridge/command_text.cjs）と、コマンドの名前の決まり（bridge/command_files.cjs）を、MOD にも同じ例の一覧で通す。
+  // 1つでも結果が違えば失敗にする（2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 4・5）。
+  const { parseCommandText } = require('../bridge/command_text.cjs');
+  const { BRIDGE_COMMAND_KEY } = require('../bridge/command_files.cjs');
+  const readFixture = name => JSON.parse(fs.readFileSync(path.join(root, 'bridge', 'test', 'fixtures', name), 'utf8'));
+  const parity = (className, inputs) => {
+    const out = execFileSync(bin('java'), ['-Xmx64m', '-cp', classes, className],
+      { cwd: root, windowsHide: true, input: inputs.map(value => '>' + hex(value)).join('\n') + '\n', encoding: 'utf8', stdio: ['pipe', 'pipe', 'inherit'] });
+    const results = out.split(/\r?\n/).filter(line => line.startsWith('>')).map(line => line.slice(1));
+    if (results.length !== inputs.length) throw new Error(`${className}: ${inputs.length} inputs sent but ${results.length} results`);
+    return results;
+  };
+  // MOD の CommandTextParity と同じ形（見出しをキーの順に「キー U+0000 値」を U+0001 でつなぎ、U+0002 のあとにコマンド）。
+  const unhex = value => String.fromCharCode(...(value.match(/.{4}/g) || []).map(unit => parseInt(unit, 16)));
+  const canonical = text => {
+    const { meta, commands } = parseCommandText(text);
+    return Object.keys(meta).sort().map(key => key + '\u0000' + meta[key]).join('\u0001') + '\u0002' + commands.join('\u0001');
+  };
+  const textCases = readFixture('command-text.json');
+  for (const className of ['jp.douma.bridgemod.CommandTextParity']) {
+    const results = parity(className, textCases.map(c => c.text));
+    const mismatches = textCases.flatMap((c, i) => hex(canonical(c.text)) === results[i] ? [] : [`  ${c.name}: Bridge ${JSON.stringify(canonical(c.text))} / MOD ${JSON.stringify(unhex(results[i]))}`]);
+    if (mismatches.length) throw new Error(`${className}: Bridge and MOD read command txt differently\n` + mismatches.join('\n'));
+    console.log(`${className}: ${textCases.length} command txt examples match parseCommandText`);
+  }
+  // 名前は BRIDGE が送る形（.txt を除いた部分）で比べる。/ や \ を含む例は、MOD が直接受け取ったときに断ることを見る。
+  const nameCases = readFixture('command-names.json');
+  const keyResults = parity('jp.douma.bridgemod.CommandKeyParity', nameCases.map(c => c.name));
+  const keyMismatches = nameCases.flatMap((c, i) => {
+    const bridge = BRIDGE_COMMAND_KEY.test(c.name.replace(/\.txt$/i, ''));
+    return bridge === c.ok && keyResults[i] === (c.ok ? '1' : '0') ? [] : [`  ${JSON.stringify(c.name)}: expected ${c.ok} / Bridge ${bridge} / MOD ${keyResults[i] === '1'}`];
+  });
+  if (keyMismatches.length) throw new Error('CommandKeyParity: Bridge and MOD accept different command names\n' + keyMismatches.join('\n'));
+  console.log(`CommandKeyParity: ${nameCases.length} command names match BRIDGE_COMMAND_KEY`);
 } finally {
   // Only this invocation's verified temporary test output may be removed.
   if (path.dirname(temp) === fs.realpathSync(os.tmpdir()) && path.basename(temp).startsWith('bridge-contracts-')) fs.rmSync(temp, { recursive: true, force: true });
