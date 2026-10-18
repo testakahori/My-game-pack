@@ -65,7 +65,7 @@ test('コマンドの一覧: 空の # TITLE: は次の行を拾わずファイ�
   const x = setup(t);
   const commands = path.join(x.bridge, 'commands', 'minecraft');
   fs.writeFileSync(path.join(commands, 'empty_title.txt'), '# TITLE:\n# CATEGORY: 妨害\nsay hi\n');
-  fs.writeFileSync(path.join(commands, 'bom_title.txt'), '﻿# title: ねこ\n//\n// 説明\nsummon cat\n');
+  fs.writeFileSync(path.join(commands, 'bom_title.txt'), '\ufeff# title: ねこ\n//\n// 説明\nsummon cat\n');
   const rows = x.invoke('bridge:commands:readMeta');
   const row = name => rows.find(item => item.name === name);
   assert.deepEqual([row('empty_title.txt').title, row('empty_title.txt').category], ['empty_title.txt', '妨害']);

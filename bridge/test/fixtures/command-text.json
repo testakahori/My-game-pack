@@ -1,7 +1,7 @@
 [
   { "name": "ふつうの形", "text": "# TITLE: ねこ\n# CATEGORY: お助け系\n// ねこを呼ぶ\nsummon cat ~ ~ ~\n", "meta": { "TITLE": "ねこ", "CATEGORY": "お助け系" }, "commands": ["summon cat ~ ~ ~"], "description": "ねこを呼ぶ" },
-  { "name": "先頭の BOM と1行目の DESTRUCTIVE", "text": "﻿# DESTRUCTIVE: true\nfill ~ ~ ~ ~ ~ ~ air", "meta": { "DESTRUCTIVE": "true" }, "commands": ["fill ~ ~ ~ ~ ~ ~ air"], "description": "" },
-  { "name": "行頭の BOM・全角空白・NBSP と行末の全角空白", "text": "﻿　 # COUNT_MODE: aggregate　\nsay a", "meta": { "COUNT_MODE": "aggregate" }, "commands": ["say a"], "description": "" },
+  { "name": "先頭の BOM と1行目の DESTRUCTIVE", "text": "\ufeff# DESTRUCTIVE: true\nfill ~ ~ ~ ~ ~ ~ air", "meta": { "DESTRUCTIVE": "true" }, "commands": ["fill ~ ~ ~ ~ ~ ~ air"], "description": "" },
+  { "name": "行頭の BOM・全角空白・NBSP と行末の全角空白", "text": "\ufeff\u3000\u00a0# COUNT_MODE: aggregate\u3000\nsay a", "meta": { "COUNT_MODE": "aggregate" }, "commands": ["say a"], "description": "" },
   { "name": "小文字のキーと、# とキー・キーと : の間の空白", "text": "# title: ねこ\n#  CATEGORY : 妨害\nsay a", "meta": { "TITLE": "ねこ", "CATEGORY": "妨害" }, "commands": ["say a"], "description": "" },
   { "name": "同じキーが2行なら後の行", "text": "# TITLE: A\n# TITLE: B\nsay a", "meta": { "TITLE": "B" }, "commands": ["say a"], "description": "" },
   { "name": "空の TITLE の次の行がコマンド", "text": "# TITLE:\nsay hi", "meta": {}, "commands": ["say hi"], "description": "" },
