@@ -21,11 +21,26 @@ test('配信ホーム: BRIDGE の状態の pendingRestart があれば「BRIDGE 
 });
 
 test('つなぎ方: 違うものの名前だけを決まった順で返す。つなぎ方以外の違いは数えない', () => {
+  const base = require('node:path').resolve('bridge-dir');
   const started = { tiktokUsername: 'a', rcon: { port: 25575 }, options: { commandTransport: 'bridge_mod', bridgeModPort: 25576, commandsDir: 'commands/minecraft', mutedUsers: [] }, mappings: [] };
-  assert.deepEqual(restartRequired(started, { ...started, mappings: [{ giftId: '1' }], options: { ...started.options, mutedUsers: ['x'] } }), []);
-  assert.deepEqual(restartRequired(started, { ...started, tiktokUsername: ' b ', options: { ...started.options, bridgeModPort: 25600, commandsDir: 'x' } }), ['TikTok ID', 'BridgeMOD のポート', 'コマンドの場所']);
-  assert.deepEqual(restartRequired(started, { ...started, tiktokUsername: ' a ', options: { ...started.options, commandTransport: ' BRIDGE_MOD ' } }), [], '前後の空白・大文字小文字だけの違いは同じ');
-  assert.deepEqual(restartRequired(started, { ...started, rcon: { port: 25580 } }), ['RCON・Telnet の接続先']);
-  assert.deepEqual(restartRequired({ options: { doumaModPort: 25600 } }, { options: { bridgeModPort: 25600 } }), [], '旧い名前の同じ値は同じ');
-  assert.deepEqual(restartRequired({ options: { commandTransport: 'bridge_mod', bridgeModHost: '127.0.0.1' } }, { options: { commandTransport: 'rcon', bridgeModHost: ' 10.0.0.2 ' } }), ['送り方', 'BridgeMOD のホスト']);
+  const changed = next => restartRequired(started, next, base);
+  assert.deepEqual(changed({ ...started, mappings: [{ giftId: '1' }], options: { ...started.options, mutedUsers: ['x'] } }), []);
+  assert.deepEqual(changed({ ...started, tiktokUsername: ' b ', options: { ...started.options, bridgeModPort: 25600, commandsDir: 'x' } }), ['TikTok ID', 'BridgeMOD のポート', 'コマンドの場所']);
+  assert.deepEqual(changed({ ...started, tiktokUsername: ' a ', options: { ...started.options, commandTransport: ' BRIDGE_MOD ' } }), [], '前後の空白・大文字小文字だけの違いは同じ');
+  assert.deepEqual(restartRequired({ options: { doumaModPort: 25600, commandTransport: 'bridge_mod' } }, { options: { bridgeModPort: 25600, commandTransport: 'bridge_mod' } }, base), [], '旧い名前の同じ値は同じ');
+  assert.deepEqual(restartRequired({ options: { commandTransport: 'bridge_mod' } }, { options: { commandTransport: 'rcon' } }, base), ['送り方'], '送り方が変われば、送り方だけを出す');
+});
+
+// 実際に使う値で比べる（PR2 の最終レビュー）。並び・書き方・使っていない接続先の違いで、要らない再起動を促さない。
+test('つなぎ方: 実際に使う値で比べる（同じフォルダーの相対と絶対、RCON のキーの並びと数の書き方、使っていない接続先）', () => {
+  const path = require('node:path');
+  const base = path.resolve('bridge-dir');
+  const rcon = { tiktokUsername: 'a', rcon: { host: '127.0.0.1', port: 25575, password: 'x' }, options: { commandTransport: 'rcon', commandsDir: 'commands/minecraft' } };
+  assert.deepEqual(restartRequired(rcon, { ...rcon, options: { ...rcon.options, commandsDir: path.join(base, 'commands', 'minecraft') } }, base), [], '同じフォルダーの相対と絶対');
+  assert.deepEqual(restartRequired(rcon, { ...rcon, rcon: { password: 'x', port: '25575', host: ' 127.0.0.1 ' } }, base), [], 'キーの並び・数の書き方・前後の空白');
+  assert.deepEqual(restartRequired(rcon, { ...rcon, rcon: { host: '127.0.0.1', port: 25580, password: 'x' } }, base), ['RCON・Telnet の接続先']);
+  const mod = { tiktokUsername: 'a', options: { commandTransport: 'bridge_mod' } };
+  assert.deepEqual(restartRequired(mod, { ...mod, rcon: { host: '10.0.0.2', port: 1 } }, base), [], 'BridgeMOD で送っているときの RCON の変更');
+  assert.deepEqual(restartRequired(mod, { ...mod, options: { commandTransport: 'http' } }, base), [], 'どちらも BridgeMOD で送る名前');
+  assert.deepEqual(restartRequired(rcon, { ...rcon, options: { ...rcon.options, bridgeModPort: 1 } }, base), [], 'RCON で送っているときの BridgeMOD のポートの変更');
 });

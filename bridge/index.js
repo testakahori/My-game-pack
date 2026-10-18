@@ -1038,15 +1038,21 @@ async function main() {
     ANNOUNCE_FUNCTION, ANNOUNCE_STORAGE, announceEveryRepeat, announceEnabled, gameplayConfig;
   // 配信の FeatureEngine（作ったあとに入る）。ゲームの設定は作り直さず config を入れ替え、いいねの累計・連打・上位者を保つ。
   let liveFeatureEngine = null;
-  function applyLiveOptions(values) {
+  // muteMatcher は再読込が先に作っておいたもの（作るときの失敗で半分だけ入れ替わらないように）。
+  function applyLiveOptions(values, muteMatcher = createMuteMatcher(values.mutedUsers)) {
     ({ giftCooldownMs, maxCommandsPerGift, maxLikeCatchUpPerEvent, rconQueueWarnSize, likeBatchWindowMs, streakTtlMs, logUnknownGifts, ttsNgWords,
       announceEveryRepeat, announceEnabled } = values);
     ANNOUNCE_FUNCTION = values.announceFunction;
     ANNOUNCE_STORAGE = values.announceStorage;
-    isMutedUser = createMuteMatcher(values.mutedUsers);
+    isMutedUser = muteMatcher;
     runtimeProtection = values.protection;
     gameplayConfig = values.gameplay;
-    if (liveFeatureEngine) liveFeatureEngine.config = gameplayConfig;
+    if (liveFeatureEngine) {
+      const pollWasEnabled = liveFeatureEngine.config?.poll?.enabled === true;
+      liveFeatureEngine.config = gameplayConfig;
+      // 投票は起動のときに始める。配信中に投票を有効にして保存したら、その場で始める（PR2 の最終レビュー）。
+      if (!pollWasEnabled && !liveFeatureEngine.poll) liveFeatureEngine.startPoll();
+    }
   }
   applyLiveOptions(liveOptions(options));
   // つなぎ方（TikTok ID・送り方・BridgeMOD・RCON・コマンドの場所）は起動したときの値のまま動く。再読込で違えば、再起動を案内する。
@@ -1168,7 +1174,8 @@ async function main() {
   }
 
   // --- コンフィグ ホットリロード ---
-  function reloadDynamicConfig(log = console.log) {
+  // log・warn はテスト発火の読み直しのとき行頭に [Test] を付けるためのもの（2026-10-18）。
+  function reloadDynamicConfig(log = console.log, warn = console.warn) {
     try {
       const newCfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
       // 起動時と同じ検証を通す。壊れた設定では切り替えず、今の設定で動かし続ける。
@@ -1179,6 +1186,23 @@ async function main() {
         console.error("[Bridge] Config reload skipped: 設定にエラーがあるため、直前の設定のまま動作します");
         return;
       }
+      // 新しい値を先に全部作る。途中で失敗したら（手で書き換えた設定など）、何も入れ替えずに前の設定のまま動く（2026-10-18）。
+      const nextMappings = new Map();
+      for (const m of (Array.isArray(newCfg.mappings) ? newCfg.mappings : [])) {
+        const gid = String(m.giftId ?? "").trim();
+        if (!gid) continue;
+        nextMappings.set(gid, {
+          giftId: gid,
+          name: String(m.name ?? "").trim() || `gift:${gid}`,
+          commandFile: ensureTxt(String(m.commandFile ?? "").trim()),
+          repeat: clampInt(m.repeat ?? 1, 1, 100, 1),
+        });
+      }
+      // つなぎ方以外の options はすぐ効かせる。つなぎ方は起動したときの値のまま動き、違えば再起動を案内する。
+      const nextLive = liveOptions(newCfg.options);
+      const nextMute = createMuteMatcher(nextLive.mutedUsers);
+      const pendingRestart = restartRequired(startedConfig, newCfg, __dirname);
+      // ここから入れ替える。
       likeEvents        = Array.isArray(newCfg.likeEvents) ? newCfg.likeEvents : [];
       shareEvent        = newCfg.shareEvent        ?? null;
       followEvent       = newCfg.followEvent       ?? null;
@@ -1187,23 +1211,10 @@ async function main() {
       rouletteCfg       = newCfg.roulette          ?? null;
       deathRouletteCfg  = newCfg.deathRoulette     ?? null;
       commentGiftsCfg   = newCfg.commentGifts      ?? null;
-      // mappings も再構築
-      const newMappings = Array.isArray(newCfg.mappings) ? newCfg.mappings : [];
       mappingById.clear();
-      for (const m of newMappings) {
-        const gid = String(m.giftId ?? "").trim();
-        if (!gid) continue;
-        mappingById.set(gid, {
-          giftId: gid,
-          name: String(m.name ?? "").trim() || `gift:${gid}`,
-          commandFile: ensureTxt(String(m.commandFile ?? "").trim()),
-          repeat: clampInt(m.repeat ?? 1, 1, 100, 1),
-        });
-      }
-      // つなぎ方以外の options はすぐ効かせる。つなぎ方は起動したときの値のまま動き、違えば再起動を案内する（2026-10-18）。
-      applyLiveOptions(liveOptions(newCfg.options));
-      const pendingRestart = restartRequired(startedConfig, newCfg);
-      if (pendingRestart.length) console.warn(`[Config] BRIDGE を再起動すると反映されます: ${pendingRestart.join("・")}`);
+      for (const [gid, mapping] of nextMappings) mappingById.set(gid, mapping);
+      applyLiveOptions(nextLive, nextMute);
+      if (pendingRestart.length) warn(`[Config] BRIDGE を再起動すると反映されます: ${pendingRestart.join("・")}`);
       updateRuntimeStatus({ pendingRestart });
       log(`[Bridge] Config reloaded — likeEvents:${likeEvents.length} mappings:${mappingById.size}`);
     } catch (e) {
@@ -2312,7 +2323,7 @@ async function main() {
   async function runTestEvent(input) {
     if (!bridgeMod) throw new Error("テスト発火は、Minecraft を BridgeMOD で動かしているときだけ使えます。");
     // 保存した直後でも、新しいイベント設定・割り当てで試す（自動の読み直しと同じ確かめを通す）。
-    reloadDynamicConfig(testLog);
+    reloadDynamicConfig(testLog, testLog);
     const { sender, actions, notes } = testEventActions(input, { mappedGiftIds: new Set(mappingById.keys()) });
     const run = createTestRun({ preview: input.preview === true });
     const name = getStableSender({ nickname: sender });
@@ -2323,7 +2334,7 @@ async function main() {
     for (const note of notes) run.notice(note);
     try {
       // つなぎ方（TikTok ID など）は BRIDGE を起動し直すまで本番にもテストにも反映されない。ほかの options は上の読み直しですぐ効く（2026-10-18）。
-      const pending = restartRequired(startedConfig, JSON.parse(fs.readFileSync(configPath, "utf8")));
+      const pending = restartRequired(startedConfig, JSON.parse(fs.readFileSync(configPath, "utf8")), __dirname);
       if (pending.length) run.notice(`${pending.join("・")}は、BRIDGE を起動し直すまで本番にもテストにも反映されません。`);
     } catch { /* 読めなければ注意を出さない（読み直しのエラーはログに出ている） */ }
     const ctx = createTestContext(run);

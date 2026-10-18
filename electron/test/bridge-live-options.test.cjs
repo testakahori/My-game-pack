@@ -11,7 +11,7 @@ async function save(bridge, change) {
   const file = path.join(bridge.dir, 'config.json');
   const config = JSON.parse(fs.readFileSync(file, 'utf8'));
   change(config);
-  const count = () => bridge.logs.filter(line => line.includes('Config reloaded') || line.includes('Config reload skipped')).length;
+  const count = () => bridge.logs.filter(line => line.includes('Config reloaded') || line.includes('Config reload skipped') || line.includes('Config reload error')).length;
   const before = count();
   fs.writeFileSync(file + '.tmp', JSON.stringify(config));
   fs.renameSync(file + '.tmp', file);
@@ -103,6 +103,60 @@ test('配信中の保存: つなぎ方を変えたらログと runtime-status.js
   assert.deepEqual(runtime(bridge).pendingRestart, [], '元に戻したら消える（つなぎ方以外の変更では出さない）');
 });
 
+// 以下は PR2 の最終レビューの軽い指摘で足した。
+test('配信中の保存: 新しい値を作る途中で失敗したら、割り当てもすぐ効かせる値も案内も、どれも入れ替えない', async t => {
+  const bridge = await startBridgeFixture(t, {
+    commands: { zombie: 'say z\n', cod: 'say c\n' },
+    config: { mappings: [{ giftId: '1', name: 'g', commandFile: 'zombie.txt', repeat: 1 }], options: { mutedUsers: ['troll'] } },
+  });
+  // 確かめは通るが、ミュートを作るときに失敗する値（手で書き換えた設定）。
+  await save(bridge, config => {
+    config.mappings = [{ giftId: '1', name: 'g', commandFile: 'cod.txt', repeat: 1 }];
+    config.options.mutedUsers = [{ toString: 1 }];
+    config.tiktokUsername = 'other';
+  });
+  assert.deepEqual(runtime(bridge).pendingRestart, [], '案内も前のまま');
+  const gift = (id, nickname) => bridge.emit('WebcastGiftMessage', { giftId: '1', gift: { name: 'g' }, repeatCount: 1, repeatEnd: 1, user: { id, displayId: nickname, nickname } });
+  await gift('11', 'troll');
+  await gift('12', 'friend');
+  await bridge.until(() => bridge.requests.length >= 1, 'friend');
+  await bridge.wait(200);
+  assert.deepEqual(bridge.requests.map(x => [x.listenerName, x.key]), [['friend', 'zombie']], '前の割り当てとミュートのまま');
+});
+
+test('配信中の保存: ゲームの設定を保存しても、コンボの数え方は続く（FeatureEngine を作り直さない）', async t => {
+  const bridge = await startBridgeFixture(t, {
+    commands: { zombie: 'say z\n', combo: 'say combo\n' },
+    config: { mappings: [{ giftId: '1', name: 'g', commandFile: 'zombie.txt', repeat: 1 }],
+      options: { gameplay: { combo: { windowMs: 60000, levels: [{ count: 3, commandFile: 'combo.txt' }] } } } },
+  });
+  let n = 0;
+  const gift = () => bridge.emit('WebcastGiftMessage', { giftId: '1', gift: { name: 'g' }, repeatCount: 1, repeatEnd: 1, user: { id: String(500 + ++n), displayId: 'c' + n, nickname: 'c' + n } });
+  await gift();
+  await gift();
+  await bridge.until(() => bridge.requests.length === 2, 'two gifts');
+  await save(bridge, config => { config.options.gameplay.likeMilestones = []; });
+  await gift();
+  await bridge.until(() => bridge.requests.some(x => x.key === 'combo'), '3連コンボ（保存の前の2回を数え続ける）');
+});
+
+test('配信中の保存: 投票を有効にして保存したら、その場で投票を始める', async t => {
+  const bridge = await startBridgeFixture(t, { commands: { qa: 'say qa\n' } });
+  await save(bridge, config => { config.options.gameplay = { poll: { enabled: true, durationMs: 5000, options: { '1': 'qa.txt' } } }; });
+  await bridge.wait(5300);
+  await bridge.until(() => bridge.requests.some(x => x.key === 'qa'), '投票の締め切りで当選を送る');
+});
+
+test('配信中の保存: テスト発火の読み直しで出す再起動の案内は、ログの行頭に [Test] を付ける', async t => {
+  const bridge = await startBridgeFixture(t, { commands: { qa: 'say qa\n' }, config: { shareEvent: { enabled: true, commandFile: 'qa.txt' } } });
+  const file = path.join(bridge.dir, 'config.json');
+  const config = JSON.parse(fs.readFileSync(file, 'utf8'));
+  config.tiktokUsername = 'other';
+  fs.writeFileSync(file, JSON.stringify(config));
+  await bridge.testEvent({ type: 'share', preview: true });
+  assert.ok(bridge.logs.some(line => line.includes('[Test]') && line.includes('[Config] BRIDGE を再起動すると反映されます: TikTok ID')), bridge.logs.filter(line => line.includes('再起動')).join(' / '));
+});
+
 test('配信中の保存: 再読込は FeatureEngine を作り直さず config を入れ替える（いいねの累計・連打・上位者を保つ）', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '../../bridge/index.js'), 'utf8');
   const start = source.indexOf('function reloadDynamicConfig(');
@@ -111,5 +165,7 @@ test('配信中の保存: 再読込は FeatureEngine を作り直さず config �
   const reload = source.slice(start, end);
   assert.doesNotMatch(reload, /new FeatureEngine/);
   assert.match(source, /liveFeatureEngine\.config = gameplayConfig/);
-  assert.match(reload, /applyLiveOptions\(liveOptions\(newCfg\.options\)\)/);
+  // 新しい値を先に全部作ってから入れ替える（途中の失敗で半分だけ入れ替わらない）。
+  assert.match(reload, /const nextLive = liveOptions\(newCfg\.options\);/);
+  assert.match(reload, /applyLiveOptions\(nextLive, nextMute\);/);
 });

@@ -10,6 +10,8 @@ const { assertGameCommands } = require('./game_command_scope.cjs');
 function createBridgeProcess({ process, spawn, spawnSync, shell, runProc, stopRequests, eulerCredentials, getBridgeBatDir, getServerRoot, getConfigPath, getNodeCommand, getGvToolPath,
   getBridgeEntryPoint, ensureNodeRuntimeAvailable, assertGameProfileIdle, selectableCommandNames, gameProfiles, waitChildExit, assertMapIdle }) {
   let bridgeEulerRevision = null;
+  // BRIDGE を起動した時刻。runtime-status.json がこれより前に書かれていれば、前の BRIDGE が残したもの（2026-10-18）。
+  let bridgeStartedAt = 0;
 
   let bridgePid  = null;
   let bridgeProcRef = null;
@@ -94,6 +96,7 @@ function createBridgeProcess({ process, spawn, spawnSync, shell, runProc, stopRe
     bridgeStopRequested = false;
     bridgeRestartPolicy.start();
     const spawnOnce = () => {
+      bridgeStartedAt = Date.now();
       const { env, revision } = eulerCredentials.runtime();
       appendBridgeLog(`[BRIDGE] 起動します: ${indexJs}`);
       // BridgeMOD の認証トークンはサーバーフォルダーにある。開発時は bridge とサーバーの場所が離れているので明示する。
@@ -186,14 +189,17 @@ function createBridgeProcess({ process, spawn, spawnSync, shell, runProc, stopRe
     });
     ipcMain.handle("bridge:processStatus", () => {
       const status = bridgeRestartPolicy.status(bridgePid);
-      let runtime = {};
+      let runtime = {}, runtimeWrittenAt = 0;
       try {
-        runtime = JSON.parse(fs.readFileSync(path.join(getBridgeBatDir(), "runtime-status.json"), "utf8"));
+        const runtimeFile = path.join(getBridgeBatDir(), "runtime-status.json");
+        runtime = JSON.parse(fs.readFileSync(runtimeFile, "utf8"));
+        runtimeWrittenAt = fs.statSync(runtimeFile).mtimeMs;
       } catch {}
       return { ...status, ...getProcessMetrics(bridgePid), tiktok: status.running ? (runtime.tiktok || null) : null, recording: status.running ? (runtime.recording || null) : null,
         delivery: status.running ? (runtime.delivery || null) : null,
         // 配信中につなぎ方（TikTok ID など）を変えて保存したとき、BRIDGE が書く「再起動で反映される設定」の名前（2026-10-18）。
-        pendingRestart: status.running && Array.isArray(runtime.pendingRestart) ? runtime.pendingRestart : [] };
+        // 起動した直後、新しい BRIDGE が書き直すまでの間は、前の BRIDGE の案内を出さない。
+        pendingRestart: status.running && runtimeWrittenAt >= bridgeStartedAt && Array.isArray(runtime.pendingRestart) ? runtime.pendingRestart : [] };
     });
 
     ipcMain.handle("bridge:logs", () => ({ ok: true, lines: [...bridgeLogBuffer] }));

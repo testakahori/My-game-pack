@@ -70,6 +70,18 @@ test('BRIDGE の状態: 動いている間は runtime-status.json の pendingRes
   assert.deepEqual(x.invoke('bridge:processStatus').pendingRestart, []);
 });
 
+// 前の BRIDGE が書いた runtime-status.json を、新しい BRIDGE が書き直すまでの間に出さない（PR2 の最終レビュー）。
+test('BRIDGE の状態: 起動する前に書かれた pendingRestart（前の BRIDGE の案内）は出さない', async t => {
+  const x = setup(t);
+  const file = path.join(x.bridge, 'runtime-status.json');
+  fs.writeFileSync(file, JSON.stringify({ pendingRestart: ['TikTok ID'] }));
+  const old = new Date(Date.now() - 60000);
+  fs.utimesSync(file, old, old);
+  await x.invoke('bridge:launch');
+  assert.deepEqual(x.invoke('bridge:processStatus').pendingRestart, []);
+  await x.invoke('bridge:stop', 'home:stop');
+});
+
 test('BRIDGE の自動再起動: 落ちて再起動を待つ間も isActive() が true（ゲームの切り替え・MAP の作業・設定の復元が止める）。止めると待ちも消える', async t => {
   const x = setup(t);
   await x.invoke('bridge:launch');
