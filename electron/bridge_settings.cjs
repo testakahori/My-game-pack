@@ -7,7 +7,7 @@ const { updateGiftMapping } = require("./gift_mapping.cjs");
 const { createGiftTemplates } = require("./gift_templates.cjs");
 const { runPreflight } = require("./preflight.cjs");
 const { atomicWrite } = require("./settings_backups.cjs");
-const { commandFileProblem } = require("../bridge/command_files.cjs");
+const { commandFileProblem, isTxtName } = require("../bridge/command_files.cjs");
 const { parseCommandText } = require("../bridge/command_text.cjs");
 const { availableGameCommands, assertGameCommands } = require("./game_command_scope.cjs");
 const { checkEngine } = require("./tts.cjs");
@@ -162,7 +162,7 @@ function createBridgeSettings({
     ipcMain.handle("bridge:commands:write", async (_event, { filename, content }) => {
       assertGameProfileIdle();
       if (/^game_(umetate|run|saikutu)_/.test(filename || '')) throw new Error('ゲームパックのコマンドはパックを再登録して更新してください');
-      if (!filename || typeof filename !== "string" || !filename.endsWith(".txt")) {
+      if (!filename || typeof filename !== "string" || !isTxtName(filename)) {
         throw new Error("Invalid filename: must be a .txt file");
       }
       if (typeof content !== "string") throw new Error("content must be a string");

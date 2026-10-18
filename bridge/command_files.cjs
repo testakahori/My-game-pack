@@ -16,9 +16,21 @@ function usesBridgeModTransport(config) {
   return type === "minecraft" && isBridgeModTransport(config?.options?.commandTransport);
 }
 
+// .txt の付け外しはこの1組だけで行う。大文字の .TXT も同じに扱う（Windows のファイル名は大文字小文字を区別せず、BridgeMOD も区別しない。
+// 2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 4）。
+function isTxtName(name) {
+  return /\.txt$/i.test(String(name ?? ""));
+}
+
+function ensureTxt(name) {
+  const value = String(name ?? "").trim();
+  if (!value) return "";
+  return isTxtName(value) ? value : `${value}.txt`;
+}
+
 function bridgeCommandKey(commandFile) {
   const name = String(commandFile ?? "").trim().replace(/\\/g, "/").split("/").pop();
-  return /\.txt$/i.test(name) ? name.slice(0, -4) : name;
+  return isTxtName(name) ? name.slice(0, -4) : name;
 }
 
 function isBridgeCommandFile(commandFile) {
@@ -77,4 +89,4 @@ function refKey(ref) {
   return `${ref.where}\n${ref.commandFile}`;
 }
 
-module.exports = { BRIDGE_COMMAND_KEY, isBridgeModTransport, usesBridgeModTransport, bridgeCommandKey, isBridgeCommandFile, commandFileProblem, commandFileRefs, invalidCommandFileRefs, refKey };
+module.exports = { BRIDGE_COMMAND_KEY, isBridgeModTransport, usesBridgeModTransport, isTxtName, ensureTxt, bridgeCommandKey, isBridgeCommandFile, commandFileProblem, commandFileRefs, invalidCommandFileRefs, refKey };

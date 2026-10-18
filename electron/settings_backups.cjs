@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { validateBridgeConfig } = require("./config_schema.cjs");
+const { isTxtName } = require("../bridge/command_files.cjs");
 
 const PREFS = ["autoBackupOnServerStart"];
 const MAX_BYTES = 12 * 1024 * 1024;
@@ -10,7 +11,7 @@ const json = value => JSON.stringify(value, null, 2);
 const read = file => JSON.parse(fs.readFileSync(file, "utf8"));
 const object = value => value && typeof value === "object" && !Array.isArray(value);
 const digest = value => crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
-const validCommand = name => typeof name === "string" && name === path.basename(name) && !/[\\/:\x00-\x1f]/.test(name) && /\.txt$/i.test(name);
+const validCommand = name => typeof name === "string" && name === path.basename(name) && !/[\\/:\x00-\x1f]/.test(name) && isTxtName(name);
 
 function atomicWrite(file, content) {
   fs.mkdirSync(path.dirname(file), { recursive: true });

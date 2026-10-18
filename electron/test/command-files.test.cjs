@@ -76,3 +76,35 @@ test('Bridgeの起動・再読込では警告に留め、Bridge自体は起動�
   assert.equal(result.ok, true);
   assert.ok(result.warnings.some(w => w.includes('ギフト割り当て（バラ）') && w.includes('実行されません')));
 });
+
+// .txt の付け外しは command_files.cjs の1組の関数だけで行い、TNT.TXT のような大文字の拡張子も同じに扱う（2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 4）。
+test('.txt の付け外し: ensureTxt・isTxtName・bridgeCommandKey は大文字小文字を問わない', () => {
+  const { ensureTxt, isTxtName, bridgeCommandKey } = require('../../bridge/command_files.cjs');
+  assert.equal(ensureTxt('a'), 'a.txt');
+  assert.equal(ensureTxt(' A.TXT '), 'A.TXT');
+  assert.equal(ensureTxt('tnt.v2'), 'tnt.v2.txt');
+  assert.equal(ensureTxt(''), '');
+  assert.equal(isTxtName('A.TXT'), true);
+  assert.equal(isTxtName('a.txt.bak'), false);
+  assert.equal(bridgeCommandKey('TNT.TXT'), 'TNT');
+});
+
+test('.txt の付け外し: BRIDGE・アプリは自前の付け外しを持たず command_files.cjs を使う', () => {
+  const root = path.resolve(__dirname, '../..');
+  const files = ['bridge/index.js', 'bridge/test_fire.cjs', 'bridge/roulette.cjs',
+    ...fs.readdirSync(path.join(root, 'electron')).filter(name => name.endsWith('.cjs') && name !== 'preload.cjs').map(name => 'electron/' + name)];
+  for (const file of files) {
+    const source = fs.readFileSync(path.join(root, file), 'utf8');
+    const copy = /endsWith\((["'])\.txt\1\)|basename\([^)]*,\s*(["'])\.txt\2\)|\/\\\.txt\$\/i\.test\(/;
+    assert.equal(copy.test(source), false, file + ' に .txt の付け外しの写しが残っている');
+  }
+});
+
+test('.txt の付け外し: 大文字の拡張子（TNT.TXT）の割り当ても、BridgeMOD へ送る名前は TNT', async t => {
+  const { startBridgeFixture } = require('./helpers/bridge-fixture.cjs');
+  const bridge = await startBridgeFixture(t, { config: { mappings: [{ giftId: '1', name: 'バラ', commandFile: 'TNT.TXT', repeat: 1 }] } });
+  fs.writeFileSync(path.join(bridge.dir, 'commands', 'TNT.TXT'), '# TITLE: TNT\nsay tnt\n');
+  await bridge.emit('WebcastGiftMessage', { giftId: '1', gift: { name: 'g1' }, repeatCount: 1, repeatEnd: 1 });
+  await bridge.until(() => bridge.requests.length > 0, 'gift');
+  assert.deepEqual(bridge.requests.map(request => request.key), ['TNT']);
+});

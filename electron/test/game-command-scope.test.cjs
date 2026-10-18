@@ -27,3 +27,7 @@ test('ゲーム切替前の画面からの保存・移行前の旧コマンド�
   assert.throws(() => assertGameCommands({ gameProfile: 'common' }, names, status('saikutu')), /切り替わっています/);
   for (const commandFile of ['get_ender_pearl.txt','missing.txt','_gamerules.txt','../cod.txt']) assert.throws(() => assertGameCommands({ gameProfile: 'saikutu', commandFile }, names, status('saikutu')));
 });
+
+test('大文字の拡張子（TNT.TXT）のコマンドも候補に出す（.txt は大文字小文字を問わない。2026-10-18）', () => {
+  assert.ok(availableGameCommands(['TNT.TXT', 'zombie.txt'], status('common')).includes('TNT.TXT'));
+});

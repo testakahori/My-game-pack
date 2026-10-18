@@ -1,14 +1,14 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseCommandText } = require("./command_text.cjs");
+const { ensureTxt } = require("./command_files.cjs");
 
 function cleanText(value, length) {
   return Array.from(String(value ?? "").replace(/[\r\n\t]/g, " ").replace(/[\u0000-\u001f\u007f]/g, "")).slice(0, length).join("");
 }
 
 function commandPath(commandsDir, commandFile) {
-  const file = path.basename(String(commandFile).replace(/\\/g, "/"));
-  const name = /\.txt$/i.test(file) ? file : `${file}.txt`;
+  const name = ensureTxt(path.basename(String(commandFile).replace(/\\/g, "/")));
   // UIで保存する commands/minecraft と旧設定の commands の両方に対応する。
   const direct = path.join(commandsDir, name);
   return fs.existsSync(direct) || path.basename(commandsDir).toLowerCase() === "minecraft"

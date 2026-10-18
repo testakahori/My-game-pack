@@ -2,6 +2,7 @@
 // 本番と同じ処理・同じ送る列を通すため、ここでは「何をどの処理に通すか」と、結果の集め方だけを決める（2026-10-16 ユーザーの決定）。
 // ファイルも設定ファイルも読まない。
 const { safeDisplayName } = require('./tiktok_events.cjs');
+const { ensureTxt } = require('./command_files.cjs');
 
 const TYPES = new Set(['gift', 'mapped_gift', 'unmapped_gift', 'like', 'share', 'follow', 'member', 'comment', 'death',
   'roulette', 'combo', 'like_milestone', 'follow_milestone', 'comment_command', 'poll']);
@@ -9,7 +10,7 @@ const TYPES = new Set(['gift', 'mapped_gift', 'unmapped_gift', 'like', 'share', 
 function commandName(value) {
   const name = String(value || '').trim();
   if (!name || name.length > 160 || /[<>:"/\\|?*\x00-\x1f]/.test(name) || name === '.' || name === '..') throw new Error('コマンドファイル名が不正です。');
-  return /\.txt$/i.test(name) ? name : `${name}.txt`;
+  return ensureTxt(name);
 }
 
 function integer(input, key, fallback, min, max) {
@@ -92,7 +93,8 @@ function noMatchNote(type) {
 
 const LABELS = { gift: 'ギフト', like: 'いいね', share: 'シェア', follow: 'フォロー', member: '訪問', comment: 'コメント',
   milestone: 'マイルストーン', combo: 'コンボ', poll: 'コメント投票', roulette: 'ルーレット', death_roulette: 'デスルーレット' };
-const txt = name => (/\.txt$/i.test(String(name || '')) ? String(name) : `${name}.txt`);
+// .txt の付け外しは command_files.cjs の1か所（2026-10-18）。
+const txt = name => ensureTxt(name);
 const ACCEPTED = 'BridgeMOD が受け付けました';
 const DISCARDED = '配信の終了で取りやめました';
 // 1件の送信で実行される回数。GAME_MOD のいいねは1回ずつ別の要求（repeatRequests）になる（最後のレビュー Minor #3）。

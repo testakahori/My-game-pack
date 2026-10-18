@@ -32,7 +32,7 @@ const { Rcon } = require("rcon-client");
 const { validateBridgeConfig } = require("./config_schema");
 const { prepareRoulette, createRouletteRunner, rouletteSpins } = require("./roulette.cjs");
 const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require("./mod_event_delivery.cjs");
-const { commandFileProblem } = require("./command_files.cjs");
+const { commandFileProblem, ensureTxt, bridgeCommandKey } = require("./command_files.cjs");
 const { parseCommandText } = require("./command_text.cjs");
 const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("./bridge_mod_token.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require("./feature_engine");
@@ -377,13 +377,6 @@ function safeReadJson(filePath) {
   return JSON.parse(raw);
 }
 
-function ensureTxt(name) {
-  if (!name) return "";
-  const v = String(name).trim();
-  if (!v) return "";
-  return v.toLowerCase().endsWith(".txt") ? v : `${v}.txt`;
-}
-
 function clampInt(n, min, max, fallback) {
   const v = Number(n);
   if (!Number.isFinite(v)) return fallback;
@@ -635,9 +628,9 @@ async function execCommandsToMinecraftRcon({
   }
 }
 
+// BridgeMOD に送る名前（.txt を除いた部分）。TNT.TXT のような大文字の拡張子も除く（2026-10-18）。
 function commandFileToBridgeKey(commandFile) {
-  const file = ensureTxt(commandFile);
-  return path.basename(file, ".txt");
+  return bridgeCommandKey(ensureTxt(commandFile));
 }
 
 function sendBridgeModEvent({ host, port, type, commandFile, count, listenerName, announce, requestId, eventId, gameMod, gameSessionId, args }) {
