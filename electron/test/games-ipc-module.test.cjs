@@ -30,8 +30,14 @@ function setup(t, { packaged = false } = {}) {
     getMinecraftProcessStatus: async strict => { assert.equal(strict, true); return busy.minecraft; },
   });
   gamesIpc.register({ handle: (name, fn) => handlers.set(name, fn) });
-  return { appDir, resources, busy, gamesIpc, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
+  return { root, server, appDir, resources, busy, gamesIpc, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
 }
+
+test('ゲームの選択の記録の場所: userData/game-profiles/<サーバーの場所の sha256 の先頭16文字>（式を変えると、更新したあと今の記録が見つからなくなる）', t => {
+  const x = setup(t);
+  const hash = require('node:crypto').createHash('sha256').update(path.resolve(x.server)).digest('hex').slice(0, 16);
+  assert.equal(x.gamesIpc.getGameProfilesDir(), path.join(x.root, 'userData', 'game-profiles', hash));
+});
 
 test('ゲームの操作: 進行中は作業中で、重ねず、設定の保存も止める。終われば（失敗でも）作業中でなくなる', async t => {
   const x = setup(t);

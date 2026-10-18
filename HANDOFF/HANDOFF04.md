@@ -208,7 +208,7 @@
        - options の変更の注意は、キーを並べてから比べる（並びが変わっただけでは出さない）。
        - レビューで足りないと言われた「配信の終了でテストのいいねが取りやめになる」のテストも足した。
      - 開発版の画面での目視（イベントテストの画面・BRIDGE が止まっているときの表示）はまだ。
-   - main.cjs の大きさ（10-17 から進行中。設計書 `docs/superpowers/specs/2026-10-17-main-split-design.md`。PR 6本で仕事ごとのファイルに分ける）
+   - ~~main.cjs の大きさ~~（10-17〜18 直した。設計書 `docs/superpowers/specs/2026-10-17-main-split-design.md`。PR 6本で仕事ごとのファイルに分けた）
      - PR1（土台）：ipc の窓口の一覧を固定するテスト、`app_config.cjs`・`paths.cjs`・`operator_auth.cjs`・`window.cjs`。PR #110、ブランチ `refactor/main-split-1`。main.cjs は 2,954行 → 2,489行。
      - PR1 は開発版を本物の Electron で起動し、外から操作して確かめた（ログイン・ウィンドウの操作・アプリ設定の保存・CSP・外部リンク・移動の制限）。共有のアプリ設定は確かめたあと元に戻した。
      - PR1 は、Codex が D 側の作業コピーで UI/UX を直していたので、scratchpad の worktree（`wt-split`）で進めた。
@@ -246,7 +246,14 @@
        - BRIDGE の起動と taskkill の `spawn` に `'error'` の受け手がない（node が見つからないなどの非同期のエラーは、main の捕まえられない例外になる）。
        - `bridge:processStatus` は呼ばれるたびに PowerShell の `Get-CimInstance` を同期で動かし、最大1.5秒 main を止める（ホーム・統計・運用センターなどが呼ぶ）。
        - main.cjs の `validCommand` の読み込みは使われていない（PR6 で整理する）。
-     - **次にやること**：PR #115 の CI を見て、ユーザーの許可を得てマージ。そのあと PR6（main.cjs を配線だけにする仕上げ・行数の見張りテスト（main.cjs 400行以下、`electron/*.cjs` は各800行以下）・AGENTS.md）の計画を書く。PR6 で設計書の分割は終わり（PR は全部で6本）。
+     - PR5 は CI（3つとも通った）のあと、ユーザーの許可を得てマージした（PR #115、マージコミット 1121925）。
+     - PR6（仕上げ。最後の1本）：行数の見張りテスト（`electron/test/file-size-limits.test.cjs`。main.cjs 400行・`electron/*.cjs` 各800行を超えたら CI で止まる）、ゲームの選択の記録の場所を `games_ipc.cjs` の `getGameProfilesDir` から読む（テストに式の写しを残さない。設計書 6 の置き換えの最後の1つ）、main.cjs の使われていない `validCommand` と古いコメント（`isAppBusy` は PR2 で後回しにしたもの）、AGENTS.md の分けたファイルの一覧。PR #116、ブランチ `refactor/main-split-6`。計画は `docs/superpowers/plans/2026-10-18-main-split-pr6.md`。
+     - 見張りのテストは、写した `electron/` の main.cjs に200行足すと「electron/main.cjs は 418 行（上限 400 行）。足す前に、仕事ごとのファイルに分けてください」で落ちることを確かめた。
+     - 開発版を本物の Electron で起動し、PR2〜PR5 で移した ipc 35個を読むだけで確かめた（すべて OK）。`npm run verify` 476/476。
+     - PR6 の最終レビュー（別のレビュー役）：重大 0・重要 0・軽い 5。記録の場所の式は前と1文字も変わらず、見張りの行数は `electron/*.cjs` 49個すべてで `wc -l` と一致した。軽い5件はユーザーの指示（10-18「直してから PR」）で直した：見張りの数え方の書き方（「wc -l と同じ」→「エディターの行数」。最後の改行がないときだけ wc -l より1多い）、落ちたときの文を作り物のフォルダーでも確かめる、AGENTS.md の決まりを今のコードに合わせた（`child_process` を自分で読み込む前からの4ファイル、分割代入で受ける初期セットアップ・ゲームの切り替えの作業中）、AGENTS.md の役割の書き漏れ（設定のバックアップ・コンソールへの送信）、この HANDOFF の言い過ぎ。
+     - PR6 で見つけた前からの動き（直していない）：`minecraft_client.cjs` は `readJavaCommandLines()` に spawn を渡さないので、テストでも本物の child_process が動く。設定のバックアップの場所の式（main.cjs の settingsBackups）を固定するテストがない（式を変えると今のバックアップが見つからなくなる）。
+     - 分割はこれで終わり。main.cjs は 2,954行 → 219行、ipc の窓口116個は1つも変えていない。テストが main の変数を書き換える所は残っていない。ゲームの選択の記録の場所の式の写しもなくした（`loadApp` の `appliedRoots` には、Minecraft の保存先の既定値 `.minecraft` の写しが残る。式が変われば多くのテストが落ちるので気づける）。
+     - **次にやること**：PR #116 の CI を見て、ユーザーの許可を得てマージ。そのあとは 9番の残りの大きい問題（P8 運営ログインの偽造など）から、ユーザーに選んでもらう。
      - PR1 の最終レビュー：重大 0・重要 3（テストの穴。直した）・軽い 6（ユーザーの指示で直した）。分ける前と後の main.cjs を同じ偽物の electron で比べ、動きの違いは0件。
      - PR1 で見つけた小さい問題（このPRでは直さない）：
        - Tailwind は git が追跡しているファイル全体からクラス名を拾う。文書に `\` + 16進数の場所（scratchpad の場所など）を書くとビルドが止まる。`src/index.css` で読む範囲を絞る（Codex の UI の作業と重なるので別の PR）。それまでは `electron/test/docs-css-safe.test.cjs` が見張る。
