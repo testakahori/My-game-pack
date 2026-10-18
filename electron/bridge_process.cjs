@@ -84,6 +84,13 @@ function createBridgeProcess({ process, spawn, spawnSync, shell, runProc, stopRe
     await ensureNodeRuntimeAvailable();
     const nodeCmd = getNodeCommand();
 
+    // 落ちて自動再起動を待っている間に起動したら、待ちを取りやめて今すぐ起動する。待ちを残すと、待ちが終わったときに
+    // もう1つ起動して BRIDGE が2つ動き、ギフトが2回動いていた（2026-10-18）。起動の準備（同梱 node の確かめ）の間に自動再起動が先に動いていれば、下の確かめで起動しない。
+    if (bridgeRestartTimer) {
+      clearTimeout(bridgeRestartTimer);
+      bridgeRestartTimer = null;
+      appendBridgeLog("[BRIDGE] 自動再起動の待ちを取りやめ、今すぐ起動します");
+    }
     bridgeStopRequested = false;
     bridgeRestartPolicy.start();
     const spawnOnce = () => {
