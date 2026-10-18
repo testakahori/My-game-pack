@@ -81,6 +81,10 @@ test('BRIDGE の起動: 落ちて自動再起動を待つ間に起動したら�
   x.children[0].emit('exit', 1);
   assert.equal(x.bridgeProcess.isActive(), true, '再起動を待っている');
   assert.equal((await x.invoke('bridge:launch')).pid, 40001, '今すぐ起動した');
+  const cancelled = () => x.invoke('bridge:logs').lines.filter(line => line.includes('自動再起動の待ちを取りやめ')).length;
+  assert.equal(cancelled(), 1, '取りやめたことをログに出す');
+  assert.equal((await x.invoke('bridge:launch')).pid, 40001, '動いている間の起動は、今の BRIDGE を返す');
+  assert.equal(cancelled(), 1, '取りやめた待ちの印は残さない（残すと、BRIDGE が止まったあとも作業中のままになる）');
   t.mock.timers.tick(60000);
   assert.equal(x.spawned.length, 2, '待ちが過ぎても、もう1つは起動しない');
   assert.equal(x.bridgeProcess.child(), x.children[1]);
