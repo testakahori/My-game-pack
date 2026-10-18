@@ -14,6 +14,12 @@ test('すぐ効かせる値: 今の BRIDGE と同じ式で作る（既定値と�
   assert.deepEqual([liveOptions({ streakTtlMs: 1 }).streakTtlMs, liveOptions({ streakTtlMs: 9e9 }).streakTtlMs], [5000, 600000], '連打の区切りの時間も今の範囲に丸める');
 });
 
+test('配信ホーム: BRIDGE の状態の pendingRestart があれば「BRIDGE を再起動すると反映されます（名前）」を出す', () => {
+  const source = require('node:fs').readFileSync(require('node:path').resolve(__dirname, '../../src/components/DashboardPage.tsx'), 'utf8');
+  assert.match(source, /bridgeProcess\.pendingRestart\?\.length/);
+  assert.match(source, /BRIDGE を再起動すると反映されます（\{bridgeProcess\.pendingRestart\.join\("・"\)\}）。/);
+});
+
 test('つなぎ方: 違うものの名前だけを決まった順で返す。つなぎ方以外の違いは数えない', () => {
   const started = { tiktokUsername: 'a', rcon: { port: 25575 }, options: { commandTransport: 'bridge_mod', bridgeModPort: 25576, commandsDir: 'commands/minecraft', mutedUsers: [] }, mappings: [] };
   assert.deepEqual(restartRequired(started, { ...started, mappings: [{ giftId: '1' }], options: { ...started.options, mutedUsers: ['x'] } }), []);

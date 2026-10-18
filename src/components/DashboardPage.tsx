@@ -27,6 +27,8 @@ type BridgeProcessStatus = {
   cpuPercent?: number | null;
   memMb?: number | null;
   restartCount?: number;
+  // 配信中につなぎ方（TikTok ID など）を変えて保存したとき、BRIDGE を再起動すると反映される設定の名前（2026-10-18）。
+  pendingRestart?: string[];
   tiktok?: {
     state?: "connecting" | "connected" | "retrying";
     username?: string;
@@ -909,6 +911,11 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
             </div>
           </div>
           {launchNotice && <p role={launchNotice.type === "error" ? "alert" : "status"} className={`cockpit-launch-notice cockpit-launch-notice--${launchNotice.type}`}>{launchNotice.text}</p>}
+          {bridgeProcess.pendingRestart?.length ? (
+            <p role="status" className="cockpit-launch-notice cockpit-launch-notice--info">
+              BRIDGE を再起動すると反映されます（{bridgeProcess.pendingRestart.join("・")}）。「BRIDGEだけを操作」の再起動で反映できます。
+            </p>
+          ) : null}
           {bridgeProcess.delivery?.authFailed ? (
             <p role="alert" className="cockpit-launch-notice cockpit-launch-notice--error">
               BridgeMODの認証に失敗しているため、ギフト・いいねをModへ送れていません（届くまで再送を続けています）。Minecraftサーバーを起動し直すと直ります。直らない場合は、初期セットアップのサーバーフォルダーと実際に起動しているサーバーが同じか確認してください。

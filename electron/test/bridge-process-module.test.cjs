@@ -60,6 +60,16 @@ test('BRIDGE の起動と停止: main から受け取った spawn・Euler の鍵
   assert.equal(x.bridgeProcess.isActive(), false);
 });
 
+// 配信中につなぎ方（TikTok ID など）を変えて保存したら、BRIDGE が runtime-status.json に書いた名前を配信ホームへ渡す（2026-10-18 処理のコピー PR2）。
+test('BRIDGE の状態: 動いている間は runtime-status.json の pendingRestart（再起動で反映される設定）を返し、止まっていれば空', async t => {
+  const x = setup(t);
+  await x.invoke('bridge:launch');
+  fs.writeFileSync(path.join(x.bridge, 'runtime-status.json'), JSON.stringify({ pendingRestart: ['TikTok ID'] }));
+  assert.deepEqual(x.invoke('bridge:processStatus').pendingRestart, ['TikTok ID']);
+  await x.invoke('bridge:stop', 'home:stop');
+  assert.deepEqual(x.invoke('bridge:processStatus').pendingRestart, []);
+});
+
 test('BRIDGE の自動再起動: 落ちて再起動を待つ間も isActive() が true（ゲームの切り替え・MAP の作業・設定の復元が止める）。止めると待ちも消える', async t => {
   const x = setup(t);
   await x.invoke('bridge:launch');

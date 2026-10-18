@@ -191,7 +191,9 @@ function createBridgeProcess({ process, spawn, spawnSync, shell, runProc, stopRe
         runtime = JSON.parse(fs.readFileSync(path.join(getBridgeBatDir(), "runtime-status.json"), "utf8"));
       } catch {}
       return { ...status, ...getProcessMetrics(bridgePid), tiktok: status.running ? (runtime.tiktok || null) : null, recording: status.running ? (runtime.recording || null) : null,
-        delivery: status.running ? (runtime.delivery || null) : null };
+        delivery: status.running ? (runtime.delivery || null) : null,
+        // 配信中につなぎ方（TikTok ID など）を変えて保存したとき、BRIDGE が書く「再起動で反映される設定」の名前（2026-10-18）。
+        pendingRestart: status.running && Array.isArray(runtime.pendingRestart) ? runtime.pendingRestart : [] };
     });
 
     ipcMain.handle("bridge:logs", () => ({ ok: true, lines: [...bridgeLogBuffer] }));
