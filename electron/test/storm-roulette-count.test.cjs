@@ -74,7 +74,8 @@ test('テスト発火のルーレットで演出を送れなかったら、そ�
 });
 
 test('嵐の txt の説明は N 倍に合わせ、ルーレットの字幕（36文字）に収める', () => {
-  const description = read('bridge/commands/minecraft/storm.txt').match(/^\/\/\s*(.+?)\s*$/m)[1];
+  // 説明文の読み方はルーレットと同じ bridge/command_text.cjs（2026-10-18）。
+  const description = require('../../bridge/command_text.cjs').parseCommandText(read('bridge/commands/minecraft/storm.txt')).description;
   assert.equal(description, '雷20連発と雨3分の暴風雨。N個ならN倍');
   assert.ok(Array.from(description).length <= 36, '字幕で切れない');
 });

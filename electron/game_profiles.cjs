@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const zlib = require('node:zlib');
 const { atomicWrite } = require('./settings_backups.cjs');
 const saikutu = require('./saikutu_commands.cjs');
+const { isTxtName } = require('../bridge/command_files.cjs');
 
 const GAMES = [{ id: 'common', name: 'サバイバル', modName: 'BridgeMOD' },
   { id: 'umetate', name: '埋め立て', modName: 'UmetateMOD' },
@@ -218,7 +219,7 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
       }
     }
     const destination = id === current.active ? next.profiles[id] : next.profiles[id] || { mappings: [], likeEvents: [] };
-    const available = new Set([...(fs.existsSync(commandDir) ? fs.readdirSync(commandDir).filter(n => n.endsWith('.txt') && !oldNames.includes(n) && !saikutu.FILES.has(n)) : []), ...Object.keys(gameFiles)]);
+    const available = new Set([...(fs.existsSync(commandDir) ? fs.readdirSync(commandDir).filter(n => isTxtName(n) && !oldNames.includes(n) && !saikutu.FILES.has(n)) : []), ...Object.keys(gameFiles)]);
     function checkCommands(value) {
       if (!value || typeof value !== 'object') return;
       for (const [key, item] of Object.entries(value)) {

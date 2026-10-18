@@ -867,7 +867,8 @@ public class BridgeMod {
                 int count = data.has("count") ? data.get("count").getAsBigDecimal().intValueExact() : 1;
                 if (data.has("count") && (!data.get("count").isJsonPrimitive() || !data.getAsJsonPrimitive("count").isNumber())) return null;
                 String key = memberString(data, "key", "");
-                if (!key.matches("[A-Za-z0-9_.-]{1,200}")) return null;
+                // 名前の決まりはファイルを探す所（CommandRouting.resolve）と同じ1つで、.txt を除いてから確かめる（2026-10-18）。
+                if (!CommandRouting.isCommandKey(key)) return null;
                 BridgeEvent event = new BridgeEvent(memberString(data, "type", "other"), key, count,
                     memberString(data, "listenerName", memberString(data, "senderName", "viewer")),
                     memberBoolean(data, "announce", true), memberBoolean(data, "protectionEnabled", false),
@@ -1055,34 +1056,10 @@ public class BridgeMod {
             && player.getZ() >= minZ && player.getZ() <= maxZ;
     }
 
+    // 読み方は CommandText（Bridge・アプリの bridge/command_text.cjs と同じ決まり。2026-10-18）。
     private ParsedFile parseFile(Path file) throws IOException {
-        List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
-
-        Map<String, String> meta = new HashMap<>();
-        List<String> commands = new ArrayList<>();
-
-        for (String raw : lines) {
-            String line = raw.trim();
-            if (line.isEmpty()) continue;
-
-            if (line.startsWith("#")) {
-                // # TITLE: xxx
-                String s = line.substring(1).trim();
-                int idx = s.indexOf(':');
-                if (idx > 0) {
-                    String k = s.substring(0, idx).trim().toUpperCase(Locale.ROOT);
-                    String v = s.substring(idx + 1).trim();
-                    if (!k.isEmpty() && !v.isEmpty()) meta.put(k, v);
-                }
-                continue;
-            }
-
-            if (line.startsWith("//")) continue;
-
-            commands.add(line);
-        }
-
-        return new ParsedFile(meta, commands);
+        CommandText.Parsed parsed = CommandText.parse(Files.readString(file, StandardCharsets.UTF_8));
+        return new ParsedFile(parsed.meta(), parsed.commands());
     }
 
     // ===== placeholders =====

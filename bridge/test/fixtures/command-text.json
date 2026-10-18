@@ -1,0 +1,19 @@
+[
+  { "name": "ふつうの形", "text": "# TITLE: ねこ\n# CATEGORY: お助け系\n// ねこを呼ぶ\nsummon cat ~ ~ ~\n", "meta": { "TITLE": "ねこ", "CATEGORY": "お助け系" }, "commands": ["summon cat ~ ~ ~"], "description": "ねこを呼ぶ" },
+  { "name": "先頭の BOM と1行目の DESTRUCTIVE", "text": "\ufeff# DESTRUCTIVE: true\nfill ~ ~ ~ ~ ~ ~ air", "meta": { "DESTRUCTIVE": "true" }, "commands": ["fill ~ ~ ~ ~ ~ ~ air"], "description": "" },
+  { "name": "行頭の BOM・全角空白・NBSP と行末の全角空白", "text": "\ufeff\u3000\u00a0# COUNT_MODE: aggregate\u3000\nsay a", "meta": { "COUNT_MODE": "aggregate" }, "commands": ["say a"], "description": "" },
+  { "name": "小文字のキーと、# とキー・キーと : の間の空白", "text": "# title: ねこ\n#  CATEGORY : 妨害\nsay a", "meta": { "TITLE": "ねこ", "CATEGORY": "妨害" }, "commands": ["say a"], "description": "" },
+  { "name": "同じキーが2行なら後の行", "text": "# TITLE: A\n# TITLE: B\nsay a", "meta": { "TITLE": "B" }, "commands": ["say a"], "description": "" },
+  { "name": "空の TITLE の次の行がコマンド", "text": "# TITLE:\nsay hi", "meta": {}, "commands": ["say hi"], "description": "" },
+  { "name": "空の TITLE の次の行が CATEGORY", "text": "# TITLE:\n# CATEGORY: 妨害\nsay hi", "meta": { "CATEGORY": "妨害" }, "commands": ["say hi"], "description": "" },
+  { "name": "値のあとの空の TITLE は前の値を残す", "text": "# TITLE: A\n# TITLE:   \nsay a", "meta": { "TITLE": "A" }, "commands": ["say a"], "description": "" },
+  { "name": "見出しの形でない # 行は見出しにもコマンドにもならない", "text": "# TITLE2: z\n# MY KEY: x\n#!x\n#\n# : x\nsay a", "meta": {}, "commands": ["say a"], "description": "" },
+  { "name": "値の中の : はそのまま", "text": "# SUBTITLE: {ListenerName}: ありがとう\nsay a", "meta": { "SUBTITLE": "{ListenerName}: ありがとう" }, "commands": ["say a"], "description": "" },
+  { "name": "CRLF", "text": "# TITLE: ねこ\r\n// 説明\r\nsay a\r\n", "meta": { "TITLE": "ねこ" }, "commands": ["say a"], "description": "説明" },
+  { "name": "CR だけの改行", "text": "# TITLE: ねこ\rsay a\rsay b", "meta": { "TITLE": "ねこ" }, "commands": ["say a", "say b"], "description": "" },
+  { "name": "説明: 空の // の次の // 説明", "text": "//\n// 説明\nsay a", "meta": {}, "commands": ["say a"], "description": "説明" },
+  { "name": "説明: 空の // の次がコマンドなら説明はない", "text": "//   \nsay a", "meta": {}, "commands": ["say a"], "description": "" },
+  { "name": "説明: 2行あれば最初の空でない方", "text": "// 一つ目\n// 二つ目\nsay a", "meta": {}, "commands": ["say a"], "description": "一つ目" },
+  { "name": "コマンドの前後の空白を除く", "text": "  say a  \n\tsay b\t\n\n", "meta": {}, "commands": ["say a", "say b"], "description": "" },
+  { "name": "空のファイル", "text": "", "meta": {}, "commands": [], "description": "" }
+]

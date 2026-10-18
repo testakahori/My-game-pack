@@ -65,7 +65,8 @@ test('同梱のコマンドtxtは、シングルクォートの中に視聴者�
   const fs = require('node:fs'), path = require('node:path');
   const dir = path.resolve(__dirname, '../../bridge/commands/minecraft');
   for (const name of fs.readdirSync(dir).filter(file => file.endsWith('.txt'))) {
-    const lines = fs.readFileSync(path.join(dir, name), 'utf8').split(/\r?\n/).filter(line => !line.trim().startsWith('#'));
+    // コマンドの行は BRIDGE と同じ読み方（bridge/command_text.cjs）で取り出す。
+    const lines = require('../../bridge/command_text.cjs').parseCommandText(fs.readFileSync(path.join(dir, name), 'utf8')).commands;
     assert.ok(!lines.some(line => /'[^']*\{ListenerName\}[^']*'/.test(line)), name);
   }
 });

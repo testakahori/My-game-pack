@@ -187,13 +187,9 @@ public final class SaikutuMod {
         for (String key : KEYS) {
             try (InputStream input = SaikutuMod.class.getResourceAsStream("/commands/" + key + ".txt")) {
                 if (input == null) throw new IOException("Missing command: " + key);
-                Map<String, String> metadata = new HashMap<>(); List<String> commands = new ArrayList<>();
-                for (String raw : new String(input.readAllBytes(),StandardCharsets.UTF_8).split("\\R")) {
-                    String line = raw.trim(); if (line.isEmpty() || line.startsWith("//")) continue;
-                    if (line.startsWith("#")) {
-                        int colon = line.indexOf(':'); if (colon > 1) metadata.put(line.substring(1,colon).trim(),line.substring(colon+1).trim());
-                    } else commands.add(line);
-                }
+                // 読み方は Bridge・アプリ・BridgeMOD と同じ決まり（CommandText。2026-10-18）。
+                CommandText.Parsed parsed = CommandText.parse(new String(input.readAllBytes(),StandardCharsets.UTF_8));
+                Map<String, String> metadata = parsed.meta(); List<String> commands = parsed.commands();
                 if (commands.isEmpty() && !SaikutuEffects.KEYS.contains(key)) throw new IOException("Empty command: " + key);
                 result.put(key,new Script(Map.copyOf(metadata),List.copyOf(commands)));
             } catch (IOException error) { throw new IllegalStateException("Cannot load saikutu command",error); }

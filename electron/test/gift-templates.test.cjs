@@ -113,3 +113,7 @@ test('oversize templates and exporting over the live config are rejected', async
   await assert.rejects(h.service.save(), /上書きできません/);
   assert.deepEqual(h.read(), h.initial);
 });
+
+test('テンプレートのコマンドは大文字の拡張子（TNT.TXT）も受け付ける（.txt は大文字小文字を問わない。2026-10-18）', () => {
+  assert.equal(parseTemplate(JSON.stringify({ ...template, mappings: [{ ...row, commandFile: 'TNT.TXT' }] })).mappings[0].commandFile, 'TNT.TXT');
+});

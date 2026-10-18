@@ -5,8 +5,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const dir = path.resolve(__dirname, '../../bridge/commands/minecraft');
 const read = name => fs.readFileSync(path.join(dir, name + '.txt'), 'utf8');
-const meta = (text, key) => text.match(new RegExp('^#\\s*' + key + ':\\s*(.*?)\\s*$', 'm'))?.[1];
-const description = text => text.match(/^\/\/\s*(.+?)\s*$/m)?.[1];
+// 見出し・説明文の読み方は BRIDGE・アプリと同じ bridge/command_text.cjs（2026-10-18）。
+const { parseCommandText } = require('../../bridge/command_text.cjs');
+const meta = (text, key) => parseCommandText(text).meta[key];
+const description = text => parseCommandText(text).description || undefined;
 
 test('地形を壊す標準コマンドは全部「地形破壊系」の印を付ける', () => {
   // creeper・taiden・ghast・wither は mobGriefing で地形を壊し、husk_watertower は水源を置くのに、印もキー名の判定も素通りしていた。

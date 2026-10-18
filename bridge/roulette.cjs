@@ -1,13 +1,14 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { parseCommandText } = require("./command_text.cjs");
+const { ensureTxt, bridgeCommandKey } = require("./command_files.cjs");
 
 function cleanText(value, length) {
   return Array.from(String(value ?? "").replace(/[\r\n\t]/g, " ").replace(/[\u0000-\u001f\u007f]/g, "")).slice(0, length).join("");
 }
 
 function commandPath(commandsDir, commandFile) {
-  const file = path.basename(String(commandFile).replace(/\\/g, "/"));
-  const name = /\.txt$/i.test(file) ? file : `${file}.txt`;
+  const name = ensureTxt(path.basename(String(commandFile).replace(/\\/g, "/")));
   // UIで保存する commands/minecraft と旧設定の commands の両方に対応する。
   const direct = path.join(commandsDir, name);
   return fs.existsSync(direct) || path.basename(commandsDir).toLowerCase() === "minecraft"
@@ -21,10 +22,11 @@ function prepareRoulette(config, commandsDir, random = Math.random) {
     if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return [];
     const commandFile = path.basename(file);
     if (/^roulette\.txt$/i.test(commandFile)) return [];
-    const description = fs.readFileSync(file, "utf8").match(/^\/\/\s*(.+)$/m)?.[1]?.trim() || "";
+    // 説明文の読み方は command_text.cjs の1か所（アプリの一覧と同じ。2026-10-18）。
+    const description = parseCommandText(fs.readFileSync(file, "utf8")).description;
     return [{
       commandFile,
-      label: cleanText(String(item.label || "").trim() || commandFile.replace(/\.txt$/i, ""), 24),
+      label: cleanText(String(item.label || "").trim() || bridgeCommandKey(commandFile), 24),
       description: cleanText(description, 36),
       weight: Number.isFinite(Number(item.weight)) ? Math.max(1, Number(item.weight)) : 1,
       repeat: Number.isFinite(Number(item.repeat)) ? Math.max(1, Math.min(100, Math.floor(Number(item.repeat) || 1))) : 1,

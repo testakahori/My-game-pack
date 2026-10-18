@@ -54,8 +54,10 @@ test('TNT大爆発は大技で、頭上の TNT は N に関係なく1回、衝�
   assert.match(tick, /tickWaves\(server\);/);
   // txt はメタ情報だけ（コマンドの行は Java の TNT_CANOPY に移した）。
   const txt = read('SaikutuMod/src/main/resources/commands/tntdaibakuhatu.txt');
-  assert.deepEqual(txt.split(/\r?\n/).filter(line => line.trim() && !/^\s*(#|\/\/)/.test(line)), []);
-  assert.match(txt, /^# TITLE: TNT大爆発\r?$/m);
+  // 読み方は SaikutuMod・BRIDGE と同じ bridge/command_text.cjs（2026-10-18）。
+  const parsed = require('../../bridge/command_text.cjs').parseCommandText(txt);
+  assert.deepEqual(parsed.commands, []);
+  assert.equal(parsed.meta.TITLE, 'TNT大爆発');
 });
 
 test('衝撃波は set() と同じ判定でえぐり、周りのチャンクまで読み込み済みの所だけを触る（Review Focus 1・PR #75 レビュー）', () => {

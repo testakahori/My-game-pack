@@ -1,5 +1,6 @@
 'use strict';
 const { FILES } = require('./saikutu_commands.cjs');
+const { isTxtName } = require('../bridge/command_files.cjs');
 const GAME_IDS = new Set(['common', 'umetate', 'run', 'saikutu']);
 function assertGameReady(status) {
   if (!status?.applied || status.recoveryRequired || !GAME_IDS.has(status.active)) {
@@ -9,7 +10,7 @@ function assertGameReady(status) {
 function availableGameCommands(names, status) {
   if (!status?.applied || status.recoveryRequired || !GAME_IDS.has(status.active)) return [];
   return names.filter(name => {
-    if (typeof name !== 'string' || !name.endsWith('.txt') || name.startsWith('_') || /[\\/]/.test(name) || FILES.has(name.toLowerCase())) return false;
+    if (typeof name !== 'string' || !isTxtName(name) || name.startsWith('_') || /[\\/]/.test(name) || FILES.has(name.toLowerCase())) return false;
     const game = /^game_(umetate|run|saikutu)_/.exec(name);
     return !game || game[1] === status.active;
   });

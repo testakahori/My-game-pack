@@ -1,13 +1,15 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { atomicWrite } = require("./settings_backups.cjs");
+const { bridgeCommandKey } = require("../bridge/command_files.cjs");
 
 function migrateCommandReferences(config) {
   function visit(value, inArray = false) {
     if (Array.isArray(value)) return value.map(item => visit(item, true)).filter(item => item !== undefined);
     if (!value || typeof value !== "object") return value;
     const next = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, visit(item)]));
-    const file = path.posix.basename(String(value.commandFile || "").replace(/\\/g, "/")).toLowerCase().replace(/\.txt$/, "");
+    // .txt を除いた名前（大文字の .TXT も除く）は command_files.cjs の1か所で作る（2026-10-18）。
+    const file = bridgeCommandKey(value.commandFile || "").toLowerCase();
     if (file === "seichi_donut") next.commandFile = "fall_sand.txt";
     if (file === "husk01") next.commandFile = "husk.txt";
     if (["tornado", "hukitobasu", "hurricane", "give_blindness", "petsummon"].includes(file)) {

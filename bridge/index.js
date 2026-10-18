@@ -32,7 +32,8 @@ const { Rcon } = require("rcon-client");
 const { validateBridgeConfig } = require("./config_schema");
 const { prepareRoulette, createRouletteRunner, rouletteSpins } = require("./roulette.cjs");
 const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require("./mod_event_delivery.cjs");
-const { commandFileProblem } = require("./command_files.cjs");
+const { commandFileProblem, ensureTxt, bridgeCommandKey } = require("./command_files.cjs");
+const { parseCommandText } = require("./command_text.cjs");
 const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("./bridge_mod_token.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require("./feature_engine");
 const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes } = require("./event_rules.cjs");
@@ -376,13 +377,6 @@ function safeReadJson(filePath) {
   return JSON.parse(raw);
 }
 
-function ensureTxt(name) {
-  if (!name) return "";
-  const v = String(name).trim();
-  if (!v) return "";
-  return v.toLowerCase().endsWith(".txt") ? v : `${v}.txt`;
-}
-
 function clampInt(n, min, max, fallback) {
   const v = Number(n);
   if (!Number.isFinite(v)) return fallback;
@@ -454,34 +448,9 @@ function telnetSafeText(s, maxLen = 60) {
   return v;
 }
 
-// コマンドtxt：メタ(# KEY: value) + コマンド行を分離
+// コマンドtxt：メタ(# KEY: value) + コマンド行を分離。読み方は command_text.cjs の1か所（アプリ・BridgeMOD と同じ決まり。2026-10-18）。
 function parseCommandFile(text) {
-  const meta = {};
-  const commands = [];
-
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
-
-  for (let raw of lines) {
-    const line = String(raw).trim();
-    if (!line) continue;
-
-    // メタ行: # TITLE: xxx
-    if (line.startsWith("#")) {
-      const m = line.match(/^#\s*([A-Z_]+)\s*:\s*(.+)\s*$/i);
-      if (m) {
-        const key = String(m[1]).toUpperCase();
-        const val = String(m[2]).trim();
-        meta[key] = val;
-      }
-      continue; // # 行はコマンドとしては実行しない
-    }
-
-    // // コメントも無視
-    if (line.startsWith("//")) continue;
-
-    commands.push(line);
-  }
-
+  const { meta, commands } = parseCommandText(text);
   return { meta, commands };
 }
 
@@ -659,9 +628,9 @@ async function execCommandsToMinecraftRcon({
   }
 }
 
+// BridgeMOD に送る名前（.txt を除いた部分）。TNT.TXT のような大文字の拡張子も除く（2026-10-18）。
 function commandFileToBridgeKey(commandFile) {
-  const file = ensureTxt(commandFile);
-  return path.basename(file, ".txt");
+  return bridgeCommandKey(ensureTxt(commandFile));
 }
 
 function sendBridgeModEvent({ host, port, type, commandFile, count, listenerName, announce, requestId, eventId, gameMod, gameSessionId, args }) {

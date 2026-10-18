@@ -7,7 +7,8 @@ const { updateGiftMapping } = require("./gift_mapping.cjs");
 const { createGiftTemplates } = require("./gift_templates.cjs");
 const { runPreflight } = require("./preflight.cjs");
 const { atomicWrite } = require("./settings_backups.cjs");
-const { commandFileProblem } = require("../bridge/command_files.cjs");
+const { commandFileProblem, isTxtName } = require("../bridge/command_files.cjs");
+const { parseCommandText } = require("../bridge/command_text.cjs");
 const { availableGameCommands, assertGameCommands } = require("./game_command_scope.cjs");
 const { checkEngine } = require("./tts.cjs");
 
@@ -67,14 +68,11 @@ function createBridgeSettings({
       let category = "";
       let description = "";
       try {
-        const content = fs.readFileSync(path.join(dir, name), "utf8");
-        const titleMatch = content.match(/^#\s*TITLE:\s*(.+)$/m);
-        if (titleMatch) title = titleMatch[1].trim();
-        const catMatch = content.match(/^#\s*CATEGORY:\s*(.+)$/m);
-        if (catMatch) category = catMatch[1].trim();
-        // 説明文はファイル先頭の // コメント行（コマンド一覧ページの表示用）
-        const descMatch = content.match(/^\/\/\s*(.+)$/m);
-        if (descMatch) description = descMatch[1].trim();
+        // 読み方は BRIDGE・BridgeMOD と同じ command_text.cjs（2026-10-18）。説明文は最初の // の行（コマンド一覧ページの表示用）。
+        const parsed = parseCommandText(fs.readFileSync(path.join(dir, name), "utf8"));
+        if (parsed.meta.TITLE) title = parsed.meta.TITLE;
+        category = parsed.meta.CATEGORY || "";
+        description = parsed.description;
       } catch {}
       // Explorer で作った「ネコ.txt」「tnt - コピー.txt」なども一覧には出るが、BridgeMOD では実行できない。
       // title はルーレット名やギフト画像にそのまま使われるので変えず、印だけを付ける（割り当てた保存は理由付きで止まる）。
@@ -164,7 +162,7 @@ function createBridgeSettings({
     ipcMain.handle("bridge:commands:write", async (_event, { filename, content }) => {
       assertGameProfileIdle();
       if (/^game_(umetate|run|saikutu)_/.test(filename || '')) throw new Error('ゲームパックのコマンドはパックを再登録して更新してください');
-      if (!filename || typeof filename !== "string" || !filename.endsWith(".txt")) {
+      if (!filename || typeof filename !== "string" || !isTxtName(filename)) {
         throw new Error("Invalid filename: must be a .txt file");
       }
       if (typeof content !== "string") throw new Error("content must be a string");

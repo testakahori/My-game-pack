@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { validateBridgeConfig } = require("./config_schema.cjs");
 const { validCommand } = require("./settings_backups.cjs");
-const { isBridgeModTransport } = require("../bridge/command_files.cjs");
+const { isBridgeModTransport, ensureTxt } = require("../bridge/command_files.cjs");
 
 function bounded(action, timeoutMs = 6000) {
   let timer;
@@ -40,7 +40,7 @@ async function runPreflight(deps) {
     for (const [key, child] of Object.entries(value)) if (key !== "rcon") collect(child);
   }
   collect(cfg);
-  const missing = [...refs].filter(name => !validCommand(name.toLowerCase().endsWith(".txt") ? name : `${name}.txt`) || !fs.existsSync(path.join(deps.commandsDir, name.toLowerCase().endsWith(".txt") ? name : `${name}.txt`)));
+  const missing = [...refs].filter(name => !validCommand(ensureTxt(name)) || !fs.existsSync(path.join(deps.commandsDir, ensureTxt(name))));
   add("commands", "ギフト・イベントのコマンド", missing.length ? "error" : refs.size ? "ok" : "warn", missing.length ? `見つからないファイル: ${missing.slice(0, 8).join("、")}${missing.length > 8 ? " ほか" : ""}` : `${cfg.mappings?.length || 0}件のギフト設定 / ${refs.size}種類の参照コマンドを確認しました。`, "gifts");
   try {
     const meta = JSON.parse(fs.readFileSync(deps.giftsMetaPath, "utf8"));

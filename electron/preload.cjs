@@ -316,7 +316,8 @@ contextBridge.exposeInMainWorld("mygamepack", {
 
   // bridge/commands/minecraft/ にTXTを書き込む
   bridgeCommandsWrite: ({ filename, content }) => {
-    if (!isString(filename) || !filename.endsWith(".txt")) throw new Error("bridgeCommandsWrite: invalid filename");
+    // .txt は大文字小文字を問わない（bridge/command_files.cjs の isTxtName と同じ。preload は bridge のモジュールを読まない。2026-10-18）。
+    if (!isString(filename) || !/\.txt$/i.test(filename)) throw new Error("bridgeCommandsWrite: invalid filename");
     if (!isString(content)) throw new Error("bridgeCommandsWrite: content must be a string");
     return ipcRenderer.invoke("bridge:commands:write", { filename, content });
   },

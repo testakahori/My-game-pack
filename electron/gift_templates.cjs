@@ -3,6 +3,7 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { isDeepStrictEqual } = require('node:util');
 const { atomicWrite } = require('./settings_backups.cjs');
+const { isTxtName } = require('../bridge/command_files.cjs');
 
 const FORMAT = 'mygamepack-gift-template';
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -16,7 +17,8 @@ function normalizeMappings(value) {
     if (ids.has(giftId)) throw new Error(`${label}: ギフトID ${giftId} が重複しています。`);
     ids.add(giftId);
     const commandFile = row?.commandFile;
-    if (typeof commandFile !== 'string' || !/^[^<>:"/\\|?*\x00-\x1f]{1,150}\.txt$/.test(commandFile) || commandFile.startsWith('_')) throw new Error(`${label}: コマンドのファイル名が不正です。`);
+    // .txt は大文字小文字を問わない（command_files.cjs の isTxtName。2026-10-18）。.txt を除いた部分は1〜150文字で、ファイル名に使えない文字を含まない。
+    if (typeof commandFile !== 'string' || !isTxtName(commandFile) || !/^[^<>:"/\\|?*\x00-\x1f]{1,150}$/.test(commandFile.slice(0, -4)) || commandFile.startsWith('_')) throw new Error(`${label}: コマンドのファイル名が不正です。`);
     const repeat = row.repeat ?? 1;
     if (!Number.isInteger(repeat) || repeat < 1 || repeat > 100) throw new Error(`${label}: 実行回数は1〜100の整数にしてください。`);
     const name = typeof row.name === 'string' && row.name.trim() ? row.name.trim() : giftId;
