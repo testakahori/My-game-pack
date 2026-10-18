@@ -33,8 +33,16 @@ final class CommandRouting {
     static boolean isKey(String stem) {
         return stem != null && stem.matches(KEY);
     }
+    /** .txt（大文字小文字を問わない）を除いた名前。受け付け・ファイルを探す所・契約テストはこの1か所で除く。 */
+    static String stem(String key) {
+        return key == null ? "" : key.replaceFirst("(?i)\\.txt$", "");
+    }
+    /** 受け付ける名前か（.txt を除いてから KEY で確かめる）。.txt だけの名前は受け付けない（前は受け付けてから探す所で捨てていた）。 */
+    static boolean isCommandKey(String key) {
+        return isKey(stem(key));
+    }
     static Path resolve(Path directory, String key) {
-        String stem = key.replaceFirst("(?i)\\.txt$", "");
+        String stem = stem(key);
         if (!isKey(stem)) return null;
         Path base = directory.toAbsolutePath().normalize();
         List<Path> matches = new ArrayList<>();
@@ -47,7 +55,8 @@ final class CommandRouting {
         Path direct = base.resolve(stem + ".txt");
         return inside(base, direct) && Files.isRegularFile(direct) ? direct : null;
     }
-    // 名前の決まりで外は指せないが、念のため見つけたファイルがコマンドのフォルダーの直下にあることも確かめる。
+    // 名前の決まり（/ と \ を含まない）があるので、今は常に真。決まりを変えたときにフォルダーの外を指さないための、パスの文字の上だけの確かめ
+    // （シンボリックリンクやジャンクションの先までは見ない。コマンドのフォルダーはサーバーの持ち主のもの）。
     private static boolean inside(Path base, Path file) {
         return base.equals(file.toAbsolutePath().normalize().getParent());
     }

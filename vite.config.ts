@@ -131,9 +131,11 @@ function ttsDevHelperPlugin(): Plugin {
           sendJson(res, 200, []);
           return;
         }
-        const files = fs.readdirSync(dir).filter((file) => file.endsWith(".txt")).sort();
-        // 見出しの読み方はアプリ・BRIDGE と同じ bridge/command_text.cjs（2026-10-18）。
-        const { parseCommandText } = createRequire(import.meta.url)("./bridge/command_text.cjs");
+        // 見出しの読み方と .txt の扱い（大文字の .TXT も同じ）はアプリ・BRIDGE と同じ bridge/command_text.cjs・command_files.cjs（2026-10-18）。
+        const load = createRequire(import.meta.url);
+        const { parseCommandText } = load("./bridge/command_text.cjs");
+        const { isTxtName } = load("./bridge/command_files.cjs");
+        const files = fs.readdirSync(dir).filter((file) => isTxtName(file)).sort();
         const commands = files.map((name) => {
           let title = name, category = "";
           try {

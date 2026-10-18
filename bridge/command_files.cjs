@@ -23,7 +23,8 @@ function isTxtName(name) {
 }
 
 function ensureTxt(name) {
-  const value = String(name ?? "").trim();
+  if (!name) return ""; // 前の BRIDGE と同じく、空・0・false・null は「名前なし」。
+  const value = String(name).trim();
   if (!value) return "";
   return isTxtName(value) ? value : `${value}.txt`;
 }

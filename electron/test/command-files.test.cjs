@@ -84,6 +84,8 @@ test('.txt の付け外し: ensureTxt・isTxtName・bridgeCommandKey は大文�
   assert.equal(ensureTxt(' A.TXT '), 'A.TXT');
   assert.equal(ensureTxt('tnt.v2'), 'tnt.v2.txt');
   assert.equal(ensureTxt(''), '');
+  // 前の BRIDGE の ensureTxt と同じく、空・0・false・null は「名前なし」（PR1 の最終レビュー）。
+  for (const value of [0, false, null, undefined]) assert.equal(ensureTxt(value), '', String(value));
   assert.equal(isTxtName('A.TXT'), true);
   assert.equal(isTxtName('a.txt.bak'), false);
   assert.equal(bridgeCommandKey('TNT.TXT'), 'TNT');
@@ -91,11 +93,12 @@ test('.txt の付け外し: ensureTxt・isTxtName・bridgeCommandKey は大文�
 
 test('.txt の付け外し: BRIDGE・アプリは自前の付け外しを持たず command_files.cjs を使う', () => {
   const root = path.resolve(__dirname, '../..');
-  const files = ['bridge/index.js', 'bridge/test_fire.cjs', 'bridge/roulette.cjs',
+  const files = ['bridge/index.js', 'bridge/test_fire.cjs', 'bridge/roulette.cjs', 'vite.config.ts',
     ...fs.readdirSync(path.join(root, 'electron')).filter(name => name.endsWith('.cjs') && name !== 'preload.cjs').map(name => 'electron/' + name)];
   for (const file of files) {
     const source = fs.readFileSync(path.join(root, file), 'utf8');
-    const copy = /endsWith\((["'])\.txt\1\)|basename\([^)]*,\s*(["'])\.txt\2\)|\/\\\.txt\$\/i\.test\(/;
+    // endsWith(".txt")・basename(x, ".txt")・/\.txt$/i.test(・.replace(/\.txt$/ の形（PR1 の最終レビューで .replace と vite.config.ts を足した）。
+    const copy = /endsWith\((["'])\.txt\1\)|basename\([^)]*,\s*(["'])\.txt\2\)|\/\\\.txt\$\/i\.test\(|replace\(\/\\\.txt\$\//;
     assert.equal(copy.test(source), false, file + ' に .txt の付け外しの写しが残っている');
   }
 });

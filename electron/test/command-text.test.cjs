@@ -31,6 +31,14 @@ test('見出し行の決まり: 前後から除く空白は JavaScript の trim 
   assert.equal(trimText('a\u200bb'), 'a\u200bb', '幅のない空白（U+200B）は空白ではない');
 });
 
+// テストも txt を自分で読まない（設計書の 5。PR1 の最終レビュー）。見出し・説明文の正規表現と、# と // の行を除く正規表現の写しを探す。
+test('見出し行の決まり: テストも見出し・説明文・コマンドの行を自分の正規表現で読まず command_text.cjs を使う', () => {
+  const copy = /\^#\\s\*|\^\\\/\\\/\\s\*|\(#\|\\\/\\\/\)/;
+  for (const name of fs.readdirSync(path.join(root, 'electron', 'test')).filter(file => file.endsWith('.cjs') && file !== 'command-text.test.cjs')) {
+    assert.equal(copy.test(fs.readFileSync(path.join(root, 'electron', 'test', name), 'utf8')), false, 'electron/test/' + name + ' に読み方の写しが残っている');
+  }
+});
+
 test('見出し行の決まり: BRIDGE・アプリの一覧・ルーレット・開発用の一覧は、自分の写しを持たず command_text.cjs を使う', () => {
   for (const file of ['bridge/index.js', 'electron/bridge_settings.cjs', 'bridge/roulette.cjs', 'vite.config.ts']) {
     const source = fs.readFileSync(path.join(root, file), 'utf8');

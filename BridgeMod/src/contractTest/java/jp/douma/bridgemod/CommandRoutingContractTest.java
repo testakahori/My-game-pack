@@ -17,8 +17,16 @@ public final class CommandRoutingContractTest {
         Path root = Files.createTempDirectory("command-routing-");
         try {
             Path dir = Files.createDirectories(root.resolve("commands"));
-            for (String name : List.of("tnt.v2.txt", "plain.txt", "game_saikutu_x.y.txt", "UPPER.TXT", "_op.txt",
+            for (String name : List.of("tnt.v2.txt", "plain.txt", "game_saikutu_x.y.txt", "UPPER.TXT", "_op.txt", "...txt", "..txt",
                 "game_saikutu_dup.txt", "game_umetate_dup.txt", "game_saikutu_d.v.txt", "game_run_d.v.txt")) write(dir.resolve(name));
+
+            // 受け付け（fromJson）とファイルを探す所は、.txt を除いてから同じ決まりで確かめる。.txt だけの名前は受け付けない（PR1 の最終レビュー）。
+            for (String key : List.of("neko", "a.txt", "tnt.v2", "TNT.TXT", "..")) check(CommandRouting.isCommandKey(key), "accepted: " + key);
+            for (String key : List.of(".txt", ".TXT", "", "a b.txt", "a/b", "ネコ")) check(!CommandRouting.isCommandKey(key), "rejected: " + key);
+
+            // .. と . もふつうの名前として、フォルダーの直下の ...txt・..txt を指す（外は指さない）。
+            same(dir.resolve("...txt"), CommandRouting.resolve(dir, ".."), "dots only name");
+            same(dir.resolve("..txt"), CommandRouting.resolve(dir, "."), "single dot name");
             write(root.resolve("outside.txt"));
 
             same(dir.resolve("tnt.v2.txt"), CommandRouting.resolve(dir, "tnt.v2"), "dotted name");

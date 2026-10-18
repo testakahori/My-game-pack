@@ -867,8 +867,8 @@ public class BridgeMod {
                 int count = data.has("count") ? data.get("count").getAsBigDecimal().intValueExact() : 1;
                 if (data.has("count") && (!data.get("count").isJsonPrimitive() || !data.getAsJsonPrimitive("count").isNumber())) return null;
                 String key = memberString(data, "key", "");
-                // 名前の決まりはファイルを探す所（CommandRouting.resolve）と同じ1つ（2026-10-18）。
-                if (!CommandRouting.isKey(key)) return null;
+                // 名前の決まりはファイルを探す所（CommandRouting.resolve）と同じ1つで、.txt を除いてから確かめる（2026-10-18）。
+                if (!CommandRouting.isCommandKey(key)) return null;
                 BridgeEvent event = new BridgeEvent(memberString(data, "type", "other"), key, count,
                     memberString(data, "listenerName", memberString(data, "senderName", "viewer")),
                     memberBoolean(data, "announce", true), memberBoolean(data, "protectionEnabled", false),
