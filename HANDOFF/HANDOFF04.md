@@ -273,7 +273,7 @@
      - 設計を書くときに私が決めたこと（設計書の 15）：共通の決まりは `bridge/` に置く、無効のギフト割り当ては何もしない、`game_<知らないゲーム>_` は共通のコマンド、TikTok ID の形が正しくないと BRIDGE も起動しない、など。
      - 設計書はユーザーの承認を得た（10-18）。
      - PR1（コマンド名と見出し行）：ブランチ `fix/logic-copies-1`。計画は `docs/superpowers/plans/2026-10-18-logic-copies-pr1.md`。
-       - 見出し行（`# TITLE:` など）の読み方を `bridge/command_text.cjs` の1つにまとめ、BRIDGE・アプリの一覧・ルーレット・開発用の一覧・テストが使う。アプリの一覧とルーレットは、空の `# TITLE:` で次の行（`# CATEGORY: 妨害` など）を題名にし、BOM 付き・小文字のキー・行頭の空白の題名を読めていなかった。
+       - 見出し行（`# TITLE:` など）の読み方を `bridge/command_text.cjs` の1つにまとめ、BRIDGE・アプリの一覧・ルーレット・開発用の一覧・テストが使う。アプリの一覧は、空の `# TITLE:` で次の行（`# CATEGORY: 妨害` など）を題名にし、BOM 付き・小文字のキー・行頭の空白の題名を読めていなかった（その題名はルーレットの項目名として保存され、配信画面に出ていた）。ルーレット自身は、説明文の正規表現が次の行にまたがり、空の `//` の次のコマンドを説明文にしていた。
        - `.txt` の付け外しを `bridge/command_files.cjs` の `isTxtName`・`ensureTxt`・`bridgeCommandKey` の1組にし、大文字の `.TXT` も同じに扱う。`TNT.TXT` の割り当ては、BridgeMOD へ `TNT.TXT` のまま送っていた。
        - BridgeMOD 1.8.1：名前に `.` のあるコマンドを探せるようにした（受け付けと探す所で名前の決まりを1つに。見つけたファイルがフォルダーの直下にあることも確かめる）。読み方を `CommandText` にし、BOM 付きの1行目をコマンドとして実行していたのを直した。
        - SaikutuMod 1.1.5：同じ読み方にした（BridgeMOD の `CommandText` の写し。BridgeMOD のものを使うと 1.8.1 より前と組み合わさったときに起動できなくなるため）。同梱の16個の txt は前と同じ結果になる。
@@ -282,19 +282,11 @@
        - 次の配布のリリースノートに足す：「名前に . のあるコマンドも動くようにしました」「メモ帳などで BOM 付きで保存したコマンド txt も正しく読みます」「新しい BridgeMOD はサーバーを起動し直すと入れ替わります」。
      - PR1 の最終レビュー（別のレビュー役）：重大 0・重要 1・軽い 8。BRIDGE が送るコマンドは同梱の txt 74個とランダムな入力30万件で前と同じ（違いは CR だけの改行と、見出しの値の中の U+2028/U+2029 だけ）。JavaScript と Java の読み方は、足した入力51件・名前29件でも一致した。
        - 重要1件は直した（commit「test: 見出し行の例の一覧とテストの見えない文字を…」）：例の一覧とテストに BOM などが見えない文字のまま入っていて、消えてもテストが通ってしまっていた。エスケープで書き、BOM の例をほんとうに確かめるテストを足した。
-       - 軽い8件は、ユーザーの指示（10-18「直してから PR」）で直す途中で中断した（下の次にやること）。
-     - **次にやること**（10-18、ユーザーの残りの使用量が少ないので中断。ブランチ `fix/logic-copies-1` は push 済み、PR はまだ。計画の作業記録 `.superpowers/sdd/2026-10-18-logic-copies-pr1/progress.md` は git に入っていないので、なければ git log で追う）：
-       1. PR1 の軽い8件を直す（それぞれ、直す前に落ちるテストを確かめる）：
-          - M1 `.txt` の付け外しの写しが3か所に残る：`vite.config.ts:134` の `file.endsWith(".txt")`（開発用の一覧に `TNT.TXT` が出ない）、`bridge/roulette.cjs:29` の `.replace(/\.txt$/i, "")`（`bridgeCommandKey` にする）、`electron/command_migration.cjs:10`。`electron/test/command-files.test.cjs` の写しを探すテストに `.replace(/\.txt$/` の形と `vite.config.ts` を足す。
-          - M2 テストの見出しの読み方の写し：`electron/test/storm-roulette-count.test.cjs:77`（説明文の正規表現）、`electron/test/mod-limits-wiring.test.cjs:57`（コマンド行の取り出し）を `parseCommandText` にする。`command-text.test.cjs` の写しを探すテストを `electron/test/*.cjs` にも広げる。
-          - M3 `BridgeMod.java:871` の `fromJson` は `.txt` 付きのまま名前を確かめ、`.txt` だけの名前を受け付けて探す所で捨てる。`CommandRouting` に「`.txt` を除いてから `isKey`」の関数を1つ置き、`fromJson`・`resolve`・`CommandKeyParity` が使う。契約テストで `.txt` は false、`a.txt` は true。
-          - M4 `CommandRouting.inside()` は名前の決まりがあるので常に真で、シンボリックリンクの防御ではない。コメントを控えめにする（または `toRealPath`）。
-          - M5 `CommandRoutingContractTest` の `..`・`.` の確かめが空振り：フォルダーに `...txt`・`..txt` を置き、見つかってフォルダーの直下であることを確かめる。
-          - M6 計画の「BRIDGE の動きは CR だけの改行のとき以外変わらない」に、見出しの値の中の U+2028/U+2029 を足す。
-          - M7 `ensureTxt`（`bridge/command_files.cjs`）は `0`・`false` を `"0.txt"` にする（前は `""`）。先頭に `if (!name) return "";` を戻し、テストに足す。
-          - M8 この HANDOFF の PR1 の行の「アプリの一覧とルーレットは空の TITLE で次の行を題名に」を直す：ルーレット自身の不具合は説明文の正規表現が次の行にまたがること（空の `//` の次のコマンドが説明文になった）。題名の化けがルーレットに出たのは、アプリの一覧から保存した項目名を通してだけ。
-       2. `npm run verify`・`node scripts/test-bridge-contracts.cjs`・MOD のオフラインのビルド → 作業記録を消す → PR → CI → ユーザーの許可を得てマージ。
-       3. PR2（配信中に保存した設定の反映。設計書の 8）の計画を書く。
+       - 軽い8件も、ユーザーの指示（10-18「直してから PR」）で直した（10-18 に一度中断し、続けて直した）：
+         - `.txt` の付け外しの写しの残り（開発用の一覧・ルーレットの項目名・旧コマンドの読み替え）と、テストの読み方の写し（嵐のルーレット・TNT大爆発）を共通の関数にした。写しを探すテストを `.replace(/\.txt$/` の形・`vite.config.ts`・`electron/test/*.cjs` にも広げた（広げたテストは、直す前に落ちた）。
+         - BridgeMOD の受け付け（`fromJson`）も `.txt` を除いてから確かめる（`CommandRouting.isCommandKey`）。`.txt` だけの名前を受け付けてから捨てていた。`..`・`.` がフォルダーの直下の `...txt`・`..txt` を指すことも契約テストで確かめる。`inside()` の説明を控えめにした。
+         - `ensureTxt` は前と同じく `0`・`false`・`null` を「名前なし」にする。計画とこの HANDOFF の書き方を直した。
+     - **次にやること**：PR1 の PR → CI → ユーザーの許可を得てマージ。そのあと PR2（配信中に保存した設定の反映。設計書の 8）の計画を書く。
      - PR1 のレビューで見つけた前からの問題（直していない。PR3・PR4 か別の PR で）：`foo.txt.txt` は BRIDGE が `foo.txt` を送り、MOD がもう一度 `.txt` を除くので `foo.txt` を実行する。設定に `../x.txt` と書くと名前の確かめを通り、RCON の経路と条件だけ確認でコマンドのフォルダーの外を読む。`bridge/index.js:1456` のルーレットの判定 `=== "roulette"` は大文字小文字を区別する（`roulette.cjs` は区別しない）。Shift_JIS の txt は JS が U+FFFD にして読み、MOD は読めない。`gift_templates.cjs:45` の `missing()` は名前を大文字小文字まで比べる。TXT の書き込みのゲームパックの判定は大文字小文字を区別する。electron が読む `../bridge/*.cjs` が `build.files` に全部あるかを確かめるテストがない。`src/` に残る写し（`CommandSetManager.tsx`・`CommandsListPage.tsx`・`EventSettings2Page.tsx`・`ImageEditorPage.tsx`）は、設計書 3 のとおり画面が決まりを持たない形に PR3・PR4 でそろえる。
    - リリース手順が2つ
 

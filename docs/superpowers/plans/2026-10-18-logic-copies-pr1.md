@@ -108,7 +108,7 @@ Expected: FAIL（`Cannot find module '../../bridge/command_text.cjs'`）。`brid
 Run: `node --test electron/test/command-text.test.cjs electron/test/bridge-settings-module.test.cjs electron/test/roulette.test.cjs electron/test/standard-commands.test.cjs electron/test/tiktok-events.test.cjs electron/test/test-fire-parity.test.cjs`
 Expected: PASS。
 Run: `npm run test:bridge`
-Expected: PASS（BRIDGE の動きは CR だけの改行のとき以外変わらない）。
+Expected: PASS（BRIDGE の動きは、CR だけの改行と、見出しの値の中の U+2028/U+2029（前は見出しを読み捨てていた。送るコマンドは変わらない）のとき以外変わらない。最終レビューで書き方を直した）。
 
 - [ ] **Step 5: commit**
 
