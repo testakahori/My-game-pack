@@ -9,7 +9,7 @@ import java.util.Map;
 /**
  * コマンド txt の読み方。Bridge・アプリ（bridge/command_text.cjs の parseCommandText）と同じ決まりで、Minecraft に依存しない
  * （2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 5）。scripts/test-bridge-contracts.cjs が
- * 同じ例の一覧（bridge/test/fixtures/command-text.json）を両方に通して確かめる。SaikutuMod にも同じ中身の写しがある（MOD 同士は互いを読めない）。
+ * 同じ例の一覧（bridge/test/fixtures/command-text.json）を両方に通して確かめる。SaikutuMod にも同じ中身の写しがある（理由は SaikutuMod の CommandText の説明）。
  * <ul>
  *   <li>行は CRLF・LF・CR で区切り、前後の空白（JavaScript の trim と同じ文字。BOM・全角空白・NBSP を含む）を除く。
  *       メモ帳などが付ける BOM が1行目にあっても、見出しとして読む（前は BOM 付きの行をコマンドとして実行していた）。</li>

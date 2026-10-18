@@ -18,7 +18,8 @@ try {
     ...['BridgeAuth', 'JumpPhysics', 'ListenerNames', 'StormPlan', 'api/ProtectedBlockIds', 'CommandText', 'CommandRouting'].map(name => main + name + '.java'),
     ...['BridgeAuthContractTest', 'JumpPhysicsContractTest', 'ListenerNamesContractTest', 'ListenerNamesParity', 'StormPlanContractTest', 'ProtectedBlockIdsContractTest',
       'CommandRoutingContractTest', 'CommandTextParity', 'CommandKeyParity'].map(name => contract + name + '.java'),
-    saikutu + 'Shockwave.java', saikutu + 'LoadedArea.java', saikutuContract + 'ShockwaveContractTest.java'],
+    saikutu + 'Shockwave.java', saikutu + 'LoadedArea.java', saikutuContract + 'ShockwaveContractTest.java',
+    saikutu + 'CommandText.java', saikutuContract + 'CommandTextParity.java'],
     { cwd: root, windowsHide: true, stdio: 'inherit' });
   const run = (name, ...args) => execFileSync(bin('java'), ['-Xmx64m', '-Dfile.encoding=UTF-8', '-Dstdout.encoding=UTF-8', '-cp', classes, name.includes('.') ? name : 'jp.douma.bridgemod.' + name, ...args],
     { cwd: root, windowsHide: true, stdio: 'inherit' });
@@ -78,12 +79,33 @@ try {
     return Object.keys(meta).sort().map(key => key + '\u0000' + meta[key]).join('\u0001') + '\u0002' + commands.join('\u0001');
   };
   const textCases = readFixture('command-text.json');
-  for (const className of ['jp.douma.bridgemod.CommandTextParity']) {
+  for (const className of ['jp.douma.bridgemod.CommandTextParity', 'jp.douma.saikutumod.CommandTextParity']) {
     const results = parity(className, textCases.map(c => c.text));
     const mismatches = textCases.flatMap((c, i) => hex(canonical(c.text)) === results[i] ? [] : [`  ${c.name}: Bridge ${JSON.stringify(canonical(c.text))} / MOD ${JSON.stringify(unhex(results[i]))}`]);
     if (mismatches.length) throw new Error(`${className}: Bridge and MOD read command txt differently\n` + mismatches.join('\n'));
     console.log(`${className}: ${textCases.length} command txt examples match parseCommandText`);
   }
+  // SaikutuMod が jar に入れているコマンド txt は、前の SaikutuMod の読み方（キーをそろえない・空の値も入れる）でも同じ結果になる
+  // （同じ決まりにそろえても、同梱のファイルの動きは変わらない）。
+  const oldSaikutu = text => {
+    const meta = {}, commands = [];
+    for (const raw of text.split(/\r\n|\r|\n/)) {
+      const line = raw.replace(/^[\u0000- ]+|[\u0000- ]+$/g, '');
+      if (!line || line.startsWith('//')) continue;
+      if (line.startsWith('#')) {
+        const colon = line.indexOf(':');
+        if (colon > 1) meta[line.slice(1, colon).replace(/^[\u0000- ]+|[\u0000- ]+$/g, '')] = line.slice(colon + 1).replace(/^[\u0000- ]+|[\u0000- ]+$/g, '');
+      } else commands.push(line);
+    }
+    return { meta, commands };
+  };
+  const bundled = path.join(root, 'SaikutuMod', 'src', 'main', 'resources', 'commands');
+  for (const name of fs.readdirSync(bundled).filter(file => file.endsWith('.txt'))) {
+    const text = fs.readFileSync(path.join(bundled, name), 'utf8');
+    const { meta, commands } = parseCommandText(text);
+    if (JSON.stringify({ meta, commands }) !== JSON.stringify(oldSaikutu(text))) throw new Error(`SaikutuMod bundled ${name}: the new reading changes the result`);
+  }
+  console.log('SaikutuMod bundled command txt: the new reading gives the same result');
   // 名前は BRIDGE が送る形（.txt を除いた部分）で比べる。/ や \ を含む例は、MOD が直接受け取ったときに断ることを見る。
   const nameCases = readFixture('command-names.json');
   const keyResults = parity('jp.douma.bridgemod.CommandKeyParity', nameCases.map(c => c.name));
