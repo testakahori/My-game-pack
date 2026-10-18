@@ -30,6 +30,7 @@ const { TikTokLiveConnection } = require("tiktok-live-connector");
 const { connectionOptions, redactSecrets, retryDelay } = require('./tiktok_connection.cjs');
 const { Rcon } = require("rcon-client");
 const { validateBridgeConfig } = require("./config_schema");
+const { liveOptions, restartRequired } = require("./live_config.cjs");
 const { prepareRoulette, createRouletteRunner, rouletteSpins } = require("./roulette.cjs");
 const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require("./mod_event_delivery.cjs");
 const { commandFileProblem, ensureTxt, bridgeCommandKey } = require("./command_files.cjs");
@@ -1030,20 +1031,37 @@ async function main() {
   const targetType = String(target.type || "minecraft").toLowerCase();
 
   const options = config.options || {};
-  runtimeProtection = options.protection || { enabled: false };
-  const giftCooldownMs = Number(options.giftCooldownMs ?? 300);
-  // 既定値はアプリの初期設定（electron/main.cjs）・運用センターの表示と同じ 200。
-  const maxCommandsPerGift = Number(options.maxCommandsPerGift ?? 200);
-  const maxLikeCatchUpPerEvent = clampInt(options.maxLikeCatchUpPerEvent ?? 5, 1, 100, 5);
-  const rconQueueWarnSize = clampInt(options.rconQueueWarnSize ?? 20, 1, 10000, 20);
+  // 配信中に保存したら再起動なしで効く値（つなぎ方以外の options 全部。2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 8）。
+  // 式は live_config.cjs の1か所。起動のときと設定の再読込（reloadDynamicConfig）の両方で applyLiveOptions を通す。
+  // 既定値はアプリの初期設定（electron/paths.cjs）・運用センターの表示と同じ（1ギフトのコマンドの上限は 200）。
+  let giftCooldownMs, maxCommandsPerGift, maxLikeCatchUpPerEvent, rconQueueWarnSize, likeBatchWindowMs, streakTtlMs, logUnknownGifts, isMutedUser, ttsNgWords,
+    ANNOUNCE_FUNCTION, ANNOUNCE_STORAGE, announceEveryRepeat, announceEnabled, gameplayConfig;
+  // 配信の FeatureEngine（作ったあとに入る）。ゲームの設定は作り直さず config を入れ替え、いいねの累計・連打・上位者を保つ。
+  let liveFeatureEngine = null;
+  // muteMatcher は再読込が先に作っておいたもの（作るときの失敗で半分だけ入れ替わらないように）。
+  function applyLiveOptions(values, muteMatcher = createMuteMatcher(values.mutedUsers)) {
+    ({ giftCooldownMs, maxCommandsPerGift, maxLikeCatchUpPerEvent, rconQueueWarnSize, likeBatchWindowMs, streakTtlMs, logUnknownGifts, ttsNgWords,
+      announceEveryRepeat, announceEnabled } = values);
+    ANNOUNCE_FUNCTION = values.announceFunction;
+    ANNOUNCE_STORAGE = values.announceStorage;
+    isMutedUser = muteMatcher;
+    runtimeProtection = values.protection;
+    gameplayConfig = values.gameplay;
+    if (liveFeatureEngine) {
+      const pollWasEnabled = liveFeatureEngine.config?.poll?.enabled === true;
+      liveFeatureEngine.config = gameplayConfig;
+      // 投票は起動のときに始める。配信中に投票を有効にして保存したら、その場で始める（PR2 の最終レビュー）。
+      if (!pollWasEnabled && !liveFeatureEngine.poll) liveFeatureEngine.startPoll();
+    }
+  }
+  applyLiveOptions(liveOptions(options));
+  // つなぎ方（TikTok ID・送り方・BridgeMOD・RCON・コマンドの場所）は起動したときの値のまま動く。再読込で違えば、再起動を案内する。
+  const startedConfig = config;
+  updateRuntimeStatus({ pendingRestart: [] });
   const commandTransport = String(options.commandTransport || "rcon").toLowerCase().trim();
   const useBridgeModTransport = targetType === "minecraft" && isBridgeModTransport(commandTransport);
   const bridgeModHost = String(options.bridgeModHost || options.doumaModHost || "127.0.0.1").trim();
   const bridgeModPort = Number(options.bridgeModPort || options.doumaModPort || 25576);
-  const logUnknownGifts = !!options.logUnknownGifts;
-  const isMutedUser = createMuteMatcher(options.mutedUsers);
-  const ttsNgWords = (Array.isArray(options.ttsNgWords) ? options.ttsNgWords : [])
-    .map(v => String(v).trim()).filter(Boolean);
   // log はテスト発火のとき行頭に [Test] を付けるためのもの（2026-10-16）。
   const isMuted = (data, log = console.log) => {
     // 表示名は整えた形（' → ’ など）になるので、生の uniqueId・名前も候補に入れる（設定は生の名前でも整えた名前でもよい）。
@@ -1052,12 +1070,6 @@ async function main() {
     if (blocked) log(`[Safety] muted user event ignored: ${sender}`);
     return blocked;
   };
-
-  // [ADD] announce settings
-  const ANNOUNCE_FUNCTION = String(options.announceFunction || "gift_stream:_announce").trim();
-const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge").trim();
-  const announceEveryRepeat = options.announceEveryRepeat !== false; // default true
-  const announceEnabled = options.announceEnabled !== false; // default true
 
   const commandsDirName = String(options.commandsDir || "commands");
   const commandsDirAbs = path.resolve(__dirname, commandsDirName);
@@ -1162,7 +1174,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   }
 
   // --- コンフィグ ホットリロード ---
-  function reloadDynamicConfig(log = console.log) {
+  // log・warn はテスト発火の読み直しのとき行頭に [Test] を付けるためのもの（2026-10-18）。
+  function reloadDynamicConfig(log = console.log, warn = console.warn) {
     try {
       const newCfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
       // 起動時と同じ検証を通す。壊れた設定では切り替えず、今の設定で動かし続ける。
@@ -1173,6 +1186,23 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
         console.error("[Bridge] Config reload skipped: 設定にエラーがあるため、直前の設定のまま動作します");
         return;
       }
+      // 新しい値を先に全部作る。途中で失敗したら（手で書き換えた設定など）、何も入れ替えずに前の設定のまま動く（2026-10-18）。
+      const nextMappings = new Map();
+      for (const m of (Array.isArray(newCfg.mappings) ? newCfg.mappings : [])) {
+        const gid = String(m.giftId ?? "").trim();
+        if (!gid) continue;
+        nextMappings.set(gid, {
+          giftId: gid,
+          name: String(m.name ?? "").trim() || `gift:${gid}`,
+          commandFile: ensureTxt(String(m.commandFile ?? "").trim()),
+          repeat: clampInt(m.repeat ?? 1, 1, 100, 1),
+        });
+      }
+      // つなぎ方以外の options はすぐ効かせる。つなぎ方は起動したときの値のまま動き、違えば再起動を案内する。
+      const nextLive = liveOptions(newCfg.options);
+      const nextMute = createMuteMatcher(nextLive.mutedUsers);
+      const pendingRestart = restartRequired(startedConfig, newCfg, __dirname);
+      // ここから入れ替える。
       likeEvents        = Array.isArray(newCfg.likeEvents) ? newCfg.likeEvents : [];
       shareEvent        = newCfg.shareEvent        ?? null;
       followEvent       = newCfg.followEvent       ?? null;
@@ -1181,19 +1211,11 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       rouletteCfg       = newCfg.roulette          ?? null;
       deathRouletteCfg  = newCfg.deathRoulette     ?? null;
       commentGiftsCfg   = newCfg.commentGifts      ?? null;
-      // mappings も再構築
-      const newMappings = Array.isArray(newCfg.mappings) ? newCfg.mappings : [];
       mappingById.clear();
-      for (const m of newMappings) {
-        const gid = String(m.giftId ?? "").trim();
-        if (!gid) continue;
-        mappingById.set(gid, {
-          giftId: gid,
-          name: String(m.name ?? "").trim() || `gift:${gid}`,
-          commandFile: ensureTxt(String(m.commandFile ?? "").trim()),
-          repeat: clampInt(m.repeat ?? 1, 1, 100, 1),
-        });
-      }
+      for (const [gid, mapping] of nextMappings) mappingById.set(gid, mapping);
+      applyLiveOptions(nextLive, nextMute);
+      if (pendingRestart.length) warn(`[Config] BRIDGE を再起動すると反映されます: ${pendingRestart.join("・")}`);
+      updateRuntimeStatus({ pendingRestart });
       log(`[Bridge] Config reloaded — likeEvents:${likeEvents.length} mappings:${mappingById.size}`);
     } catch (e) {
       console.log("[Bridge] Config reload error:", e?.message);
@@ -1311,7 +1333,6 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   let tiktokReconnectTimer = null;
   const lastExecAt = new Map(); // cooldown (giftId+sender)
   const streakLastCount = new Map(); // key: giftId:sender -> { count, at }
-  const STREAK_TTL_MS = clampInt(options.streakTtlMs ?? 60000, 5000, 600000, 60000);
 
   // 長時間配信でMapが無限に膨らむのを防ぐ定期クリーンアップ（5分より古い痕跡を掃除）
   const stateCleanupTimer = setInterval(() => {
@@ -1490,7 +1511,8 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     sendExtras: (extras, sender) => { sendBridgeExec(bridgeMod, extras, sender).catch(() => {}); },
     rejected: (event, error) => recordDeliveryRejection(event, error),
   };
-  const featureEngine = new FeatureEngine(options.gameplay || {}, feature => emitFeature(liveContext, feature));
+  const featureEngine = new FeatureEngine(gameplayConfig, feature => emitFeature(liveContext, feature));
+  liveFeatureEngine = featureEngine; // 再読込はこの config を入れ替える（applyLiveOptions）。
   liveContext.featureEngine = featureEngine;
 
   function emitFeature(ctx, feature) {
@@ -1677,7 +1699,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       if (enabledCommand(unmappedGiftEvent)) {
         const rc = Number(data.repeatCount);
         const delta = Number.isFinite(rc) && rc > 0
-          ? computeStreakDelta(ctx.streakLastCount, 'unmapped:' + giftId + ':' + getSenderIdentity(data), rc, data.repeatEnd, Date.now(), STREAK_TTL_MS)
+          ? computeStreakDelta(ctx.streakLastCount, 'unmapped:' + giftId + ':' + getSenderIdentity(data), rc, data.repeatEnd, Date.now(), streakTtlMs)
           : 1;
         if (delta <= 0) return;
         const unmappedRepeat = delta * clampInt(unmappedGiftEvent.repeat ?? 1, 1, 100, 1);
@@ -1765,7 +1787,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
     // streakは「増えた分(delta)」だけ反応（詳細は computeStreakDelta のコメント参照）
     const delta = isStreak
-      ? computeStreakDelta(ctx.streakLastCount, `${giftId}:${getSenderIdentity(data)}`, rcNum, data.repeatEnd, now, STREAK_TTL_MS)
+      ? computeStreakDelta(ctx.streakLastCount, `${giftId}:${getSenderIdentity(data)}`, rcNum, data.repeatEnd, now, streakTtlMs)
       : 1;
 
     let times = delta * baseRepeat;
@@ -1952,9 +1974,9 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
 
   // BridgeModモードのいいねはミニバッチ化：短時間の連続発火を1イベントに圧縮して
   // HTTP送信とMod側キューの消費を抑える（ギフトを圧迫させない）
-  const LIKE_BATCH_MS = clampInt(options.likeBatchWindowMs ?? 1200, 100, 10000, 1200);
+  // まとめる時間は配信中に保存したらすぐ効く（次のまとまりから。2026-10-18）。
   const queueLikeEventBatched = createLikeBatcher({
-    windowMs: LIKE_BATCH_MS, schedule: setTimeout, prepare: prepareGameEvent,
+    windowMs: () => likeBatchWindowMs, schedule: setTimeout, prepare: prepareGameEvent,
     dispatch: event => dispatchBridgeEvent(liveContext, "like:" + event.commandFile, event),
     failed: recordDeliveryRejection,
   });
@@ -2234,11 +2256,6 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   const TEST_FIRE_WAIT_MS = clampInt(process.env.BRIDGE_TEST_FIRE_WAIT_MS ?? 10000, 100, 60000, 10000);
   // テスト発火のログは、行頭に [Test] を付けて本番の行と見分ける。
   const testLog = (...args) => console.log("[Test]", ...args);
-  // options を比べるときはキーを並べてから比べる。運用ページの保存でキーの並びが変わっても注意しない（最後のレビュー Minor #10）。
-  const stableJson = value => JSON.stringify(value, (_key, item) => (item && typeof item === "object" && !Array.isArray(item)
-    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item));
-  const startupOptions = stableJson(options);
-  const OPTIONS_CHANGED_NOTE = "設定のうち、ミュート・アナウンス・コンボ・マイルストーン・投票などは、BRIDGE を起動し直すまで本番にもテストにも反映されません。いまの BRIDGE の設定で試しました。";
 
   function createTestContext(run) {
     let flushLikes = null;
@@ -2259,9 +2276,9 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
       // まとめ送りは待たずに、処理を通し終えたらすぐ送る（まとめ方は本番と同じ）。
       flushLikes: () => { const flush = flushLikes; flushLikes = null; if (flush) flush(); },
     };
-    ctx.featureEngine = new FeatureEngine(options.gameplay || {}, feature => emitFeature(ctx, feature));
+    ctx.featureEngine = new FeatureEngine(gameplayConfig, feature => emitFeature(ctx, feature));
     ctx.queueLike = createLikeBatcher({
-      windowMs: LIKE_BATCH_MS, schedule: flush => { flushLikes = flush; return flush; },
+      windowMs: () => likeBatchWindowMs, schedule: flush => { flushLikes = flush; return flush; },
       prepare: run.preview ? (event => event) : prepareGameEvent,
       dispatch: event => dispatchBridgeEvent(ctx, "like:" + event.commandFile, event),
       failed: ctx.rejected,
@@ -2306,7 +2323,7 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
   async function runTestEvent(input) {
     if (!bridgeMod) throw new Error("テスト発火は、Minecraft を BridgeMOD で動かしているときだけ使えます。");
     // 保存した直後でも、新しいイベント設定・割り当てで試す（自動の読み直しと同じ確かめを通す）。
-    reloadDynamicConfig(testLog);
+    reloadDynamicConfig(testLog, testLog);
     const { sender, actions, notes } = testEventActions(input, { mappedGiftIds: new Set(mappingById.keys()) });
     const run = createTestRun({ preview: input.preview === true });
     const name = getStableSender({ nickname: sender });
@@ -2316,7 +2333,9 @@ const ANNOUNCE_STORAGE = String(options.announceStorage || "gift_stream:bridge")
     }
     for (const note of notes) run.notice(note);
     try {
-      if (stableJson(JSON.parse(fs.readFileSync(configPath, "utf8")).options || {}) !== startupOptions) run.notice(OPTIONS_CHANGED_NOTE);
+      // つなぎ方（TikTok ID など）は BRIDGE を起動し直すまで本番にもテストにも反映されない。ほかの options は上の読み直しですぐ効く（2026-10-18）。
+      const pending = restartRequired(startedConfig, JSON.parse(fs.readFileSync(configPath, "utf8")), __dirname);
+      if (pending.length) run.notice(`${pending.join("・")}は、BRIDGE を起動し直すまで本番にもテストにも反映されません。`);
     } catch { /* 読めなければ注意を出さない（読み直しのエラーはログに出ている） */ }
     const ctx = createTestContext(run);
     for (const action of actions) await runTestAction(ctx, action);

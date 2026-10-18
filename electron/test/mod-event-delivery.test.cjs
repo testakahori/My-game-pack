@@ -90,6 +90,22 @@ test('いいねのまとめ送りで1件が例外を出しても、残りは送�
   assert.deepEqual(failed, [['bad.txt', 'boom']]);
 });
 
+// 配信中に「いいねをまとめる時間」を保存したら、次のまとまりから効く（2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 8）。
+test('いいねのまとめ: windowMs が関数なら、まとまりを始めるたびに読む（途中のまとまりは落とさず、次から新しい時間）', () => {
+  let current = 100;
+  const waits = [], flushes = [], sent = [];
+  const batch = createLikeBatcher({ windowMs: () => current, schedule: (fn, ms) => { flushes.push(fn); waits.push(ms); return 1; },
+    dispatch: event => sent.push(event.count) });
+  batch('cod.txt', 10, 'A', true);
+  current = 3000;
+  batch('cod.txt', 5, 'A', true);
+  flushes.shift()();
+  assert.deepEqual(sent, [15], '途中で時間が変わっても、まとまりは落とさない');
+  batch('cod.txt', 7, 'A', true);
+  flushes.shift()();
+  assert.deepEqual([waits, sent], [[100, 3000], [15, 7]]);
+});
+
 test('いいねのまとめ送りは回数・送信者・コマンド順序を維持する', () => {
   let flush;
   const sent = [];
