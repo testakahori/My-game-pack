@@ -15,7 +15,7 @@ const waitChildExit = (child, ms) => new Promise(resolve => {
   child.once('exit', () => { clearTimeout(timer); resolve(true); });
 });
 
-function setup(t) {
+function setup(t, { ensureNodeRuntimeAvailable = async () => {} } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-process-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const bridge = path.join(root, 'bridge'), server = path.join(root, 'server');
@@ -36,7 +36,7 @@ function setup(t) {
     eulerCredentials: { runtime: () => ({ env: { FIXTURE: '1' }, revision: 7 }), status: (revision, running) => ({ revision, running }), save() {}, clear() {} },
     getBridgeBatDir: () => bridge, getServerRoot: () => server, getConfigPath: () => path.join(bridge, 'config.minecraft.json'),
     getNodeCommand: () => 'node-fixture', getGvToolPath: name => path.join(root, name),
-    getBridgeEntryPoint: dir => path.join(dir, 'index.js'), ensureNodeRuntimeAvailable: async () => {},
+    getBridgeEntryPoint: dir => path.join(dir, 'index.js'), ensureNodeRuntimeAvailable,
     assertGameProfileIdle: () => {}, selectableCommandNames: () => [], gameProfiles: { list: () => ({ applied: true, recoveryRequired: false, active: 'common' }) },
     waitChildExit, assertMapIdle: () => {},
   });
@@ -70,4 +70,40 @@ test('BRIDGE の自動再起動: 落ちて再起動を待つ間も isActive() �
   await x.invoke('bridge:stop', 'home:stop');
   assert.equal(x.bridgeProcess.isActive(), false);
   assert.equal(x.spawned.length, 1, '止めたので再起動しない');
+});
+
+// 自動再起動の待ちの間に「起動」「一括起動」を押すと、待ちが終わったときにもう1つ起動して BRIDGE が2つ動いていた（ギフトが2回動く。PR5 の最終レビューで見つけた）。
+test('BRIDGE の起動: 落ちて自動再起動を待つ間に起動したら、待ちを取りやめて今すぐ1つだけ起動する（待ちが過ぎても2つ目を起動しない）', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const x = setup(t);
+  await x.invoke('bridge:launch');
+  x.children[0].exitCode = 1;
+  x.children[0].emit('exit', 1);
+  assert.equal(x.bridgeProcess.isActive(), true, '再起動を待っている');
+  assert.equal((await x.invoke('bridge:launch')).pid, 40001, '今すぐ起動した');
+  t.mock.timers.tick(60000);
+  assert.equal(x.spawned.length, 2, '待ちが過ぎても、もう1つは起動しない');
+  assert.equal(x.bridgeProcess.child(), x.children[1]);
+  await x.invoke('bridge:stop', 'home:stop');
+  t.mock.timers.tick(60000);
+  assert.equal(x.bridgeProcess.isActive(), false);
+  assert.equal(x.spawned.length, 2, '止めたあとも起動しない');
+});
+
+test('BRIDGE の起動: 起動の準備（同梱 node の確かめ）の間に自動再起動が先に動いたら、起動はそれを使い、2つ目を起動しない', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let preparing = null;
+  const x = setup(t, { ensureNodeRuntimeAvailable: () => (preparing ? preparing.promise : Promise.resolve()) });
+  await x.invoke('bridge:launch');
+  x.children[0].exitCode = 1;
+  x.children[0].emit('exit', 1);
+  preparing = Promise.withResolvers();
+  const launching = x.invoke('bridge:launch');
+  t.mock.timers.tick(60000);
+  assert.equal(x.spawned.length, 2, '自動再起動が先に起動した');
+  preparing.resolve();
+  assert.equal((await launching).pid, 40001, '起動は自動再起動の BRIDGE を返す');
+  assert.equal(x.spawned.length, 2);
+  assert.equal(x.bridgeProcess.child(), x.children[1]);
+  await x.invoke('bridge:stop', 'home:stop');
 });
