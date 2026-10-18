@@ -18,7 +18,8 @@ test('本番の TikTok のイベントは、liveContext を渡して同じ処理
   }
   assert.match(source, /handleLikeProgress\(liveContext, data, progress\);/);
   assert.match(source, /onBridgeModWsMessage = \(status\) => handleDeath\(liveContext, status\);/);
-  assert.match(source, /const featureEngine = new FeatureEngine\(options\.gameplay \|\| \{\}, feature => emitFeature\(liveContext, feature\)\);/);
+  // ゲームの設定は配信中に保存したらすぐ効く値（gameplayConfig）を渡す（2026-10-18 処理のコピー PR2）。
+  assert.match(source, /const featureEngine = new FeatureEngine\(gameplayConfig, feature => emitFeature\(liveContext, feature\)\);/);
   assert.match(source, /dispatch: event => dispatchBridgeEvent\(liveContext, "like:" \+ event\.commandFile, event\),/);
 });
 
