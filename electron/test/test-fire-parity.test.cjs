@@ -293,7 +293,9 @@ test('結果を返す ipc の失敗はログに出し、音・粒子の送信も
   assert.match(source, /run\.track\(sendBridgeExec\(bridgeMod, extras, sender\)\.catch\(error => run\.notice\(`音・粒子を送れませんでした: \$\{error\?\.message \|\| error\}`\)\)\);/);
 });
 
-test('設定: 保存した直後でも新しいイベント設定で試す。起動時と違う options は注意を出し、起動時の値で試す', async t => {
+// options は配信中に保存したらすぐ効く（2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 8）。
+// 前は「起動し直すまで反映されません」と注意して起動時の値で試していた。つなぎ方（TikTok ID など）だけは今も起動し直すまで反映されない。
+test('設定: 保存した直後でも新しいイベント設定と options で試す。つなぎ方を変えたときだけ起動し直すよう注意する', async t => {
   const bridge = await startBridgeFixture(t, {
     commands: { qa: 'say qa\n', fresh: 'say fresh\n' },
     config: { shareEvent: { enabled: true, commandFile: 'qa.txt' } },
@@ -304,12 +306,16 @@ test('設定: 保存した直後でも新しいイベント設定で試す。起
   fs.writeFileSync(file, JSON.stringify(cfg));
   const fresh = await bridge.testEvent({ type: 'share' });
   assert.deepEqual(events(bridge).map(x => x.key), ['fresh']);
-  assert.ok(!fresh.notes.some(note => note.includes('起動し直す')), 'options を変えていなければ注意しない');
+  assert.ok(!fresh.notes.some(note => note.includes('起動し直す')), 'つなぎ方を変えていなければ注意しない');
   cfg.options.announceEnabled = false;
   fs.writeFileSync(file, JSON.stringify(cfg));
   const changed = await bridge.testEvent({ type: 'share' });
-  assert.ok(changed.notes.some(note => note.includes('BRIDGE を起動し直すまで')), changed.notes.join(' / '));
-  assert.equal(events(bridge).at(-1).announce, true, 'いまの BRIDGE の設定（起動時のアナウンスあり）で試す');
+  assert.ok(!changed.notes.some(note => note.includes('起動し直す')), 'すぐ効く options では注意しない: ' + changed.notes.join(' / '));
+  assert.equal(events(bridge).at(-1).announce, false, '保存したアナウンスなしで試す（本番も同じくすぐ効く）');
+  cfg.tiktokUsername = 'other';
+  fs.writeFileSync(file, JSON.stringify(cfg));
+  const reconnect = await bridge.testEvent({ type: 'share' });
+  assert.ok(reconnect.notes.some(note => note.includes('TikTok IDは、BRIDGE を起動し直すまで')), reconnect.notes.join(' / '));
 });
 
 test('死亡と投票: デスルーレットは「N回ごと」で回し、投票はその番号を当選させる。条件に届かなければ理由を書く', async t => {

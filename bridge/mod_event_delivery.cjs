@@ -140,7 +140,8 @@ function createLikeBatcher({ dispatch, windowMs, schedule = setTimeout, prepare 
         try { dispatch(event); }
         catch (error) { try { failed(event, error); } catch { /* Recording failure must not stop the batch. */ } }
       }
-    }, windowMs);
+      // windowMs は数か、まとまりを始めるたびに呼ぶ関数（配信中に保存したまとめる時間を、次のまとまりから効かせる。2026-10-18）。
+    }, typeof windowMs === "function" ? windowMs() : windowMs);
   };
   // まとめ送りを待っている分を捨て、捨てた回数を返す（配信が終わったときのいいね）。
   batch.discard = () => {

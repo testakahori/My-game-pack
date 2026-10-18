@@ -5,12 +5,13 @@ const assert = require('node:assert/strict');
 const { liveOptions, restartRequired } = require('../../bridge/live_config.cjs');
 
 test('すぐ効かせる値: 今の BRIDGE と同じ式で作る（既定値と範囲の丸め）', () => {
-  assert.deepEqual(liveOptions({}), { giftCooldownMs: 300, maxCommandsPerGift: 200, maxLikeCatchUpPerEvent: 5, rconQueueWarnSize: 20, likeBatchWindowMs: 1200,
+  assert.deepEqual(liveOptions({}), { giftCooldownMs: 300, maxCommandsPerGift: 200, maxLikeCatchUpPerEvent: 5, rconQueueWarnSize: 20, likeBatchWindowMs: 1200, streakTtlMs: 60000,
     logUnknownGifts: false, mutedUsers: [], ttsNgWords: [], announceFunction: 'gift_stream:_announce', announceStorage: 'gift_stream:bridge',
     announceEveryRepeat: true, announceEnabled: true, protection: { enabled: false }, gameplay: {} });
   const v = liveOptions({ maxLikeCatchUpPerEvent: 500, likeBatchWindowMs: 50, ttsNgWords: [' a ', '', 3], mutedUsers: ['troll'], announceEnabled: false, gameplay: { timedMode: { multiplier: 2 } } });
   assert.deepEqual([v.maxLikeCatchUpPerEvent, v.likeBatchWindowMs, v.ttsNgWords, v.mutedUsers, v.announceEnabled, v.gameplay.timedMode.multiplier], [100, 100, ['a', '3'], ['troll'], false, 2]);
   assert.deepEqual(liveOptions(undefined), liveOptions({}), 'options がない設定でも既定値');
+  assert.deepEqual([liveOptions({ streakTtlMs: 1 }).streakTtlMs, liveOptions({ streakTtlMs: 9e9 }).streakTtlMs], [5000, 600000], '連打の区切りの時間も今の範囲に丸める');
 });
 
 test('つなぎ方: 違うものの名前だけを決まった順で返す。つなぎ方以外の違いは数えない', () => {

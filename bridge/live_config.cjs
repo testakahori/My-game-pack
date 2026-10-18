@@ -14,6 +14,7 @@ function liveOptions(options) {
     maxLikeCatchUpPerEvent: boundedInt(o.maxLikeCatchUpPerEvent ?? 5, 1, 100, 5),
     rconQueueWarnSize: boundedInt(o.rconQueueWarnSize ?? 20, 1, 10000, 20),
     likeBatchWindowMs: boundedInt(o.likeBatchWindowMs ?? 1200, 100, 10000, 1200),
+    streakTtlMs: boundedInt(o.streakTtlMs ?? 60000, 5000, 600000, 60000),
     logUnknownGifts: !!o.logUnknownGifts,
     mutedUsers: Array.isArray(o.mutedUsers) ? o.mutedUsers : [],
     ttsNgWords: (Array.isArray(o.ttsNgWords) ? o.ttsNgWords : []).map(value => String(value).trim()).filter(Boolean),
