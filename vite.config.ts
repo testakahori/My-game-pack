@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { defineConfig, type Plugin } from "vite";
@@ -131,13 +132,14 @@ function ttsDevHelperPlugin(): Plugin {
           return;
         }
         const files = fs.readdirSync(dir).filter((file) => file.endsWith(".txt")).sort();
+        // 見出しの読み方はアプリ・BRIDGE と同じ bridge/command_text.cjs（2026-10-18）。
+        const { parseCommandText } = createRequire(import.meta.url)("./bridge/command_text.cjs");
         const commands = files.map((name) => {
           let title = name, category = "";
           try {
-            const content = fs.readFileSync(path.join(dir, name), "utf-8");
-            const match = content.match(/^#\s*TITLE:\s*(.+)$/m);
-            if (match) title = match[1].trim();
-            category = content.match(/^#\s*CATEGORY:\s*(.+)$/m)?.[1].trim() || "";
+            const { meta } = parseCommandText(fs.readFileSync(path.join(dir, name), "utf-8"));
+            title = meta.TITLE || name;
+            category = meta.CATEGORY || "";
           } catch {}
           return { name, title, category };
         });

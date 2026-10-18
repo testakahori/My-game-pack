@@ -33,6 +33,7 @@ const { validateBridgeConfig } = require("./config_schema");
 const { prepareRoulette, createRouletteRunner, rouletteSpins } = require("./roulette.cjs");
 const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require("./mod_event_delivery.cjs");
 const { commandFileProblem } = require("./command_files.cjs");
+const { parseCommandText } = require("./command_text.cjs");
 const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("./bridge_mod_token.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require("./feature_engine");
 const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes } = require("./event_rules.cjs");
@@ -454,34 +455,9 @@ function telnetSafeText(s, maxLen = 60) {
   return v;
 }
 
-// コマンドtxt：メタ(# KEY: value) + コマンド行を分離
+// コマンドtxt：メタ(# KEY: value) + コマンド行を分離。読み方は command_text.cjs の1か所（アプリ・BridgeMOD と同じ決まり。2026-10-18）。
 function parseCommandFile(text) {
-  const meta = {};
-  const commands = [];
-
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
-
-  for (let raw of lines) {
-    const line = String(raw).trim();
-    if (!line) continue;
-
-    // メタ行: # TITLE: xxx
-    if (line.startsWith("#")) {
-      const m = line.match(/^#\s*([A-Z_]+)\s*:\s*(.+)\s*$/i);
-      if (m) {
-        const key = String(m[1]).toUpperCase();
-        const val = String(m[2]).trim();
-        meta[key] = val;
-      }
-      continue; // # 行はコマンドとしては実行しない
-    }
-
-    // // コメントも無視
-    if (line.startsWith("//")) continue;
-
-    commands.push(line);
-  }
-
+  const { meta, commands } = parseCommandText(text);
   return { meta, commands };
 }
 

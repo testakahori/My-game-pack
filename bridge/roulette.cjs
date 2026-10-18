@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { parseCommandText } = require("./command_text.cjs");
 
 function cleanText(value, length) {
   return Array.from(String(value ?? "").replace(/[\r\n\t]/g, " ").replace(/[\u0000-\u001f\u007f]/g, "")).slice(0, length).join("");
@@ -21,7 +22,8 @@ function prepareRoulette(config, commandsDir, random = Math.random) {
     if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return [];
     const commandFile = path.basename(file);
     if (/^roulette\.txt$/i.test(commandFile)) return [];
-    const description = fs.readFileSync(file, "utf8").match(/^\/\/\s*(.+)$/m)?.[1]?.trim() || "";
+    // 説明文の読み方は command_text.cjs の1か所（アプリの一覧と同じ。2026-10-18）。
+    const description = parseCommandText(fs.readFileSync(file, "utf8")).description;
     return [{
       commandFile,
       label: cleanText(String(item.label || "").trim() || commandFile.replace(/\.txt$/i, ""), 24),

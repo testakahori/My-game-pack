@@ -60,6 +60,18 @@ test('コマンド txt: 選んでいるゲームのコマンドだけを出し�
   assert.equal(x.invoke('bridge:commands:readMeta').find(row => row.name === 'my_cmd.txt').title, '自作');
 });
 
+// 題名はルーレットの項目名・ギフト画像にそのまま使われる。空の # TITLE: で次の行を拾うと、配信画面に「# CATEGORY: 妨害」と出ていた（2026-10-18）。
+test('コマンドの一覧: 空の # TITLE: は次の行を拾わずファイル名に戻り、BOM 付き・小文字のキーの題名と説明も読む', t => {
+  const x = setup(t);
+  const commands = path.join(x.bridge, 'commands', 'minecraft');
+  fs.writeFileSync(path.join(commands, 'empty_title.txt'), '# TITLE:\n# CATEGORY: 妨害\nsay hi\n');
+  fs.writeFileSync(path.join(commands, 'bom_title.txt'), '﻿# title: ねこ\n//\n// 説明\nsummon cat\n');
+  const rows = x.invoke('bridge:commands:readMeta');
+  const row = name => rows.find(item => item.name === name);
+  assert.deepEqual([row('empty_title.txt').title, row('empty_title.txt').category], ['empty_title.txt', '妨害']);
+  assert.deepEqual([row('bom_title.txt').title, row('bom_title.txt').description], ['ねこ', '説明']);
+});
+
 test('配信前チェック: BRIDGE の稼働・BridgeMOD の応答・読み上げは main から受け取った関数で見る。同時に押しても1回だけ調べる', async t => {
   const x = setup(t);
   const first = x.invoke('preflight:run'), second = x.invoke('preflight:run');
