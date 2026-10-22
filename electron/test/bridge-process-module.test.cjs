@@ -74,7 +74,12 @@ test('BRIDGE の起動: 起動する前に保存済みの設定の直しを呼�
 test('BRIDGE の状態: 動いている間は runtime-status.json の pendingRestart（再起動で反映される設定）を返し、止まっていれば空', async t => {
   const x = setup(t);
   await x.invoke('bridge:launch');
-  fs.writeFileSync(path.join(x.bridge, 'runtime-status.json'), JSON.stringify({ pendingRestart: ['TikTok ID'] }));
+  const file = path.join(x.bridge, 'runtime-status.json');
+  fs.writeFileSync(file, JSON.stringify({ pendingRestart: ['TikTok ID'] }));
+  // Linux はファイルの時刻を粗い時計で記録するので、起動の直後に書いても起動の時刻（Date.now()）より前になることがある
+  // （ubuntu の CI でだけ落ちた。PR3）。本物の BRIDGE は起動のずっとあとに書くので、ここでは起動のあとの時刻をはっきり付ける。
+  const later = new Date(Date.now() + 1000);
+  fs.utimesSync(file, later, later);
   assert.deepEqual(x.invoke('bridge:processStatus').pendingRestart, ['TikTok ID']);
   await x.invoke('bridge:stop', 'home:stop');
   assert.deepEqual(x.invoke('bridge:processStatus').pendingRestart, []);
