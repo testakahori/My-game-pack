@@ -5,6 +5,8 @@ import SettingsBackupsPanel from "./SettingsBackupsPanel";
 import ListInput from "./ListInput";
 import { COMMA_ONLY, hasJapaneseComma } from "../lib/listInput";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
+// 既定値は BRIDGE と同じ表（bridge/config_defaults.json。処理のコピー PR4）。
+import CONFIG_DEFAULTS from "../../bridge/config_defaults.json";
 
 type ModStatus = {
   online: boolean;
@@ -396,16 +398,16 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
             <div className="ops-stability-fields">
               <div className="ops-two-cols">
                 <FieldLabel label="ギフト間隔(ms)">
-                  <input type="number" value={o.giftCooldownMs ?? 300} onChange={(event) => setOption("giftCooldownMs", Number(event.target.value) || 0)} />
+                  <input type="number" value={o.giftCooldownMs ?? CONFIG_DEFAULTS.options.giftCooldownMs}onChange={(event) => setOption("giftCooldownMs", Number(event.target.value) || 0)} />
                 </FieldLabel>
                 <FieldLabel label="いいねバッチ(ms)">
-                  <input type="number" value={o.likeBatchWindowMs ?? o.likeBatchMs ?? 1200} onChange={(event) => setOption("likeBatchWindowMs", Number(event.target.value) || 0)} />
+                  <input type="number" value={o.likeBatchWindowMs ?? CONFIG_DEFAULTS.options.likeBatchWindowMs}onChange={(event) => setOption("likeBatchWindowMs", Number(event.target.value) || 0)} />
                 </FieldLabel>
                 <FieldLabel label="いいね追いつき上限">
-                  <input type="number" value={o.maxLikeCatchUpPerEvent ?? o.likeCatchupLimit ?? 5} onChange={(event) => setOption("maxLikeCatchUpPerEvent", Number(event.target.value) || 0)} />
+                  <input type="number" value={o.maxLikeCatchUpPerEvent ?? CONFIG_DEFAULTS.options.maxLikeCatchUpPerEvent}onChange={(event) => setOption("maxLikeCatchUpPerEvent", Number(event.target.value) || 0)} />
                 </FieldLabel>
                 <FieldLabel label="個別最大コマンド数">
-                  <input type="number" value={o.maxCommandsPerGift ?? 200} onChange={(event) => setOption("maxCommandsPerGift", Number(event.target.value) || 0)} />
+                  <input type="number" value={o.maxCommandsPerGift ?? CONFIG_DEFAULTS.options.maxCommandsPerGift}onChange={(event) => setOption("maxCommandsPerGift", Number(event.target.value) || 0)} />
                   <small className="mt-1 block text-[11px] leading-relaxed text-slate-400">Minecraft（BridgeMOD）では使いません。RCON・Telnet で送るゲームの、1回あたりのコマンド数の上限です。</small>
                 </FieldLabel>
               </div>

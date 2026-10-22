@@ -62,3 +62,17 @@ test('既定値の写し: アプリは雛形・コマンドの場所・BridgeMOD
   assert.match(read('electron/paths.cjs'), /newBridgeConfig\(\)/);
   assert.match(read('scripts/prepare-bridge-runtime.cjs'), /newBridgeConfig\(\)/);
 });
+
+// 画面は決まりを持たず、データは bridge/ の JSON から読む（設計書 3）。古い名前（likeBatchMs・likeCatchupLimit）は BRIDGE が読んでいない。
+test('画面: 運用センター・配信ホームは既定値を config_defaults.json から読み、古い名前と既定値の写しを持たない', () => {
+  const read = file => fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
+  for (const file of ['src/components/OperationsPage.tsx', 'src/components/DashboardPage.tsx']) {
+    const source = read(file);
+    assert.match(source, /import CONFIG_DEFAULTS from "\.\.\/\.\.\/bridge\/config_defaults\.json";/, file);
+    assert.doesNotMatch(source, /likeBatchMs|likeCatchupLimit/, file);
+    // 引用符で終わる値のあとは語の境目にならないので、数・true と分けて探す。
+    assert.doesNotMatch(source, /(\|\||\?\?)\s*("127\.0\.0\.1"|"commands\/minecraft"|(300|200|1200|5|25575|true)\b)/, file);
+  }
+  assert.doesNotMatch(read('src/components/DashboardPage.tsx'), /commandsDir:/, '保存のたびに main が上書きするので書かない');
+  assert.doesNotMatch(read('src/lib/devApiMock.ts'), /likeBatchMs|likeCatchupLimit/);
+});

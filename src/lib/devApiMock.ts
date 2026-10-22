@@ -36,8 +36,8 @@ if (import.meta.env.DEV && !win.mygamepack) {
     memberEvent: { commandFile: "villager.txt", repeat: 1, enabled: true },
     options: {
       giftCooldownMs: 300,
-      likeBatchMs: 1200,
-      likeCatchupLimit: 5,
+      likeBatchWindowMs: 1200,
+      maxLikeCatchUpPerEvent: 5,
       maxCommandsPerGift: 200,
       gameplay: { combo: { windowMs: 10000, levels: [] } },
     },
