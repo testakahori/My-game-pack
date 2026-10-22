@@ -36,13 +36,24 @@ test('BridgeMOD の接続先: 前後の空白を除き、旧い doumaMod* も読
   assert.deepEqual(bridgeModEndpoint({ doumaModHost: 'mod.local', doumaModPort: 25601 }), { host: 'mod.local', port: 25601 });
   assert.deepEqual(bridgeModEndpoint({ bridgeModHost: '  ', doumaModHost: ' old ' }), { host: 'old', port: 25576 });
   assert.deepEqual(bridgeModEndpoint({ bridgeModHost: 'new', doumaModHost: 'old', bridgeModPort: 1, doumaModPort: 2 }), { host: 'new', port: 1 }, '新しい名前が先');
+  // 手で書いた文字列でないホストは、書いていないものとして次の名前か既定へ（"false"・"[object Object]" に接続しない。PR4 の最終レビュー）。
+  assert.deepEqual(bridgeModEndpoint({ bridgeModHost: false, doumaModHost: 0 }), { host: '127.0.0.1', port: 25576 });
+  assert.deepEqual(bridgeModEndpoint({ bridgeModHost: {}, doumaModHost: ' old ' }), { host: 'old', port: 25576 });
+});
+
+// 設計書 11：BridgeMOD がコマンドを探す既定の場所（Java）は、JavaScript の既定と同じであること（PR4 の最終レビュー）。
+test('コマンドの場所: BridgeMOD（BridgeMod.java）が探す既定の bridge/<場所> は、表の commandsDir と同じ', () => {
+  const java = fs.readFileSync(path.resolve(__dirname, '../../BridgeMod/src/main/java/jp/douma/bridgemod/BridgeMod.java'), 'utf8');
+  // 式の終わり（;）まで比べる（表が commands だけになったとき、Java の .resolve("commands").resolve("minecraft") の頭に当たって通らないように）。
+  const chain = '.resolve("bridge")' + CONFIG_DEFAULTS.options.commandsDir.split('/').map(name => `.resolve("${name}")`).join('') + ';';
+  assert.equal(java.split(chain).length - 1, 2, `BridgeMod.java が ${chain} で探していない（サーバーのフォルダーの直下と、上の階層）`);
 });
 
 // 設計書 13：1つにまとめたものは、今それを使っている所すべてが使う（自分の写しを持ち続けない）。
 test('既定値の写し: BRIDGE は既定値・コマンドの場所・接続先を自分で持たず config_defaults を使う', () => {
   for (const file of ['bridge/index.js', 'bridge/live_config.cjs', 'bridge/roulette.cjs']) {
     const source = fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
-    assert.doesNotMatch(source, /(\|\||\?\?)\s*(25576|25575|8081|"127\.0\.0\.1"|"commands")/, file);
+    assert.doesNotMatch(source, /(\|\||\?\?)\s*(25576|25575|8081|"127\.0\.0\.1"|"commands(\/minecraft)?")/, file);
     assert.doesNotMatch(source, /\?\?\s*(300|200|1200|5|20|60000)[,)]/, file);
     assert.doesNotMatch(source, /(bridgeModHost|doumaModHost|bridgeModPort|doumaModPort|commandsDir)\s*\|\|/, file);
     assert.doesNotMatch(source, /"minecraft", name/, file);
@@ -58,6 +69,9 @@ test('既定値の写し: アプリは雛形・コマンドの場所・BridgeMOD
     assert.doesNotMatch(source, /["']commands["']\s*,\s*["']minecraft["']/, file + ' にコマンドの場所の写しがある');
     assert.doesNotMatch(source, /(bridgeModHost|doumaModHost|bridgeModPort|doumaModPort)\s*\|\|/, file + ' に BridgeMOD の接続先の写しがある');
     assert.doesNotMatch(source, /giftCooldownMs:\s*300/, file + ' に雛形の写しがある');
+    assert.doesNotMatch(source, /(\|\||\?\?)\s*(25576|"commands(\/minecraft)?")/, file + ' に既定値の写しがある');
+    // BRIDGE の設定側の RCON の接続先（server.properties の rcon.port は Minecraft の既定なので見ない）。
+    assert.doesNotMatch(source, /rcon\??\.(host|port)\s*(\|\||\?\?)\s*("|[0-9])/, file + ' に RCON の既定値の写しがある');
   }
   assert.match(read('electron/paths.cjs'), /newBridgeConfig\(\)/);
   assert.match(read('scripts/prepare-bridge-runtime.cjs'), /newBridgeConfig\(\)/);
@@ -70,9 +84,15 @@ test('画面: 運用センター・配信ホームは既定値を config_default
     const source = read(file);
     assert.match(source, /import CONFIG_DEFAULTS from "\.\.\/\.\.\/bridge\/config_defaults\.json";/, file);
     assert.doesNotMatch(source, /likeBatchMs|likeCatchupLimit/, file);
-    // 引用符で終わる値のあとは語の境目にならないので、数・true と分けて探す。
-    assert.doesNotMatch(source, /(\|\||\?\?)\s*("127\.0\.0\.1"|"commands\/minecraft"|(300|200|1200|5|25575|true)\b)/, file);
+    // 設定の値を読んだすぐあとに、既定値を数・文字・true/false で直接書いていないか（関係ない `|| 0` などは見ない。PR4 の最終レビュー）。
+    assert.doesNotMatch(source, /(options\??\.|\bo\.|rcon\??\.)(giftCooldownMs|likeBatchWindowMs|maxLikeCatchUpPerEvent|maxCommandsPerGift|logUnknownGifts|commandsDir|rconQueueWarnSize|streakTtlMs|host|port)\s*(\?\?|\|\|)\s*("|[0-9]|true\b|false\b)/, file);
   }
+  const operations = read('src/components/OperationsPage.tsx');
+  // 古い名前だけの設定では、BRIDGE が使う既定値（表の値。いいねバッチなら 1200）を出す。
+  for (const key of ['giftCooldownMs', 'likeBatchWindowMs', 'maxLikeCatchUpPerEvent', 'maxCommandsPerGift']) {
+    assert.ok(operations.includes(`value={o.${key} ?? CONFIG_DEFAULTS.options.${key}} onChange=`), key);
+  }
+  assert.deepEqual([CONFIG_DEFAULTS.options.likeBatchWindowMs, CONFIG_DEFAULTS.options.maxLikeCatchUpPerEvent], [1200, 5]);
   assert.doesNotMatch(read('src/components/DashboardPage.tsx'), /commandsDir:/, '保存のたびに main が上書きするので書かない');
   assert.doesNotMatch(read('src/lib/devApiMock.ts'), /likeBatchMs|likeCatchupLimit/);
 });

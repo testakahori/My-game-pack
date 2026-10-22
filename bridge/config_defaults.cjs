@@ -51,11 +51,11 @@ function bridgeCommandsDir(bridgeDir, options) {
   return path.resolve(bridgeDir, commandsDirSetting(options));
 }
 
-// BridgeMOD の接続先。ホストは bridgeModHost・旧い doumaModHost の順に、前後の空白を除いて空でない最初のもの。
-// ポートは bridgeModPort・doumaModPort・既定の順（範囲は設定の確かめが見る）。
+// BridgeMOD の接続先。ホストは bridgeModHost・旧い doumaModHost の順に、前後の空白を除いて空でない最初の文字列
+// （手で書いた false・0 などの文字列でない値は、書いていないものとする）。ポートは bridgeModPort・doumaModPort・既定の順（範囲は設定の確かめが見る）。
 function bridgeModEndpoint(options) {
   const o = options || {};
-  const host = [o.bridgeModHost, o.doumaModHost].map(value => String(value ?? "").trim()).find(Boolean) || CONFIG_DEFAULTS.options.bridgeModHost;
+  const host = [o.bridgeModHost, o.doumaModHost].map(value => (typeof value === "string" ? value.trim() : "")).find(Boolean) || CONFIG_DEFAULTS.options.bridgeModHost;
   return { host, port: Number(o.bridgeModPort || o.doumaModPort || CONFIG_DEFAULTS.options.bridgeModPort) };
 }
 

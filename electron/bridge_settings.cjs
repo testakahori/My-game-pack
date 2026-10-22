@@ -147,7 +147,6 @@ function createBridgeSettings({
     ipcMain.handle("config:giftMapping:save", (_event, request) => {
       const configPath = getConfigPath();
       ensureConfigExists(configPath);
-      const dir = bridgeCommandsDir(getBridgeBatDir());
       const names = selectableCommandNames();
       const next = updateGiftMapping(JSON.parse(fs.readFileSync(configPath, "utf8")), request, names);
       // Keep read / compare / write synchronous so another IPC cannot interleave.
