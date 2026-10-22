@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseCommandText } = require("./command_text.cjs");
 const { ensureTxt, bridgeCommandKey } = require("./command_files.cjs");
+const { boundedInt } = require("./event_rules.cjs");
 
 function cleanText(value, length) {
   return Array.from(String(value ?? "").replace(/[\r\n\t]/g, " ").replace(/[\u0000-\u001f\u007f]/g, "")).slice(0, length).join("");
@@ -28,7 +29,8 @@ function prepareRoulette(config, commandsDir, random = Math.random) {
       label: cleanText(String(item.label || "").trim() || bridgeCommandKey(commandFile), 24),
       description: cleanText(description, 36),
       weight: Number.isFinite(Number(item.weight)) ? Math.max(1, Number(item.weight)) : 1,
-      repeat: Number.isFinite(Number(item.repeat)) ? Math.max(1, Math.min(100, Math.floor(Number(item.repeat) || 1))) : 1,
+      // 回数の丸めは event_rules.cjs の boundedInt の1つ（処理のコピー PR5）。
+      repeat: boundedInt(item.repeat ?? 1, 1, 100, 1),
     }];
   });
   if (!items.length) throw new Error("ルーレットの有効な項目がありません。イベント設定②で存在するコマンドを選び、保存してください。");

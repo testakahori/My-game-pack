@@ -40,7 +40,7 @@ const { commandFileProblem, ensureTxt, bridgeCommandKey } = require("./command_f
 const { parseCommandText } = require("./command_text.cjs");
 const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("./bridge_mod_token.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require("./feature_engine");
-const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes } = require("./event_rules.cjs");
+const { boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes } = require("./event_rules.cjs");
 const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter, createMuteMatcher } = require("./tiktok_events.cjs");
 const { testEventActions, createTestRun, noMatchNote } = require("./test_fire.cjs");
 let runtimeProtection = { enabled: false };
@@ -381,11 +381,7 @@ function safeReadJson(filePath) {
   return JSON.parse(raw);
 }
 
-function clampInt(n, min, max, fallback) {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return fallback;
-  return Math.max(min, Math.min(max, Math.floor(v)));
-}
+// 範囲の丸めは event_rules.cjs の boundedInt の1つ（前はここに同じ動きの写しがあった。処理のコピー PR5）。
 
 // CLI: --config <path>
 function getConfigPathFromArgs() {
@@ -1509,7 +1505,7 @@ async function main() {
       ? (ctx.featureEngine.topGifter() || feature.sender) : feature.sender;
     dispatchBridgeEvent(ctx, `feature:${feature.type}`, {
       type: "other", historyType: feature.type || "other", commandFile: feature.commandFile,
-      count: clampInt(feature.count, 1, 100, 1),
+      count: boundedInt(feature.count, 1, 100, 1),
       listenerName: listenerName || "viewer", announce: true, label: feature.label,
     }, { priority: 8 });
   }
@@ -1521,7 +1517,7 @@ async function main() {
     const rl = deathRouletteCfg;
     if (!rl || rl.enabled !== true) return;
     const deaths = Number(status.deaths || 0);
-    const every = clampInt(rl.everyDeaths ?? 1, 1, 1000, 1);
+    const every = boundedInt(rl.everyDeaths ?? 1, 1, 1000, 1);
     if (deathRouletteMatches(rl, deaths)) {
       ctx.log(`[DeathRoulette] deaths=${deaths}（${every}回ごと）→ ルーレット始動`);
       if (ctx.run?.preview) previewRoulette(ctx.run, rl, { commandFile: "roulette.txt", count: 1, historyType: "death_roulette" });
@@ -1686,7 +1682,7 @@ async function main() {
           ? computeStreakDelta(ctx.streakLastCount, 'unmapped:' + giftId + ':' + getSenderIdentity(data), rc, data.repeatEnd, Date.now(), streakTtlMs)
           : 1;
         if (delta <= 0) return;
-        const unmappedRepeat = delta * clampInt(unmappedGiftEvent.repeat ?? 1, 1, 100, 1);
+        const unmappedRepeat = delta * boundedInt(unmappedGiftEvent.repeat ?? 1, 1, 100, 1);
         const unmappedMap = { commandFile: ensureTxt(unmappedGiftEvent.commandFile), name: `unmapped:${giftId}` };
         if (bridgeMod) {
           ctx.log(`[Gift] (unmapped) -> BridgeMod file=${unmappedGiftEvent.commandFile} repeat=${unmappedRepeat}`);
@@ -1766,12 +1762,12 @@ async function main() {
     if (!isStreak) {
       const cooldownKey = `${giftId}:${sender}`;
       const last = ctx.lastExecAt.get(cooldownKey) || 0;
-      const fileCooldown = clampInt(randomized.meta?.COOLDOWN ?? giftCooldownMs, 0, 60000, giftCooldownMs);
+      const fileCooldown = boundedInt(randomized.meta?.COOLDOWN ?? giftCooldownMs, 0, 60000, giftCooldownMs);
       if (now - last < fileCooldown) return;
       ctx.lastExecAt.set(cooldownKey, now);
     }
 
-    const baseRepeat = clampInt(mapping.repeat ?? 1, 1, 100, 1);
+    const baseRepeat = boundedInt(mapping.repeat ?? 1, 1, 100, 1);
 
     // streakは「増えた分(delta)」だけ反応（詳細は computeStreakDelta のコメント参照）
     const delta = isStreak
@@ -1906,7 +1902,7 @@ async function main() {
         if (Date.now() - lastAt < 3000) continue; // 3秒クールダウン（連投スパム対策）
         ctx.commentGiftLastAt.set(ruleKey, Date.now());
 
-        const repeat = clampInt(rule.repeat ?? 1, 1, 100, 1);
+        const repeat = boundedInt(rule.repeat ?? 1, 1, 100, 1);
         ctx.log(`[CommentGift] "${match}" from=${sender} -> ${rule.commandFile} x${repeat}`);
         dispatchBridgeEvent(ctx, `comment:${rule.commandFile}`, {
           type: "other",
@@ -2018,7 +2014,7 @@ async function main() {
     ctx.featureEngine.recordLikes(total, getStableSender(data), previousTotal, progress.local);
     for (const ev of likeEvents) {
       if (ev.enabled === false || !ev.commandFile || !ev.threshold) continue;
-      const thresh = clampInt(ev.threshold, 1, 1000000, 10);
+      const thresh = boundedInt(ev.threshold, 1, 1000000, 10);
       const lastMultiple = Math.floor(previousTotal / thresh);
       const ruleProgress = likeRuleProgress(ev, total, lastMultiple, maxLikeCatchUpPerEvent);
       const { newTriggers } = ruleProgress;
@@ -2028,7 +2024,7 @@ async function main() {
 
       const mapping = { commandFile: ensureTxt(ev.commandFile), name: ev.label || `${thresh}いいね` };
       const sender = getStableSender(data);
-      const evRepeat = clampInt(ev.repeat ?? 1, 1, 100, 1);
+      const evRepeat = boundedInt(ev.repeat ?? 1, 1, 100, 1);
 
       if (bridgeMod) {
         const count = triggersToRun * evRepeat;
@@ -2094,7 +2090,7 @@ async function main() {
 
     const mapping = { commandFile: ensureTxt(shareEvent.commandFile), name: "シェア" };
     const sender = getStableSender(data);
-    const shareRepeat = clampInt(shareEvent.repeat ?? 1, 1, 100, 1);
+    const shareRepeat = boundedInt(shareEvent.repeat ?? 1, 1, 100, 1);
     if (bridgeMod) {
       ctx.log(`[Share] from=${sender} -> BridgeMod repeat=${shareRepeat} file=${shareEvent.commandFile}`);
       dispatchBridgeEvent(ctx, "share", {
@@ -2150,7 +2146,7 @@ async function main() {
     ctx.featureEngine.recordFollow(sender);
     if (!enabledCommand(followEvent)) return;
     const mapping = { commandFile: ensureTxt(followEvent.commandFile), name: "フォロー" };
-    const followRepeat = clampInt(followEvent.repeat ?? 1, 1, 100, 1);
+    const followRepeat = boundedInt(followEvent.repeat ?? 1, 1, 100, 1);
     if (bridgeMod) {
       ctx.log(`[Follow] from=${sender} -> BridgeMod repeat=${followRepeat} file=${followEvent.commandFile}`);
       dispatchBridgeEvent(ctx, "follow", {
@@ -2206,7 +2202,7 @@ async function main() {
 
     const mapping = { commandFile: ensureTxt(memberEvent.commandFile), name: "訪問" };
     const sender = getStableSender(data);
-    const memberRepeat = clampInt(memberEvent.repeat ?? 1, 1, 100, 1);
+    const memberRepeat = boundedInt(memberEvent.repeat ?? 1, 1, 100, 1);
     if (bridgeMod) {
       ctx.log(`[Member] join=${sender} -> BridgeMod repeat=${memberRepeat} file=${memberEvent.commandFile}`);
       dispatchBridgeEvent(ctx, "member", {
@@ -2246,7 +2242,7 @@ async function main() {
   // --------------------
   // 本番と同じ処理・同じ送る列を、本番とは別の新しい状態で通す（2026-10-16 ユーザーの決定）。
   // 本番の状態（クールダウン・連打・コンボ・いいねとフォローの累計）には触らない。
-  const TEST_FIRE_WAIT_MS = clampInt(process.env.BRIDGE_TEST_FIRE_WAIT_MS ?? 10000, 100, 60000, 10000);
+  const TEST_FIRE_WAIT_MS = boundedInt(process.env.BRIDGE_TEST_FIRE_WAIT_MS ?? 10000, 100, 60000, 10000);
   // テスト発火のログは、行頭に [Test] を付けて本番の行と見分ける。
   const testLog = (...args) => console.log("[Test]", ...args);
 
@@ -2382,7 +2378,6 @@ module.exports = {
   applyPlaceholders,
   dedupeKeyFromGift,
   isDuplicateEvent,
-  clampInt,
   sendBridgeModEvent,
   enqueueBridgeModEvent,
   commandFileToBridgeKey,
