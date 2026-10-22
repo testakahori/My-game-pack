@@ -277,3 +277,10 @@ test('送信中に捨てたいいねが送れなかったときは、再送を�
   assert.equal(sleeps, 0, '捨てたいいねの再送は待たない（いいねの列を最大3秒止めない）');
   assert.equal(retries, 0, '捨てたいいねの再送は診断にも出さない');
 });
+
+// ゲーム MOD の ID は bridge/game_commands.cjs の isGameModId の1か所（アプリのパックの登録・BridgeMOD と同じ。処理のコピー PR6）。
+test('ゲーム要求: 予約名（bridgemod など）の GAME_MOD は送らない', () => {
+  const { captureGameEvent } = require('../../bridge/mod_event_delivery.cjs');
+  for (const id of ['bridgemod', 'displaymod', 'doumacmd']) assert.throws(() => captureGameEvent({ type: 'gift', commandFile: 'x.txt' }, id), /Invalid game MOD ID/, id);
+  assert.equal(captureGameEvent({ type: 'gift', commandFile: 'x.txt' }, 'gamemod').gameMod, 'gamemod');
+});

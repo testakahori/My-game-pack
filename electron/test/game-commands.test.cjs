@@ -24,6 +24,20 @@ test('ゲーム専用の判定とチャットの名前: 例の一覧（Java の�
   assert.equal(gameOfCommand(null), null);
 });
 
+// 設計書 13：1つにまとめた決まりは、今それを使っている所すべてが使う（自分の一覧や正規表現を持たない）。
+test('ゲームの一覧と判定の写し: アプリ・BRIDGE・画面は自分の一覧や正規表現を持たない', () => {
+  const read = file => fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
+  const files = [...fs.readdirSync(path.resolve(__dirname, '..')).filter(n => n.endsWith('.cjs')).map(n => 'electron/' + n),
+    ...['bridge/index.js', 'bridge/mod_event_delivery.cjs', 'vite.config.ts'],
+    ...fs.readdirSync(path.resolve(__dirname, '../../src/components')).filter(n => n.endsWith('.tsx')).map(n => 'src/components/' + n),
+    ...fs.readdirSync(path.resolve(__dirname, '../../src/lib')).filter(n => n.endsWith('.ts')).map(n => 'src/lib/' + n)];
+  for (const file of files) {
+    const source = read(file);
+    assert.doesNotMatch(source, /(umetate|saikutu)\|(umetate|run|saikutu)|startsWith\(['"]game_['"]\)|\^game_\[a-z0-9\]/, file + ' にゲームの一覧・判定の写しがある');
+    assert.doesNotMatch(source, /\{1,63\}|\{0,49\}|['"]doumacmd['"]/, file + ' に MOD の ID・パックの key の写しがある');
+  }
+});
+
 test('ゲーム MOD の ID とパックの key', () => {
   for (const c of fixture('game-mod-ids.json')) assert.equal(isGameModId(c.id), c.ok, c.id);
   assert.equal(isGameModId(undefined), false);

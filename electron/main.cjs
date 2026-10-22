@@ -11,6 +11,7 @@ const stopRequests = createStopRequestLog({ file: () => path.join(app.getPath("u
 const { createSettingsBackups } = require("./settings_backups.cjs");
 const { assertGameCommands } = require('./game_command_scope.cjs');
 const { bridgeCommandsDir } = require("../bridge/config_defaults.cjs");
+const { gameOfCommand } = require("../bridge/game_commands.cjs");
 // main.cjs から分けた仕事（2026-10-17 設計書 docs/superpowers/specs/2026-10-17-main-split-design.md）。
 // electron は main だけが読み込み、必要なものを渡す。あとで定義するもの（サーバーの状態など）は、呼ばれたときに読む関数で渡す。
 const { createAppConfig } = require('./app_config.cjs');
@@ -66,7 +67,8 @@ const eulerCredentials = require('./euler_credentials.cjs').createEulerCredentia
   filePath: () => path.join(app.getPath('userData'), 'euler-credentials.json'), safeStorage,
 });
 const settingsBackups = createSettingsBackups({
-  validateRestore: (config, commands) => assertGameCommands(config, [...selectableCommandNames(), ...Object.keys(commands).filter(name => !name.startsWith('game_'))], gameProfiles.list()),
+  // バックアップの中のゲーム専用のコマンドは足さない（共通の game_mode_on.txt などは足す。判定は bridge/game_commands.cjs。処理のコピー PR6）。
+  validateRestore: (config, commands) => assertGameCommands(config, [...selectableCommandNames(), ...Object.keys(commands).filter(name => !gameOfCommand(name))], gameProfiles.list()),
   paths: () => ({
     config: getConfigPath(), app: getAppConfigPath(), tts: getTtsSettingsPath(),
     bridgeTts: path.join(getBridgeBatDir(), "tts-settings.json"),

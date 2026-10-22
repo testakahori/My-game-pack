@@ -49,3 +49,12 @@ test('1つのコマンドの確かめ: 候補にない名前は場所の名前�
   assert.doesNotThrow(() => assertGameCommandFile(' COD ', names, status('common'), 'テスト発火'));
   assert.throws(() => assertGameCommandFile('cod.txt', names, null, 'テスト発火'), /TOP/);
 });
+
+// ゲーム専用の判定は bridge/game_commands.cjs の1か所（処理のコピー PR6）。
+test('ゲーム専用の判定: game_<一覧のゲーム>_ だけ（大文字小文字を区別しない）。game_mode_on.txt は共通', () => {
+  const more = [...names, 'game_mode_on.txt', 'GAME_RUN_X.TXT'];
+  const common = availableGameCommands(more, status('common'));
+  assert.ok(common.includes('game_mode_on.txt'));
+  assert.ok(!common.includes('GAME_RUN_X.TXT'), 'ほかのゲームのコマンドは大文字でも出さない');
+  assert.ok(availableGameCommands(more, status('run')).includes('GAME_RUN_X.TXT'));
+});

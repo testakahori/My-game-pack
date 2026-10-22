@@ -145,6 +145,18 @@ test('コマンド txt: 選んでいるゲームのコマンドだけを出し�
   assert.equal(x.invoke('bridge:commands:readMeta').find(row => row.name === 'my_cmd.txt').title, '自作');
 });
 
+// ゲーム専用の判定は bridge/game_commands.cjs の1か所（処理のコピー PR6）。チャットの名前もアプリが付けて画面へ渡す。
+test('コマンド txt: ゲーム専用の名前は大文字でも書かず、game_mode_on.txt のような共通の名前は書ける。一覧にチャットの名前を付ける', async t => {
+  const x = setup(t);
+  for (const filename of ['GAME_RUN_X.TXT', 'game_saikutu_dig.txt']) {
+    await assert.rejects(x.invoke('bridge:commands:write', { filename, content: '' }), /ゲームパックのコマンドはパックを再登録して更新してください/, filename);
+  }
+  await x.invoke('bridge:commands:write', { filename: 'game_mode_on.txt', content: 'say on\n' });
+  const rows = x.invoke('bridge:commands:readMeta');
+  assert.equal(rows.find(row => row.name === 'game_mode_on.txt').chatKey, 'game_mode_on');
+  assert.equal(rows.find(row => row.name === 'zombie.txt').chatKey, 'zombie');
+});
+
 // 題名はルーレットの項目名・ギフト画像にそのまま使われる。空の # TITLE: で次の行を拾うと、配信画面に「# CATEGORY: 妨害」と出ていた（2026-10-18）。
 test('コマンドの一覧: 空の # TITLE: は次の行を拾わずファイル名に戻り、BOM 付き・小文字のキーの題名と説明も読む', t => {
   const x = setup(t);

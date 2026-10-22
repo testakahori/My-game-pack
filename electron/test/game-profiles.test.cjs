@@ -282,6 +282,27 @@ test('埋め立て・RUN のプロフィールから採掘のプロフィール�
   assert.deepEqual(JSON.parse(fs.readFileSync(x.config)).mappings.map(m => m.commandFile), ['game_umetate_fill.txt'], '埋め立ての専用コマンドは埋め立てに残る');
 });
 
+// ゲーム専用の判定は bridge/game_commands.cjs の1か所（処理のコピー PR6）。前は /^game_[a-z0-9]+_/ で、共通の game_mode_on.txt も外していた。
+test('採掘のプロフィールを初めて作るとき、共通の game_mode_on.txt は残し、文字列で書いたほかのゲームのコマンドも外す', async t => {
+  let folder;
+  const x = fixture(t, { bundledPackages: () => folder ? [{ id:'saikutu',folder }] : [] });
+  await x.api.install(x.pack('umetate'));
+  folder = x.pack('saikutu');
+  const file = path.join(folder,'game.json'), manifest = JSON.parse(fs.readFileSync(file));
+  manifest.bridgeEventApi = 1; manifest.commands = [{ key:'give_haste',title:'採掘速度上昇',command:'saikutu give_haste {Count} {ListenerName}' }];
+  fs.writeFileSync(file,JSON.stringify(manifest));
+  await x.api.activate('umetate');
+  fs.writeFileSync(path.join(x.server, 'bridge/commands/minecraft/game_mode_on.txt'), 'say mode\n');
+  const umetate = JSON.parse(fs.readFileSync(x.config));
+  umetate.mappings = [{ giftId:'rose',commandFile:'game_mode_on.txt',repeat:1 }, { giftId:'pass',commandFile:'give_haste.txt',repeat:1 }];
+  umetate.options = { ...umetate.options, gameplay: { commentCommands: { '!x': 'game_umetate_fill.txt' } } };
+  fs.writeFileSync(x.config,JSON.stringify(umetate));
+  await x.api.activate('saikutu');
+  const mining = JSON.parse(fs.readFileSync(x.config));
+  assert.deepEqual(mining.mappings.map(m => m.commandFile), ['game_mode_on.txt', 'game_saikutu_give_haste.txt']);
+  assert.deepEqual(mining.options.gameplay.commentCommands, {});
+});
+
 test('bridgeコマンド名が共通MODと重なるゲームは変更前に拒否する', async t => {
   const x = fixture(t), folder = x.pack('run'), file = path.join(folder,'game.json');
   const manifest = JSON.parse(fs.readFileSync(file)); manifest.commands[0].key = 'zombie'; fs.writeFileSync(file,JSON.stringify(manifest));
