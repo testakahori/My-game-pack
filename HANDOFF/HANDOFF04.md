@@ -356,8 +356,16 @@
      - PR4 は CI（3つとも通った）のあと、ユーザーの許可を得てマージした（PR #121、マージコミット d2b79a8）。
      - PR5 の前に今のコードを調べた（10-22、読むだけの調べ役3つ）。参照の数え方は4つとも違う（文字列で書いたコメントコマンドを数えるのは `command_files.cjs` だけ、`enabled: false` の見方もばらばらで、BRIDGE は無効のギフト割り当ても動かす）。ギフト割り当ての整え方は設計書の5つのほかに、ギフト設定の画面（保存のたびに `enabled` を落とす）。ゲーム ID の一覧は JS に3つ・正規表現に5か所・Java に2つ。音・粒子の ID は JS と DisplayMOD で決まりが違う。PR1 のレビューの残り（`foo.txt.txt`・ルーレットの判定の大文字小文字・Shift_JIS・`missing()`・画面の写し）はまだある。`../x.txt` は名前の確かめを通るが、RCON の本番の経路は外を読まない（HANDOFF の前の書き方は言い過ぎ）。
      - ユーザーの決定（10-22）：残りを3本に分ける。PR5 は参照の数え方・無効の扱い・ギフト割り当て・小さい関数。PR6 はゲーム ID・ゲーム専用の判定・MOD ID とパックの key（Java との契約テスト）。PR7 は音・粒子の ID と前から残っている問題・画面の写し。手で `enabled: false` にしたギフト割り当ては、コマンドを撃たず未設定ギフトにも回さないが、ゲームの数え方（上位者・コンボ・時限倍率）には入れる（コマンドのないコンボの段は撃たない）。
-     - PR5 の計画：`docs/superpowers/plans/2026-10-22-logic-copies-pr5.md`（10-22 に書いた。ユーザーの承認待ち）。ブランチ `fix/logic-copies-5`（main の d2b79a8 から切った）。
-     - **次にやること**：PR5 の計画をユーザーに見てもらい、承認と進め方を聞く。承認されたら実装 → `npm run verify` → 最終レビュー → PR → CI → ユーザーの許可を得てマージ。そのあと PR6・PR7。
+     - PR5 の計画：`docs/superpowers/plans/2026-10-22-logic-copies-pr5.md`（10-22 に書き、ユーザーの承認を得て、このセッションで実装した）。ブランチ `fix/logic-copies-5`（main の d2b79a8 から切った）。
+       - 参照の数え方は `bridge/command_files.cjs` の `commandFileRefs` の1つ（ギフト割り当ての `enabled: false` も数えない）。配信前チェック（前は設定全体をたどる `collect`）・ゲームの候補の確かめ（`game_command_scope.cjs`）・ゲームの切り替え（`game_profiles.cjs` の `checkCommands`）がこれを使う。文字列で書いたコメントコマンド・投票も数え、有効にしていないルーレット・コメントギフト・投票、知らない場所の `commandFile` は数えない。名前は `.txt`・前後の空白・大文字小文字を区別しない。エラーの文の場所は「ギフト割り当て（バラ）」のような名前。
+       - BRIDGE のギフト割り当ては `bridge/gift_mappings.cjs` の `giftMappingOf`・`giftMappingsById`（起動と再読込で同じ。前は写しが2つ）。無効の割り当ては、コマンドを撃たず未設定ギフトにも回さず、クールダウン・連打・ゲームの数え方は通す（`recordGift` にコマンドを渡さないので、コマンドのないコンボの段は何も撃たない）。RANDOM の抽選と、その txt の見出しは読まない。テスト発火は「このギフトの割り当ては無効です（enabled: false）。…」と知らせる。
+       - `clampInt` は消して `boundedInt` の1つ（12か所。ルーレットの回数の写しも）。
+       - アプリと画面：1件の保存（`gift_mapping.cjs`・`GiftCommandDialog.tsx`）は giftId の前後の空白を除いて同じギフトとみなす。テンプレートは `enabled: false` を残し、名前が空なら `gift:<giftId>`。ギフト設定の画面は設定との出し入れを `src/lib/giftMappingRows.ts` に移し、`enabled: false` を落とさない（`GiftMapping` に `enabled?`）。
+       - 実装で決めたこと（作業の記録の Ruling）：無効の割り当ての txt の `# COOLDOWN:` は読まない（クールダウンは既定の値）。PR3 の見張り（ギフト設定の画面が `integerInput` を直接読む）は、`giftMappingRows` 経由でもよいに直した。
+       - テスト：`bridge-disabled-mapping.test.cjs`（直す前の BRIDGE は無効の割り当てで `zombie` を4回撃った）・`gift-mappings.test.cjs`・`gift-mapping-rows.test.cjs` を足し、配信前チェック・ゲームの候補・切り替え・テスト発火・1件の保存・テンプレート・ルーレットの回数の丸め・写しを探すテストを足した。どれも直す前のコードで落ちることを確かめた（ルーレットの回数の丸めは前と同じであることを見張るテスト）。
+       - `npm run verify`：アプリ 559/559、BRIDGE 15/15、型チェック・ビルドが通る。
+       - 次の配布のリリースノートに足す：「設定で enabled: false にしたギフト割り当ては、そのギフトが届いてもコマンドを動かさず、未設定ギフトにも回しません（ギフトの上位者やコンボの回数には入ります）」「コメントコマンドや投票に書いたコマンドがないとき、配信前チェックで知らせます」「ギフト設定の画面で保存しても、手で書いた enabled: false が消えなくなりました」。
+     - **次にやること**：PR5 の最終レビュー（別のレビュー役）→ 指摘の扱いをユーザーに聞く → PR → CI → ユーザーの許可を得てマージ。そのあと PR6・PR7。
      - PR1 のレビューで見つけた前からの問題（直していない。PR3・PR4 か別の PR で）：`foo.txt.txt` は BRIDGE が `foo.txt` を送り、MOD がもう一度 `.txt` を除くので `foo.txt` を実行する。設定に `../x.txt` と書くと名前の確かめを通り、RCON の経路と条件だけ確認でコマンドのフォルダーの外を読む。`bridge/index.js:1456` のルーレットの判定 `=== "roulette"` は大文字小文字を区別する（`roulette.cjs` は区別しない）。Shift_JIS の txt は JS が U+FFFD にして読み、MOD は読めない。`gift_templates.cjs:45` の `missing()` は名前を大文字小文字まで比べる。TXT の書き込みのゲームパックの判定は大文字小文字を区別する。electron が読む `../bridge/*.cjs` が `build.files` に全部あるかを確かめるテストがない。`src/` に残る写し（`CommandSetManager.tsx`・`CommandsListPage.tsx`・`EventSettings2Page.tsx`・`ImageEditorPage.tsx`）は、設計書 3 のとおり画面が決まりを持たない形に PR3・PR4 でそろえる。
    - リリース手順が2つ
 
