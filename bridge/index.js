@@ -2285,6 +2285,9 @@ async function main() {
     switch (action.kind) {
       case "direct": {
         const key = commandFileToBridgeKey(action.commandFile);
+        // ファイルがあるかを見る前に名前を確かめる（../x.txt で commands/minecraft の外を見ない。処理のコピー PR7）。
+        const problem = commandFileProblem(action.commandFile);
+        if (problem) throw new Error(problem);
         if (key === "roulette" && !rouletteCfg?.enabled) throw new Error("ルーレットが無効です。イベント設定②で有効にして保存してください。");
         if (key !== "roulette" && !fs.existsSync(path.join(commandsDirAbs, action.commandFile))) throw new Error(`コマンドが見つかりません: ${action.commandFile}`);
         return dispatchBridgeEvent(ctx, "test:direct", { type: "gift", commandFile: action.commandFile, count: action.count,

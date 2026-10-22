@@ -43,13 +43,26 @@ function bridgeCommandKey(commandFile) {
   return isTxtName(name) ? name.slice(0, -4) : name;
 }
 
+// BridgeMOD に送れる名前か。名前全体を見る（前は bridgeCommandKey がフォルダーを除いた最後の部分だけを見て ../x.txt を通していた）。
+// .txt を1つ除いた部分がまた .txt で終わる名前（foo.txt.txt）も断る。BRIDGE は foo.txt を送り、BridgeMOD が .txt をもう一度除いて
+// 別のファイル foo.txt を動かしていたため（処理のコピー PR7）。
+function bridgeCommandStem(commandFile) {
+  const name = String(commandFile ?? "").trim();
+  return isTxtName(name) ? name.slice(0, -4) : name;
+}
+
 function isBridgeCommandFile(commandFile) {
-  return BRIDGE_COMMAND_KEY.test(bridgeCommandKey(commandFile));
+  const stem = bridgeCommandStem(commandFile);
+  return !/[\\/]/.test(stem) && BRIDGE_COMMAND_KEY.test(stem) && !isTxtName(stem);
 }
 
 function commandFileProblem(commandFile) {
   if (isBridgeCommandFile(commandFile)) return "";
-  return `コマンドファイル名「${String(commandFile ?? "").trim()}」は使えません。半角英数字と _ . - だけの名前にしてください（例: neko.txt）`;
+  const name = String(commandFile ?? "").trim();
+  const stem = bridgeCommandStem(commandFile);
+  if (/[\\/]/.test(name)) return `コマンドファイル名「${name}」にフォルダーの区切り（/ や \\）は使えません。commands/minecraft の中のファイル名だけを書いてください`;
+  if (isTxtName(stem) && BRIDGE_COMMAND_KEY.test(stem)) return `コマンドファイル名「${name}」は終わりに .txt が2つあります。ファイル名を ${stem} に直してください`;
+  return `コマンドファイル名「${name}」は使えません。半角英数字と _ . - だけの名前にしてください（例: neko.txt）`;
 }
 
 // 設定の中で、Bridge が実際に発火しうるコマンドファイルの参照を、画面に出す名前付きで列挙する。

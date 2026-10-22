@@ -128,3 +128,12 @@ test('.txt の付け外し: 大文字の拡張子（TNT.TXT）の割り当ても
   await bridge.until(() => bridge.requests.length > 0, 'gift');
   assert.deepEqual(bridge.requests.map(request => request.key), ['TNT']);
 });
+
+// 前は bridgeCommandKey がフォルダーを除いた最後の部分だけを見て ../x.txt を通し、foo.txt.txt では BRIDGE が foo.txt を送って
+// BridgeMOD が別のファイル foo.txt を動かしていた（処理のコピー PR7。HANDOFF04 の PR1 のレビューの残り）。
+test('BridgeMOD 向けの名前: フォルダーの区切りと、終わりの .txt が2つの名前は断る', () => {
+  for (const name of ['../x.txt', '..\\x.txt', 'sub/x.txt', 'foo.txt.txt', 'FOO.TXT.txt', 'foo.txt.TXT']) assert.equal(isBridgeCommandFile(name), false, name);
+  for (const name of ['foo.txt', 'tnt.v2.txt', 'TNT.TXT', 'foo', 'a.txtb.txt']) assert.equal(isBridgeCommandFile(name), true, name);
+  assert.match(commandFileProblem('../x.txt'), /フォルダーの区切り（\/ や \\）は使えません/);
+  assert.match(commandFileProblem('foo.txt.txt'), /終わりに \.txt が2つあります。ファイル名を foo\.txt に直してください/);
+});
