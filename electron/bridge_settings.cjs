@@ -11,6 +11,7 @@ const { atomicWrite } = require("./settings_backups.cjs");
 const { commandFileProblem, isTxtName } = require("../bridge/command_files.cjs");
 const { parseCommandText } = require("../bridge/command_text.cjs");
 const { bridgeCommandsDir } = require("../bridge/config_defaults.cjs");
+const { gameOfCommand, publicCommandKey } = require("../bridge/game_commands.cjs");
 const { availableGameCommands, assertGameCommands } = require("./game_command_scope.cjs");
 const { checkEngine } = require("./tts.cjs");
 
@@ -115,7 +116,8 @@ function createBridgeSettings({
       } catch {}
       // Explorer で作った「ネコ.txt」「tnt - コピー.txt」なども一覧には出るが、BridgeMOD では実行できない。
       // title はルーレット名やギフト画像にそのまま使われるので変えず、印だけを付ける（割り当てた保存は理由付きで止まる）。
-      return { name, title, category, description, ...(commandFileProblem(name) ? { invalidName: true } : {}) };
+      // chatKey はチャットの名前（/bridge <名前>）。BridgeMOD の publicKey と同じ決まりで、画面は写しを持たずにこれを使う（処理のコピー PR6）。
+      return { name, title, category, description, chatKey: publicCommandKey(name), ...(commandFileProblem(name) ? { invalidName: true } : {}) };
     });
   }
 
@@ -199,7 +201,8 @@ function createBridgeSettings({
     // --------------------
     ipcMain.handle("bridge:commands:write", async (_event, { filename, content }) => {
       assertGameProfileIdle();
-      if (/^game_(umetate|run|saikutu)_/.test(filename || '')) throw new Error('ゲームパックのコマンドはパックを再登録して更新してください');
+      // ゲーム専用の判定は bridge/game_commands.cjs の1か所（大文字の GAME_RUN_X.TXT も止める。処理のコピー PR6）。
+      if (gameOfCommand(filename)) throw new Error('ゲームパックのコマンドはパックを再登録して更新してください');
       if (!filename || typeof filename !== "string" || !isTxtName(filename)) {
         throw new Error("Invalid filename: must be a .txt file");
       }

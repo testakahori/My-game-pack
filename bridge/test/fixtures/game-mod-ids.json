@@ -1,0 +1,13 @@
+[
+  { "id": "saikutumod", "ok": true },
+  { "id": "gameprobe", "ok": true },
+  { "id": "a", "ok": false },
+  { "id": "Saikutu", "ok": false },
+  { "id": "bridgemod", "ok": false },
+  { "id": "displaymod", "ok": false },
+  { "id": "doumacmd", "ok": false },
+  { "id": "a1234567890123456789012345678901234567890123456789012345678901234", "ok": false },
+  { "id": "game-mod", "ok": false },
+  { "id": "ab", "ok": true },
+  { "id": "a123456789012345678901234567890123456789012345678901234567890123", "ok": true }
+]

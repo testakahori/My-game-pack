@@ -15,9 +15,9 @@ try {
   const classes = path.join(temp, 'classes'), fixture = path.join(temp, 'fixture');
   fs.mkdirSync(classes); fs.mkdirSync(fixture);
   execFileSync(bin('javac'), ['-encoding', 'UTF-8', '-d', classes,
-    ...['BridgeAuth', 'JumpPhysics', 'ListenerNames', 'StormPlan', 'api/ProtectedBlockIds', 'CommandText', 'CommandRouting'].map(name => main + name + '.java'),
+    ...['BridgeAuth', 'JumpPhysics', 'ListenerNames', 'StormPlan', 'api/ProtectedBlockIds', 'CommandText', 'CommandRouting', 'api/GameEvents'].map(name => main + name + '.java'),
     ...['BridgeAuthContractTest', 'JumpPhysicsContractTest', 'ListenerNamesContractTest', 'ListenerNamesParity', 'StormPlanContractTest', 'ProtectedBlockIdsContractTest',
-      'CommandRoutingContractTest', 'CommandTextParity', 'CommandKeyParity'].map(name => contract + name + '.java'),
+      'CommandRoutingContractTest', 'CommandTextParity', 'CommandKeyParity', 'GameCommandParity', 'GameModIdParity'].map(name => contract + name + '.java'),
     saikutu + 'Shockwave.java', saikutu + 'LoadedArea.java', saikutuContract + 'ShockwaveContractTest.java',
     saikutu + 'CommandText.java', saikutuContract + 'CommandTextParity.java'],
     { cwd: root, windowsHide: true, stdio: 'inherit' });
@@ -115,6 +115,28 @@ try {
   });
   if (keyMismatches.length) throw new Error('CommandKeyParity: Bridge and MOD accept different command names\n' + keyMismatches.join('\n'));
   console.log(`CommandKeyParity: ${nameCases.length} command names match BRIDGE_COMMAND_KEY`);
+
+  // ゲームの一覧・チャットの名前・ゲーム MOD の ID（bridge/game_commands.cjs）を、MOD にも同じ例の一覧で通す。
+  // 1つでも結果が違えば失敗にする（2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 6。処理のコピー PR6）。
+  const { PACK_GAME_IDS, publicCommandKey, isGameModId } = require('../bridge/game_commands.cjs');
+  const idsLine = execFileSync(bin('java'), ['-Xmx64m', '-cp', classes, 'jp.douma.bridgemod.GameCommandParity', 'ids'],
+    { cwd: root, windowsHide: true, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).split(/\r?\n/).find(line => line.startsWith('>')) || '>';
+  const javaGames = unhex(idsLine.slice(1)).split(',');
+  if ([...javaGames].sort().join(',') !== [...PACK_GAME_IDS].sort().join(',')) {
+    throw new Error(`GameCommandParity: BridgeMOD lists games ${javaGames.join(',')} but bridge/games.json has ${PACK_GAME_IDS.join(',')}`);
+  }
+  const gameCases = readFixture('game-commands.json');
+  const publicKeys = parity('jp.douma.bridgemod.GameCommandParity', gameCases.map(c => c.name)).map(unhex);
+  const gameMismatches = gameCases.flatMap((c, i) => publicCommandKey(c.name) === c.publicKey && publicKeys[i] === c.publicKey ? []
+    : [`  ${JSON.stringify(c.name)}: expected ${JSON.stringify(c.publicKey)} / Bridge ${JSON.stringify(publicCommandKey(c.name))} / MOD ${JSON.stringify(publicKeys[i])}`]);
+  if (gameMismatches.length) throw new Error('GameCommandParity: Bridge and MOD give different chat names\n' + gameMismatches.join('\n'));
+  console.log(`GameCommandParity: ${javaGames.length} games and ${gameCases.length} chat names match bridge/game_commands.cjs`);
+  const modCases = readFixture('game-mod-ids.json');
+  const modResults = parity('jp.douma.bridgemod.GameModIdParity', modCases.map(c => c.id));
+  const modMismatches = modCases.flatMap((c, i) => isGameModId(c.id) === c.ok && modResults[i] === (c.ok ? '1' : '0') ? []
+    : [`  ${JSON.stringify(c.id)}: expected ${c.ok} / Bridge ${isGameModId(c.id)} / MOD ${modResults[i] === '1'}`]);
+  if (modMismatches.length) throw new Error('GameModIdParity: Bridge and MOD accept different game MOD IDs\n' + modMismatches.join('\n'));
+  console.log(`GameModIdParity: ${modCases.length} game MOD IDs match isGameModId`);
 } finally {
   // Only this invocation's verified temporary test output may be removed.
   if (path.dirname(temp) === fs.realpathSync(os.tmpdir()) && path.basename(temp).startsWith('bridge-contracts-')) fs.rmSync(temp, { recursive: true, force: true });

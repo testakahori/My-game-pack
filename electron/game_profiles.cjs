@@ -8,19 +8,20 @@ const saikutu = require('./saikutu_commands.cjs');
 const { isTxtName, ensureTxt, commandFileRefs } = require('../bridge/command_files.cjs');
 const { migrateBridgeConfig } = require('../bridge/config_migration.cjs');
 const { bridgeCommandsDir } = require('../bridge/config_defaults.cjs');
-
-const GAMES = [{ id: 'common', name: 'サバイバル', modName: 'BridgeMOD' },
-  { id: 'umetate', name: '埋め立て', modName: 'UmetateMOD' },
-  { id: 'run', name: 'RUN', modName: 'RunMOD' }, { id: 'saikutu', name: '採掘', modName: 'saikutuMOD' }];
+// ゲームの一覧と、ゲーム専用の判定・MOD の ID・パックの key の決まりは bridge/game_commands.cjs の1か所（処理のコピー PR6）。
+const { GAMES, RESERVED_MOD_IDS, gameOfCommand, isGameCommandFile, isGameModId, isGamePackKey } = require('../bridge/game_commands.cjs');
 const PROFILE_KEYS = ['mappings', 'likeEvents', 'unmappedGiftEvent', 'shareEvent', 'followEvent', 'memberEvent',
   'roulette', 'deathRoulette', 'commentGifts', 'milestones', 'combos'];
 const hash = data => crypto.createHash('sha256').update(data).digest('hex');
 const readJson = (file, fallback) => fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : fallback;
 const writeJson = (file, value) => atomicWrite(file, JSON.stringify(value, null, 2));
 const clone = value => JSON.parse(JSON.stringify(value));
-// 指定したゲーム以外のゲーム専用コマンド（game_<id>_*.txt）を使う割り当てを外す。
+// 指定したゲーム以外のゲーム専用コマンド（game_<一覧のゲーム>_*.txt）を使う割り当てを外す。game_mode_on.txt などは共通のコマンドなので残す。
+// 文字列で書いたコメントコマンド・投票の選択肢も外す（切り替えの確かめはそれも数える。処理のコピー PR6）。
 function withoutOtherGameCommands(value, gameId) {
-  const other = file => typeof file === 'string' && /^game_[a-z0-9]+_/.test(file) && !file.startsWith(`game_${gameId}_`);
+  const other = file => { const game = gameOfCommand(file); return game !== null && game !== gameId; };
+  // .txt を書いていない文字列も、切り替えの確かめと BRIDGE は .txt を付けて数えるので外す（PR6 の最終レビュー）。
+  if (typeof value === 'string') return other(value) ? undefined : value;
   if (!value || typeof value !== 'object') return value;
   if (other(value.commandFile)) return undefined;
   if (Array.isArray(value)) return value.map(item => withoutOtherGameCommands(item, gameId)).filter(item => item !== undefined);
@@ -63,7 +64,7 @@ function jarModIds(bytes) {
 function inspectPackage(folder) {
   const manifest = JSON.parse(plainFile(path.join(folder, 'game.json'), 1024 * 1024));
   const game = GAMES.find(g => g.id !== 'common' && g.id === manifest.id);
-  if (!game || manifest.format !== 1 || !/^[a-z][a-z0-9_]{1,63}$/.test(manifest.modId || '') || ['bridgemod', 'displaymod', 'doumacmd'].includes(manifest.modId)) throw new Error('game.jsonのゲームID・MOD ID・形式を確認してください');
+  if (!game || manifest.format !== 1 || !isGameModId(manifest.modId)) throw new Error('game.jsonのゲームID・MOD ID・形式を確認してください');
   if (manifest.bridgeEventApi !== undefined && manifest.bridgeEventApi !== 1) throw new Error('bridgeEventApiは1で指定してください');
   const files = {};
   for (const side of ['server', 'client']) {
@@ -76,7 +77,7 @@ function inspectPackage(folder) {
   if (!Array.isArray(manifest.commands) || manifest.commands.length > 300) throw new Error('commandsは300件以内の配列にしてください');
   const seen = new Set();
   const commands = manifest.commands.map(c => {
-    if (!/^[a-z][a-z0-9_]{0,49}$/.test(c?.key || '') || seen.has(c.key)) throw new Error('コマンドのkeyが不正・重複しています');
+    if (!isGamePackKey(c?.key) || seen.has(c.key)) throw new Error('コマンドのkeyが不正・重複しています');
     if (typeof c.title !== 'string' || !c.title.trim() || /[\r\n]/.test(c.title) || c.title.length > 100) throw new Error('コマンドの表示名が不正です');
     if (typeof c.command !== 'string' || !c.command.trim() || /[\r\n]/.test(c.command) || c.command.length > 2000 || /^(?:\/?bridge|\/?douma)\s/i.test(c.command.trim())) throw new Error('ゲームMODへ渡すコマンドは1行で指定してください（Bridgeの再呼び出しは不可）');
     if (c.destructive !== undefined && typeof c.destructive !== 'boolean') throw new Error('destructiveはtrueかfalseで指定してください');
@@ -151,7 +152,7 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     }
     const commands = bridgeCommandsDir(path.dirname(configPath()));
     for (const [name, content] of Object.entries(journal.commandBefore || {})) {
-      if (!/^game_(umetate|run|saikutu)_[a-z0-9_]+\.txt$/.test(name)) throw new Error('切替記録のコマンド名が不正です');
+      if (!isGameCommandFile(name)) throw new Error('切替記録のコマンド名が不正です');
       const file = path.join(commands, name);
       if (content === null) { if (fs.existsSync(file)) fs.unlinkSync(file); } else atomicWrite(file, content);
     }
@@ -204,7 +205,8 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     const commandDir = commandFolder();
     const gameFiles = gameCommandFiles(id, pack);
     assertGameCommandKeys(pack, commandDir);
-    const oldNames = fs.existsSync(commandDir) ? fs.readdirSync(commandDir).filter(n => /^game_(umetate|run|saikutu)_[a-z0-9_]+\.txt$/.test(n)) : [];
+    // 切り替えで消すゲームのファイル（大文字の GAME_RUN_X.TXT も同じゲームのもの。処理のコピー PR6）。
+    const oldNames = fs.existsSync(commandDir) ? fs.readdirSync(commandDir).filter(isGameCommandFile) : [];
     const next = clone(current);
     next.profiles[current.active] = { ...Object.fromEntries(PROFILE_KEYS.filter(k => Object.hasOwn(config, k)).map(k => [k, config[k]])),
       options: { gameplay: clone(config.options?.gameplay || {}) } };
@@ -276,7 +278,7 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     const commonFiles = commonModFiles(), commandDir = commandFolder(), commands = gameCommandFiles(id, pack);
     assertGameCommandKeys(pack, commandDir);
     // アプリが置く MOD かは、jar の中の MOD ID で見分ける（名前を変えた古い版も見つける）。
-    const own = new Set(['bridgemod', 'doumacmd', 'displaymod', ...(pack ? [pack.manifest.modId] : [])]);
+    const own = new Set([...RESERVED_MOD_IDS, ...(pack ? [pack.manifest.modId] : [])]);
     const plans = dirs.map((dir, side) => {
       const mods = path.join(dir, 'mods'), files = modFiles(pack, commonFiles, side);
       const names = fs.existsSync(mods) ? fs.readdirSync(mods) : [];

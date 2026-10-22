@@ -1036,6 +1036,20 @@ test("設定バックアップIPC: 保存前の世代を作り、復元で割り
   assert.equal((await app.invoke("config:read")).mappings.length, 1);
 });
 
+// 復元の確かめは、バックアップの中のコマンドも「使える名前」に足す。game_mode_on.txt のような共通のコマンドも足す
+// （前は game_ で始まる名前を外し、「選択したゲームでは使えないコマンドです」で止まった。処理のコピー PR6）。
+test("設定バックアップIPC: game_ で始まる共通のコマンドを使う設定も、バックアップから戻せる", async t => {
+  const app = loadApp(t);
+  const commands = path.join(app.root, "bridge", "commands", "minecraft");
+  fs.writeFileSync(path.join(commands, "game_mode_on.txt"), "say on\n");
+  await app.invoke("config:mappings:write", [{ giftId: "5655", commandFile: "game_mode_on.txt", repeat: 1 }]);
+  const backup = await app.invoke("settings:backups:create");
+  await app.invoke("config:mappings:write", []);
+  fs.unlinkSync(path.join(commands, "game_mode_on.txt"));
+  await app.invoke("settings:backups:restore", backup.id);
+  assert.equal((await app.invoke("config:read")).mappings[0].commandFile, "game_mode_on.txt");
+});
+
 test("読み上げ: Bridgeに保存できなければ成功として返さない", async (t) => {
   const app = loadApp(t);
   const destination = path.join(app.root, "bridge", "tts-settings.json");

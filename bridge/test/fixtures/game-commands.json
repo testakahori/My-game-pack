@@ -1,0 +1,9 @@
+[
+  { "name": "game_saikutu_dig.txt", "game": "saikutu", "publicKey": "dig" },
+  { "name": "GAME_RUN_X.TXT", "game": "run", "publicKey": "X" },
+  { "name": "game_mode_on.txt", "game": null, "publicKey": "game_mode_on" },
+  { "name": "game_unknown_x.txt", "game": null, "publicKey": "game_unknown_x" },
+  { "name": "game_umetate_fill.v2.txt", "game": "umetate", "publicKey": "fill.v2" },
+  { "name": "zombie.txt", "game": null, "publicKey": "zombie" },
+  { "name": "game_common_x.txt", "game": null, "publicKey": "game_common_x" }
+]

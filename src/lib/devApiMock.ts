@@ -1,5 +1,10 @@
 import pkg from "../../package.json";
 import miningPack from "../../game-packs/saikutu/game.json";
+// ゲームの一覧はアプリ・BRIDGE と同じ bridge/games.json（処理のコピー PR6）。
+import GAMES from "../../bridge/games.json";
+
+// ゲームパックのゲームのコマンド（game_<id>_）か。アプリの bridge/game_commands.cjs の gameOfCommand と同じく、一覧から作り、大文字小文字を区別しない。
+const packGamePrefix = new RegExp(`^game_(${GAMES.filter(game => game.id !== "common").map(game => game.id).join("|")})_`, "i");
 
 type DevAppConfig = {
   serverFolder: string;
@@ -63,8 +68,8 @@ if (import.meta.env.DEV && !win.mygamepack) {
       if (response.ok) {
         const commands = await response.json();
         if (!previewModsApplied) return [];
-        const common = commands.filter((item: any) => !item.name.startsWith("_") && !item.name.startsWith("game_") && !miningPack.commands.some(command => item.name === command.key + ".txt"));
-        return previewActiveGame === "saikutu" ? [...common, ...miningPack.commands.map(command => ({ name: `game_saikutu_${command.key}.txt`, title: command.title, category: "saikutuMOD" }))] : common;
+        const common = commands.filter((item: any) => !item.name.startsWith("_") && !packGamePrefix.test(item.name) && !miningPack.commands.some(command => item.name === command.key + ".txt"));
+        return previewActiveGame === "saikutu" ? [...common, ...miningPack.commands.map(command => ({ name: `game_saikutu_${command.key}.txt`, title: command.title, category: "saikutuMOD", chatKey: command.key }))] : common;
       }
     } catch { /* ignore */ }
     return [];
@@ -201,12 +206,8 @@ if (import.meta.env.DEV && !win.mygamepack) {
   const previewProfiles: Record<string, any> = {};
   const previewProfileKeys = ['mappings', 'likeEvents', 'unmappedGiftEvent', 'shareEvent', 'followEvent', 'memberEvent', 'roulette', 'deathRoulette', 'commentGifts'];
   const previewGameStatus = () => ({ active: previewActiveGame, applied: previewModsApplied, displayBundled: true, recoveryRequired: false,
-    serverMods: appConfig.serverFolder + '\\mods', clientMods: previewClientFolder + '\\mods', games: [
-      { id: 'common', name: 'サバイバル', modName: 'BridgeMOD', installed: true },
-      { id: 'umetate', name: '埋め立て', modName: 'UmetateMOD', installed: false },
-      { id: 'run', name: 'RUN', modName: 'RunMOD', installed: false },
-      { id: 'saikutu', name: '採掘', modName: 'SaikutuMOD', installed: true },
-    ] });
+    serverMods: appConfig.serverFolder + '\\mods', clientMods: previewClientFolder + '\\mods',
+    games: GAMES.map(game => ({ ...game, installed: game.id === 'common' || game.id === 'saikutu' })) });
   win.mygamepack = {
     gamesList: async () => previewGameStatus(),
     gamesClientFolders: async () => ({ candidates: previewMinecraftFolders.map(folder => ({ ...folder, modsPath: folder.path + '\\mods', current: folder.path === previewClientFolder })), warnings: [] }),

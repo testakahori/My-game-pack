@@ -1,7 +1,9 @@
 'use strict';
 const { FILES } = require('./saikutu_commands.cjs');
 const { isTxtName, ensureTxt, commandFileRefs } = require('../bridge/command_files.cjs');
-const GAME_IDS = new Set(['common', 'umetate', 'run', 'saikutu']);
+// ゲームの一覧とゲーム専用の判定は bridge/game_commands.cjs の1か所（処理のコピー PR6）。
+const { GAME_IDS: GAME_ID_LIST, gameOfCommand } = require('../bridge/game_commands.cjs');
+const GAME_IDS = new Set(GAME_ID_LIST);
 function assertGameReady(status) {
   if (!status?.applied || status.recoveryRequired || !GAME_IDS.has(status.active)) {
     throw new Error('TOPでプレイするゲームを選び「保存」を押してから設定してください。');
@@ -11,8 +13,9 @@ function availableGameCommands(names, status) {
   if (!status?.applied || status.recoveryRequired || !GAME_IDS.has(status.active)) return [];
   return names.filter(name => {
     if (typeof name !== 'string' || !isTxtName(name) || name.startsWith('_') || /[\\/]/.test(name) || FILES.has(name.toLowerCase())) return false;
-    const game = /^game_(umetate|run|saikutu)_/.exec(name);
-    return !game || game[1] === status.active;
+    // ほかのゲームのコマンドは出さない（大文字の GAME_RUN_X.TXT も RUN のもの）。game_mode_on.txt などは共通。
+    const game = gameOfCommand(name);
+    return !game || game === status.active;
   });
 }
 function assertGameCommands(config, names, status) {

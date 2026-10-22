@@ -282,6 +282,38 @@ test('埋め立て・RUN のプロフィールから採掘のプロフィール�
   assert.deepEqual(JSON.parse(fs.readFileSync(x.config)).mappings.map(m => m.commandFile), ['game_umetate_fill.txt'], '埋め立ての専用コマンドは埋め立てに残る');
 });
 
+// ゲーム専用の判定は bridge/game_commands.cjs の1か所（処理のコピー PR6）。前は /^game_[a-z0-9]+_/ で、共通の game_mode_on.txt も外していた。
+test('採掘のプロフィールを初めて作るとき、共通の game_mode_on.txt は残し、文字列で書いたほかのゲームのコマンドも外す', async t => {
+  let folder;
+  const x = fixture(t, { bundledPackages: () => folder ? [{ id:'saikutu',folder }] : [] });
+  await x.api.install(x.pack('umetate'));
+  folder = x.pack('saikutu');
+  const file = path.join(folder,'game.json'), manifest = JSON.parse(fs.readFileSync(file));
+  manifest.bridgeEventApi = 1; manifest.commands = [{ key:'give_haste',title:'採掘速度上昇',command:'saikutu give_haste {Count} {ListenerName}' }];
+  fs.writeFileSync(file,JSON.stringify(manifest));
+  await x.api.activate('umetate');
+  fs.writeFileSync(path.join(x.server, 'bridge/commands/minecraft/game_mode_on.txt'), 'say mode\n');
+  const umetate = JSON.parse(fs.readFileSync(x.config));
+  umetate.mappings = [{ giftId:'rose',commandFile:'game_mode_on.txt',repeat:1 }, { giftId:'pass',commandFile:'give_haste.txt',repeat:1 }];
+  // .txt を書いていない文字列も、切り替えの確かめと BRIDGE は .txt を付けて数えるので外す（PR6 の最終レビュー）。
+  umetate.options = { ...umetate.options, gameplay: { commentCommands: { '!x': 'game_umetate_fill.txt', '!y': 'game_umetate_fill' } } };
+  fs.writeFileSync(x.config,JSON.stringify(umetate));
+  await x.api.activate('saikutu');
+  const mining = JSON.parse(fs.readFileSync(x.config));
+  assert.deepEqual(mining.mappings.map(m => m.commandFile), ['game_mode_on.txt', 'game_saikutu_give_haste.txt']);
+  assert.deepEqual(mining.options.gameplay.commentCommands, {});
+});
+
+// ゲームの切り替えで入れ替える（消す）のは、パックが作れる名前（大文字小文字は区別しない）だけ（PR6 の最終レビュー）。
+test('ゲームの切り替え: 大文字のゲームのファイルは入れ替え、手で作った . や - のある名前は消さない', async t => {
+  const x = fixture(t), pack = x.pack('run'); await x.api.install(pack); await x.api.activate('run');
+  const dir = path.join(x.server, 'bridge/commands/minecraft');
+  for (const name of ['game_run_notes.v2.txt', 'game_run_my-notes.txt', 'GAME_RUN_EXTRA.TXT']) fs.writeFileSync(path.join(dir, name), 'say x\n');
+  await x.api.activate('common');
+  assert.deepEqual(['game_run_notes.v2.txt', 'game_run_my-notes.txt'].map(name => fs.existsSync(path.join(dir, name))), [true, true], '手で作った名前は残す');
+  assert.equal(fs.readdirSync(dir).includes('GAME_RUN_EXTRA.TXT'), false, 'パックが作れる名前（大文字）は入れ替える');
+});
+
 test('bridgeコマンド名が共通MODと重なるゲームは変更前に拒否する', async t => {
   const x = fixture(t), folder = x.pack('run'), file = path.join(folder,'game.json');
   const manifest = JSON.parse(fs.readFileSync(file)); manifest.commands[0].key = 'zombie'; fs.writeFileSync(file,JSON.stringify(manifest));

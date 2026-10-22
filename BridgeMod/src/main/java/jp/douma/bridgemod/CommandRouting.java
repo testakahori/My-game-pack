@@ -7,8 +7,16 @@ import java.util.*;
 /** Active game files are installed transactionally by the app. Keep their private filenames out of chat. */
 final class CommandRouting {
     private CommandRouting() {}
+    /**
+     * ゲームパックのゲームの一覧（アプリ・BRIDGE の bridge/games.json の common 以外と同じ。scripts/test-bridge-contracts.cjs で比べる）。
+     * チャットの名前（publicKey）とファイルを探す所（resolve）が、この1つを使う（前は一覧が2つあった。処理のコピー PR6）。
+     */
+    static final List<String> GAME_IDS = List.of("saikutu", "umetate", "run");
+    // ゲーム専用の頭（game_<id>_）。アプリ・BRIDGE（bridge/game_commands.cjs）と同じく大文字小文字を区別しない（Windows のファイル名も区別しない）。
+    private static final java.util.regex.Pattern GAME_PREFIX =
+        java.util.regex.Pattern.compile("^game_(?:" + String.join("|", GAME_IDS) + ")_", java.util.regex.Pattern.CASE_INSENSITIVE);
     static String publicKey(String filename) {
-        return filename.replaceFirst("(?i)\\.txt$", "").replaceFirst("^game_(?:saikutu|umetate|run)_", "");
+        return GAME_PREFIX.matcher(filename.replaceFirst("(?i)\\.txt$", "")).replaceFirst("");
     }
     /**
      * 開発版のアプリ（パッケージ前）が渡すコマンドの置き場所（環境変数 BRIDGE_MOD_COMMANDS_DIR）。
@@ -46,7 +54,7 @@ final class CommandRouting {
         if (!isKey(stem)) return null;
         Path base = directory.toAbsolutePath().normalize();
         List<Path> matches = new ArrayList<>();
-        for (String game : List.of("saikutu", "umetate", "run")) {
+        for (String game : GAME_IDS) {
             Path candidate = base.resolve("game_" + game + "_" + stem + ".txt");
             if (inside(base, candidate) && Files.isRegularFile(candidate)) matches.add(candidate);
         }

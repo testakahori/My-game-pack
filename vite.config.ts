@@ -137,6 +137,8 @@ function ttsDevHelperPlugin(): Plugin {
         }
         const { parseCommandText } = load("./bridge/command_text.cjs");
         const { isTxtName } = load("./bridge/command_files.cjs");
+        // チャットの名前もアプリと同じ bridge/game_commands.cjs で付ける（処理のコピー PR6）。
+        const { publicCommandKey } = load("./bridge/game_commands.cjs");
         const files = fs.readdirSync(dir).filter((file) => isTxtName(file)).sort();
         const commands = files.map((name) => {
           let title = name, category = "";
@@ -145,7 +147,7 @@ function ttsDevHelperPlugin(): Plugin {
             title = meta.TITLE || name;
             category = meta.CATEGORY || "";
           } catch {}
-          return { name, title, category };
+          return { name, title, category, chatKey: publicCommandKey(name) };
         });
         sendJson(res, 200, commands);
       });

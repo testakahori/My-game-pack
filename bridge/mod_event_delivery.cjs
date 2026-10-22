@@ -1,4 +1,5 @@
 const { randomUUID } = require("node:crypto");
+const { isGameModId } = require("./game_commands.cjs");
 
 // The MOD answers these when the request itself is wrong (bad command name, unknown route, oversized body, not JSON).
 // Resending the same request can never succeed and would block every later event in the same FIFO lane.
@@ -156,7 +157,8 @@ function createLikeBatcher({ dispatch, windowMs, schedule = setTimeout, prepare 
 function captureGameEvent(event, gameMod, sessions = {}) {
   gameMod = event.gameMod || gameMod;
   if (!gameMod) return event;
-  if (!/^[a-z][a-z0-9_]{1,63}$/.test(gameMod)) throw new Error("Invalid game MOD ID");
+  // ゲーム MOD の ID は bridge/game_commands.cjs の1か所（予約名の bridgemod なども断る。アプリ・BridgeMOD と同じ。処理のコピー PR6）。
+  if (!isGameModId(gameMod)) throw new Error("Invalid game MOD ID");
   const args = event.args || {};
   if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length > 32) throw new Error("Invalid game args");
   let textLength = 0;
