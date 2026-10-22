@@ -59,6 +59,10 @@ test('既定値の写し: BRIDGE は既定値・コマンドの場所・接続�
     assert.doesNotMatch(source, /"minecraft", name/, file);
   }
   assert.match(fs.readFileSync(path.resolve(__dirname, '../../bridge/index.js'), 'utf8'), /既定値は bridge\/config_defaults\.json/);
+  // 音・粒子の ID の決まりは bridge/minecraft_ids.cjs の1か所（DisplayMOD と同じ。処理のコピー PR7）。
+  for (const file of ['bridge/event_rules.cjs', 'bridge/roulette.cjs']) {
+    assert.equal(fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8').includes('[a-z0-9_.:-]'), false, file + ' に音・粒子の ID の正規表現の写しがある');
+  }
   // ギフト割り当ての使う形は bridge/gift_mappings.cjs の1か所（処理のコピー PR5）。
   const index = fs.readFileSync(path.resolve(__dirname, '../../bridge/index.js'), 'utf8');
   // 送る列の名前（`gift:${giftId}`）には当てず、名前の既定（|| `gift:${…}`）だけを探す。

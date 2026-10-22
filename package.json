@@ -68,6 +68,7 @@
       "bridge/gift_mappings.cjs",
       "bridge/games.json",
       "bridge/game_commands.cjs",
+      "bridge/minecraft_ids.cjs",
       "bridge/bridge_mod_token.cjs",
       "bridge/package.json",
       "assets/icon.ico",

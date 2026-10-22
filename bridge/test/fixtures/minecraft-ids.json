@@ -1,0 +1,17 @@
+[
+  { "id": "minecraft:flame", "ok": true },
+  { "id": "entity.player.levelup", "ok": true },
+  { "id": "block.note_block.bell", "ok": true },
+  { "id": "minecraft:block/stone", "ok": true },
+  { "id": "a..b", "ok": true },
+  { "id": "a:b:c", "ok": false },
+  { "id": ": x", "ok": false },
+  { "id": "x:", "ok": false },
+  { "id": ": ", "ok": false },
+  { "id": "Minecraft:flame", "ok": false },
+  { "id": " x", "ok": false },
+  { "id": "", "ok": false },
+  { "id": "minecraft:ドラゴン", "ok": false },
+  { "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "ok": true },
+  { "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "ok": false }
+]

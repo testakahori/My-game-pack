@@ -89,3 +89,10 @@ test("ルーレットの回数の丸めは前と同じ（0・空・数でない�
   const repeats = [0, "", "x", 2.9, 500].map(repeat => prepareRoulette({ items: [{ commandFile: "zombie.txt", repeat }] }, dir, () => 0).winner.repeat);
   assert.deepEqual(repeats, [1, 1, 1, 2, 100]);
 });
+
+// 音・粒子の ID は bridge/minecraft_ids.cjs の1か所（DisplayMOD と同じ決まり。処理のコピー PR7）。
+test("ルーレットの止まる音・粒子: 正しくない ID は今どおり既定にし、/ のある path は DisplayMOD と同じく通す", t => {
+  const { dir, config } = fixture(t);
+  assert.equal(prepareRoulette({ ...config, stopSound: "a:b:c" }, dir, () => 0).stopSound, "entity.player.levelup");
+  assert.equal(prepareRoulette({ ...config, stopSound: "minecraft:block/stone" }, dir, () => 0).stopSound, "minecraft:block/stone");
+});

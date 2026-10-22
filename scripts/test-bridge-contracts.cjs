@@ -19,7 +19,8 @@ try {
     ...['BridgeAuthContractTest', 'JumpPhysicsContractTest', 'ListenerNamesContractTest', 'ListenerNamesParity', 'StormPlanContractTest', 'ProtectedBlockIdsContractTest',
       'CommandRoutingContractTest', 'CommandTextParity', 'CommandKeyParity', 'GameCommandParity', 'GameModIdParity'].map(name => contract + name + '.java'),
     saikutu + 'Shockwave.java', saikutu + 'LoadedArea.java', saikutuContract + 'ShockwaveContractTest.java',
-    saikutu + 'CommandText.java', saikutuContract + 'CommandTextParity.java'],
+    saikutu + 'CommandText.java', saikutuContract + 'CommandTextParity.java',
+    'DisplayMod/src/main/java/jp/douma/displaymod/api/DisplayRequest.java', 'DisplayMod/src/contractTest/java/jp/douma/bridgemod/DisplayIdParity.java'],
     { cwd: root, windowsHide: true, stdio: 'inherit' });
   const run = (name, ...args) => execFileSync(bin('java'), ['-Xmx64m', '-Dfile.encoding=UTF-8', '-Dstdout.encoding=UTF-8', '-cp', classes, name.includes('.') ? name : 'jp.douma.bridgemod.' + name, ...args],
     { cwd: root, windowsHide: true, stdio: 'inherit' });
@@ -137,6 +138,16 @@ try {
     : [`  ${JSON.stringify(c.id)}: expected ${c.ok} / Bridge ${isGameModId(c.id)} / MOD ${modResults[i] === '1'}`]);
   if (modMismatches.length) throw new Error('GameModIdParity: Bridge and MOD accept different game MOD IDs\n' + modMismatches.join('\n'));
   console.log(`GameModIdParity: ${modCases.length} game MOD IDs match isGameModId`);
+
+  // 音・粒子の ID（bridge/minecraft_ids.cjs）を、受け取る側の DisplayMOD（DisplayRequest.from）にも同じ例の一覧で通す
+  // （2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 10。処理のコピー PR7）。
+  const { isResourceId } = require('../bridge/minecraft_ids.cjs');
+  const idCases = readFixture('minecraft-ids.json');
+  const idResults = parity('jp.douma.bridgemod.DisplayIdParity', idCases.map(c => c.id));
+  const idMismatches = idCases.flatMap((c, i) => isResourceId(c.id) === c.ok && idResults[i] === (c.ok ? '1' : '0') ? []
+    : [`  ${JSON.stringify(c.id.length > 40 ? c.id.slice(0, 20) + '…(' + c.id.length + ')' : c.id)}: expected ${c.ok} / Bridge ${isResourceId(c.id)} / DisplayMOD ${idResults[i] === '1'}`]);
+  if (idMismatches.length) throw new Error('DisplayIdParity: Bridge and DisplayMOD accept different sound/particle IDs\n' + idMismatches.join('\n'));
+  console.log(`DisplayIdParity: ${idCases.length} sound/particle IDs match isResourceId`);
 } finally {
   // Only this invocation's verified temporary test output may be removed.
   if (path.dirname(temp) === fs.realpathSync(os.tmpdir()) && path.basename(temp).startsWith('bridge-contracts-')) fs.rmSync(temp, { recursive: true, force: true });

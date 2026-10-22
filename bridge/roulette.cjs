@@ -3,6 +3,7 @@ const path = require("node:path");
 const { parseCommandText } = require("./command_text.cjs");
 const { ensureTxt, bridgeCommandKey } = require("./command_files.cjs");
 const { boundedInt } = require("./event_rules.cjs");
+const { isResourceId } = require("./minecraft_ids.cjs");
 
 function cleanText(value, length) {
   return Array.from(String(value ?? "").replace(/[\r\n\t]/g, " ").replace(/[\u0000-\u001f\u007f]/g, "")).slice(0, length).join("");
@@ -36,7 +37,8 @@ function prepareRoulette(config, commandsDir, random = Math.random) {
   if (!items.length) throw new Error("ルーレットの有効な項目がありません。イベント設定②で存在するコマンドを選び、保存してください。");
   let pick = random() * items.reduce((sum, item) => sum + item.weight, 0);
   const winner = items.find(item => (pick -= item.weight) < 0) || items.at(-1);
-  const mcId = (value, fallback) => /^[a-z0-9_.:-]+$/.test(String(value || "")) ? value : fallback;
+  // 音・粒子の ID の決まりは minecraft_ids.cjs の1か所（DisplayMOD と同じ）。正しくなければ既定にする（処理のコピー PR7）。
+  const mcId = (value, fallback) => isResourceId(value) ? value : fallback;
   return { items, winner, stopSound: mcId(config.stopSound, "entity.player.levelup"), particle: mcId(config.particle, "minecraft:totem_of_undying") };
 }
 
