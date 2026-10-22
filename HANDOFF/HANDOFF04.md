@@ -317,10 +317,24 @@
        - 重要：ゲームを切り替えると、ゲーム別に保存した更新前の設定（profiles.json）が直されないまま戻り、版の番号が残るので二度と直らなかった。切り替えで書く設定も同じ直しを通す（`game_profiles.cjs`）。
        - レビュー役が判断を任せたもの（13件）は、作業の記録（下）の `Final: Ruling:` に、私が決めたこととして書いた。目立つもの：閾値 0 を 1 に直すと、前は動かなかった（`!ev.threshold` で飛ばしていた）いいねのルールがいいねごとに動く（設計書のユーザーの決定のまま。画面では 0 を保存できず、手で書いた設定だけ）。2.5 回は四捨五入で 3 回（前の BRIDGE は切り捨てで 2 回）。
        - リリースノートにも足す：「手で 0 にしていたいいねの閾値は 1 になり、いいねごとに動きます」。
-     - **次にやること**（新しいチャットから）：
-       1. 軽い指摘4件を直すかユーザーに聞く（前の PR ではいつも「直してから PR」）。(a) 知らせの文「直す前の設定は『設定のバックアップ』から戻せます」は言い過ぎ（復元はもう一度直すので 2.5 には戻らない）→「残っています」に。(b) オブジェクトでないプリセットのエラーの文が「TikTok IDが未承認です」に変わった（`migrateBridgeConfig` がオブジェクトでないものを `{configVersion:2}` にする）。(c) `electron/gifts_viewer.cjs:24` に TikTok ID の整え方の写しが残る（写しを探すテストにも足す）。(d) `build.files` のテストが bridge のモジュールの中の `require("./…")` をたどらない。
-       2. 直したら `npm run verify`、作業の記録 `.superpowers/sdd/2026-10-18-logic-copies-pr3/`（git が無視するフォルダー。ルーリングの一覧はここの `progress.md`）を消す → push → PR → CI → ユーザーの許可を得てマージ。
-       3. そのあと PR4（既定値の1か所・コマンドの場所・BridgeMOD のホストとポートの読み方・画面の古い名前）、PR5（参照の数え方・ギフト割り当て・ゲーム ID など）。
+     - 軽い指摘4件は、ユーザーの指示（10-22、新しいチャット「軽い指摘4件を直す」）で直した：
+       - (a) 知らせの文を「直す前の設定は「設定のバックアップ」に「更新で直す前の自動保存」として残っています。」にした。復元するともう一度直すので、「戻せます」は言い過ぎだった。
+       - (b) `migrateBridgeConfig` は、オブジェクトでないものをそのまま返す。中身が `[]`・`"x"`・`null` のプリセットは「設定全体がJSONオブジェクトではありません」で止まり、設定は変わらない。
+       - (c) ギフト一覧の自動更新（`gifts_viewer.cjs` の `autoUpdateGiftsIfStale`）は、設定の ID と取った一覧の ID（`gifts.meta.json` の username）の両方を `normalizeTikTokId` で整えて比べる。配信前チェックの「一覧の ID が同じか」にも同じ写しが残っていたので、あわせて直した。写しを探すテストの対象に `gifts_viewer.cjs` と `meta.username` の形を足した。
+       - (d) `build.files` のテストは、bridge のモジュールが中で読む `./…` もたどる（`audience_stats.cjs` → `tiktok_events.cjs`）。`build.files` から `tiktok_events.cjs` を抜くと落ちることを確かめた。
+       - 足したテストは、どれも直す前のコードで落ちることを確かめた。
+       - この直しのレビュー（別のレビュー役）：重大 0・重要 0・軽い 5。前と同じく、直してから PR にした。
+         - 自動更新は整えた形（小文字）で取りにいくのに、ギフト一覧タブの更新は設定の ID をそのまま渡すので、大文字まじりの ID だと、起動直後の自動更新の最中に押した更新が「別のアカウントのギフトを更新中です」で止まった（この直しで生まれた食い違い）。`updateGifts` も `normalizeTikTokId` で整える。
+         - 配信前チェックの「LIVE へ接続しているか」の、小文字にするだけの比べ方も `normalizeTikTokId` にした。写しを探すテストに、`username` を小文字にして比べる形も足した。
+         - `build.files` のテストのたどり方を、拡張子のない require（`./config_schema` など）でも落ちないようにし、見つからないときは「どこから読む何が見つからないか」で落とす。bridge の外（`electron/**` など glob で入るもの）は見ない。
+         - 知らせの文のバックアップの名前が、画面の一覧（`SettingsBackupsPanel.tsx`）の名前と同じことをテストで確かめる。
+         - 写しを探すテストに、`gifts_viewer.cjs` に残した写しのことを書いた。
+       - `npm run verify`：アプリ 539/539、BRIDGE 15/15、ビルドが通る。
+       - 残したもの（PR4・PR5 で）：ギフト一覧の画面で入力した ID の確かめ（`gifts_viewer.cjs` の `updateGifts` の `[\w.]{1,64}`）と保存の整え方（`gv:settings:write`）。`src/` の写し（`DashboardPage.tsx`・`GiftsGridSection.tsx`・`GiftsViewerPage.tsx`）。`GiftsViewer/` の写し（`src/App.tsx`・`tools/fetch_gifts.cjs`）。
+       - 作業の記録 `.superpowers/sdd/2026-10-18-logic-copies-pr3/` は消した。レビュー役が任せた判断（13件）は PR の説明に写した。
+     - **次にやること**：
+       1. PR3 の PR を作り、CI を確かめ、ユーザーの許可を得てマージする。
+       2. そのあと PR4（既定値の1か所・コマンドの場所・BridgeMOD のホストとポートの読み方・画面の古い名前）、PR5（参照の数え方・ギフト割り当て・ゲーム ID など）。
      - PR1 のレビューで見つけた前からの問題（直していない。PR3・PR4 か別の PR で）：`foo.txt.txt` は BRIDGE が `foo.txt` を送り、MOD がもう一度 `.txt` を除くので `foo.txt` を実行する。設定に `../x.txt` と書くと名前の確かめを通り、RCON の経路と条件だけ確認でコマンドのフォルダーの外を読む。`bridge/index.js:1456` のルーレットの判定 `=== "roulette"` は大文字小文字を区別する（`roulette.cjs` は区別しない）。Shift_JIS の txt は JS が U+FFFD にして読み、MOD は読めない。`gift_templates.cjs:45` の `missing()` は名前を大文字小文字まで比べる。TXT の書き込みのゲームパックの判定は大文字小文字を区別する。electron が読む `../bridge/*.cjs` が `build.files` に全部あるかを確かめるテストがない。`src/` に残る写し（`CommandSetManager.tsx`・`CommandsListPage.tsx`・`EventSettings2Page.tsx`・`ImageEditorPage.tsx`）は、設計書 3 のとおり画面が決まりを持たない形に PR3・PR4 でそろえる。
    - リリース手順が2つ
 
