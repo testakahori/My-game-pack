@@ -387,7 +387,8 @@
        - `docs/ゲームMOD連携API_v1.4.md` に、ゲーム MOD の ID の決まりと予約名を書いた。
        - `npm run verify`（直したあと）：アプリ 574/574、BRIDGE 15/15、型チェック・ビルドが通る。契約テストも通る（MOD の ID 11件）。
        - 計画で私が決めたこと：ゲーム専用の判定は大文字小文字を区別しない（`GAME_RUN_X.TXT` も RUN のもの）、既定のゲームとしての `'common'` の直書きは残す、予約名の `# GAME_MOD:` は BRIDGE も送らない、パックの key の決まりは JavaScript だけ（設計書は「GameEvents.java と合わせる」としていたが、Java に key の決まりがなく、足すと大文字の `GAME_KEY` を断る）、`withoutOtherGameCommands` は文字列の参照も外す、コマンド一覧のチャットの名前はアプリが付ける `chatKey` を使う。BridgeMOD は 1.8.2 に上げる（一覧を1つにし、`GameEvents` に予約名の確かめを足す）。
-     - **次にやること**：PR6 の PR → CI → ユーザーの許可を得てマージ。そのあと PR7（音・粒子の ID と前から残っている問題・画面の写し）。
+     - PR6 は CI（3つとも通った。mod-build で BridgeMOD 1.8.2 のビルドと契約テストも）のあと、ユーザーの許可を得てマージした（PR #123、マージコミット 219bd7c）。
+     - **次にやること**：PR7（音・粒子の ID（設計書 10 の最後）と、前から残っている問題・画面の写し）の計画を書いてユーザーの承認を得る。ブランチ `fix/logic-copies-7`（main の 219bd7c から切った）。PR5 で残した「無効の割り当ての画面の印」と、使われていない `GiftCommandDialog.tsx` の扱いもユーザーに聞く。
      - PR1 のレビューで見つけた前からの問題（直していない。PR3・PR4 か別の PR で）：`foo.txt.txt` は BRIDGE が `foo.txt` を送り、MOD がもう一度 `.txt` を除くので `foo.txt` を実行する。設定に `../x.txt` と書くと名前の確かめを通り、RCON の経路と条件だけ確認でコマンドのフォルダーの外を読む。`bridge/index.js:1456` のルーレットの判定 `=== "roulette"` は大文字小文字を区別する（`roulette.cjs` は区別しない）。Shift_JIS の txt は JS が U+FFFD にして読み、MOD は読めない。`gift_templates.cjs:45` の `missing()` は名前を大文字小文字まで比べる。TXT の書き込みのゲームパックの判定は大文字小文字を区別する。electron が読む `../bridge/*.cjs` が `build.files` に全部あるかを確かめるテストがない。`src/` に残る写し（`CommandSetManager.tsx`・`CommandsListPage.tsx`・`EventSettings2Page.tsx`・`ImageEditorPage.tsx`）は、設計書 3 のとおり画面が決まりを持たない形に PR3・PR4 でそろえる。
    - リリース手順が2つ
 
