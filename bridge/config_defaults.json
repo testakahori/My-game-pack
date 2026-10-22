@@ -1,0 +1,21 @@
+{
+  "options": {
+    "giftCooldownMs": 300,
+    "maxCommandsPerGift": 200,
+    "maxLikeCatchUpPerEvent": 5,
+    "rconQueueWarnSize": 20,
+    "likeBatchWindowMs": 1200,
+    "streakTtlMs": 60000,
+    "logUnknownGifts": true,
+    "announceFunction": "gift_stream:_announce",
+    "announceStorage": "gift_stream:bridge",
+    "announceEveryRepeat": true,
+    "announceEnabled": true,
+    "commandTransport": "rcon",
+    "commandsDir": "commands/minecraft",
+    "bridgeModHost": "127.0.0.1",
+    "bridgeModPort": 25576
+  },
+  "rcon": { "host": "127.0.0.1", "port": 25575 },
+  "telnet": { "host": "127.0.0.1", "port": 8081 }
+}
