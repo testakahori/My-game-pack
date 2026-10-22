@@ -8,6 +8,7 @@ import { useUnsavedChanges } from "../UnsavedChanges";
 import type { GiftMapping } from "../types";
 import { stopConfirmMessage, stopState, type StopTarget } from "../lib/stopSafety";
 import type { PauseView } from "../lib/disruptionPause";
+import { toRepeat } from "../lib/integerInput";
 
 type RunState = "stopped" | "starting" | "running" | "error";
 type LogType  = "info" | "ok" | "error" | "warn";
@@ -544,7 +545,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
         giftId: String(m.giftId),
         name: m.name || String(m.giftId),
         commandFile: (m.commandFile || "").trim(),
-        repeat: Math.min(100, Math.max(1, Number(m.repeat ?? 1))),
+        repeat: toRepeat(m.repeat ?? 1),
       }));
     const existingMappings = Array.isArray(existingCfg?.mappings) ? existingCfg.mappings : [];
     const mappings = Array.isArray(existingCfg?.mappings) ? existingMappings : uiMappings;

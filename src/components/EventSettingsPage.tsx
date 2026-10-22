@@ -4,6 +4,7 @@ import { ToggleSlider } from "./ToggleSlider";
 import EventTypeIcon, { type EventIconKind } from "./EventTypeIcon";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 import { commandOptionLabel } from "../lib/commandLabel";
+import { toRepeat, toThreshold } from "../lib/integerInput";
 
 type LikeEvent = {
   id: string;
@@ -154,7 +155,8 @@ function SimpleEventCard({
                 max={100}
                 aria-label={`${title}の繰り返し回数`}
                 value={event.repeat ?? 1}
-                onChange={(e) => onRepeatChange(Math.min(100, Math.max(1, Number(e.target.value) || 1)))}
+                step={1}
+                onChange={(e) => onRepeatChange(toRepeat(e.target.value))}
                 className="w-16 shrink-0 bg-gray-900 border border-gray-600 rounded-xl px-2 py-2.5 text-sm text-center text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
               />
               <span className="text-xs text-gray-500 shrink-0">回</span>
@@ -447,9 +449,10 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
                   <input
                     type="number"
                     min={1}
+                    step={1}
                     value={ev.threshold}
                     aria-label={`ルール${idx + 1}のしきい値`}
-                    onChange={(e) => updateLike(ev.id, { threshold: Number(e.target.value) || 1 })}
+                    onChange={(e) => updateLike(ev.id, { threshold: toThreshold(e.target.value) })}
                   />
                   <span>いいね</span>
                 </div>
@@ -464,16 +467,17 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
                 />
 
                 <div className="events-like-repeat">
-                  <button type="button" aria-label={`ルール${idx + 1}の回数を減らす`} onClick={() => updateLike(ev.id, { repeat: Math.max(1, (ev.repeat ?? 1) - 1) })}>−</button>
+                  <button type="button" aria-label={`ルール${idx + 1}の回数を減らす`} onClick={() => updateLike(ev.id, { repeat: toRepeat((ev.repeat ?? 1) - 1) })}>−</button>
                   <input
                     type="number"
                     min={1}
                     max={100}
+                    step={1}
                     value={ev.repeat ?? 1}
                     aria-label={`ルール${idx + 1}の繰り返し回数`}
-                    onChange={(e) => updateLike(ev.id, { repeat: Math.min(100, Math.max(1, Number(e.target.value) || 1)) })}
+                    onChange={(e) => updateLike(ev.id, { repeat: toRepeat(e.target.value) })}
                   />
-                  <button type="button" aria-label={`ルール${idx + 1}の回数を増やす`} onClick={() => updateLike(ev.id, { repeat: Math.min(100, (ev.repeat ?? 1) + 1) })}>＋</button>
+                  <button type="button" aria-label={`ルール${idx + 1}の回数を増やす`} onClick={() => updateLike(ev.id, { repeat: toRepeat((ev.repeat ?? 1) + 1) })}>＋</button>
                 </div>
 
                 <div className="events-like-status">

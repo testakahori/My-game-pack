@@ -4,6 +4,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 import { commandOptionLabel } from "../lib/commandLabel";
+import { toRepeat } from "../lib/integerInput";
 import { ToggleSlider } from "./ToggleSlider";
 
 type RouletteItem = {
@@ -65,7 +66,7 @@ function normItems(raw: any): RouletteItem[] {
     commandFile: String(item?.commandFile ?? ""),
     label: String(item?.label ?? ""),
     weight: Math.max(1, Number(item?.weight ?? 1)),
-    repeat: Math.max(1, Math.min(100, Number(item?.repeat ?? 1) || 1)),
+    repeat: toRepeat(item?.repeat ?? 1),
   }));
 }
 
@@ -188,8 +189,9 @@ function RouletteItemsEditor({
             min={1}
             max={100}
             aria-label={`項目${index + 1}の回数`}
+            step={1}
             value={item.repeat}
-            onChange={(e) => update(item.id, { repeat: Math.max(1, Math.min(100, Number(e.target.value) || 1)) })}
+            onChange={(e) => update(item.id, { repeat: toRepeat(e.target.value) })}
             title="当選時にこのコマンドを実行する回数"
             className="bg-gray-900 border border-gray-600 rounded-xl px-2 py-2.5 text-sm text-center text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
           />
@@ -331,7 +333,7 @@ const EventSettings2Page: React.FC = () => {
         id: rule?.id ?? newId(),
         match: String(rule?.match ?? ""),
         commandFile: String(rule?.commandFile ?? ""),
-        repeat: Math.max(1, Math.min(100, Number(rule?.repeat ?? 1))),
+        repeat: toRepeat(rule?.repeat ?? 1),
         sound: String(rule?.sound ?? ""),
         particle: String(rule?.particle ?? ""),
         enabled: rule?.enabled !== false,
@@ -580,8 +582,9 @@ const EventSettings2Page: React.FC = () => {
                     min={1}
                     max={100}
                     aria-label={`コメントルール${index + 1}の回数`}
+                    step={1}
                     value={rule.repeat}
-                    onChange={(e) => updateCommentRule(rule.id, { repeat: Math.max(1, Math.min(100, Number(e.target.value) || 1)) })}
+                    onChange={(e) => updateCommentRule(rule.id, { repeat: toRepeat(e.target.value) })}
                     className="w-full bg-gray-900 border border-gray-600 rounded-xl px-2 py-2.5 text-sm text-center text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
                   />
                 </div>

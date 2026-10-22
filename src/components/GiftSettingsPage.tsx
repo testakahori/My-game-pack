@@ -9,6 +9,7 @@ import GiftsGridSection from "./GiftsGridSection";
 import ImageEditorPage from "./ImageEditorPage";
 import MinecraftCommandIcon from "./MinecraftCommandIcon";
 import { useUnsavedGuard } from "../UnsavedChanges";
+import { toRepeat } from "../lib/integerInput";
 
 const LS_ACTIVE_TAB   = "mc_bridge_active_tab_v1";
 const LS_MAPPINGS     = "mc_tiktok_mappings_unified_v1";
@@ -55,7 +56,7 @@ function configToGiftMappings(cfg: any): GiftMapping[] {
         giftId: String(m.giftId),
         name: String(m.name ?? "") || String(m.giftId),
         commandFile,
-        repeat: Math.min(100, Math.max(1, Number(m.repeat ?? 1))),
+        repeat: toRepeat(m.repeat ?? 1),
         commandSetLabel: commandFile,
       } as GiftMapping;
     });
@@ -90,7 +91,7 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
           giftId: String(m.giftId),
           name: m.name || String(m.giftId),
           commandFile: (m.commandFile || "").trim(),
-          repeat: Math.min(100, Math.max(1, Number(m.repeat ?? 1))),
+          repeat: toRepeat(m.repeat ?? 1),
         }));
       if (!String(cfg?.tiktokUsername || "").trim()) throw new Error("配信ホームでTikTok IDを承認してから保存してください。");
       if (api.configMappingsWrite) await api.configMappingsWrite(normalized);
