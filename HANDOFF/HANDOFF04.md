@@ -372,9 +372,16 @@
        - PR6 への申し送り（レビュー役）：`game_profiles.cjs` の `withoutOtherGameCommands` は、文字列で書いたコメントコマンド・投票の別ゲームの参照を外さない。切り替えの確かめは今それを数えるので、旧採掘からの初回の切り替えで止まる余地がある。どこからも使われていない `GiftCommandDialog.tsx` を消すかは、ユーザーに聞く。
        - `npm run verify`（直したあと）：アプリ 563/563、BRIDGE 15/15、型チェック・ビルドが通る。
      - PR5 は CI（3つとも通った）のあと、ユーザーの許可を得てマージした（PR #122、マージコミット 18d5f40）。
-     - PR6（ゲーム ID の一覧・ゲーム専用の判定・MOD ID とパックの key。設計書の 6）：ブランチ `fix/logic-copies-6`（main の 18d5f40 から切った）。計画は `docs/superpowers/plans/2026-10-22-logic-copies-pr6.md`（10-22 に書いた。ユーザーの承認待ち）。
+     - PR6（ゲーム ID の一覧・ゲーム専用の判定・MOD ID とパックの key。設計書の 6）：ブランチ `fix/logic-copies-6`（main の 18d5f40 から切った）。計画は `docs/superpowers/plans/2026-10-22-logic-copies-pr6.md`（10-22 に書き、ユーザーの承認を得て、このセッションで実装した）。
+       - 一覧は `bridge/games.json`、決まりは `bridge/game_commands.cjs`（`gameOfCommand`・`isGameCommandFile`・`publicCommandKey`・`isGameModId`・`isGamePackKey`）。例の一覧は `bridge/test/fixtures/game-commands.json`・`game-mod-ids.json`。
+       - アプリと BRIDGE：`game_profiles.cjs`・`game_command_scope.cjs`・`bridge_settings.cjs`（TXT の書き込み）・`main.cjs`（復元の確かめ）・`mod_event_delivery.cjs`（`# GAME_MOD:`）が使う。共通の `game_mode_on.txt` を、採掘のプロフィールを初めて作るときに外さず、バックアップの復元でも使える名前に数える。`GAME_RUN_X.TXT` は TXT の書き込みで止め、切り替えで消す。採掘のプロフィールを初めて作るとき、文字列のほかのゲームのコメントコマンドも外す。BRIDGE は予約名の `GAME_MOD` を送らない。コマンドの一覧に `chatKey` を足した。
+       - 画面：コマンド一覧のチャットの名前は `chatKey` を使う。開発用のサーバーとモックも同じ（モックの採掘の MOD の名前は `saikutuMOD` にそろった）。
+       - BridgeMOD 1.8.2：`CommandRouting.java` の一覧を `GAME_IDS` の1つにし、`publicKey` は大文字小文字を区別しない。`GameEvents.java` に `isGameModId`（予約名と null を断る）。契約テスト（`scripts/test-bridge-contracts.cjs`）は2つの例の一覧を JS と Java に通し、Java の一覧が `games.json` と同じことも確かめる。直す前の RED はビルドが止まる形（関数がない）だったので、直したあとに大文字小文字の区別と予約名の確かめを一時的に外して、契約テストが落ちることも確かめた。オフラインのビルドで `bridgemod-1.8.2.jar` ができる。`scripts/test-game-contract.cjs` も通る。
+       - 実装で決めたこと（作業の記録の Ruling）：計画にあった `CommandRoutingContractTest.java` の 20〜21 行目は試すファイル名で、一覧の写しではないので変えなかった。
+       - `npm run verify`：アプリ 573/573、BRIDGE 15/15、型チェック・ビルドが通る。
+       - 次の配布のリリースノートに足す：「バックアップを戻すとき、game_mode_on.txt のように game_ で始まる共通のコマンドを使う設定でも止まらなくなりました」「採掘に初めて切り替えるとき、共通のコマンド（game_ で始まるもの）の割り当てを外さなくなりました」「新しい BridgeMOD（1.8.2）はサーバーを起動し直すと入れ替わります」。
        - 計画で私が決めたこと：ゲーム専用の判定は大文字小文字を区別しない（`GAME_RUN_X.TXT` も RUN のもの）、既定のゲームとしての `'common'` の直書きは残す、予約名の `# GAME_MOD:` は BRIDGE も送らない、パックの key の決まりは JavaScript だけ（設計書は「GameEvents.java と合わせる」としていたが、Java に key の決まりがなく、足すと大文字の `GAME_KEY` を断る）、`withoutOtherGameCommands` は文字列の参照も外す、コマンド一覧のチャットの名前はアプリが付ける `chatKey` を使う。BridgeMOD は 1.8.2 に上げる（一覧を1つにし、`GameEvents` に予約名の確かめを足す）。
-     - **次にやること**：PR6 の計画をユーザーに見てもらい、承認と進め方を聞く。そのあと PR7（音・粒子の ID と前から残っている問題・画面の写し）。
+     - **次にやること**：PR6 の最終レビュー（別のレビュー役）→ 指摘の扱いをユーザーに聞く → PR → CI → ユーザーの許可を得てマージ。そのあと PR7（音・粒子の ID と前から残っている問題・画面の写し）。
      - PR1 のレビューで見つけた前からの問題（直していない。PR3・PR4 か別の PR で）：`foo.txt.txt` は BRIDGE が `foo.txt` を送り、MOD がもう一度 `.txt` を除くので `foo.txt` を実行する。設定に `../x.txt` と書くと名前の確かめを通り、RCON の経路と条件だけ確認でコマンドのフォルダーの外を読む。`bridge/index.js:1456` のルーレットの判定 `=== "roulette"` は大文字小文字を区別する（`roulette.cjs` は区別しない）。Shift_JIS の txt は JS が U+FFFD にして読み、MOD は読めない。`gift_templates.cjs:45` の `missing()` は名前を大文字小文字まで比べる。TXT の書き込みのゲームパックの判定は大文字小文字を区別する。electron が読む `../bridge/*.cjs` が `build.files` に全部あるかを確かめるテストがない。`src/` に残る写し（`CommandSetManager.tsx`・`CommandsListPage.tsx`・`EventSettings2Page.tsx`・`ImageEditorPage.tsx`）は、設計書 3 のとおり画面が決まりを持たない形に PR3・PR4 でそろえる。
    - リリース手順が2つ
 
