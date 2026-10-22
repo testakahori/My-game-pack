@@ -332,9 +332,12 @@
        - `npm run verify`：アプリ 539/539、BRIDGE 15/15、ビルドが通る。
        - 残したもの（PR4・PR5 で）：ギフト一覧の画面で入力した ID の確かめ（`gifts_viewer.cjs` の `updateGifts` の `[\w.]{1,64}`）と保存の整え方（`gv:settings:write`）。`src/` の写し（`DashboardPage.tsx`・`GiftsGridSection.tsx`・`GiftsViewerPage.tsx`）。`GiftsViewer/` の写し（`src/App.tsx`・`tools/fetch_gifts.cjs`）。
        - 作業の記録 `.superpowers/sdd/2026-10-18-logic-copies-pr3/` は消した。レビュー役が任せた判断（13件）は PR の説明に写した。
-     - **次にやること**：
-       1. PR3 の PR を作り、CI を確かめ、ユーザーの許可を得てマージする。
-       2. そのあと PR4（既定値の1か所・コマンドの場所・BridgeMOD のホストとポートの読み方・画面の古い名前）、PR5（参照の数え方・ギフト割り当て・ゲーム ID など）。
+     - PR3：PR #120。最初の CI で、PR2 で足した「BRIDGE の状態」のテスト（`bridge-process-module.test.cjs`）が ubuntu だけで落ちた。Linux はファイルの時刻を粗い時計で記録するので、起動の直後に書いた `runtime-status.json` の時刻が起動の時刻（`Date.now()`）より最大 10 ミリ秒ほど前になる（WSL の Ubuntu で 2000 回中 2000 回、Windows は 2000 回中 18 回・最大 0.56 ミリ秒）。本物の BRIDGE は起動のずっとあとに書くのでアプリは変えず、テストで起動のあとの時刻を `utimesSync` で付けた（commit 26025be）。
+     - PR3 は CI（3つとも通った）のあと、ユーザーの許可を得てマージした（PR #120、マージコミット 5bed08d）。
+     - PR4（既定値の1か所・コマンドの場所・BridgeMOD のホストとポートの読み方・画面の古い名前・`bridge/index.js` のコメント）：ブランチ `fix/logic-copies-4`（main の 5bed08d から切った）。計画は `docs/superpowers/plans/2026-10-22-logic-copies-pr4.md`（10-22 に書いた。ユーザーの承認待ち）。
+       - 調べて分かった食い違い：BRIDGE は `commandsDir` が無いと `commands` を見る（アプリ・ルーレットは `commands/minecraft`。そのとき BRIDGE は txt の見出しを読み落とす）。`logUnknownGifts` の既定は BRIDGE だけ false（雛形・配信ホームは true）。アプリの BridgeMOD との通信はホストの前後の空白を除かない。RCON・Telnet の既定の接続先も BRIDGE と再起動の比べ方で写し。雛形は2つ（`paths.cjs`・`prepare-bridge-runtime.cjs`）で、どちらも `configVersion` が無い。コマンドの場所 `"commands", "minecraft"` の写しは electron に18か所。
+       - 計画で私が決めたこと（計画の「決めたこと」1〜6）：`logUnknownGifts` の既定は true、ルーレットの `minecraft` のフォルダーを探す回り道はやめる、アプリが書く `commandsDir` は絶対パスのまま、配信ホームの ID の承認は `options` の既定値を書かない、古い名前は表示に使わない（設定からは消さない）、範囲の丸めと空きポートの一覧は変えない。
+     - **次にやること**：PR4 の計画をユーザーに見てもらい、承認と進め方（このセッションで実装か、サブエージェントか）を聞く。承認されたら実装 → `npm run verify` → 最終レビュー → PR → CI → ユーザーの許可を得てマージ。そのあと PR5（参照の数え方・ギフト割り当て・ゲーム ID など）。
      - PR1 のレビューで見つけた前からの問題（直していない。PR3・PR4 か別の PR で）：`foo.txt.txt` は BRIDGE が `foo.txt` を送り、MOD がもう一度 `.txt` を除くので `foo.txt` を実行する。設定に `../x.txt` と書くと名前の確かめを通り、RCON の経路と条件だけ確認でコマンドのフォルダーの外を読む。`bridge/index.js:1456` のルーレットの判定 `=== "roulette"` は大文字小文字を区別する（`roulette.cjs` は区別しない）。Shift_JIS の txt は JS が U+FFFD にして読み、MOD は読めない。`gift_templates.cjs:45` の `missing()` は名前を大文字小文字まで比べる。TXT の書き込みのゲームパックの判定は大文字小文字を区別する。electron が読む `../bridge/*.cjs` が `build.files` に全部あるかを確かめるテストがない。`src/` に残る写し（`CommandSetManager.tsx`・`CommandsListPage.tsx`・`EventSettings2Page.tsx`・`ImageEditorPage.tsx`）は、設計書 3 のとおり画面が決まりを持たない形に PR3・PR4 でそろえる。
    - リリース手順が2つ
 
