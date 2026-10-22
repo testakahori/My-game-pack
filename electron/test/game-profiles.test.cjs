@@ -89,6 +89,19 @@ test('ゲーム更新で保存済みのコマンドが欠ける場合は切替�
   assert.equal(fs.existsSync(path.join(x.server, 'bridge/commands/minecraft/game_run_fill.txt')), true);
 });
 
+// 参照の数え方は command_files.cjs の commandFileRefs の1か所（処理のコピー PR5）。BRIDGE が動かすものだけを確かめる。
+test('ゲームの切り替えも同じ参照の数え方: 文字列のコメントコマンドが無ければ止め、無効の割り当ては見ない', async t => {
+  const x = fixture(t), pack = x.pack('run'); await x.api.install(pack); await x.api.activate('run');
+  const config = JSON.parse(fs.readFileSync(x.config));
+  config.mappings = [{ giftId: '1', commandFile: 'missing.txt', repeat: 1, enabled: false }];
+  fs.writeFileSync(x.config, JSON.stringify(config));
+  await x.api.activate('run');
+  const next = JSON.parse(fs.readFileSync(x.config));
+  next.options = { ...next.options, gameplay: { commentCommands: { '!x': 'missing.txt' } } };
+  fs.writeFileSync(x.config, JSON.stringify(next));
+  await assert.rejects(x.api.activate('run'), /保存済みの設定で使うコマンドがありません: missing\.txt/);
+});
+
 test('個数引数がないゲームコマンドは回数分実行する形式で登録する', async t => {
   const x = fixture(t), pack = x.pack('run');
   const manifest = JSON.parse(fs.readFileSync(path.join(pack, 'game.json'))); manifest.commands[0].command = 'run next'; fs.writeFileSync(path.join(pack, 'game.json'), JSON.stringify(manifest));

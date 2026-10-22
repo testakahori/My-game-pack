@@ -5,7 +5,7 @@ const crypto = require('node:crypto');
 const zlib = require('node:zlib');
 const { atomicWrite } = require('./settings_backups.cjs');
 const saikutu = require('./saikutu_commands.cjs');
-const { isTxtName } = require('../bridge/command_files.cjs');
+const { isTxtName, ensureTxt, commandFileRefs } = require('../bridge/command_files.cjs');
 const { migrateBridgeConfig } = require('../bridge/config_migration.cjs');
 const { bridgeCommandsDir } = require('../bridge/config_defaults.cjs');
 
@@ -221,15 +221,11 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
       }
     }
     const destination = id === current.active ? next.profiles[id] : next.profiles[id] || { mappings: [], likeEvents: [] };
-    const available = new Set([...(fs.existsSync(commandDir) ? fs.readdirSync(commandDir).filter(n => isTxtName(n) && !oldNames.includes(n) && !saikutu.FILES.has(n)) : []), ...Object.keys(gameFiles)]);
-    function checkCommands(value) {
-      if (!value || typeof value !== 'object') return;
-      for (const [key, item] of Object.entries(value)) {
-        if (key === 'commandFile' && typeof item === 'string' && item && !available.has(item)) throw new Error(`保存済みの設定で使うコマンドがありません: ${item}。元のゲームパックを登録するか設定を修正してください`);
-        if (item && typeof item === 'object') checkCommands(item);
-      }
+    const available = new Set([...(fs.existsSync(commandDir) ? fs.readdirSync(commandDir).filter(n => isTxtName(n) && !oldNames.includes(n) && !saikutu.FILES.has(n)) : []), ...Object.keys(gameFiles)].map(n => n.toLowerCase()));
+    // 確かめるのは BRIDGE が動かしうる参照だけ（command_files.cjs の commandFileRefs。保存の確かめと同じ。処理のコピー PR5）。
+    for (const ref of commandFileRefs(destination)) {
+      if (!available.has(ensureTxt(ref.commandFile).toLowerCase())) throw new Error(`保存済みの設定で使うコマンドがありません: ${ref.commandFile}。元のゲームパックを登録するか設定を修正してください`);
     }
-    checkCommands(destination);
     const commandBefore = Object.fromEntries([...new Set([...oldNames, ...Object.keys(gameFiles)])].map(n => [n, fs.existsSync(path.join(commandDir, n)) ? fs.readFileSync(path.join(commandDir, n), 'utf8') : null]));
     const operation = crypto.randomUUID();
     fs.mkdirSync(root(), { recursive: true });

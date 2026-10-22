@@ -1,6 +1,6 @@
 'use strict';
 const { FILES } = require('./saikutu_commands.cjs');
-const { isTxtName } = require('../bridge/command_files.cjs');
+const { isTxtName, ensureTxt, commandFileRefs } = require('../bridge/command_files.cjs');
 const GAME_IDS = new Set(['common', 'umetate', 'run', 'saikutu']);
 function assertGameReady(status) {
   if (!status?.applied || status.recoveryRequired || !GAME_IDS.has(status.active)) {
@@ -18,16 +18,13 @@ function availableGameCommands(names, status) {
 function assertGameCommands(config, names, status) {
   assertGameReady(status);
   if ((config?.gameProfile || 'common') !== status.active) throw new Error('ゲームが切り替わっています。設定画面を開き直してください。');
-  const available = new Set(availableGameCommands(names, status));
-  function walk(value, location) {
-    if (!value || typeof value !== 'object') return;
-    for (const [key, item] of Object.entries(value)) {
-      if (key === 'commandFile' && typeof item === 'string' && item && !available.has(item)) {
-        throw new Error('選択したゲームでは使えないコマンドです: ' + item + '（' + location + '）。TOPでゲームを確認してください。');
-      }
-      if (item && typeof item === 'object') walk(item, location ? location + '.' + key : key);
+  // 確かめるのは BRIDGE が動かしうる参照だけ（command_files.cjs の commandFileRefs の1か所。処理のコピー PR5）。
+  // 名前は .txt を付けて、大文字小文字を区別せずに比べる（BRIDGE・BridgeMOD と同じ）。
+  const available = new Set(availableGameCommands(names, status).map(name => name.toLowerCase()));
+  for (const ref of commandFileRefs(config)) {
+    if (!available.has(ensureTxt(ref.commandFile).toLowerCase())) {
+      throw new Error('選択したゲームでは使えないコマンドです: ' + ref.commandFile + '（' + ref.where + '）。TOPでゲームを確認してください。');
     }
   }
-  walk(config, '');
 }
 module.exports = { assertGameReady, availableGameCommands, assertGameCommands };
