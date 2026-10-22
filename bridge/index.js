@@ -1162,6 +1162,11 @@ async function main() {
 
   // giftId -> mapping（使う形は gift_mappings.cjs の1か所。起動と再読込で同じ。処理のコピー PR5）
   const mappingById = giftMappingsById(mappings);
+  // ログの件数には、無効の割り当て（コマンドを動かさない）を分けて書く（PR5 の最終レビュー）。
+  const disabledMappingsNote = byId => {
+    const disabled = [...byId.values()].filter(mapping => !mapping.enabled).length;
+    return disabled ? `（無効 ${disabled}）` : "";
+  };
 
   // --- コンフィグ ホットリロード ---
   // log・warn はテスト発火の読み直しのとき行頭に [Test] を付けるためのもの（2026-10-18）。
@@ -1196,7 +1201,7 @@ async function main() {
       applyLiveOptions(nextLive, nextMute);
       if (pendingRestart.length) warn(`[Config] BRIDGE を再起動すると反映されます: ${pendingRestart.join("・")}`);
       updateRuntimeStatus({ pendingRestart });
-      log(`[Bridge] Config reloaded — likeEvents:${likeEvents.length} mappings:${mappingById.size}`);
+      log(`[Bridge] Config reloaded — likeEvents:${likeEvents.length} mappings:${mappingById.size}${disabledMappingsNote(mappingById)}`);
     } catch (e) {
       console.log("[Bridge] Config reload error:", e?.message);
     }
@@ -1226,7 +1231,7 @@ async function main() {
     console.log(`[Bridge] BridgeMod token file: ${tokenFile}${fs.existsSync(tokenFile) ? "" : "（まだありません。Minecraftサーバーの起動時に作られます）"}`);
   }
   if (dtd) console.log(`[Bridge] Telnet: ${dtd.host}:${dtd.port} playerId=${dtd.playerId}`);
-  console.log(`[Bridge] Mappings: ${mappingById.size} items`);
+  console.log(`[Bridge] Mappings: ${mappingById.size} items${disabledMappingsNote(mappingById)}`);
   console.log(`[Bridge] CommandsDir: ${commandsDirName}/`);
   console.log(`[Bridge] Cooldown: ${giftCooldownMs}ms`);
   console.log(`[Bridge] maxCommandsPerGift: ${maxCommandsPerGift}${useBridgeModTransport ? "（BridgeMOD 経由では使わない）" : ""}`);

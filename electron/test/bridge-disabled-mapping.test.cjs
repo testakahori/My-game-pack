@@ -16,4 +16,6 @@ test('無効のギフト割り当て: そのコマンドも未設定ギフトも
   await bridge.until(() => bridge.requests.some(x => x.key === 'cod'), 'enabled gift');
   await bridge.wait(200);
   assert.deepEqual(bridge.requests.map(x => x.key).sort(), ['boom', 'cod']);
+  // 起動のログの件数は、無効の割り当てを分けて出す（PR5 の最終レビュー）。
+  assert.ok(bridge.logs.some(line => line.includes('[Bridge] Mappings: 2 items（無効 1）')), bridge.logs.filter(line => line.includes('Mappings')).join('\n'));
 });

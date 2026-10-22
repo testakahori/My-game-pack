@@ -70,7 +70,8 @@ function commandFileRefs(config) {
   for (const [key, label] of [["shareEvent", "シェア"], ["followEvent", "フォロー"], ["memberEvent", "訪問"], ["unmappedGiftEvent", "未設定ギフト"]]) {
     add(label, config?.[key], { honorsEnabled: true });
   }
-  if (config?.roulette?.enabled === true) {
+  // ルーレットは BRIDGE が真の値なら回す（index.js の rouletteCfg?.enabled。デスルーレット・コメントギフトは === true）。
+  if (config?.roulette?.enabled) {
     for (const item of list(config.roulette.items)) add(`ルーレット項目（${item?.label || item?.commandFile}）`, item);
   }
   if (config?.deathRoulette?.enabled === true) {
