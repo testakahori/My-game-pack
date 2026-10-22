@@ -37,3 +37,15 @@ test('BridgeMOD の接続先: 前後の空白を除き、旧い doumaMod* も読
   assert.deepEqual(bridgeModEndpoint({ bridgeModHost: '  ', doumaModHost: ' old ' }), { host: 'old', port: 25576 });
   assert.deepEqual(bridgeModEndpoint({ bridgeModHost: 'new', doumaModHost: 'old', bridgeModPort: 1, doumaModPort: 2 }), { host: 'new', port: 1 }, '新しい名前が先');
 });
+
+// 設計書 13：1つにまとめたものは、今それを使っている所すべてが使う（自分の写しを持ち続けない）。
+test('既定値の写し: BRIDGE は既定値・コマンドの場所・接続先を自分で持たず config_defaults を使う', () => {
+  for (const file of ['bridge/index.js', 'bridge/live_config.cjs', 'bridge/roulette.cjs']) {
+    const source = fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
+    assert.doesNotMatch(source, /(\|\||\?\?)\s*(25576|25575|8081|"127\.0\.0\.1"|"commands")/, file);
+    assert.doesNotMatch(source, /\?\?\s*(300|200|1200|5|20|60000)[,)]/, file);
+    assert.doesNotMatch(source, /(bridgeModHost|doumaModHost|bridgeModPort|doumaModPort|commandsDir)\s*\|\|/, file);
+    assert.doesNotMatch(source, /"minecraft", name/, file);
+  }
+  assert.match(fs.readFileSync(path.resolve(__dirname, '../../bridge/index.js'), 'utf8'), /既定値は bridge\/config_defaults\.json/);
+});

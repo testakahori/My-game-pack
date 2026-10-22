@@ -19,11 +19,12 @@ async function until(check, label) {
 }
 
 /**
- * @param commands { 'cod': 'say test\n', ... } を commands/ に書く（.txt は自動で付ける）
- * @param config bridge の設定。options の commandsDir・transport・接続先はこちらで埋める
+ * @param commands { 'cod': 'say test\n', ... } を commandsFolder に書く（.txt は自動で付ける）
+ * @param commandsFolder txt を書くフォルダー（BRIDGE のフォルダーからの相対。'commands/minecraft' のような入れ子も作る）。既定は 'commands'
+ * @param config bridge の設定。options の commandsDir・transport・接続先はこちらで埋める（commandsDir: undefined を渡すと設定から消える）
  * @param respond 偽 BridgeMOD が返す HTTP ステータス（要求の本文と URL を受け取る）。既定は 202
  */
-async function startBridgeFixture(t, { commands = {}, config = {}, env = {}, respond = () => 202 } = {}) {
+async function startBridgeFixture(t, { commands = {}, commandsFolder = 'commands', config = {}, env = {}, respond = () => 202 } = {}) {
   const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-fixture-')));
   const requests = [], logs = [], timers = new Set(), watchers = [], streams = [];
   const server = http.createServer((req, res) => {
@@ -40,8 +41,9 @@ async function startBridgeFixture(t, { commands = {}, config = {}, env = {}, res
     await new Promise(resolve => server.close(resolve));
     fs.rmSync(dir, { recursive: true, force: true });
   });
-  fs.mkdirSync(path.join(dir, 'commands'));
-  for (const [name, text] of Object.entries(commands)) fs.writeFileSync(path.join(dir, 'commands', name + '.txt'), text);
+  const commandsPath = path.join(dir, ...commandsFolder.split('/'));
+  fs.mkdirSync(commandsPath, { recursive: true });
+  for (const [name, text] of Object.entries(commands)) fs.writeFileSync(path.join(commandsPath, name + '.txt'), text);
   fs.writeFileSync(path.join(dir, 'tts-settings.json'), JSON.stringify({ enabled: false }));
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ tiktokUsername: 'fixture', ...config,
     options: { commandsDir: 'commands', commandTransport: 'bridge_mod', bridgeModHost: '127.0.0.1', bridgeModPort: server.address().port,

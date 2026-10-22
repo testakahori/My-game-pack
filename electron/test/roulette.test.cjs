@@ -20,10 +20,12 @@ function fixture(t) {
   return { dir, config };
 }
 
-test("ルーレット: UI保存先と旧commandsルートで同じ項目・重み・回数を使う", t => {
+// コマンドの場所は bridge/config_defaults.cjs の bridgeCommandsDir の1か所で決める（処理のコピー PR4）。
+// 前は、旧い commands のルートを渡されたら minecraft のフォルダーも探していた（BRIDGE の既定が commands だったため）。
+test("ルーレット: 決めたコマンドの場所だけを読む（minecraft のフォルダーを探しに行かない）。項目・重み・回数", t => {
   const { dir, config } = fixture(t);
   const direct = prepareRoulette(config, dir, () => 0.5);
-  assert.deepEqual(direct, prepareRoulette(config, path.dirname(dir), () => 0.5));
+  assert.throws(() => prepareRoulette(config, path.dirname(dir), () => 0.5), /有効な項目がありません/, '旧い commands のルートでは探さない');
   assert.equal(direct.items.length, 2);
   assert.equal(direct.winner.commandFile, "heal.txt");
   assert.equal(direct.winner.repeat, 2);
