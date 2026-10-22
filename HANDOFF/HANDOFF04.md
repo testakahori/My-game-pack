@@ -342,9 +342,18 @@
        - アプリ：雛形は `newBridgeConfig()` の1つ（`configVersion: 2` 付き。`paths.cjs`・`prepare-bridge-runtime.cjs`）。BridgeMOD との通信とサーバーの稼働の確かめは `bridgeModEndpoint`。「BRIDGE のフォルダー/commands/minecraft」の写し 18 か所（electron 17・`vite.config.ts` 1）は `bridgeCommandsDir`（Task 3 のコミット c7e67c7 の文の「19か所」は数え間違い）。
        - 画面：運用センターの既定値は JSON から読み、`likeBatchMs`・`likeCatchupLimit` を使わない。配信ホームの ID の承認は `options` の既定値と `commandsDir` を書かない（RCON の既定は JSON）。`devApiMock.ts` も今の名前。
        - テスト：`electron/test/config-defaults.test.cjs`（表と関数、BRIDGE・アプリ・画面の写しを探す）、`bridge-commands-dir.test.cjs`（`commandsDir` の無い設定で BRIDGE が `commands/minecraft` の `# RANDOM:` を読む）、live-config・ルーレット・雛形・BridgeMOD の通信のテストを足した。どれも直す前のコードで落ちることを確かめた。試験台（`bridge-fixture.cjs`）に `commandsFolder` を足した。
-       - `npm run verify`：アプリ 548/548、BRIDGE 15/15、型チェック・ビルドが通る。
+       - `npm run verify`（実装のあと）：アプリ 548/548、BRIDGE 15/15、型チェック・ビルドが通る。
        - 次の配布のリリースノートに足す：「新しく入れた直後など、BRIDGE の設定にコマンドの場所が書かれていないときも、BRIDGE が正しいフォルダー（commands/minecraft）の txt の見出しを読みます」「知らないギフトのログは、設定に書いていなくても出します」「BridgeMOD のホスト名の前後に空白があっても、アプリと BridgeMOD の通信がつながります」。
-     - **次にやること**：PR4 の最終レビュー（別のレビュー役）→ 重大・重要があれば直す → PR → CI → ユーザーの許可を得てマージ。そのあと PR5（参照の数え方・ギフト割り当て・ゲーム ID など）。
+     - PR4 の最終レビュー（別のレビュー役、10-22）：重大 0・重要 0・軽い 6。判定は「マージしてよい」。レビュー役は、直す前のコード（5bed08d）で新しい BRIDGE のテストが落ち、元の BRIDGE が `# RANDOM:` を読み落として `pick` を送ることも確かめた。軽い6件はユーザーの指示（10-22「6件とも直してから PR」）で直した（commit f77610a）：
+       - 運用センターの入力欄で `}` と `onChange` の間の空白が消えていた（置き換えの書き損じ）。
+       - 配信前チェックの設定側の RCON ポートの既定（`cfg.rcon?.port || 25575`）が表の写しとして残っていた。
+       - `bridgeModEndpoint` が文字列でないホスト（手で書いた `false`・`0`・`{}`）を `"false"` などにしていた。今は書いていないものとして次の名前か 127.0.0.1。
+       - 写しを探すテストが別の書き方（`?? "commands/minecraft"`・`|| 25576`・`rcon?.port || 25575`）を拾わず、画面のテストは関係ない `|| 0` などでも落ちる広さだった。画面は「設定の値を読んだすぐあとの既定値」だけを見るようにし、運用センターの4つの入力欄の値の式も固定した（表示そのものは、設定を `useEffect` で読むので `renderToString` では確かめられない）。
+       - BridgeMOD（`BridgeMod.java`）が探す既定の場所と表の `commandsDir` を突き合わせるテストを足した（設計書 11。式の終わりの `;` まで比べるので、表を `commands` だけにすると落ちる）。
+       - `bridge_settings.cjs` の使われない変数（前から）を消した。
+       - `npm run verify`：アプリ 549/549、BRIDGE 15/15、型チェック・ビルドが通る。
+       - レビュー役が判断を任せたもの（私が決めた）：送り先が 7dtd の設定に `commandsDir` が無いと既定が `commands/minecraft` になる（同梱の `config.7dtd.json` は `commands/7dtd` を書いているので影響なし）。ゲームの設定の中の既定値（`feature_engine.js`）・画面の案内の文言・`command_files.cjs` の `transport || "rcon"` は対象にしない。範囲外の値の表示と丸めの違い・保存先を移したときの絶対パス・ジャンクションでの `__dirname` のずれ・配信前チェックが `target.rcon` を見ない件は前からの動きのまま。
+     - **次にやること**：PR4 の PR → CI → ユーザーの許可を得てマージ。そのあと PR5（参照の数え方・ギフト割り当て・ゲーム ID など）。
      - PR1 のレビューで見つけた前からの問題（直していない。PR3・PR4 か別の PR で）：`foo.txt.txt` は BRIDGE が `foo.txt` を送り、MOD がもう一度 `.txt` を除くので `foo.txt` を実行する。設定に `../x.txt` と書くと名前の確かめを通り、RCON の経路と条件だけ確認でコマンドのフォルダーの外を読む。`bridge/index.js:1456` のルーレットの判定 `=== "roulette"` は大文字小文字を区別する（`roulette.cjs` は区別しない）。Shift_JIS の txt は JS が U+FFFD にして読み、MOD は読めない。`gift_templates.cjs:45` の `missing()` は名前を大文字小文字まで比べる。TXT の書き込みのゲームパックの判定は大文字小文字を区別する。electron が読む `../bridge/*.cjs` が `build.files` に全部あるかを確かめるテストがない。`src/` に残る写し（`CommandSetManager.tsx`・`CommandsListPage.tsx`・`EventSettings2Page.tsx`・`ImageEditorPage.tsx`）は、設計書 3 のとおり画面が決まりを持たない形に PR3・PR4 でそろえる。
    - リリース手順が2つ
 
