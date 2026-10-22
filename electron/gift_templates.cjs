@@ -5,6 +5,7 @@ const { isDeepStrictEqual } = require('node:util');
 const { atomicWrite } = require('./settings_backups.cjs');
 const { isTxtName } = require('../bridge/command_files.cjs');
 const { migrateBridgeConfig } = require('../bridge/config_migration.cjs');
+const { giftMappingOf } = require('../bridge/gift_mappings.cjs');
 
 const FORMAT = 'mygamepack-gift-template';
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -22,11 +23,13 @@ function normalizeMappings(value) {
     if (typeof commandFile !== 'string' || !isTxtName(commandFile) || !/^[^<>:"/\\|?*\x00-\x1f]{1,150}$/.test(commandFile.slice(0, -4)) || commandFile.startsWith('_')) throw new Error(`${label}: コマンドのファイル名が不正です。`);
     const repeat = row.repeat ?? 1;
     if (!Number.isInteger(repeat) || repeat < 1 || repeat > 100) throw new Error(`${label}: 実行回数は1〜100の整数にしてください。`);
-    const name = typeof row.name === 'string' && row.name.trim() ? row.name.trim() : giftId;
+    // 名前の既定は BRIDGE の使う形と同じ gift:<giftId>（bridge/gift_mappings.cjs。処理のコピー PR5。前は giftId）。
+    const name = giftMappingOf({ ...row, giftId }).name;
     if (name.length > 100) throw new Error(`${label}: ギフト名は100文字以内にしてください。`);
     // Whitelist portable fields; account, RCON, local paths and arbitrary extras
     // from either config or a shared file must never enter a template/assignment.
-    return { giftId, name, commandFile, repeat };
+    // 手で書いた enabled: false だけは残す（落とすと、無効にしたギフトが読み込みで動き出す。処理のコピー PR5）。
+    return { giftId, name, commandFile, repeat, ...(row.enabled === false ? { enabled: false } : {}) };
   });
 }
 function parseTemplate(raw) {

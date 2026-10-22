@@ -36,7 +36,8 @@ export default function GiftCommandDialog({ giftId, giftName, hasCards, onClose,
     setLoading(true); setLoadError('');
     Promise.all([window.mygamepack.configRead(), window.mygamepack.bridgeCommandsReadMeta()]).then(([config, meta]) => {
       if (canceled) return;
-      const rows = (config.mappings || []).filter(row => String(row.giftId) === giftId);
+      // 同じギフトかは、アプリ（electron/gift_mapping.cjs）と同じく giftId の前後の空白を除いて決める（処理のコピー PR5）。
+      const rows = (config.mappings || []).filter(row => String(row.giftId).trim() === giftId);
       if (rows.length > 1) throw new Error('このギフトが重複登録されています。ギフト設定で重複を解消してください。');
       const next = { commandFile: rows[0]?.commandFile || '', repeat: String(rows[0]?.repeat ?? 1) };
       setExpected(rows); setCommands(meta.filter(c => !c.name.startsWith('_'))); setCommandFile(next.commandFile); setRepeat(next.repeat); setBaseline(next);

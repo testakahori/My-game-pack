@@ -10,11 +10,15 @@ function updateGiftMapping(config, request, commandNames) {
   if (typeof commandFile !== 'string' || !commandNames.includes(commandFile)) throw new Error('選択したコマンドが見つかりません。一覧を読み直してください。');
   const mappings = config.mappings || [];
   if (!Array.isArray(mappings)) throw new Error('登録済みギフトを読み取れません。');
-  const matches = mappings.filter(row => String(row.giftId) === giftId);
+  // 同じギフトかは giftId の前後の空白を除いて決める（BRIDGE の使う形 bridge/gift_mappings.cjs と同じ。処理のコピー PR5）。
+  // 前は空白の付いた保存済みの行を別のギフトとみなし、同じギフトの行をもう1行足していた。enabled などほかの項目は残す。
+  const id = giftId.trim();
+  const same = row => String(row?.giftId ?? '').trim() === id;
+  const matches = mappings.filter(same);
   if (!Array.isArray(expected) || !isDeepStrictEqual(matches, expected)) throw new Error('このギフトの設定が別の操作で変更されました。閉じて開き直してから保存してください。');
   if (matches.length > 1) throw new Error('このギフトが重複登録されています。ギフト設定で重複を解消してください。');
-  const updated = { ...matches[0], giftId, name, commandFile, repeat };
-  return { ...config, mappings: matches.length ? mappings.map(row => String(row.giftId) === giftId ? updated : row) : [...mappings, updated] };
+  const updated = { ...matches[0], giftId: id, name: name.trim(), commandFile, repeat };
+  return { ...config, mappings: matches.length ? mappings.map(row => same(row) ? updated : row) : [...mappings, updated] };
 }
 
 module.exports = { updateGiftMapping };

@@ -37,6 +37,9 @@ export type GiftMapping = {
 
   // UI表示用（任意）
   commandSetLabel?: string;
+
+  // 手で書いた enabled: false（画面に切り替えはない）。BRIDGE はそのコマンドを動かさない。保存で落とさないように持つ（処理のコピー PR5）
+  enabled?: boolean;
 };
 
 export type CommandSet = {

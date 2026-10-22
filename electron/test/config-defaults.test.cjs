@@ -100,4 +100,6 @@ test('画面: 運用センター・配信ホームは既定値を config_default
   assert.deepEqual([CONFIG_DEFAULTS.options.likeBatchWindowMs, CONFIG_DEFAULTS.options.maxLikeCatchUpPerEvent], [1200, 5]);
   assert.doesNotMatch(read('src/components/DashboardPage.tsx'), /commandsDir:/, '保存のたびに main が上書きするので書かない');
   assert.doesNotMatch(read('src/lib/devApiMock.ts'), /likeBatchMs|likeCatchupLimit/);
+  // 1件の保存で「直す前の行」を探すときも、アプリ（gift_mapping.cjs）と同じく giftId の前後の空白を除く（処理のコピー PR5）。
+  assert.match(read('src/components/GiftCommandDialog.tsx'), /String\(row\.giftId\)\.trim\(\) === giftId/);
 });

@@ -9,7 +9,7 @@ import GiftsGridSection from "./GiftsGridSection";
 import ImageEditorPage from "./ImageEditorPage";
 import MinecraftCommandIcon from "./MinecraftCommandIcon";
 import { useUnsavedGuard } from "../UnsavedChanges";
-import { toRepeat } from "../lib/integerInput";
+import { fromConfigMappings, toConfigMappings } from "../lib/giftMappingRows";
 
 const LS_ACTIVE_TAB   = "mc_bridge_active_tab_v1";
 const LS_MAPPINGS     = "mc_tiktok_mappings_unified_v1";
@@ -44,22 +44,9 @@ function isAppTab(v: unknown): v is AppTab {
   return v === AppTab.COMMAND_SETS || v === AppTab.MAPPINGS || v === AppTab.IMAGE_EDITOR;
 }
 
-// config.minecraft.json の mappings（id を持たない）を UI 用 GiftMapping へ変換
+// config.minecraft.json の mappings（id を持たない）を UI 用 GiftMapping へ変換（enabled: false を落とさない。src/lib/giftMappingRows.ts）
 function configToGiftMappings(cfg: any): GiftMapping[] {
-  const arr = Array.isArray(cfg?.mappings) ? cfg.mappings : [];
-  return arr
-    .filter((m: any) => String(m?.giftId ?? "").trim())
-    .map((m: any) => {
-      const commandFile = String(m.commandFile ?? "").trim();
-      return {
-        id: uuid(),
-        giftId: String(m.giftId),
-        name: String(m.name ?? "") || String(m.giftId),
-        commandFile,
-        repeat: toRepeat(m.repeat ?? 1),
-        commandSetLabel: commandFile,
-      } as GiftMapping;
-    });
+  return fromConfigMappings(cfg, uuid);
 }
 
 const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpenImageEditor }) => {
@@ -87,12 +74,8 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
       const cfg = await api.configRead();
       const unfinished = list.find(m => !String(m.giftId ?? "").trim() || !String(m.commandFile ?? "").trim());
       if (unfinished) throw new Error(`ギフト「${unfinished.name || unfinished.giftId || "未設定"}」のコマンドが未設定です。その設定を完成させるか、不要なら削除してください。`);
-      const normalized = list.map((m) => ({
-          giftId: String(m.giftId),
-          name: m.name || String(m.giftId),
-          commandFile: (m.commandFile || "").trim(),
-          repeat: toRepeat(m.repeat ?? 1),
-        }));
+      // 手で書いた enabled: false を落とさない（前は保存のたびに消え、無効にしたギフトが動き出した。処理のコピー PR5）。
+      const normalized = toConfigMappings(list);
       if (!String(cfg?.tiktokUsername || "").trim()) throw new Error("配信ホームでTikTok IDを承認してから保存してください。");
       if (api.configMappingsWrite) await api.configMappingsWrite(normalized);
       else await api.configWrite({ ...cfg, mappings: normalized });

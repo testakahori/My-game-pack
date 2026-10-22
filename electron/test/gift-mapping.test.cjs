@@ -15,6 +15,12 @@ test('editing one gift preserves current unrelated settings, gifts, order and cu
   assert.deepEqual(next, { ...latest, mappings: [{ ...old, giftId: '5655', commandFile: 'zombie.txt', repeat: 50 }, latest.mappings[1]] });
   assert.equal(latest.mappings[0].commandFile, 'heal.txt');
 });
+// ギフト割り当ての同じギフトかは、giftId の前後の空白を除いて決める（BRIDGE の使う形と同じ。処理のコピー PR5）。
+test('giftId の前後に空白がある保存済みの行も同じギフトとして直し、もう1行足さない（enabled も残す）', () => {
+  const spaced = { giftId: ' 5655 ', name: 'バラ', commandFile: 'heal.txt', repeat: 1, enabled: false };
+  const next = updateGiftMapping({ ...config, mappings: [spaced, other] }, { ...request, expected: [spaced] }, commands);
+  assert.deepEqual(next.mappings, [{ ...spaced, giftId: '5655', commandFile: 'zombie.txt', repeat: 50 }, other]);
+});
 test('a stale or deleted gift must not silently overwrite newer settings', () => {
   assert.throws(() => updateGiftMapping({ ...config, mappings: [{ ...old, repeat: 4 }, other] }, request, commands), /別の操作/);
   assert.throws(() => updateGiftMapping({ ...config, mappings: [other] }, request, commands), /別の操作/);
