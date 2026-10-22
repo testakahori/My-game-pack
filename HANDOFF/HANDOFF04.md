@@ -372,7 +372,9 @@
        - PR6 への申し送り（レビュー役）：`game_profiles.cjs` の `withoutOtherGameCommands` は、文字列で書いたコメントコマンド・投票の別ゲームの参照を外さない。切り替えの確かめは今それを数えるので、旧採掘からの初回の切り替えで止まる余地がある。どこからも使われていない `GiftCommandDialog.tsx` を消すかは、ユーザーに聞く。
        - `npm run verify`（直したあと）：アプリ 563/563、BRIDGE 15/15、型チェック・ビルドが通る。
      - PR5 は CI（3つとも通った）のあと、ユーザーの許可を得てマージした（PR #122、マージコミット 18d5f40）。
-     - **次にやること**：PR6（ゲーム ID の一覧・ゲーム専用の判定・MOD ID とパックの key。設計書の 6。Java との契約テスト。`withoutOtherGameCommands` の文字列の参照も）の計画を書いてユーザーの承認を得る。ブランチ `fix/logic-copies-6`（main の 18d5f40 から切った）。そのあと PR7（音・粒子の ID と前から残っている問題・画面の写し）。
+     - PR6（ゲーム ID の一覧・ゲーム専用の判定・MOD ID とパックの key。設計書の 6）：ブランチ `fix/logic-copies-6`（main の 18d5f40 から切った）。計画は `docs/superpowers/plans/2026-10-22-logic-copies-pr6.md`（10-22 に書いた。ユーザーの承認待ち）。
+       - 計画で私が決めたこと：ゲーム専用の判定は大文字小文字を区別しない（`GAME_RUN_X.TXT` も RUN のもの）、既定のゲームとしての `'common'` の直書きは残す、予約名の `# GAME_MOD:` は BRIDGE も送らない、パックの key の決まりは JavaScript だけ（設計書は「GameEvents.java と合わせる」としていたが、Java に key の決まりがなく、足すと大文字の `GAME_KEY` を断る）、`withoutOtherGameCommands` は文字列の参照も外す、コマンド一覧のチャットの名前はアプリが付ける `chatKey` を使う。BridgeMOD は 1.8.2 に上げる（一覧を1つにし、`GameEvents` に予約名の確かめを足す）。
+     - **次にやること**：PR6 の計画をユーザーに見てもらい、承認と進め方を聞く。そのあと PR7（音・粒子の ID と前から残っている問題・画面の写し）。
      - PR1 のレビューで見つけた前からの問題（直していない。PR3・PR4 か別の PR で）：`foo.txt.txt` は BRIDGE が `foo.txt` を送り、MOD がもう一度 `.txt` を除くので `foo.txt` を実行する。設定に `../x.txt` と書くと名前の確かめを通り、RCON の経路と条件だけ確認でコマンドのフォルダーの外を読む。`bridge/index.js:1456` のルーレットの判定 `=== "roulette"` は大文字小文字を区別する（`roulette.cjs` は区別しない）。Shift_JIS の txt は JS が U+FFFD にして読み、MOD は読めない。`gift_templates.cjs:45` の `missing()` は名前を大文字小文字まで比べる。TXT の書き込みのゲームパックの判定は大文字小文字を区別する。electron が読む `../bridge/*.cjs` が `build.files` に全部あるかを確かめるテストがない。`src/` に残る写し（`CommandSetManager.tsx`・`CommandsListPage.tsx`・`EventSettings2Page.tsx`・`ImageEditorPage.tsx`）は、設計書 3 のとおり画面が決まりを持たない形に PR3・PR4 でそろえる。
    - リリース手順が2つ
 
