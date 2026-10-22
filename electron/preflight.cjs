@@ -4,6 +4,7 @@ const path = require("node:path");
 const { validateBridgeConfig } = require("./config_schema.cjs");
 const { validCommand } = require("./settings_backups.cjs");
 const { isBridgeModTransport, ensureTxt } = require("../bridge/command_files.cjs");
+const { normalizeTikTokId, isValidTikTokId } = require("../bridge/tiktok_id.cjs");
 
 function bounded(action, timeoutMs = 6000) {
   let timer;
@@ -19,8 +20,9 @@ async function runPreflight(deps) {
     if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) throw new Error("Invalid configuration");
   }
   catch { return { checkedAt: new Date().toISOString(), checks: [{ id: "config", title: "設定ファイル", status: "error", detail: "設定を読み込めません。初期セットアップと設定バックアップを確認してください。", page: "operations" }] }; }
-  const username = String(cfg.tiktokUsername || "").trim().replace(/^@/, "");
-  add("account", "TikTokアカウント", /^[\w.]{1,24}$/.test(username) ? "ok" : "error", username ? `@${username}` : "ダッシュボードでIDを入力して承認してください。", "dashboard");
+  // BRIDGE が接続する形（tiktok_id.cjs で整えた形）で確かめる（2026-10-18 設計書の 9）。
+  const username = normalizeTikTokId(cfg.tiktokUsername);
+  add("account", "TikTokアカウント", isValidTikTokId(username) ? "ok" : "error", username ? `@${username}` : "ダッシュボードでIDを入力して承認してください。", "dashboard");
   const validation = validateBridgeConfig(cfg);
   const messages = [...validation.errors, ...validation.warnings].map(message => message.replace(/mappings\[(\d+)\]\.commandFile が空です/, (_match, index) => `ギフト「${cfg.mappings[index]?.name || cfg.mappings[index]?.giftId || Number(index) + 1}」のコマンドが未設定です。`));
   add("config", "設定の整合性", validation.ok ? validation.warnings.length ? "warn" : "ok" : "error", messages.join(" / ") || "設定形式に問題はありません。", "gifts");
@@ -46,7 +48,7 @@ async function runPreflight(deps) {
     const meta = JSON.parse(fs.readFileSync(deps.giftsMetaPath, "utf8"));
     const gifts = JSON.parse(fs.readFileSync(deps.giftsPath, "utf8"));
     const age = Date.now() - Date.parse(meta.generatedAt);
-    const same = String(meta.username || "").replace(/^@/, "").toLowerCase() === username.toLowerCase();
+    const same = normalizeTikTokId(meta.username) === username;
     const fresh = same && Number.isFinite(age) && age >= -60000 && age < 86400000 && Array.isArray(gifts) && gifts.length > 0;
     add("gifts", "ギフト一覧の更新", fresh ? "ok" : "warn", fresh ? `${new Set(gifts.map(g=>String(g.id))).size}種類 / 24時間以内に更新済み` : same ? "ギフト一覧が古いか空です。更新してください。" : "別アカウントの一覧です。現在のIDで更新してください。", "gifts_viewer");
   } catch { add("gifts", "ギフト一覧の更新", "warn", "ギフト一覧を取得してください。", "gifts_viewer"); }
@@ -56,7 +58,7 @@ async function runPreflight(deps) {
     status?.online ? "サーバーとModが応答しています。" : status?.authFailed ? status.error : "サーバー起動後に、もう一度チェックしてください。", "dashboard");
   if (status?.online) add("player", "プレイヤーの参加", status.player?.online ? "ok" : "warn", status.player?.online ? "プレイヤーの参加を確認しました。" : "Minecraftからサーバーに参加してください。", "dashboard");
   const bridge = deps.bridgeStatus();
-  const connected = bridge.running && bridge.tiktok?.state === "connected" && String(bridge.tiktok.username || "").toLowerCase() === username.toLowerCase();
+  const connected = bridge.running && bridge.tiktok?.state === "connected" && normalizeTikTokId(bridge.tiktok.username) === username;
   add("bridge", "Bridge・TikTok LIVE接続", connected ? "ok" : "warn", connected ? `@${username} のLIVEへ接続しています。` : !bridge.running ? "Bridgeを起動し、TikTok LIVE接続後に再チェックしてください。" : bridge.tiktok?.state === "connected" ? "接続先アカウントを確認してください。" : "TikTok LIVEへの接続待ちです。", "dashboard");
   const voice = tts.status === "fulfilled" ? tts.value : null;
   add("tts", "読み上げエンジン", voice?.enabled === false ? "skip" : voice?.online ? "ok" : "warn", voice?.enabled === false ? "読み上げは無効です。" : voice?.online ? `${voice.engine === "aivis" ? "AivisSpeech" : "VOICEVOX"}が応答しています。` : "読み上げ設定からエンジンを起動してください。", "tts");

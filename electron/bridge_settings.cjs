@@ -3,6 +3,7 @@
 const path = require("path");
 const fs = require("fs");
 const { validateBridgeConfig } = require("./config_schema.cjs");
+const { CONFIG_VERSION, migrateBridgeConfig } = require("../bridge/config_migration.cjs");
 const { updateGiftMapping } = require("./gift_mapping.cjs");
 const { createGiftTemplates } = require("./gift_templates.cjs");
 const { runPreflight } = require("./preflight.cjs");
@@ -33,7 +34,8 @@ function createBridgeSettings({
     // commandsDir を常にセットアップフォルダ内の絶対パスに固定
     const bridgeDir = getBridgeBatDir();
     const commandsDirAbs = path.join(bridgeDir, "commands", "minecraft");
-    const merged = { ...nextConfig };
+    // 確かめを通った値なので、今の決まりの版を書く（画面が送る設定に版が無くても、次の起動で手で書き換えた値を黙って直さないように）。
+    const merged = { ...nextConfig, configVersion: CONFIG_VERSION };
     if (merged.options) {
       merged.options = { ...merged.options, commandsDir: commandsDirAbs };
     }
@@ -44,6 +46,43 @@ function createBridgeSettings({
     if (fs.readFileSync(configPath, "utf8") !== json) settingsBackups.create("automatic");
     atomicWrite(configPath, json);
     return { ok: true };
+  }
+
+  // 古い版で保存した設定（回数 2.5・"3"・500、閾値 0 など）を、アプリの更新のあとの起動で1回だけ直す
+  // （2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 7）。画面が設定を読む前に呼ぶ。
+  // 設定が無い・読めない、または版が今の決まり以上なら何もしない。直すものがあれば、直す前にバックアップを取る。
+  function migrateSavedConfigOnStartup() {
+    const saved = readSavedBridgeConfig();
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return { changes: [] };
+    if (Number(saved.configVersion) >= CONFIG_VERSION) return { changes: [] };
+    const { config, changes } = migrateBridgeConfig(saved);
+    if (changes.length) settingsBackups.create("migration");
+    atomicWrite(getConfigPath(), JSON.stringify(config, null, 2));
+    if (changes.length) console.log(`[Config] 保存済みの設定を直しました: ${changes.join("、")}`);
+    return { changes };
+  }
+
+  // 起動のとき以外の直し（初期セットアップを終えたとき・保存先を変えたとき・BRIDGE を起動する前）。手動インストールのあとは、
+  // セットアップを終えるまで設定の場所が userData/bridge の予備を指すので、起動のときの直しが配信者の設定に届かない（PR3 の最終レビュー）。
+  // 直したらその場で知らせる。失敗しても呼んだ側（保存・起動）は止めず、ログに残す（直せなかった値は確かめのエラーとして出る）。
+  function ensureSavedConfigMigrated() {
+    try {
+      const { changes } = migrateSavedConfigOnStartup();
+      notifyConfigMigration(changes).catch(e => console.warn("[Config]", e?.message || e));
+      return changes;
+    } catch (e) {
+      console.error("[Config] 保存済みの設定を直せませんでした:", e?.message || e);
+      return [];
+    }
+  }
+
+  // 直したものを配信者に1回だけ知らせる（ウィンドウを出したあとに呼ぶ）。直したものがなければ何も出さない。
+  async function notifyConfigMigration(changes) {
+    if (!changes?.length) return;
+    const shown = changes.slice(0, 10).join("\n") + (changes.length > 10 ? `\nほか ${changes.length - 10} 件` : "");
+    await dialog.showMessageBox({ type: "info", title: "設定を直しました", message: "古い版で保存した設定の一部を、今の決まりに合わせて直しました。",
+      // 「戻せます」とは書かない。バックアップを戻すともう一度直すので、直す前の値には戻らない。
+      detail: `${shown}\n\n直す前の設定は「設定のバックアップ」に「更新で直す前の自動保存」として残っています。` });
   }
 
   // --------------------
@@ -191,7 +230,7 @@ function createBridgeSettings({
     });
   }
 
-  return { readSavedBridgeConfig, writeBridgeConfig, selectableCommandNames, readCommandMetadata, register };
+  return { readSavedBridgeConfig, writeBridgeConfig, migrateSavedConfigOnStartup, ensureSavedConfigMigrated, notifyConfigMigration, selectableCommandNames, readCommandMetadata, register };
 }
 
 module.exports = { createBridgeSettings };

@@ -10,6 +10,15 @@ function isBridgeModTransport(transport) {
   return BRIDGE_MOD_TRANSPORTS.has(String(transport || "rcon").toLowerCase().trim());
 }
 
+// 知っている送り方の名前か（空は RCON）。知らない名前（"bridge-mod" のような書き間違い）は、設定の確かめで警告して RCON として扱う
+// （2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 7）。
+function isKnownTransport(transport) {
+  if (transport == null) return true;
+  if (typeof transport !== "string") return false;
+  const name = transport.toLowerCase().trim();
+  return name === "" || name === "rcon" || BRIDGE_MOD_TRANSPORTS.has(name);
+}
+
 // RCON/Telnet はファイルを直接読むので名前の制限はない。制限が必要なのは BridgeMOD 経由のときだけ。
 function usesBridgeModTransport(config) {
   const type = String(config?.target?.type || "minecraft").toLowerCase();
@@ -85,9 +94,4 @@ function invalidCommandFileRefs(config) {
     .map(ref => ({ ...ref, message: `${ref.where}: ${commandFileProblem(ref.commandFile)}` }));
 }
 
-// 保存済みの設定にすでにあった参照かどうか（場所と名前の組で比べる）。
-function refKey(ref) {
-  return `${ref.where}\n${ref.commandFile}`;
-}
-
-module.exports = { BRIDGE_COMMAND_KEY, isBridgeModTransport, usesBridgeModTransport, isTxtName, ensureTxt, bridgeCommandKey, isBridgeCommandFile, commandFileProblem, commandFileRefs, invalidCommandFileRefs, refKey };
+module.exports = { BRIDGE_COMMAND_KEY, isBridgeModTransport, isKnownTransport, usesBridgeModTransport, isTxtName, ensureTxt, bridgeCommandKey, isBridgeCommandFile, commandFileProblem, commandFileRefs, invalidCommandFileRefs };

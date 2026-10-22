@@ -13,7 +13,7 @@ const RENDERER_APP_CONFIG_FIELDS = new Set([
 ]);
 
 // あとで main で作られるもの（設定のバックアップ・サーバーの状態など）は、呼ばれたときに読む関数で受け取る。
-function createAppConfig({ app, assertGameProfileIdle, assertMapIdle, isServerStarting, getConfigPath, getSettingsBackups, refreshGameModsOnStartup }) {
+function createAppConfig({ app, assertGameProfileIdle, assertMapIdle, isServerStarting, getConfigPath, getSettingsBackups, refreshGameModsOnStartup, migrateSavedConfig }) {
   function getAppConfigPath() {
     return path.join(app.getPath("userData"), "app-config.json");
   }
@@ -102,6 +102,8 @@ function createAppConfig({ app, assertGameProfileIdle, assertMapIdle, isServerSt
       writeAppConfig(sanitizeRendererAppConfigUpdate(data));
       // 手動インストール（更新も含む）のあとは初期セットアップをやり直す。終えたら、アプリの更新に合わせて MOD を入れ替える（PR #91 レビュー）。
       if (!wasSetupComplete && readAppConfig().setupComplete === true) setTimeout(() => { refreshGameModsOnStartup().catch(e => console.warn("[games]", e?.message || e)); }, 0);
+      // 設定の場所（serverFolder/bridge）が決まったとき・変わったときは、古い版の設定を画面が読む前に直す（2026-10-18 設計書の 7。PR3 の最終レビュー）。
+      if (readAppConfig().setupComplete === true && (!wasSetupComplete || 'serverFolder' in data)) migrateSavedConfig?.();
       return { ok: true };
     });
   }

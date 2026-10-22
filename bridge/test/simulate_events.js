@@ -178,7 +178,8 @@ async function main() {
     const bad = validateBridgeConfig({ tiktokUsername: "", mappings: [{ giftId: "", commandFile: "" }],
       options: { bridgeModPort: 99999 } });
     assert.strictEqual(bad.ok, false);
-    assert.ok(bad.errors.some(x => x.includes("tiktokUsername")));
+    // TikTok ID が空の文はアプリの文にそろえた（2026-10-18 設計書の 7）。
+    assert.ok(bad.errors.some(x => x.includes("TikTok IDが未承認です")));
     assert.ok(bad.errors.some(x => x.includes("bridgeModPort")));
   });
 

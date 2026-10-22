@@ -3,6 +3,7 @@
 const path = require("path");
 const fs = require("fs");
 const { validateBridgeConfig } = require("./config_schema.cjs");
+const { migrateBridgeConfig } = require("../bridge/config_migration.cjs");
 
 // サーバーと BRIDGE の状態・操作は、それぞれの持ち主から呼ばれたときに読む関数で受け取る。
 function createMapOperations({
@@ -67,7 +68,8 @@ function createMapOperations({
       const safe = path.basename(String(name || ""));
       const source = path.join(getPresetDir(), safe);
       if (!fs.existsSync(source)) throw new Error("プリセットがありません");
-      const value = JSON.parse(fs.readFileSync(source, "utf8"));
+      // 古い版で保存したプリセット（回数 2.5 など）も読み込めるように、保存済みの設定と同じ直しを通してから確かめる（2026-10-18 設計書の 7）。
+      const value = migrateBridgeConfig(JSON.parse(fs.readFileSync(source, "utf8"))).config;
       // 以前保存したプリセットは、その中の割り当ても「前からあるもの」として扱う（使えない名前は警告に留める）。
       const validation = validateBridgeConfig(value, { previous: [readSavedBridgeConfig(), value] });
       if (!validation.ok) throw new Error(validation.errors.join("\n"));

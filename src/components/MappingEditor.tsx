@@ -4,6 +4,7 @@ import type { CommandSet, GiftMapping } from "../types";
 import MinecraftCommandIcon from "./MinecraftCommandIcon";
 import { useUnsavedChanges } from "../UnsavedChanges";
 import { commandOptionLabel } from "../lib/commandLabel";
+import { toRepeat } from "../lib/integerInput";
 
 type Props = {
   mappings?: GiftMapping[];
@@ -26,10 +27,6 @@ type CmdFile = { name: string; title: string; category?: string; description?: s
 const commandCategory = (raw = "") => { const key = raw.split("|")[0].trim(); return key === "お助け" ? "お助け系" : key === "妨害" ? "妨害系" : key || "その他"; };
 type SaveMsg = { type: "ok" | "error"; text: string };
 
-function clampRepeat(v: number) {
-  if (!Number.isFinite(v)) return 1;
-  return Math.min(100, Math.max(1, Math.floor(v)));
-}
 
 const MappingEditor: React.FC<Props> = (props) => {
   const mappings        = Array.isArray(props.mappings) ? props.mappings : [];
@@ -135,7 +132,7 @@ const MappingEditor: React.FC<Props> = (props) => {
     if (typeof props.defaultGiftName === "string") setGiftName(props.defaultGiftName);
     const selected = mappings.find(mapping => String(mapping.giftId) === props.defaultGiftId);
     const file = selected?.commandFile || "";
-    const times = clampRepeat(Number(selected?.repeat ?? 1));
+    const times = toRepeat(selected?.repeat ?? 1);
     setCommandFile(file); setSelectedTxtName(file); setRepeat(times);
     setSavedSnapshot(JSON.stringify({ commandFile: file, repeat: times }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -155,7 +152,7 @@ const MappingEditor: React.FC<Props> = (props) => {
       giftId: giftId.trim(),
       name: giftName.trim() || giftId.trim(),
       commandFile: commandFile.trim(),
-      repeat: clampRepeat(Number(repeat || 1)),
+      repeat: toRepeat(repeat),
       commandSetLabel: commandFile.trim(),
     };
     if (already) {
@@ -232,7 +229,7 @@ const MappingEditor: React.FC<Props> = (props) => {
               </select>
               <div className="gift-repeat-control">
                 <label htmlFor="gift-repeat">回数（1〜100）</label>
-                <button type="button" disabled={saving} onClick={() => setRepeat((value) => clampRepeat(value - 1))}>−</button>
+                <button type="button" disabled={saving} onClick={() => setRepeat((value) => toRepeat(value - 1))}>−</button>
                 <input
                   id="gift-repeat"
                   disabled={saving}
@@ -240,9 +237,10 @@ const MappingEditor: React.FC<Props> = (props) => {
                   min={1}
                   max={100}
                   value={repeat}
-                  onChange={(e) => setRepeat(clampRepeat(Number(e.target.value)))}
+                  step={1}
+                  onChange={(e) => setRepeat(toRepeat(e.target.value))}
                 />
-                <button type="button" disabled={saving} onClick={() => setRepeat((value) => clampRepeat(value + 1))}>＋</button>
+                <button type="button" disabled={saving} onClick={() => setRepeat((value) => toRepeat(value + 1))}>＋</button>
               </div>
             </div>
             {!visibleCommandGroups.length && cmdFiles.length > 0 && <p role="status">一致するコマンドがありません。検索条件を変えてください。</p>}

@@ -4,6 +4,7 @@ const { randomUUID } = require('node:crypto');
 const { isDeepStrictEqual } = require('node:util');
 const { atomicWrite } = require('./settings_backups.cjs');
 const { isTxtName } = require('../bridge/command_files.cjs');
+const { migrateBridgeConfig } = require('../bridge/config_migration.cjs');
 
 const FORMAT = 'mygamepack-gift-template';
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -36,7 +37,8 @@ function parseTemplate(raw) {
   return { format: FORMAT, version: 1,
     name: typeof value.name === 'string' ? value.name.slice(0, 100) : 'ギフト設定',
     appVersion: typeof value.appVersion === 'string' ? value.appVersion.slice(0, 30) : '',
-    mappings: normalizeMappings(value.mappings) };
+    // 古い版のテンプレートの回数（1.5・"2" など）は、保存済みの設定と同じ直しを通してから確かめる（2026-10-18 設計書の 7）。
+    mappings: normalizeMappings(migrateBridgeConfig({ mappings: value.mappings }).config.mappings) };
 }
 
 function createGiftTemplates({ dialog, context, writeConfig, appVersion, now = () => Date.now() }) {

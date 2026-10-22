@@ -564,6 +564,44 @@ test('プリセット: 設定を名前を付けて保存し、一覧に出し、
   assert.throws(() => app.invoke('presets:load', 'missing.json'), /プリセットがありません/);
 });
 
+// 古い設定を読み込む所は、保存済みの設定と同じ直しを通してから確かめる（2026-10-18 設計書の 7）。
+test('プリセット: 古い版で保存したプリセット（回数 2.5 など）も、読み込むときに直して読み込める', async t => {
+  const app = loadApp(t);
+  app.invoke('presets:save', 'old');
+  const file = path.join(path.dirname(app.configPath), 'presets', 'old.json');
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), mappings: [{ giftId: '5655', name: 'バラ', commandFile: 'zombie.txt', repeat: 2.5 }] }));
+  assert.equal(app.invoke('presets:load', 'old.json').config.mappings[0].repeat, 3);
+  const saved = await app.invoke('config:read');
+  assert.deepEqual([saved.mappings[0].repeat, saved.configVersion], [3, 2]);
+});
+
+test('プリセット: 中身がオブジェクトでないプリセットは「設定全体がJSONオブジェクトではありません」で止め、設定を変えない', async t => {
+  const app = loadApp(t);
+  const dir = path.join(path.dirname(app.configPath), 'presets');
+  app.invoke('presets:save', 'base');
+  const before = fs.readFileSync(app.configPath, 'utf8');
+  for (const [name, text] of [['array.json', '[]'], ['text.json', '"x"'], ['null.json', 'null']]) {
+    fs.writeFileSync(path.join(dir, name), text);
+    assert.throws(() => app.invoke('presets:load', name), error => error.message === '設定全体がJSONオブジェクトではありません', name);
+  }
+  assert.equal(fs.readFileSync(app.configPath, 'utf8'), before);
+});
+
+test('起動: 保存済みの設定の直しは画面が設定を読む前（createWindow の前）に行い、知らせはウィンドウを出したあと', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../main.cjs'), 'utf8');
+  const ready = source.slice(source.indexOf('app.whenReady()'));
+  const at = text => { const index = ready.indexOf(text); assert.ok(index >= 0, text); return index; };
+  assert.ok(at('migrateSavedConfigOnStartup()') < at('createWindow();'));
+  assert.ok(at('createWindow();') < at('notifyConfigMigration('));
+  // 起動のときの直しが届かない設定（手動インストールのあとのセットアップ前など）のため、セットアップを終えたとき・BRIDGE を起動する前にも直す。
+  for (const factory of ['createAppConfig({', 'createBridgeProcess({']) {
+    const deps = source.slice(source.indexOf(factory), source.indexOf('});', source.indexOf(factory)));
+    assert.match(deps, /migrateSavedConfig: \(\) => bridgeSettings\.ensureSavedConfigMigrated\(\)/, factory);
+  }
+  const panel = fs.readFileSync(path.resolve(__dirname, '../../src/components/SettingsBackupsPanel.tsx'), 'utf8');
+  assert.match(panel, /reason === "migration" \? "更新で直す前の自動保存"/);
+});
+
 test('Minecraft の起動: アプリ設定で指定したランチャーを、切り離した子プロセスで開く', async t => {
   const app = loadApp(t);
   const launcher = path.join(app.root, 'MyLauncher.exe');
@@ -933,8 +971,11 @@ test("設定保存: 旧版で保存した使えない名前の割り当ては残
   assert.equal((await app.invoke("config:read")).tiktokUsername, "another_id");
   const check = await app.invoke("config:validate", { ...legacy, tiktokUsername: "another_id" });
   assert.equal(check.ok, true); assert.ok(check.warnings.some(w => w.includes("ネコ.txt")));
-  // 別のギフトへ新しく割り当てるのは保存前に止める。
-  await assert.rejects(app.invoke("config:mappings:write", [...legacy.mappings, { giftId: "1", name: "ハート", commandFile: "ネコ.txt", repeat: 1 }]), /ハート.*半角英数字/s);
+  // 「新しいか」はコマンドの名前で決める（2026-10-18 設計書の 7）。保存済みの名前を別のギフトへ割り当てるのは止めず、保存済みに無い名前は保存前に止める。
+  fs.writeFileSync(path.join(app.root, "bridge", "commands", "minecraft", "イヌ.txt"), "say inu\n");
+  await assert.rejects(app.invoke("config:mappings:write", [...legacy.mappings, { giftId: "1", name: "ハート", commandFile: "イヌ.txt", repeat: 1 }]), /ハート.*半角英数字/s);
+  await app.invoke("config:mappings:write", [...legacy.mappings, { giftId: "1", name: "ハート", commandFile: "ネコ.txt", repeat: 1 }]);
+  assert.equal((await app.invoke("config:read")).mappings.length, 2);
   // コマンドの一覧には使えない名前の印を付ける。title はルーレット名・ギフト画像に使われるので変えない。
   const meta = await app.invoke("bridge:commands:readMeta");
   const listed = meta.find(row => row.name === "ネコ.txt");
@@ -1086,7 +1127,8 @@ test("ギフトテンプレートIPC: 確認後に割り当てのみ適用し、
   const backups = await app.invoke('settings:backups:list');
   assert.equal(backups.length, 1);
   await app.invoke('settings:backups:restore', backups[0].id);
-  assert.deepEqual(JSON.parse(fs.readFileSync(app.configPath, 'utf8')), before);
+  // 戻した設定には、今の決まりで確かめた印の版の番号が付く（2026-10-18 設計書の 7）。
+  assert.deepEqual(JSON.parse(fs.readFileSync(app.configPath, 'utf8')), { ...before, configVersion: 2 });
 });
 
 

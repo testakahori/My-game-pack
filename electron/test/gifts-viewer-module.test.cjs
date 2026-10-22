@@ -62,3 +62,24 @@ test('起動時の自動更新: TikTok ID がなければ取らず、同じ ID �
   assert.deepEqual(await x.viewer.autoUpdateGiftsIfStale(), { skipped: 'fresh' });
   assert.equal(x.log.length, 0);
 });
+
+// 設定の TikTok ID は入力のままの形で保存し、使う所で bridge/tiktok_id.cjs の形に整える（2026-10-18 設計書の 9。PR3 の最終レビュー）。
+test('起動時の自動更新: 設定の TikTok ID は配信前チェック・BRIDGE と同じく整え（空白・@・大文字）、取った一覧の ID も同じ形で比べる', async t => {
+  const x = setup(t, { username: ' @AkahoriDouma ' });
+  fs.writeFileSync(path.join(x.gv, 'gifts.min.json'), '[]');
+  fs.writeFileSync(path.join(x.gv, 'gifts.meta.json'), JSON.stringify({ username: 'AkahoriDouma', count: 1, generatedAt: new Date().toISOString() }));
+  assert.deepEqual(await x.viewer.autoUpdateGiftsIfStale(), { skipped: 'fresh' }, '大文字で取った一覧も同じ ID の一覧');
+  fs.writeFileSync(path.join(x.gv, 'gifts.meta.json'), JSON.stringify({ username: 'akahoridouma', count: 1, generatedAt: '2000-01-01T00:00:00.000Z' }));
+  assert.deepEqual(await x.viewer.autoUpdateGiftsIfStale(), { ok: true });
+  assert.equal((await x.invoke('gv:gifts:read')).meta.username, 'akahoridouma', '整えた形で取りにいく');
+});
+
+// 自動更新は整えた形（akahoridouma）で取りにいくので、手で押した更新（ギフト一覧タブは設定の AkahoriDouma のまま渡す）も
+// 同じ形に整えて比べないと、「別のアカウントのギフトを更新中です」で止まる（最終レビューの軽い指摘の直しのレビュー）。
+test('ギフトの更新: 自動更新の最中に、大文字や @ の違う同じ ID で更新しても、同じ取得に合流する', async t => {
+  const x = setup(t, { username: 'AkahoriDouma' });
+  const [auto, manual] = await Promise.all([x.viewer.autoUpdateGiftsIfStale(), x.invoke('gv:gifts:update', '@AkahoriDouma')]);
+  assert.deepEqual(auto, { ok: true });
+  assert.equal(manual.meta.username, 'akahoridouma');
+  assert.equal(x.log.filter(call => call.tool === 'fetch_gifts.cjs').length, 1, '取りにいくのは1回');
+});

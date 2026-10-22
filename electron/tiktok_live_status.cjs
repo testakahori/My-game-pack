@@ -1,10 +1,13 @@
+const { normalizeTikTokId, isValidTikTokId } = require('../bridge/tiktok_id.cjs');
+
 function createLiveStatusChecker({ query, now = Date.now, ttlMs = 30000 }) {
   const cache = new Map(), pending = new Map();
   let generation = 0;
   async function check(value) {
-    const username = typeof value === 'string' ? value.trim().replace(/^@/, '').toLowerCase() : '';
+    // 整え方と確かめは tiktok_id.cjs の1か所（2026-10-18 設計書の 9）。
+    const username = normalizeTikTokId(value);
     if (!username) return { username, state: 'empty' };
-    if (!/^[a-z0-9_.]{1,24}$/.test(username)) return { username, state: 'error', error: 'TikTokのアカウントIDを確認してください。' };
+    if (!isValidTikTokId(username)) return { username, state: 'error', error: 'TikTokのアカウントIDを確認してください。' };
     const previous = cache.get(username);
     if (previous && now() - previous.time < ttlMs) return previous.result;
     if (pending.has(username)) return pending.get(username);

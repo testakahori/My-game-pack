@@ -4,8 +4,11 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { validateBridgeConfig } = require("./config_schema.cjs");
 const { isTxtName } = require("../bridge/command_files.cjs");
+const { migrateBridgeConfig } = require("../bridge/config_migration.cjs");
 
 const PREFS = ["autoBackupOnServerStart"];
+// つなぎ方の options はバックアップに入れず、戻すときは今の値を使う（rcon も同じ）。
+const CONNECTION_OPTIONS = ["commandsDir", "bridgeModHost", "bridgeModPort", "doumaModHost", "doumaModPort", "commandTransport"];
 const MAX_BYTES = 12 * 1024 * 1024;
 const json = value => JSON.stringify(value, null, 2);
 const read = file => JSON.parse(fs.readFileSync(file, "utf8"));
@@ -20,6 +23,18 @@ function atomicWrite(file, content) {
   finally { if (fs.existsSync(temp)) fs.unlinkSync(temp); }
 }
 
+// 戻したときに書く設定：バックアップの設定に今のつなぎ方（options の一部と rcon）を戻し、古い版の値を直したもの
+// （2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 7）。復元と一覧の問題の数が、この1つを使う。
+function restoredBridgeConfig(snapshot, current) {
+  const bridge = snapshot.payload.bridge;
+  const now = object(current) ? current : {};
+  const config = { ...bridge, rcon: now.rcon, options: { ...bridge.options } };
+  for (const key of CONNECTION_OPTIONS) {
+    if (Object.hasOwn(now.options || {}, key)) config.options[key] = now.options[key];
+  }
+  return migrateBridgeConfig(config).config;
+}
+
 // All paths come from main, never from the renderer or a backup file.
 function createSettingsBackups(deps) {
   function paths() { return deps.paths(); }
@@ -28,7 +43,7 @@ function createSettingsBackups(deps) {
     const config = read(p.config);
     const { rcon: _rcon, ...bridge } = config;
     bridge.options = { ...(bridge.options || {}) };
-    for (const key of ["commandsDir", "bridgeModHost", "bridgeModPort", "doumaModHost", "doumaModPort", "commandTransport"]) delete bridge.options[key];
+    for (const key of CONNECTION_OPTIONS) delete bridge.options[key];
     const app = fs.existsSync(p.app) ? read(p.app) : {};
     const preferences = Object.fromEntries(PREFS.map(key => [key, app[key] !== false]));
     const commands = {};
@@ -48,11 +63,15 @@ function createSettingsBackups(deps) {
     if (Object.entries(commands).some(([name, body]) => !validCommand(name) || typeof body !== "string")) throw new Error("コマンドのバックアップが不正です。");
     return value;
   }
-  function summary(value, id) {
+  // 今の設定（読めなければ {}）。一覧・作成・復元で1回だけ読み、summary に渡す。
+  function readCurrent() {
+    try { return read(paths().config); } catch { return {}; }
+  }
+  function summary(value, id, current) {
     return { id, createdAt: value.createdAt, reason: value.reason, version: value.version,
       username: value.payload.bridge.tiktokUsername || "", mappings: value.payload.bridge.mappings?.length || 0,
       commands: Object.keys(value.payload.commands).length, ttsEnabled: value.payload.tts.enabled === true,
-      issues: validateBridgeConfig(value.payload.bridge).errors.length };
+      issues: validateBridgeConfig(restoredBridgeConfig(value, current)).errors.length };
   }
   function load(id) {
     if (typeof id !== "string" || !/^\d{13}-[a-f0-9-]{36}\.json$/.test(id)) throw new Error("バックアップIDが不正です。");
@@ -64,8 +83,9 @@ function createSettingsBackups(deps) {
     const dir = paths().backups;
     if (!fs.existsSync(dir)) return [];
     const result = [];
+    const current = readCurrent();
     for (const id of fs.readdirSync(dir).filter(name => name.endsWith(".json"))) {
-      try { result.push(summary(load(id), id)); }
+      try { result.push(summary(load(id), id, current)); }
       catch { /* A corrupt/unrelated snapshot must not hide valid restore points. */ }
     }
     return result.sort((a, b) => b.id.localeCompare(a.id));
@@ -89,7 +109,7 @@ function createSettingsBackups(deps) {
     for (const row of list().filter(row => row.reason === "automatic").slice(30)) {
       try { fs.unlinkSync(path.join(p.backups, row.id)); } catch { /* Retention must not fail a save. */ }
     }
-    return summary(value, id);
+    return summary(value, id, readCurrent());
   }
   function restore(id) {
     if (deps.isRunning()) throw new Error("復元する前にBridgeを停止してください。");
@@ -97,10 +117,8 @@ function createSettingsBackups(deps) {
     const p = paths();
     const current = read(p.config);
     if ((current.gameProfile || 'common') !== (snapshot.payload.bridge.gameProfile || 'common')) throw new Error('このバックアップのゲームを選択してから復元してください');
-    const config = { ...snapshot.payload.bridge, rcon: current.rcon, options: { ...snapshot.payload.bridge.options } };
-    for (const key of ["commandsDir", "bridgeModHost", "bridgeModPort", "doumaModHost", "doumaModPort", "commandTransport"]) {
-      if (Object.hasOwn(current.options || {}, key)) config.options[key] = current.options[key];
-    }
+    // 古い版のバックアップ（回数 2.5 など）も戻せるように、戻す前に直す。
+    const config = restoredBridgeConfig(snapshot, current);
     deps.validateRestore?.(config, snapshot.payload.commands);
     const currentApp = fs.existsSync(p.app) ? read(p.app) : {};
     const prefs = Object.fromEntries(PREFS.map(key => [key, snapshot.payload.preferences[key] !== false]));
@@ -122,8 +140,8 @@ function createSettingsBackups(deps) {
       }
       throw new Error(failures.length ? `復元を中断しました。一部を戻せませんでした（${failures.join("、")}）。復元前バックアップ: ${safety.id}` : "復元に失敗したため、変更前の設定へ戻しました。");
     }
-    return { ok: true, safetyBackup: safety.id, restored: summary(snapshot, id) };
+    return { ok: true, safetyBackup: safety.id, restored: summary(snapshot, id, current) };
   }
   return { list, create, restore };
 }
-module.exports = { createSettingsBackups, atomicWrite, validCommand };
+module.exports = { createSettingsBackups, restoredBridgeConfig, atomicWrite, validCommand };

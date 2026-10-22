@@ -100,11 +100,16 @@ test('only validated preview data is applied, even if the selected file changes 
 });
 test('invalid files, unsupported versions, duplicate IDs and unsafe names fail before writes', () => {
   for (const value of [null, {}, { ...template, version: 2 }, { ...template, mappings: [] }, { ...template, mappings: [row, row] },
-    { ...template, mappings: [{ ...row, commandFile: '../heal.txt' }] }, { ...template, mappings: [{ ...row, commandFile: '_gamerules.txt' }] },
-    ...[0, 101, 1.5, '2'].map(repeat => ({ ...template, mappings: [{ ...row, repeat }] }))]) assert.throws(() => parseTemplate(JSON.stringify(value)));
+    { ...template, mappings: [{ ...row, commandFile: '../heal.txt' }] }, { ...template, mappings: [{ ...row, commandFile: '_gamerules.txt' }] }]) assert.throws(() => parseTemplate(JSON.stringify(value)));
   assert.throws(() => parseTemplate('{broken'), /JSON/);
   assert.deepEqual(parseTemplate('\uFEFF' + JSON.stringify({ ...template, password: 'unwanted', mappings: [{ ...row, giftId: 5655, extra: 'unwanted' }] })).mappings, [row]);
 });
+// 古い版のテンプレートの回数は、保存済みの設定と同じ直しを通してから確かめる（2026-10-18 設計書の 7）。
+test('テンプレートの回数: 古い版の値（1.5・"2"・0・101）は読み込むときに直す', () => {
+  const repeats = [1.5, '2', 0, 101].map(repeat => parseTemplate(JSON.stringify({ ...template, mappings: [{ ...row, repeat }] })).mappings[0].repeat);
+  assert.deepEqual(repeats, [2, 2, 1, 100]);
+});
+
 test('oversize templates and exporting over the live config are rejected', async t => {
   const h = harness(t);
   fs.writeFileSync(h.filePath, ' '.repeat(2 * 1024 * 1024 + 1));

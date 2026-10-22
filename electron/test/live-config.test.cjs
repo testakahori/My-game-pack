@@ -29,6 +29,7 @@ test('つなぎ方: 違うものの名前だけを決まった順で返す。つ
   assert.deepEqual(changed({ ...started, tiktokUsername: ' a ', options: { ...started.options, commandTransport: ' BRIDGE_MOD ' } }), [], '前後の空白・大文字小文字だけの違いは同じ');
   assert.deepEqual(restartRequired({ options: { doumaModPort: 25600, commandTransport: 'bridge_mod' } }, { options: { bridgeModPort: 25600, commandTransport: 'bridge_mod' } }, base), [], '旧い名前の同じ値は同じ');
   assert.deepEqual(restartRequired({ options: { commandTransport: 'bridge_mod' } }, { options: { commandTransport: 'rcon' } }, base), ['送り方'], '送り方が変われば、送り方だけを出す');
+  assert.deepEqual(restartRequired({ tiktokUsername: '@Foo' }, { tiktokUsername: 'foo' }, base), [], 'TikTok ID は接続する形（tiktok_id.cjs で整えた形）で比べる');
 });
 
 // 実際に使う値で比べる（PR2 の最終レビュー）。並び・書き方・使っていない接続先の違いで、要らない再起動を促さない。
