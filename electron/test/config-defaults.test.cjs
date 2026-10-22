@@ -59,6 +59,11 @@ test('既定値の写し: BRIDGE は既定値・コマンドの場所・接続�
     assert.doesNotMatch(source, /"minecraft", name/, file);
   }
   assert.match(fs.readFileSync(path.resolve(__dirname, '../../bridge/index.js'), 'utf8'), /既定値は bridge\/config_defaults\.json/);
+  // ギフト割り当ての使う形は bridge/gift_mappings.cjs の1か所（処理のコピー PR5）。
+  const index = fs.readFileSync(path.resolve(__dirname, '../../bridge/index.js'), 'utf8');
+  // 送る列の名前（`gift:${giftId}`）には当てず、名前の既定（|| `gift:${…}`）だけを探す。
+  assert.doesNotMatch(index, /\|\|\s*`gift:\$\{/, 'ギフト割り当ての名前の既定を自分で作らない');
+  assert.equal(index.split('giftMappingsById(').length - 1, 2, '起動と再読込の両方で使う');
 });
 
 test('既定値の写し: アプリは雛形・コマンドの場所・BridgeMOD の接続先を自分で持たず config_defaults を使う', () => {

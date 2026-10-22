@@ -21,7 +21,7 @@ function integer(input, key, fallback, min, max) {
 
 // sender は入力の名前のまま。表示名に整えるのは本番と同じく BRIDGE の処理の中（getStableSender）。
 // 先に改行をまとめると、本番（改行1文字ごとに空白1つ）とずれる（最後のレビュー Minor #2）。整えて空になる名前は「テスト視聴者」。
-function testEventActions(input, { mappedGiftIds = new Set() } = {}) {
+function testEventActions(input, { mappedGiftIds = new Set(), disabledGiftIds = new Set() } = {}) {
   if (!input || !TYPES.has(input.type)) throw new Error('対応していないテストイベントです。');
   const type = input.type;
   const raw = String(input.listenerName ?? '');
@@ -36,7 +36,11 @@ function testEventActions(input, { mappedGiftIds = new Set() } = {}) {
     const count = integer(input, 'count', 1, 1, 100);
     if (!mappedGiftIds.has(giftId)) notes.push('このギフトIDには割当がありません。未設定ギフトのテストを使用してください。');
     // 同じ視聴者の連打として1個ずつ処理する（本番の連打と同じ）。最後の1個で連打の終わり。
-    else for (let i = 1; i <= count; i++) actions.push({ kind: 'gift', data: data({ giftId, repeatCount: i, repeatEnd: i === count ? 1 : 0 }) });
+    else {
+      // 無効の割り当ては本番と同じく通す（コマンドは動かさず、ゲームの数え方にだけ入る。処理のコピー PR5）。
+      if (disabledGiftIds.has(giftId)) notes.push('このギフトの割り当ては無効です（enabled: false）。コマンドは動かさず、ゲームの数え方にだけ入ります。');
+      for (let i = 1; i <= count; i++) actions.push({ kind: 'gift', data: data({ giftId, repeatCount: i, repeatEnd: i === count ? 1 : 0 }) });
+    }
   }
   if (type === 'unmapped_gift') {
     const giftId = String(input.giftId ?? '').trim();

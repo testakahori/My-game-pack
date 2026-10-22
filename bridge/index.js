@@ -33,6 +33,7 @@ const { validateBridgeConfig } = require("./config_schema");
 const { normalizeTikTokId } = require("./tiktok_id.cjs");
 const { liveOptions, restartRequired } = require("./live_config.cjs");
 const { CONFIG_DEFAULTS, commandsDirSetting, bridgeCommandsDir, bridgeModEndpoint } = require("./config_defaults.cjs");
+const { giftMappingsById } = require("./gift_mappings.cjs");
 const { prepareRoulette, createRouletteRunner, rouletteSpins } = require("./roulette.cjs");
 const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require("./mod_event_delivery.cjs");
 const { commandFileProblem, ensureTxt, bridgeCommandKey } = require("./command_files.cjs");
@@ -1163,19 +1164,8 @@ async function main() {
     process.exit(1);
   }
 
-  // giftId -> mapping
-  const mappingById = new Map();
-  for (const m of mappings) {
-    const giftId = String(m.giftId ?? "").trim();
-    if (!giftId) continue;
-
-    mappingById.set(giftId, {
-      giftId,
-      name: String(m.name ?? "").trim() || `gift:${giftId}`,
-      commandFile: ensureTxt(String(m.commandFile ?? "").trim()),
-      repeat: clampInt(m.repeat ?? 1, 1, 100, 1),
-    });
-  }
+  // giftId -> mapping（使う形は gift_mappings.cjs の1か所。起動と再読込で同じ。処理のコピー PR5）
+  const mappingById = giftMappingsById(mappings);
 
   // --- コンフィグ ホットリロード ---
   // log・warn はテスト発火の読み直しのとき行頭に [Test] を付けるためのもの（2026-10-18）。
@@ -1191,17 +1181,7 @@ async function main() {
         return;
       }
       // 新しい値を先に全部作る。途中で失敗したら（手で書き換えた設定など）、何も入れ替えずに前の設定のまま動く（2026-10-18）。
-      const nextMappings = new Map();
-      for (const m of (Array.isArray(newCfg.mappings) ? newCfg.mappings : [])) {
-        const gid = String(m.giftId ?? "").trim();
-        if (!gid) continue;
-        nextMappings.set(gid, {
-          giftId: gid,
-          name: String(m.name ?? "").trim() || `gift:${gid}`,
-          commandFile: ensureTxt(String(m.commandFile ?? "").trim()),
-          repeat: clampInt(m.repeat ?? 1, 1, 100, 1),
-        });
-      }
+      const nextMappings = giftMappingsById(newCfg.mappings);
       // つなぎ方以外の options はすぐ効かせる。つなぎ方は起動したときの値のまま動き、違えば再起動を案内する。
       const nextLive = liveOptions(newCfg.options);
       const nextMute = createMuteMatcher(nextLive.mutedUsers);
@@ -1769,7 +1749,11 @@ async function main() {
       return;
     }
 
-    const randomized = resolveRandomizedMapping(mapping, ctx.log);
+    // 無効の割り当て（enabled: false）は、そのコマンドを動かさず、未設定ギフトにも回さない。クールダウン・連打・
+    // ゲームの数え方（上位者・コンボ・時限倍率）は今までどおり通す。RANDOM の抽選はせず、その txt の見出しも読まない
+    // （2026-10-22 ユーザーの決定。処理のコピー PR5）。
+    const disabled = mapping.enabled === false;
+    const randomized = disabled ? { mapping, meta: {} } : resolveRandomizedMapping(mapping, ctx.log);
     if (ctx.run && randomized.mapping !== mapping) ctx.run.notice(`ランダム選択: ${randomized.mapping.commandFile}（実行ごとに抽選）`);
     mapping = randomized.mapping;
     const now = Date.now();
@@ -1797,7 +1781,12 @@ async function main() {
     let times = delta * baseRepeat;
     if (times <= 0) return; // 連打終了通知は追加ギフトではない（送信時の最小1への丸めも避ける）。
     // 時限倍率（例：1.5倍）で小数になったら四捨五入する。BridgeMOD は小数の回数を拒否し、ギフトが丸ごと消えていた。
-    times = giftTimes(ctx.featureEngine.recordGift({ giftId, sender, commandFile: mapping.commandFile, count: times }));
+    // 無効の割り当てはコマンドを渡さない。コマンドのないコンボの段は、割り当てのコマンドの代わりに何も撃たない（emitFeature が飛ばす）。
+    times = giftTimes(ctx.featureEngine.recordGift({ giftId, sender, commandFile: disabled ? "" : mapping.commandFile, count: times }));
+    if (disabled) {
+      ctx.log(`[Gift] (disabled) id=${giftId} name="${giftName}" from=${sender}${repeatText} 割り当ては無効です（ゲームの数え方にだけ入れます）`);
+      return;
+    }
 
     if (bridgeMod) {
       ctx.log(
@@ -2328,7 +2317,8 @@ async function main() {
     if (!bridgeMod) throw new Error("テスト発火は、Minecraft を BridgeMOD で動かしているときだけ使えます。");
     // 保存した直後でも、新しいイベント設定・割り当てで試す（自動の読み直しと同じ確かめを通す）。
     reloadDynamicConfig(testLog, testLog);
-    const { sender, actions, notes } = testEventActions(input, { mappedGiftIds: new Set(mappingById.keys()) });
+    const disabledGiftIds = new Set([...mappingById.values()].filter(mapping => !mapping.enabled).map(mapping => mapping.giftId));
+    const { sender, actions, notes } = testEventActions(input, { mappedGiftIds: new Set(mappingById.keys()), disabledGiftIds });
     const run = createTestRun({ preview: input.preview === true });
     const name = getStableSender({ nickname: sender });
     if (input.type !== "death" && isMuted({ nickname: sender }, testLog)) {
