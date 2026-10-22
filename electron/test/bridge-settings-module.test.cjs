@@ -62,6 +62,14 @@ test('保存済みの設定を更新のときに1回だけ直す: 直す前に�
   assert.equal(x.dialogs.length, 1, '直したものがなければ知らせない');
 });
 
+test('TikTok ID の保存: 形が正しくない ID は止め、@ や大文字は入力のまま保存する（使う所で整える。2026-10-18 設計書の 9）', async t => {
+  const x = setup(t);
+  const current = await x.invoke('config:read');
+  await assert.rejects(x.invoke('config:write', { ...current, tiktokUsername: 'foo-bar' }), /TikTok ID「foo-bar」の形が正しくありません/);
+  await x.invoke('config:write', { ...current, tiktokUsername: ' @Foo_Bar ' });
+  assert.equal(JSON.parse(fs.readFileSync(x.configPath, 'utf8')).tiktokUsername, ' @Foo_Bar ');
+});
+
 test('保存済みの設定を直す: 知らせは10件まで（ほかは件数）', async t => {
   const x = setup(t);
   await x.settings.notifyConfigMigration(Array.from({ length: 12 }, (_, i) => `直したもの${i + 1}`));

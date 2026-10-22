@@ -4,6 +4,7 @@ const path = require("node:path");
 const { validateBridgeConfig } = require("./config_schema.cjs");
 const { validCommand } = require("./settings_backups.cjs");
 const { isBridgeModTransport, ensureTxt } = require("../bridge/command_files.cjs");
+const { normalizeTikTokId, isValidTikTokId } = require("../bridge/tiktok_id.cjs");
 
 function bounded(action, timeoutMs = 6000) {
   let timer;
@@ -19,8 +20,9 @@ async function runPreflight(deps) {
     if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) throw new Error("Invalid configuration");
   }
   catch { return { checkedAt: new Date().toISOString(), checks: [{ id: "config", title: "設定ファイル", status: "error", detail: "設定を読み込めません。初期セットアップと設定バックアップを確認してください。", page: "operations" }] }; }
-  const username = String(cfg.tiktokUsername || "").trim().replace(/^@/, "");
-  add("account", "TikTokアカウント", /^[\w.]{1,24}$/.test(username) ? "ok" : "error", username ? `@${username}` : "ダッシュボードでIDを入力して承認してください。", "dashboard");
+  // BRIDGE が接続する形（tiktok_id.cjs で整えた形）で確かめる（2026-10-18 設計書の 9）。
+  const username = normalizeTikTokId(cfg.tiktokUsername);
+  add("account", "TikTokアカウント", isValidTikTokId(username) ? "ok" : "error", username ? `@${username}` : "ダッシュボードでIDを入力して承認してください。", "dashboard");
   const validation = validateBridgeConfig(cfg);
   const messages = [...validation.errors, ...validation.warnings].map(message => message.replace(/mappings\[(\d+)\]\.commandFile が空です/, (_match, index) => `ギフト「${cfg.mappings[index]?.name || cfg.mappings[index]?.giftId || Number(index) + 1}」のコマンドが未設定です。`));
   add("config", "設定の整合性", validation.ok ? validation.warnings.length ? "warn" : "ok" : "error", messages.join(" / ") || "設定形式に問題はありません。", "gifts");

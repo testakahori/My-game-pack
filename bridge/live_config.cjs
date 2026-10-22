@@ -6,6 +6,7 @@
 const path = require("node:path");
 const { boundedInt } = require("./event_rules.cjs");
 const { isBridgeModTransport } = require("./command_files.cjs");
+const { normalizeTikTokId } = require("./tiktok_id.cjs");
 
 // つなぎ方以外の options 全部。保存したらすぐ効く。
 function liveOptions(options) {
@@ -42,7 +43,8 @@ function connection(config, baseDir) {
   const dir = path.resolve(baseDir || ".", String(options.commandsDir || "commands"));
   return {
     type, viaMod,
-    tiktok: String(config?.tiktokUsername || "").trim(),
+    // BRIDGE が接続する形で比べる（@ や大文字だけの違いでは再起動を促さない）。
+    tiktok: normalizeTikTokId(config?.tiktokUsername),
     modHost: String(options.bridgeModHost || options.doumaModHost || "127.0.0.1").trim(),
     modPort: Number(options.bridgeModPort || options.doumaModPort || 25576),
     remote: type === "minecraft"

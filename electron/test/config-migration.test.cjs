@@ -12,6 +12,20 @@ test('TikTok ID: 前後の空白・先頭の @ を除いて小文字にし、半
   assert.deepEqual(['', 'foo-bar', 'a'.repeat(25), 'ねこ', null, '@'].map(isValidTikTokId), [false, false, false, false, false, false]);
 });
 
+// 設計書 13：1つにまとめた関数は、今それを使っている所すべてが同じ関数を呼ぶ（自分の写しを持ち続けない）。
+test('TikTok ID: 配信前チェック・LIVE の確かめ・BRIDGE の接続・再起動の比べ方は、自分の整え方や正規表現を持たず tiktok_id.cjs を使う', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  for (const file of ['electron/preflight.cjs', 'electron/tiktok_live_status.cjs', 'bridge/index.js', 'bridge/live_config.cjs']) {
+    const source = fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
+    assert.doesNotMatch(source, /\{1,24\}/, file + ' に ID の正規表現の写しが残っている');
+    assert.doesNotMatch(source, /tiktokUsername[^\n]*replace\(\/\^@\//, file + ' に @ を除く写しが残っている');
+    assert.match(source, /normalizeTikTokId\(/, file + ' が normalizeTikTokId を使っていない');
+  }
+  const index = fs.readFileSync(path.resolve(__dirname, '../../bridge/index.js'), 'utf8');
+  assert.match(index, /const tiktokUsername = normalizeTikTokId\(config\.tiktokUsername\);/, 'BRIDGE は整えた形で接続する');
+});
+
 test('保存済みの設定を直す: 回数は四捨五入して1〜100、閾値は四捨五入して1以上。無効な項目も直し、元は変えない', () => {
   const original = { mappings: [{ giftId: '1', name: 'バラ', commandFile: 'a.txt', repeat: '3' }, { giftId: '2', name: 'b', commandFile: 'a.txt', repeat: 500 }],
     likeEvents: [{ threshold: 0, commandFile: 'a.txt', repeat: 2.5, enabled: false }],

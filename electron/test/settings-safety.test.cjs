@@ -145,4 +145,10 @@ test("配信前チェック: 接続・一覧の新鮮さ・コマンド・音声
   assert.equal(status("commands"), "error"); assert.equal(status("gifts"), "warn"); assert.equal(status("bridge"), "warn"); assert.equal(status("mod"), "warn"); assert.equal(status("tts"), "skip");
   assert.doesNotMatch(JSON.stringify(bad), /live-secret|private-login/);
   assert.equal(validateBridgeConfig({ ...cfg, mappings: {} }).ok, false);
+  // TikTok ID は tiktok_id.cjs で整えた形（BRIDGE が接続する形）で確かめて出す（2026-10-18 設計書の 9）。
+  write(p.config, { ...cfg, tiktokUsername: " @AkahoriDouma " });
+  const account = (await runPreflight(deps)).checks.find(row => row.id === "account");
+  assert.deepEqual([account.status, account.detail], ["ok", "@akahoridouma"]);
+  write(p.config, { ...cfg, tiktokUsername: "foo-bar" });
+  assert.equal((await runPreflight(deps)).checks.find(row => row.id === "account").status, "error");
 });

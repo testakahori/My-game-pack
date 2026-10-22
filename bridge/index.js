@@ -30,6 +30,7 @@ const { TikTokLiveConnection } = require("tiktok-live-connector");
 const { connectionOptions, redactSecrets, retryDelay } = require('./tiktok_connection.cjs');
 const { Rcon } = require("rcon-client");
 const { validateBridgeConfig } = require("./config_schema");
+const { normalizeTikTokId } = require("./tiktok_id.cjs");
 const { liveOptions, restartRequired } = require("./live_config.cjs");
 const { prepareRoulette, createRouletteRunner, rouletteSpins } = require("./roulette.cjs");
 const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require("./mod_event_delivery.cjs");
@@ -1026,7 +1027,8 @@ async function main() {
   // 前回起動分の「送れなかったイベント」を画面に残さない。
   updateRuntimeStatus({ delivery: { ...deliveryRejections } });
 
-  const tiktokUsername = String(config.tiktokUsername || "").trim();
+  // 接続・ログ・配信ホームの表示は、前後の空白と先頭の @ を除いて小文字にした形（tiktok_id.cjs。2026-10-18 設計書の 9）。
+  const tiktokUsername = normalizeTikTokId(config.tiktokUsername);
   const target = config.target || { type: "minecraft", rcon: config.rcon }; // 互換
   const targetType = String(target.type || "minecraft").toLowerCase();
 
