@@ -9,6 +9,8 @@ import type { GiftMapping } from "../types";
 import { stopConfirmMessage, stopState, type StopTarget } from "../lib/stopSafety";
 import type { PauseView } from "../lib/disruptionPause";
 import { toRepeat } from "../lib/integerInput";
+// 既定値は BRIDGE と同じ表（bridge/config_defaults.json。処理のコピー PR4）。
+import CONFIG_DEFAULTS from "../../bridge/config_defaults.json";
 
 type RunState = "stopped" | "starting" | "running" | "error";
 type LogType  = "info" | "ok" | "error" | "warn";
@@ -564,8 +566,8 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
     const rconResult = await api.serverRconPasswordRead().catch(() => ({ found: false, password: "" }));
     const rconPassword = rconResult.found ? rconResult.password : (existingCfg?.rcon?.password || "");
     const rcon = {
-      host: existingCfg?.rcon?.host || "127.0.0.1",
-      port: existingCfg?.rcon?.port || 25575,
+      host: existingCfg?.rcon?.host || CONFIG_DEFAULTS.rcon.host,
+      port: existingCfg?.rcon?.port || CONFIG_DEFAULTS.rcon.port,
       password: rconPassword,
     };
 
@@ -573,13 +575,9 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
       ...existingCfg,
       tiktokUsername: u,
       rcon,
-      options: {
-        ...(existingCfg?.options || {}),
-        giftCooldownMs: existingCfg?.options?.giftCooldownMs ?? 300,
-        maxCommandsPerGift: existingCfg?.options?.maxCommandsPerGift ?? 200,
-        commandsDir: existingCfg?.options?.commandsDir || "commands/minecraft",
-        logUnknownGifts: existingCfg?.options?.logUnknownGifts ?? true,
-      },
+      // options の既定値は書かない（書いていなければ BRIDGE・運用センターが同じ既定値を使う）。
+      // commandsDir も書かない（保存のたびに main が BRIDGE のフォルダーの絶対パスにする）。
+      options: { ...(existingCfg?.options || {}) },
       mappings,
     });
 

@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const esbuild = require("esbuild");
+const { newBridgeConfig } = require("../bridge/config_defaults.cjs");
 
 const projectRoot = path.resolve(__dirname, "..");
 const bridgeDir = path.join(projectRoot, "bridge");
@@ -84,29 +85,11 @@ fs.copyFileSync(nodeExeSrc, nodeExeDst);
 // 開発機の絶対パスcommandsDir）が入ったまま残っている。electron-builder の extraResources は
 // "bridge" -> "bridge" (生の bridge/ 一式) の後に "build/bridge-bundle" -> "bridge" を上書きコピーするため、
 // ここにクリーンな既定configを書き出しておけば配布物には実データが混入しない。
-// （bridge/index.js 自身の起動時チェックはこのクリーンconfigのままだと commandsDir が無いため
-//   exit(1) するが、初回セットアップの config:write が commandsDir を serverFolder内へ矯正してから
-//   Bridge起動する導線なので問題ない）
+// （このクリーンconfigには commandsDir が無いが、BRIDGE は書いていなければ commands/minecraft を読む。
+//   初回セットアップの config:write が commandsDir を serverFolder内の絶対パスにしてから Bridge を起動する）
+// 雛形は bridge/config_defaults.cjs の1か所（アプリの electron/paths.cjs と同じ。処理のコピー PR4）。
 const cleanConfigPath = path.join(outDir, "config.minecraft.json");
-const cleanConfig = {
-  tiktokUsername: "",
-  rcon: { host: "127.0.0.1", port: 25575, password: "" },
-  mappings: [],
-  likeEvents: [],
-  unmappedGiftEvent: { commandFile: "", repeat: 1, enabled: false },
-  shareEvent: { commandFile: "", repeat: 1, enabled: false },
-  followEvent: { commandFile: "", repeat: 1, enabled: false },
-  memberEvent: { commandFile: "", repeat: 1, enabled: false },
-  options: {
-    giftCooldownMs: 300,
-    maxCommandsPerGift: 200,
-    commandTransport: "bridge_mod",
-    bridgeModHost: "127.0.0.1",
-    bridgeModPort: 25576,
-    maxLikeCatchUpPerEvent: 5,
-    logUnknownGifts: true,
-  },
-};
+const cleanConfig = newBridgeConfig();
 fs.writeFileSync(cleanConfigPath, JSON.stringify(cleanConfig, null, 2), "utf8");
 
 const manifest = {

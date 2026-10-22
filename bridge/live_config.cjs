@@ -2,29 +2,31 @@
 
 // 配信中に保存した設定を BRIDGE の再起動なしで効かせる（2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 8）。
 // BRIDGE は起動のときと設定の再読込のときの両方で liveOptions を使う（前は起動のときに1回だけ作っていた）。
-// 式は今の BRIDGE のまま（既定値・範囲の丸めを変えない。厳しい確かめは設定の確かめの PR で行う）。
-const path = require("node:path");
+// 範囲の丸めは今の BRIDGE のまま。既定値は config_defaults.json の1か所（処理のコピー PR4）。
 const { boundedInt } = require("./event_rules.cjs");
 const { isBridgeModTransport } = require("./command_files.cjs");
 const { normalizeTikTokId } = require("./tiktok_id.cjs");
+const { CONFIG_DEFAULTS, bridgeCommandsDir, bridgeModEndpoint } = require("./config_defaults.cjs");
 
 // つなぎ方以外の options 全部。保存したらすぐ効く。
 function liveOptions(options) {
   const o = options && typeof options === "object" ? options : {};
+  const d = CONFIG_DEFAULTS.options;
   return {
-    giftCooldownMs: Number(o.giftCooldownMs ?? 300),
-    maxCommandsPerGift: Number(o.maxCommandsPerGift ?? 200),
-    maxLikeCatchUpPerEvent: boundedInt(o.maxLikeCatchUpPerEvent ?? 5, 1, 100, 5),
-    rconQueueWarnSize: boundedInt(o.rconQueueWarnSize ?? 20, 1, 10000, 20),
-    likeBatchWindowMs: boundedInt(o.likeBatchWindowMs ?? 1200, 100, 10000, 1200),
-    streakTtlMs: boundedInt(o.streakTtlMs ?? 60000, 5000, 600000, 60000),
-    logUnknownGifts: !!o.logUnknownGifts,
+    giftCooldownMs: Number(o.giftCooldownMs ?? d.giftCooldownMs),
+    maxCommandsPerGift: Number(o.maxCommandsPerGift ?? d.maxCommandsPerGift),
+    maxLikeCatchUpPerEvent: boundedInt(o.maxLikeCatchUpPerEvent ?? d.maxLikeCatchUpPerEvent, 1, 100, d.maxLikeCatchUpPerEvent),
+    rconQueueWarnSize: boundedInt(o.rconQueueWarnSize ?? d.rconQueueWarnSize, 1, 10000, d.rconQueueWarnSize),
+    likeBatchWindowMs: boundedInt(o.likeBatchWindowMs ?? d.likeBatchWindowMs, 100, 10000, d.likeBatchWindowMs),
+    streakTtlMs: boundedInt(o.streakTtlMs ?? d.streakTtlMs, 5000, 600000, d.streakTtlMs),
+    // 書いていなければ出す（アプリの雛形・配信ホームと同じ。前は BRIDGE だけ出さなかった）。
+    logUnknownGifts: !!(o.logUnknownGifts ?? d.logUnknownGifts),
     mutedUsers: Array.isArray(o.mutedUsers) ? o.mutedUsers : [],
     ttsNgWords: (Array.isArray(o.ttsNgWords) ? o.ttsNgWords : []).map(value => String(value).trim()).filter(Boolean),
-    announceFunction: String(o.announceFunction || "gift_stream:_announce").trim(),
-    announceStorage: String(o.announceStorage || "gift_stream:bridge").trim(),
-    announceEveryRepeat: o.announceEveryRepeat !== false,
-    announceEnabled: o.announceEnabled !== false,
+    announceFunction: String(o.announceFunction || d.announceFunction).trim(),
+    announceStorage: String(o.announceStorage || d.announceStorage).trim(),
+    announceEveryRepeat: (o.announceEveryRepeat ?? d.announceEveryRepeat) !== false,
+    announceEnabled: (o.announceEnabled ?? d.announceEnabled) !== false,
     protection: o.protection || { enabled: false },
     gameplay: o.gameplay || {},
   };
@@ -40,16 +42,16 @@ function connection(config, baseDir) {
   const viaMod = type === "minecraft" && isBridgeModTransport(options.commandTransport);
   const rcon = target.rcon || config?.rcon || {};
   const telnet = target.telnet || {};
-  const dir = path.resolve(baseDir || ".", String(options.commandsDir || "commands"));
+  const dir = bridgeCommandsDir(baseDir || ".", options);
+  const mod = bridgeModEndpoint(options);
+  const remote = (value, fallback) => `${String(value.host || fallback.host).trim()}:${Number(value.port || fallback.port)}`;
   return {
     type, viaMod,
     // BRIDGE が接続する形で比べる（@ や大文字だけの違いでは再起動を促さない）。
     tiktok: normalizeTikTokId(config?.tiktokUsername),
-    modHost: String(options.bridgeModHost || options.doumaModHost || "127.0.0.1").trim(),
-    modPort: Number(options.bridgeModPort || options.doumaModPort || 25576),
-    remote: type === "minecraft"
-      ? `${String(rcon.host || "127.0.0.1").trim()}:${Number(rcon.port || 25575)}`
-      : `${String(telnet.host || "127.0.0.1").trim()}:${Number(telnet.port || 8081)}`,
+    modHost: mod.host,
+    modPort: mod.port,
+    remote: type === "minecraft" ? remote(rcon, CONFIG_DEFAULTS.rcon) : remote(telnet, CONFIG_DEFAULTS.telnet),
     // Windows のフォルダー名は大文字小文字を区別しない。
     dir: process.platform === "win32" ? dir.toLowerCase() : dir,
   };

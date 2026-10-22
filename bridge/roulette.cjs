@@ -9,10 +9,9 @@ function cleanText(value, length) {
 
 function commandPath(commandsDir, commandFile) {
   const name = ensureTxt(path.basename(String(commandFile).replace(/\\/g, "/")));
-  // UIで保存する commands/minecraft と旧設定の commands の両方に対応する。
-  const direct = path.join(commandsDir, name);
-  return fs.existsSync(direct) || path.basename(commandsDir).toLowerCase() === "minecraft"
-    ? direct : path.join(commandsDir, "minecraft", name);
+  // commandsDir は BRIDGE が config_defaults.cjs の bridgeCommandsDir で決めた場所（既定は commands/minecraft。処理のコピー PR4）。
+  // 前は旧い commands のルートのために minecraft のフォルダーも探していた（BRIDGE の既定が commands だったため）。
+  return path.join(commandsDir, name);
 }
 
 function prepareRoulette(config, commandsDir, random = Math.random) {

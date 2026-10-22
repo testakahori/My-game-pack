@@ -5,6 +5,7 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const { migrateRetiredCommands } = require("./command_migration.cjs");
+const { bridgeCommandsDir } = require("../bridge/config_defaults.cjs");
 const { refreshGameModsAfterUpdate } = require("./game_mods_refresh.cjs");
 
 // サーバーの子プロセスとポートの稼働は、あとで main で作られるので、呼ばれたときに読む関数で受け取る。
@@ -625,10 +626,10 @@ function createBridgeSync({
       const template = getServerTemplatePath();
       if (!fs.existsSync(template)) throw new Error(`テンプレートが見つかりません: ${template}`);
 
-      const commandsSrc = app.isPackaged
-        ? path.join(process.resourcesPath, "bridge", "commands", "minecraft")
-        : path.resolve(appDir, "..", "bridge", "commands", "minecraft");
-      const commandsDst = path.join(targetFolder, "bridge", "commands", "minecraft");
+      const commandsSrc = bridgeCommandsDir(app.isPackaged
+        ? path.join(process.resourcesPath, "bridge")
+        : path.resolve(appDir, "..", "bridge"));
+      const commandsDst = bridgeCommandsDir(path.join(targetFolder, "bridge"));
       const hasCommandsSrc = fs.existsSync(commandsSrc);
 
       const total = countFilesRecursive(template) + (hasCommandsSrc ? countFilesRecursive(commandsSrc) : 0);

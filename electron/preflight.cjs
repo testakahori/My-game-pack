@@ -5,6 +5,7 @@ const { validateBridgeConfig } = require("./config_schema.cjs");
 const { validCommand } = require("./settings_backups.cjs");
 const { isBridgeModTransport, ensureTxt } = require("../bridge/command_files.cjs");
 const { normalizeTikTokId, isValidTikTokId } = require("../bridge/tiktok_id.cjs");
+const { CONFIG_DEFAULTS } = require("../bridge/config_defaults.cjs");
 
 function bounded(action, timeoutMs = 6000) {
   let timer;
@@ -33,7 +34,7 @@ async function runPreflight(deps) {
   const world = props["level-name"];
   add("world", "配信ワールド", world && has(path.join(world, "level.dat")) ? "ok" : "warn", world && has(path.join(world, "level.dat")) ? world : "既存ワールドを確認できません。選択を確認してください（初回起動で生成する場合を除く）。", "dashboard");
   const usesRcon = !isBridgeModTransport(cfg.options?.commandTransport);
-  const rconOk = props["enable-rcon"] === "true" && Boolean(props["rcon.password"]) && props["rcon.password"] === cfg.rcon?.password && Number(props["rcon.port"] || 25575) === Number(cfg.rcon?.port || 25575);
+  const rconOk = props["enable-rcon"] === "true" && Boolean(props["rcon.password"]) && props["rcon.password"] === cfg.rcon?.password && Number(props["rcon.port"] || 25575) === Number(cfg.rcon?.port || CONFIG_DEFAULTS.rcon.port);
   add("rcon", "RCON設定", rconOk ? "ok" : usesRcon ? "error" : "warn", rconOk ? "サーバーとBridgeの設定が一致しています。" : "RCONの有効化・ポート・パスワードの一致を確認してください。", "setup");
   const refs = new Set();
   function collect(value) {

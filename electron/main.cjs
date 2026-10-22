@@ -10,6 +10,7 @@ const { createStopRequestLog } = require("./stop_requests.cjs");
 const stopRequests = createStopRequestLog({ file: () => path.join(app.getPath("userData"), "logs", "stop-requests.log") });
 const { createSettingsBackups } = require("./settings_backups.cjs");
 const { assertGameCommands } = require('./game_command_scope.cjs');
+const { bridgeCommandsDir } = require("../bridge/config_defaults.cjs");
 // main.cjs から分けた仕事（2026-10-17 設計書 docs/superpowers/specs/2026-10-17-main-split-design.md）。
 // electron は main だけが読み込み、必要なものを渡す。あとで定義するもの（サーバーの状態など）は、呼ばれたときに読む関数で渡す。
 const { createAppConfig } = require('./app_config.cjs');
@@ -69,7 +70,7 @@ const settingsBackups = createSettingsBackups({
   paths: () => ({
     config: getConfigPath(), app: getAppConfigPath(), tts: getTtsSettingsPath(),
     bridgeTts: path.join(getBridgeBatDir(), "tts-settings.json"),
-    commands: path.join(getBridgeBatDir(), "commands", "minecraft"),
+    commands: bridgeCommandsDir(getBridgeBatDir()),
     backups: path.join(app.getPath("userData"), "settings-backups", crypto.createHash("sha256").update(path.resolve(getConfigPath())).digest("hex").slice(0, 16)),
   }),
   version: () => app.getVersion(), readTts: () => readTtsSettings(),

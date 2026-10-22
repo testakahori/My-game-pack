@@ -126,13 +126,15 @@ function ttsDevHelperPlugin(): Plugin {
       });
 
       server.middlewares.use("/__dev/commands/minecraft", (_req, res) => {
-        const dir = path.join(process.cwd(), "bridge", "commands", "minecraft");
+        // コマンドの場所・見出しの読み方・.txt の扱い（大文字の .TXT も同じ）はアプリ・BRIDGE と同じ
+        // bridge/config_defaults.cjs・command_text.cjs・command_files.cjs（2026-10-18・処理のコピー PR4）。
+        const load = createRequire(import.meta.url);
+        const { bridgeCommandsDir } = load("./bridge/config_defaults.cjs");
+        const dir = bridgeCommandsDir(path.join(process.cwd(), "bridge"));
         if (!fs.existsSync(dir)) {
           sendJson(res, 200, []);
           return;
         }
-        // 見出しの読み方と .txt の扱い（大文字の .TXT も同じ）はアプリ・BRIDGE と同じ bridge/command_text.cjs・command_files.cjs（2026-10-18）。
-        const load = createRequire(import.meta.url);
         const { parseCommandText } = load("./bridge/command_text.cjs");
         const { isTxtName } = load("./bridge/command_files.cjs");
         const files = fs.readdirSync(dir).filter((file) => isTxtName(file)).sort();

@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { atomicWrite } = require("./settings_backups.cjs");
 const { bridgeCommandKey } = require("../bridge/command_files.cjs");
+const { bridgeCommandsDir } = require("../bridge/config_defaults.cjs");
 
 function migrateCommandReferences(config) {
   function visit(value, inArray = false) {
@@ -33,7 +34,7 @@ function migrateRetiredCommands(bridgeDir) {
   fs.mkdirSync(backup, { recursive: true });
   fs.writeFileSync(path.join(backup, "config.minecraft.json"), raw, { flag: "wx" });
   for (const file of ["seichi_donut.txt", "tornado.txt", "hukitobasu.txt", "hurricane.txt", "husk01.txt", "give_blindness.txt", "petsummon.txt"]) {
-    const source = path.join(bridgeDir, "commands", "minecraft", file);
+    const source = path.join(bridgeCommandsDir(bridgeDir), file);
     if (fs.existsSync(source)) fs.copyFileSync(source, path.join(backup, file));
   }
   atomicWrite(configPath, JSON.stringify(after, null, 2));

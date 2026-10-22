@@ -32,6 +32,7 @@ const { Rcon } = require("rcon-client");
 const { validateBridgeConfig } = require("./config_schema");
 const { normalizeTikTokId } = require("./tiktok_id.cjs");
 const { liveOptions, restartRequired } = require("./live_config.cjs");
+const { CONFIG_DEFAULTS, commandsDirSetting, bridgeCommandsDir, bridgeModEndpoint } = require("./config_defaults.cjs");
 const { prepareRoulette, createRouletteRunner, rouletteSpins } = require("./roulette.cjs");
 const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require("./mod_event_delivery.cjs");
 const { commandFileProblem, ensureTxt, bridgeCommandKey } = require("./command_files.cjs");
@@ -1035,7 +1036,7 @@ async function main() {
   const options = config.options || {};
   // 配信中に保存したら再起動なしで効く値（つなぎ方以外の options 全部。2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 8）。
   // 式は live_config.cjs の1か所。起動のときと設定の再読込（reloadDynamicConfig）の両方で applyLiveOptions を通す。
-  // 既定値はアプリの初期設定（electron/paths.cjs）・運用センターの表示と同じ（1ギフトのコマンドの上限は 200）。
+  // 既定値は bridge/config_defaults.json の1か所（新しい設定の雛形・運用センターの表示も同じものを読む）。
   let giftCooldownMs, maxCommandsPerGift, maxLikeCatchUpPerEvent, rconQueueWarnSize, likeBatchWindowMs, streakTtlMs, logUnknownGifts, isMutedUser, ttsNgWords,
     ANNOUNCE_FUNCTION, ANNOUNCE_STORAGE, announceEveryRepeat, announceEnabled, gameplayConfig;
   // 配信の FeatureEngine（作ったあとに入る）。ゲームの設定は作り直さず config を入れ替え、いいねの累計・連打・上位者を保つ。
@@ -1060,10 +1061,10 @@ async function main() {
   // つなぎ方（TikTok ID・送り方・BridgeMOD・RCON・コマンドの場所）は起動したときの値のまま動く。再読込で違えば、再起動を案内する。
   const startedConfig = config;
   updateRuntimeStatus({ pendingRestart: [] });
-  const commandTransport = String(options.commandTransport || "rcon").toLowerCase().trim();
+  const commandTransport = String(options.commandTransport || CONFIG_DEFAULTS.options.commandTransport).toLowerCase().trim();
   const useBridgeModTransport = targetType === "minecraft" && isBridgeModTransport(commandTransport);
-  const bridgeModHost = String(options.bridgeModHost || options.doumaModHost || "127.0.0.1").trim();
-  const bridgeModPort = Number(options.bridgeModPort || options.doumaModPort || 25576);
+  // 接続先の読み方は config_defaults.cjs の1か所（アプリの BridgeMOD との通信と同じ）。
+  const { host: bridgeModHost, port: bridgeModPort } = bridgeModEndpoint(options);
   // log はテスト発火のとき行頭に [Test] を付けるためのもの（2026-10-16）。
   const isMuted = (data, log = console.log) => {
     // 表示名は整えた形（' → ’ など）になるので、生の uniqueId・名前も候補に入れる（設定は生の名前でも整えた名前でもよい）。
@@ -1073,8 +1074,9 @@ async function main() {
     return blocked;
   };
 
-  const commandsDirName = String(options.commandsDir || "commands");
-  const commandsDirAbs = path.resolve(__dirname, commandsDirName);
+  // コマンドの場所は、書いていなければ commands/minecraft（アプリ・ルーレットと同じ。前の BRIDGE だけ commands を見ていた）。
+  const commandsDirName = commandsDirSetting(options);
+  const commandsDirAbs = bridgeCommandsDir(__dirname, options);
 
   const mappings = Array.isArray(config.mappings) ? config.mappings : [];
   let likeEvents       = Array.isArray(config.likeEvents) ? config.likeEvents : [];
@@ -1112,8 +1114,8 @@ async function main() {
     } else {
       // 互換: config.rcon が直下でもOK
       const r = target.rcon || config.rcon || {};
-      const rconHost = String(process.env.RCON_HOST || r.host || "127.0.0.1").trim();
-      const rconPort = Number(process.env.RCON_PORT || r.port || 25575);
+      const rconHost = String(process.env.RCON_HOST || r.host || CONFIG_DEFAULTS.rcon.host).trim();
+      const rconPort = Number(process.env.RCON_PORT || r.port || CONFIG_DEFAULTS.rcon.port);
 
       // 優先順位：ENV > rcon_password.txt > config
       const pwFromEnvOrFile = loadRconPassword();
@@ -1139,8 +1141,8 @@ async function main() {
     }
   } else if (targetType === "7dtd" || targetType === "7days" || targetType === "7dtdtelnet") {
     const t = target.telnet || {};
-    const host = String(t.host || "127.0.0.1").trim();
-    const port = Number(t.port || 8081);
+    const host = String(t.host || CONFIG_DEFAULTS.telnet.host).trim();
+    const port = Number(t.port || CONFIG_DEFAULTS.telnet.port);
     const password = String(t.password || "").trim(); // ローカルだと不要な場合あり
     const playerId = Number(t.playerId || 0);
     const sendPasswordAlways = !!t.sendPasswordAlways;

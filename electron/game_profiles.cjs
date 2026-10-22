@@ -7,6 +7,7 @@ const { atomicWrite } = require('./settings_backups.cjs');
 const saikutu = require('./saikutu_commands.cjs');
 const { isTxtName } = require('../bridge/command_files.cjs');
 const { migrateBridgeConfig } = require('../bridge/config_migration.cjs');
+const { bridgeCommandsDir } = require('../bridge/config_defaults.cjs');
 
 const GAMES = [{ id: 'common', name: 'サバイバル', modName: 'BridgeMOD' },
   { id: 'umetate', name: '埋め立て', modName: 'UmetateMOD' },
@@ -148,7 +149,7 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
         fs.renameSync(mods, path.join(slot, 'interrupted-' + crypto.randomUUID()));
       }
     }
-    const commands = path.join(path.dirname(configPath()), 'commands', 'minecraft');
+    const commands = bridgeCommandsDir(path.dirname(configPath()));
     for (const [name, content] of Object.entries(journal.commandBefore || {})) {
       if (!/^game_(umetate|run|saikutu)_[a-z0-9_]+\.txt$/.test(name)) throw new Error('切替記録のコマンド名が不正です');
       const file = path.join(commands, name);
@@ -181,7 +182,7 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     if (pack) { const name = pack.manifest[side === 0 ? 'serverJar' : 'clientJar']; if (Object.keys(files).some(n => n.toLowerCase() === name.toLowerCase())) throw new Error('ゲームMODと共通MODのファイル名が重複しています'); files[name] = pack.files[name]; }
     return files;
   }
-  const commandFolder = () => path.join(path.dirname(configPath()), 'commands', 'minecraft');
+  const commandFolder = () => bridgeCommandsDir(path.dirname(configPath()));
   // ゲームのコマンド（game_<id>_<key>.txt）の中身。
   function gameCommandFiles(id, pack) {
     return Object.fromEntries((pack?.manifest.commands || []).map(c => [`game_${id}_${c.key}.txt`, `# TITLE: ${c.title}\n# CATEGORY: ${c.category}\n${c.destructive ? '# DESTRUCTIVE: true\n' : ''}# DISPLAY_OWNER: ${c.commonDisplay === true ? 'bridge' : 'game'}\n${c.command.includes('{Count}') ? '# COUNT_MODE: aggregate\n' : ''}${pack.manifest.bridgeEventApi === 1 ? `# GAME_MOD: ${pack.manifest.modId}\n# GAME_KEY: ${c.key}\n` : ''}${c.command}\n`]));

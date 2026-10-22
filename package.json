@@ -63,6 +63,8 @@
       "bridge/config_schema.js",
       "bridge/config_migration.cjs",
       "bridge/tiktok_id.cjs",
+      "bridge/config_defaults.cjs",
+      "bridge/config_defaults.json",
       "bridge/bridge_mod_token.cjs",
       "bridge/package.json",
       "assets/icon.ico",

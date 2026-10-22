@@ -30,8 +30,19 @@ function setup(t, { port = 25576 } = {}) {
     appendServerLog: line => logs.push(line), serverChild: () => state.server, bridgeChild: () => state.bridge,
   });
   client.register({ handle: (name, fn) => handlers.set(name, fn) });
-  return { root, logs, state, client, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
+  return { root, configPath, logs, state, client, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
 }
+
+// 接続先の読み方は bridge/config_defaults.cjs の bridgeModEndpoint の1か所（BRIDGE と同じ。処理のコピー PR4）。
+// 前のアプリはホストの前後の空白を除かず、BRIDGE には届く BridgeMOD に状態・テスト発火・一時停止が届かなかった。
+test('BridgeMOD との通信: 接続先は BRIDGE と同じ読み方（ホストの前後の空白を除く、旧い doumaModPort も読む）', async t => {
+  const server = http.createServer((req, res) => { res.writeHead(200); res.end(JSON.stringify({ ok: true })); });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const x = setup(t);
+  fs.writeFileSync(x.configPath, JSON.stringify({ options: { commandTransport: 'bridge_mod', bridgeModHost: ' 127.0.0.1 ', doumaModPort: server.address().port } }));
+  assert.deepEqual(await x.client.requestBridgeMod('GET', '/bridge/status'), { ok: true });
+});
 
 test('BridgeMOD との通信: 設定のポートへトークン付きで送り、403 は認証の失敗として直し方を返す', async t => {
   let status = 403;

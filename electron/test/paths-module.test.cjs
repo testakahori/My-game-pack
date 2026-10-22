@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createPaths } = require('../paths.cjs');
+const { newBridgeConfig } = require('../../bridge/config_defaults.cjs');
 
 function setup(t, { packaged = false, appConfig = {}, platform = 'win32' } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paths-'));
@@ -87,6 +88,9 @@ test('BRIDGE の設定がなければ、すべての項目がそろった形で�
   const created = JSON.parse(fs.readFileSync(file, 'utf8'));
   assert.equal(created.options.commandTransport, 'bridge_mod');
   assert.deepEqual(created.mappings, []);
+  // 雛形は bridge/config_defaults.cjs の1か所（配布の準備 scripts/prepare-bridge-runtime.cjs と同じ。処理のコピー PR4）。
+  assert.deepEqual(created, newBridgeConfig());
+  assert.equal(created.configVersion, 2, '次の起動の直しで書き直さない');
   fs.writeFileSync(file, '{"keep":true}');
   paths.ensureConfigExists(file);
   assert.equal(fs.readFileSync(file, 'utf8'), '{"keep":true}');

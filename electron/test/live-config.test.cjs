@@ -6,12 +6,23 @@ const { liveOptions, restartRequired } = require('../../bridge/live_config.cjs')
 
 test('すぐ効かせる値: 今の BRIDGE と同じ式で作る（既定値と範囲の丸め）', () => {
   assert.deepEqual(liveOptions({}), { giftCooldownMs: 300, maxCommandsPerGift: 200, maxLikeCatchUpPerEvent: 5, rconQueueWarnSize: 20, likeBatchWindowMs: 1200, streakTtlMs: 60000,
-    logUnknownGifts: false, mutedUsers: [], ttsNgWords: [], announceFunction: 'gift_stream:_announce', announceStorage: 'gift_stream:bridge',
+    logUnknownGifts: true, mutedUsers: [], ttsNgWords: [], announceFunction: 'gift_stream:_announce', announceStorage: 'gift_stream:bridge',
     announceEveryRepeat: true, announceEnabled: true, protection: { enabled: false }, gameplay: {} });
   const v = liveOptions({ maxLikeCatchUpPerEvent: 500, likeBatchWindowMs: 50, ttsNgWords: [' a ', '', 3], mutedUsers: ['troll'], announceEnabled: false, gameplay: { timedMode: { multiplier: 2 } } });
   assert.deepEqual([v.maxLikeCatchUpPerEvent, v.likeBatchWindowMs, v.ttsNgWords, v.mutedUsers, v.announceEnabled, v.gameplay.timedMode.multiplier], [100, 100, ['a', '3'], ['troll'], false, 2]);
   assert.deepEqual(liveOptions(undefined), liveOptions({}), 'options がない設定でも既定値');
   assert.deepEqual([liveOptions({ streakTtlMs: 1 }).streakTtlMs, liveOptions({ streakTtlMs: 9e9 }).streakTtlMs], [5000, 600000], '連打の区切りの時間も今の範囲に丸める');
+  // 知らないギフトのログの既定は、アプリの雛形・配信ホームと同じく出す（前は BRIDGE だけ出さなかった。処理のコピー PR4）。
+  assert.equal(liveOptions({ logUnknownGifts: false }).logUnknownGifts, false, '書いて止めたものは止める');
+});
+
+// 既定値は bridge/config_defaults.json の1か所（処理のコピー PR4）。前の BRIDGE は commandsDir が無いと commands を見ていた。
+test('つなぎ方: commandsDir の無い設定とアプリが書く絶対パスは同じ場所（起動のあとに保存しても案内しない）', () => {
+  const path = require('node:path');
+  const base = path.resolve('bridge-dir');
+  const started = { tiktokUsername: 'a', options: { commandTransport: 'bridge_mod' } };
+  assert.deepEqual(restartRequired(started, { ...started, options: { ...started.options, commandsDir: path.join(base, 'commands', 'minecraft') } }, base), []);
+  assert.deepEqual(restartRequired(started, { ...started, options: { ...started.options, bridgeModHost: ' 127.0.0.1 ' } }, base), [], '前後の空白だけの違い');
 });
 
 test('配信ホーム: BRIDGE の状態の pendingRestart があれば「BRIDGE を再起動すると反映されます（名前）」を出す', () => {
