@@ -4,7 +4,7 @@
 // （2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 6。処理のコピー PR6）。
 // 一覧は games.json（画面も import して読む）。BridgeMOD（CommandRouting.java・api/GameEvents.java）とは、
 // bridge/test/fixtures の game-commands.json・game-mod-ids.json を scripts/test-bridge-contracts.cjs で両方に通して合わせる。
-const { isTxtName, isBridgeCommandFile } = require("./command_files.cjs");
+const { isTxtName } = require("./command_files.cjs");
 
 const deepFreeze = value => {
   if (value && typeof value === "object") for (const child of Object.values(value)) deepFreeze(child);
@@ -27,9 +27,11 @@ function gameOfCommand(name) {
   return match ? match[1].toLowerCase() : null;
 }
 
-// ゲームパックが置くコマンドのファイル名か（.txt・BridgeMOD が受け付ける名前・ゲーム専用の頭のすべて）。
+// ゲームパックが置くコマンドのファイル名か（game_<id>_<key>.txt で、key がパックの key の決まりに合うもの。大文字小文字は区別しない）。
+// ゲームの切り替えはこの名前だけを入れ替える（消す）。手で作った . や - のある名前（game_run_notes.v2.txt など）は消さない（PR6 の最終レビュー）。
 function isGameCommandFile(name) {
-  return typeof name === "string" && isTxtName(name) && isBridgeCommandFile(name) && /^[^\\/]+$/.test(name) && gameOfCommand(name) !== null;
+  if (typeof name !== "string" || !isTxtName(name) || gameOfCommand(name) === null) return false;
+  return isGamePackKey(name.slice(0, -4).replace(GAME_PREFIX, "").toLowerCase());
 }
 
 // チャットの名前（/bridge <名前>）。.txt とゲーム専用の頭を除く。BridgeMOD の CommandRouting.publicKey と同じ結果。

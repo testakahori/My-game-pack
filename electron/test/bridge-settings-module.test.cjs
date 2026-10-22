@@ -155,6 +155,9 @@ test('コマンド txt: ゲーム専用の名前は大文字でも書かず、ga
   const rows = x.invoke('bridge:commands:readMeta');
   assert.equal(rows.find(row => row.name === 'game_mode_on.txt').chatKey, 'game_mode_on');
   assert.equal(rows.find(row => row.name === 'zombie.txt').chatKey, 'zombie');
+  // 採掘では、ゲーム専用のコマンドのチャットの名前からゲームの頭を除く（BridgeMOD の publicKey と同じ。PR6 の最終レビュー）。
+  x.deps.gameProfiles.list = () => ({ applied: true, recoveryRequired: false, active: 'saikutu' });
+  assert.equal(x.invoke('bridge:commands:readMeta').find(row => row.name === 'game_saikutu_dig.txt').chatKey, 'dig');
 });
 
 // 題名はルーレットの項目名・ギフト画像にそのまま使われる。空の # TITLE: で次の行を拾うと、配信画面に「# CATEGORY: 妨害」と出ていた（2026-10-18）。

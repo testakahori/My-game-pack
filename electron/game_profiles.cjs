@@ -20,7 +20,8 @@ const clone = value => JSON.parse(JSON.stringify(value));
 // 文字列で書いたコメントコマンド・投票の選択肢も外す（切り替えの確かめはそれも数える。処理のコピー PR6）。
 function withoutOtherGameCommands(value, gameId) {
   const other = file => { const game = gameOfCommand(file); return game !== null && game !== gameId; };
-  if (typeof value === 'string') return isTxtName(value) && other(value) ? undefined : value;
+  // .txt を書いていない文字列も、切り替えの確かめと BRIDGE は .txt を付けて数えるので外す（PR6 の最終レビュー）。
+  if (typeof value === 'string') return other(value) ? undefined : value;
   if (!value || typeof value !== 'object') return value;
   if (other(value.commandFile)) return undefined;
   if (Array.isArray(value)) return value.map(item => withoutOtherGameCommands(item, gameId)).filter(item => item !== undefined);

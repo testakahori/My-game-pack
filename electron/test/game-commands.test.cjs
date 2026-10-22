@@ -21,6 +21,8 @@ test('ゲーム専用の判定とチャットの名前: 例の一覧（Java の�
     assert.equal(publicCommandKey(c.name), c.publicKey, c.name);
   }
   assert.deepEqual([isGameCommandFile('game_run_x.txt'), isGameCommandFile('game_run_x'), isGameCommandFile('../game_run_x.txt'), isGameCommandFile('game_mode_on.txt')], [true, false, false, false]);
+  // ゲームの切り替えで入れ替える（消す）のは、パックが作れる名前（大文字小文字は区別しない）だけ。手で作った . や - のある名前は消さない（PR6 の最終レビュー）。
+  assert.deepEqual(['GAME_RUN_X.TXT', 'game_run_MyNote.txt', 'game_saikutu_otosiana.v2.txt', 'game_run_my-notes.txt'].map(isGameCommandFile), [true, true, false, false]);
   assert.equal(gameOfCommand(null), null);
 });
 
@@ -31,10 +33,15 @@ test('ゲームの一覧と判定の写し: アプリ・BRIDGE・画面は自分
     ...['bridge/index.js', 'bridge/mod_event_delivery.cjs', 'vite.config.ts'],
     ...fs.readdirSync(path.resolve(__dirname, '../../src/components')).filter(n => n.endsWith('.tsx')).map(n => 'src/components/' + n),
     ...fs.readdirSync(path.resolve(__dirname, '../../src/lib')).filter(n => n.endsWith('.ts')).map(n => 'src/lib/' + n)];
-  for (const file of files) {
+  // bridge・scripts・src の types も見る（bridge/game_commands.cjs と games.json は置き場なので外す。PR6 の最終レビュー）。
+  const more = [...fs.readdirSync(path.resolve(__dirname, '../../bridge')).filter(n => /\.(cjs|js)$/.test(n) && n !== 'game_commands.cjs').map(n => 'bridge/' + n),
+    ...fs.readdirSync(path.resolve(__dirname, '../../scripts')).filter(n => n.endsWith('.cjs') && n !== 'test-bridge-contracts.cjs').map(n => 'scripts/' + n), 'src/types.ts', 'src/App.tsx'];
+  for (const file of [...new Set([...files, ...more])]) {
     const source = read(file);
     assert.doesNotMatch(source, /(umetate|saikutu)\|(umetate|run|saikutu)|startsWith\(['"]game_['"]\)|\^game_\[a-z0-9\]/, file + ' にゲームの一覧・判定の写しがある');
     assert.doesNotMatch(source, /\{1,63\}|\{0,49\}|['"]doumacmd['"]/, file + ' に MOD の ID・パックの key の写しがある');
+    // 配列で書いた一覧（['common', 'umetate', …]）も見つける。埋め立ては同梱のパックがないので、名前を文字で書く所はない。
+    assert.doesNotMatch(source, /['"`]umetate['"`]/, file + ' にゲームの一覧の写しがある（umetate）');
   }
 });
 
@@ -43,6 +50,7 @@ test('画面: コマンド一覧のチャットの名前はアプリが付ける
   const read = file => fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
   assert.match(read('src/components/CommandsListPage.tsx'), /meta\.chatKey \?\? meta\.name/);
   assert.match(read('src/lib/devApiMock.ts'), /from "\.\.\/\.\.\/bridge\/games\.json"/);
+  assert.match(read('src/lib/devApiMock.ts'), /name: `game_saikutu_\$\{command\.key\}\.txt`[^\n]*chatKey: command\.key/, '開発用のモックの採掘のコマンドも /bridge <key> 1');
   assert.match(read('vite.config.ts'), /publicCommandKey\(name\)/);
 });
 
