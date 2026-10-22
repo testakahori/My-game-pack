@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { validateBridgeConfig } = require("./config_schema.cjs");
 const { validCommand } = require("./settings_backups.cjs");
-const { isBridgeModTransport, ensureTxt } = require("../bridge/command_files.cjs");
+const { isBridgeModTransport, ensureTxt, commandFileRefs } = require("../bridge/command_files.cjs");
 const { normalizeTikTokId, isValidTikTokId } = require("../bridge/tiktok_id.cjs");
 const { CONFIG_DEFAULTS } = require("../bridge/config_defaults.cjs");
 
@@ -36,13 +36,9 @@ async function runPreflight(deps) {
   const usesRcon = !isBridgeModTransport(cfg.options?.commandTransport);
   const rconOk = props["enable-rcon"] === "true" && Boolean(props["rcon.password"]) && props["rcon.password"] === cfg.rcon?.password && Number(props["rcon.port"] || 25575) === Number(cfg.rcon?.port || CONFIG_DEFAULTS.rcon.port);
   add("rcon", "RCON設定", rconOk ? "ok" : usesRcon ? "error" : "warn", rconOk ? "サーバーとBridgeの設定が一致しています。" : "RCONの有効化・ポート・パスワードの一致を確認してください。", "setup");
-  const refs = new Set();
-  function collect(value) {
-    if (!value || typeof value !== "object" || value.enabled === false) return;
-    if (typeof value.commandFile === "string" && value.commandFile.trim()) refs.add(value.commandFile.trim());
-    for (const [key, child] of Object.entries(value)) if (key !== "rcon") collect(child);
-  }
-  collect(cfg);
+  // 数えるのは BRIDGE が動かしうる参照だけ（command_files.cjs の commandFileRefs の1か所。処理のコピー PR5）。
+  // 文字列で書いたコメントコマンド・投票も数え、無効の割り当て・有効にしていないルーレットなどは数えない。
+  const refs = new Set(commandFileRefs(cfg).map(ref => ref.commandFile));
   const missing = [...refs].filter(name => !validCommand(ensureTxt(name)) || !fs.existsSync(path.join(deps.commandsDir, ensureTxt(name))));
   add("commands", "ギフト・イベントのコマンド", missing.length ? "error" : refs.size ? "ok" : "warn", missing.length ? `見つからないファイル: ${missing.slice(0, 8).join("、")}${missing.length > 8 ? " ほか" : ""}` : `${cfg.mappings?.length || 0}件のギフト設定 / ${refs.size}種類の参照コマンドを確認しました。`, "gifts");
   try {

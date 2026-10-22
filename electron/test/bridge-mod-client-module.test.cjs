@@ -33,6 +33,13 @@ function setup(t, { port = 25576 } = {}) {
   return { root, configPath, logs, state, client, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
 }
 
+// テスト発火の「ギフト（コマンド直接）」も、選んだコマンドが今のゲームで使えるかを確かめる（PR5 の最終レビュー。
+// 参照の数え方を commandFileRefs にしたとき、設定の一番上に commandFile を置く確かめが何もしなくなっていた）。
+test('テスト発火（コマンド直接）: 今のゲームで使えないコマンド・ないコマンドは送らずに止める', async t => {
+  const x = setup(t);
+  await assert.rejects(x.invoke('mod:testEvent', { type: 'gift', commandFile: 'missing.txt' }), /使えないコマンドです: missing\.txt（テスト発火（コマンド直接））/);
+});
+
 // 接続先の読み方は bridge/config_defaults.cjs の bridgeModEndpoint の1か所（BRIDGE と同じ。処理のコピー PR4）。
 // 前のアプリはホストの前後の空白を除かず、BRIDGE には届く BridgeMOD に状態・テスト発火・一時停止が届かなかった。
 test('BridgeMOD との通信: 接続先は BRIDGE と同じ読み方（ホストの前後の空白を除く、旧い doumaModPort も読む）', async t => {

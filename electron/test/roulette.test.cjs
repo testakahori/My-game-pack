@@ -82,3 +82,10 @@ test("ルーレット: 当選の発火に失敗したら呼び出し元へ伝え
   await run(round, "second", () => { wins++; });
   assert.equal(wins, 1);
 });
+
+// 回数の丸めは event_rules.cjs の boundedInt の1つ（処理のコピー PR5）。直す前も後も同じ結果になることを見張る。
+test("ルーレットの回数の丸めは前と同じ（0・空・数でない値は 1、小数は切り捨て、100 を超えたら 100）", t => {
+  const { dir } = fixture(t);
+  const repeats = [0, "", "x", 2.9, 500].map(repeat => prepareRoulette({ items: [{ commandFile: "zombie.txt", repeat }] }, dir, () => 0).winner.repeat);
+  assert.deepEqual(repeats, [1, 1, 1, 2, 100]);
+});

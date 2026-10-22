@@ -6,7 +6,7 @@ const fs = require("fs");
 const { bridgeModTokenPath, withBridgeModToken } = require("../bridge/bridge_mod_token.cjs");
 const { usesBridgeModTransport } = require("../bridge/command_files.cjs");
 const { bridgeModEndpoint } = require("../bridge/config_defaults.cjs");
-const { assertGameCommands } = require('./game_command_scope.cjs');
+const { assertGameCommands, assertGameCommandFile } = require('./game_command_scope.cjs');
 
 // サーバーと BRIDGE の子プロセスは main・server_process が持つので、呼ばれたときに読む関数で受け取る。
 function createBridgeModClient({ getConfigPath, getServerRoot, stopRequests, selectableCommandNames, gameProfiles, appendServerLog, serverChild, bridgeChild }) {
@@ -146,7 +146,8 @@ function createBridgeModClient({ getConfigPath, getServerRoot, stopRequests, sel
       if (testEventRunning) return { ok: false, message: "別のテストを実行中です。完了後にお試しください。" };
       const bridgeCfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8"));
       assertGameCommands(bridgeCfg, selectableCommandNames(), gameProfiles.list());
-      if (value?.type === "gift") assertGameCommands({ gameProfile: bridgeCfg.gameProfile, commandFile: value.commandFile }, selectableCommandNames(), gameProfiles.list());
+      // 「ギフト（コマンド直接）」は設定の外のコマンドなので、1つだけを確かめる（参照の数え方は設定の中だけを見る。PR5 の最終レビュー）。
+      if (value?.type === "gift") assertGameCommandFile(value.commandFile, selectableCommandNames(), gameProfiles.list(), "テスト発火（コマンド直接）");
       // RCON・7DTD では BridgeMOD の状態を読みに行かず、使えない理由をそのまま返す（最後のレビュー Minor #5）。
       if (!usesBridgeModTransport(bridgeCfg)) return { ok: false, message: "テスト発火は、Minecraft を BridgeMOD で動かしているときだけ使えます。" };
       if (!bridgeChild()?.connected) return { ...BRIDGE_STOPPED_FOR_TEST };

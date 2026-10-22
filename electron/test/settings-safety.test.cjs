@@ -152,6 +152,11 @@ test("配信前チェック: 接続・一覧の新鮮さ・コマンド・音声
   // ギフト一覧を取った ID も同じ形に整えて比べる（ギフト一覧の自動更新と同じ。PR3 の最終レビュー）。
   write(giftsMetaPath, { username: " @AkahoriDouma ", generatedAt: new Date().toISOString() });
   assert.equal((await runPreflight(deps)).checks.find(row => row.id === "gifts").status, "ok");
+  // 参照の数え方は command_files.cjs の commandFileRefs の1か所（処理のコピー PR5）。BRIDGE が動かすものだけを数える。
+  write(p.config, { ...cfg, options: { gameplay: { commentCommands: { "!猫": "missing.txt" } } } });
+  assert.match((await runPreflight(deps)).checks.find(row => row.id === "commands").detail, /missing\.txt/, "文字列で書いたコメントコマンドも数える");
+  write(p.config, { ...cfg, mappings: [{ giftId: "1", commandFile: "missing.txt", enabled: false }, ...cfg.mappings], roulette: { items: [{ commandFile: "missing.txt" }] } });
+  assert.equal((await runPreflight(deps)).checks.find(row => row.id === "commands").status, "ok", "無効の割り当て・有効にしていないルーレットは数えない");
   write(p.config, { ...cfg, tiktokUsername: "foo-bar" });
   assert.equal((await runPreflight(deps)).checks.find(row => row.id === "account").status, "error");
 });

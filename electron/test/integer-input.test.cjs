@@ -34,6 +34,10 @@ test('入力欄の回数と閾値: 画面は自分の丸め方を持たず integ
     for (const copy of [/repeat: Math\.(min|max)\(/, /onRepeatChange\(Math\./, /threshold: Number\(e\.target\.value\) \|\| 1/, /clampRepeat/]) {
       assert.doesNotMatch(source, copy, `${name} に回数・閾値の丸め方の写しが残っている（${copy}）`);
     }
-    assert.match(source, /from ["']\.\.\/lib\/integerInput["']/, `${name} が integerInput を使っていない`);
+    // ギフト設定の画面は、設定との出し入れ（src/lib/giftMappingRows.ts）を通して integerInput を使う（処理のコピー PR5）。
+    assert.match(source, /from ["']\.\.\/lib\/(integerInput|giftMappingRows)["']/, `${name} が integerInput を使っていない`);
   }
+  const rows = fs.readFileSync(path.resolve(__dirname, '../../src/lib/giftMappingRows.ts'), 'utf8');
+  assert.match(rows, /from ["']\.\/integerInput["']/, 'giftMappingRows.ts が integerInput を使っていない');
+  for (const copy of [/repeat: Math\.(min|max)\(/, /clampRepeat/]) assert.doesNotMatch(rows, copy, `giftMappingRows.ts に回数の丸め方の写しが残っている（${copy}）`);
 });

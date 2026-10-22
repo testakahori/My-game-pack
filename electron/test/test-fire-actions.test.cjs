@@ -12,6 +12,12 @@ test('設定済みギフト N 個は、同じ視聴者の連打として1個ず�
   assert.equal(testEventActions({ type: 'combo', giftId: '1', count: 1 }, mapped).actions.length, 1);
 });
 
+test('無効の割り当てのギフトは、本番と同じく通したうえで「割り当ては無効です」と知らせる（処理のコピー PR5）', () => {
+  const result = testEventActions({ type: 'mapped_gift', giftId: '1', count: 2 }, { mappedGiftIds: new Set(['1']), disabledGiftIds: new Set(['1']) });
+  assert.equal(result.actions.length, 2);
+  assert.match(result.notes.join(''), /割り当ては無効です（enabled: false）/);
+});
+
 test('割当のない ID（設定済みギフト）・割当のある ID（未設定ギフト）は理由を書いて何も通さない', () => {
   const missing = testEventActions({ type: 'mapped_gift', giftId: '2', count: 1 }, mapped);
   assert.deepEqual(missing.actions, []);

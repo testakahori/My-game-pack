@@ -36,6 +36,16 @@ test('shared templates export only gift/name/command/repeat, without account, pa
   assert.doesNotMatch(raw, /private-account|private-password|D:\/private|secret-extra|rcon|tiktokUsername/);
   assert.equal(h.state.writes, 0);
 });
+// 手で書いた enabled: false はテンプレートの保存・読み込みで落とさない。名前が空なら gift:<giftId>（ギフト割り当ての使う形。処理のコピー PR5）。
+test('テンプレート: enabled:false を残し、名前が空なら gift:<giftId> にする（保存と読み込み）', async t => {
+  const parsed = parseTemplate(JSON.stringify({ ...template, mappings: [{ ...row, enabled: false }, { giftId: '7934', name: ' ', commandFile: 'zombie.txt', repeat: 1 }] }));
+  assert.deepEqual(parsed.mappings, [{ ...row, enabled: false }, { giftId: '7934', name: 'gift:7934', commandFile: 'zombie.txt', repeat: 1 }]);
+  const h = harness(t);
+  h.initial.mappings[0].enabled = false;
+  fs.writeFileSync(h.configPath, JSON.stringify(h.initial));
+  await h.service.save();
+  assert.equal(JSON.parse(fs.readFileSync(h.filePath, 'utf8')).mappings[0].enabled, false);
+});
 test('import preview is read-only; applying replaces assignments and preserves latest unrelated settings', async t => {
   const h = harness(t);
   const opened = await h.service.open();

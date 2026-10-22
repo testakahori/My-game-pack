@@ -52,3 +52,8 @@ test('起動ログの「個別最大コマンド数」には、BridgeMOD 経由�
 test('bridge-live-events のテストに、もう効かない「個別最大コマンド数」の設定を残さない', () => {
   assert.doesNotMatch(read('electron/test/bridge-live-events.test.cjs'), /maxCommandsPerGift/);
 });
+
+// 同じ動きの小さい関数は1つ（設計書 3。処理のコピー PR5）。
+test('範囲の丸めは event_rules.cjs の boundedInt の1つ（BRIDGE とルーレットに写しを持たない）', () => {
+  for (const file of ['bridge/index.js', 'bridge/roulette.cjs']) assert.doesNotMatch(read(file), /clampInt|Math\.max\(1, Math\.min\(100, Math\.floor/, file);
+});

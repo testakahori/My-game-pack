@@ -33,13 +33,14 @@ const { validateBridgeConfig } = require("./config_schema");
 const { normalizeTikTokId } = require("./tiktok_id.cjs");
 const { liveOptions, restartRequired } = require("./live_config.cjs");
 const { CONFIG_DEFAULTS, commandsDirSetting, bridgeCommandsDir, bridgeModEndpoint } = require("./config_defaults.cjs");
+const { giftMappingsById } = require("./gift_mappings.cjs");
 const { prepareRoulette, createRouletteRunner, rouletteSpins } = require("./roulette.cjs");
 const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require("./mod_event_delivery.cjs");
 const { commandFileProblem, ensureTxt, bridgeCommandKey } = require("./command_files.cjs");
 const { parseCommandText } = require("./command_text.cjs");
 const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("./bridge_mod_token.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require("./feature_engine");
-const { enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes } = require("./event_rules.cjs");
+const { boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes } = require("./event_rules.cjs");
 const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter, createMuteMatcher } = require("./tiktok_events.cjs");
 const { testEventActions, createTestRun, noMatchNote } = require("./test_fire.cjs");
 let runtimeProtection = { enabled: false };
@@ -380,11 +381,7 @@ function safeReadJson(filePath) {
   return JSON.parse(raw);
 }
 
-function clampInt(n, min, max, fallback) {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return fallback;
-  return Math.max(min, Math.min(max, Math.floor(v)));
-}
+// 範囲の丸めは event_rules.cjs の boundedInt の1つ（前はここに同じ動きの写しがあった。処理のコピー PR5）。
 
 // CLI: --config <path>
 function getConfigPathFromArgs() {
@@ -1163,19 +1160,13 @@ async function main() {
     process.exit(1);
   }
 
-  // giftId -> mapping
-  const mappingById = new Map();
-  for (const m of mappings) {
-    const giftId = String(m.giftId ?? "").trim();
-    if (!giftId) continue;
-
-    mappingById.set(giftId, {
-      giftId,
-      name: String(m.name ?? "").trim() || `gift:${giftId}`,
-      commandFile: ensureTxt(String(m.commandFile ?? "").trim()),
-      repeat: clampInt(m.repeat ?? 1, 1, 100, 1),
-    });
-  }
+  // giftId -> mapping（使う形は gift_mappings.cjs の1か所。起動と再読込で同じ。処理のコピー PR5）
+  const mappingById = giftMappingsById(mappings);
+  // ログの件数には、無効の割り当て（コマンドを動かさない）を分けて書く（PR5 の最終レビュー）。
+  const disabledMappingsNote = byId => {
+    const disabled = [...byId.values()].filter(mapping => !mapping.enabled).length;
+    return disabled ? `（無効 ${disabled}）` : "";
+  };
 
   // --- コンフィグ ホットリロード ---
   // log・warn はテスト発火の読み直しのとき行頭に [Test] を付けるためのもの（2026-10-18）。
@@ -1191,17 +1182,7 @@ async function main() {
         return;
       }
       // 新しい値を先に全部作る。途中で失敗したら（手で書き換えた設定など）、何も入れ替えずに前の設定のまま動く（2026-10-18）。
-      const nextMappings = new Map();
-      for (const m of (Array.isArray(newCfg.mappings) ? newCfg.mappings : [])) {
-        const gid = String(m.giftId ?? "").trim();
-        if (!gid) continue;
-        nextMappings.set(gid, {
-          giftId: gid,
-          name: String(m.name ?? "").trim() || `gift:${gid}`,
-          commandFile: ensureTxt(String(m.commandFile ?? "").trim()),
-          repeat: clampInt(m.repeat ?? 1, 1, 100, 1),
-        });
-      }
+      const nextMappings = giftMappingsById(newCfg.mappings);
       // つなぎ方以外の options はすぐ効かせる。つなぎ方は起動したときの値のまま動き、違えば再起動を案内する。
       const nextLive = liveOptions(newCfg.options);
       const nextMute = createMuteMatcher(nextLive.mutedUsers);
@@ -1220,7 +1201,7 @@ async function main() {
       applyLiveOptions(nextLive, nextMute);
       if (pendingRestart.length) warn(`[Config] BRIDGE を再起動すると反映されます: ${pendingRestart.join("・")}`);
       updateRuntimeStatus({ pendingRestart });
-      log(`[Bridge] Config reloaded — likeEvents:${likeEvents.length} mappings:${mappingById.size}`);
+      log(`[Bridge] Config reloaded — likeEvents:${likeEvents.length} mappings:${mappingById.size}${disabledMappingsNote(mappingById)}`);
     } catch (e) {
       console.log("[Bridge] Config reload error:", e?.message);
     }
@@ -1250,7 +1231,7 @@ async function main() {
     console.log(`[Bridge] BridgeMod token file: ${tokenFile}${fs.existsSync(tokenFile) ? "" : "（まだありません。Minecraftサーバーの起動時に作られます）"}`);
   }
   if (dtd) console.log(`[Bridge] Telnet: ${dtd.host}:${dtd.port} playerId=${dtd.playerId}`);
-  console.log(`[Bridge] Mappings: ${mappingById.size} items`);
+  console.log(`[Bridge] Mappings: ${mappingById.size} items${disabledMappingsNote(mappingById)}`);
   console.log(`[Bridge] CommandsDir: ${commandsDirName}/`);
   console.log(`[Bridge] Cooldown: ${giftCooldownMs}ms`);
   console.log(`[Bridge] maxCommandsPerGift: ${maxCommandsPerGift}${useBridgeModTransport ? "（BridgeMOD 経由では使わない）" : ""}`);
@@ -1529,7 +1510,7 @@ async function main() {
       ? (ctx.featureEngine.topGifter() || feature.sender) : feature.sender;
     dispatchBridgeEvent(ctx, `feature:${feature.type}`, {
       type: "other", historyType: feature.type || "other", commandFile: feature.commandFile,
-      count: clampInt(feature.count, 1, 100, 1),
+      count: boundedInt(feature.count, 1, 100, 1),
       listenerName: listenerName || "viewer", announce: true, label: feature.label,
     }, { priority: 8 });
   }
@@ -1541,7 +1522,7 @@ async function main() {
     const rl = deathRouletteCfg;
     if (!rl || rl.enabled !== true) return;
     const deaths = Number(status.deaths || 0);
-    const every = clampInt(rl.everyDeaths ?? 1, 1, 1000, 1);
+    const every = boundedInt(rl.everyDeaths ?? 1, 1, 1000, 1);
     if (deathRouletteMatches(rl, deaths)) {
       ctx.log(`[DeathRoulette] deaths=${deaths}（${every}回ごと）→ ルーレット始動`);
       if (ctx.run?.preview) previewRoulette(ctx.run, rl, { commandFile: "roulette.txt", count: 1, historyType: "death_roulette" });
@@ -1706,7 +1687,7 @@ async function main() {
           ? computeStreakDelta(ctx.streakLastCount, 'unmapped:' + giftId + ':' + getSenderIdentity(data), rc, data.repeatEnd, Date.now(), streakTtlMs)
           : 1;
         if (delta <= 0) return;
-        const unmappedRepeat = delta * clampInt(unmappedGiftEvent.repeat ?? 1, 1, 100, 1);
+        const unmappedRepeat = delta * boundedInt(unmappedGiftEvent.repeat ?? 1, 1, 100, 1);
         const unmappedMap = { commandFile: ensureTxt(unmappedGiftEvent.commandFile), name: `unmapped:${giftId}` };
         if (bridgeMod) {
           ctx.log(`[Gift] (unmapped) -> BridgeMod file=${unmappedGiftEvent.commandFile} repeat=${unmappedRepeat}`);
@@ -1769,7 +1750,11 @@ async function main() {
       return;
     }
 
-    const randomized = resolveRandomizedMapping(mapping, ctx.log);
+    // 無効の割り当て（enabled: false）は、そのコマンドを動かさず、未設定ギフトにも回さない。クールダウン・連打・
+    // ゲームの数え方（上位者・コンボ・時限倍率）は今までどおり通す。RANDOM の抽選はせず、その txt の見出しも読まない
+    // （2026-10-22 ユーザーの決定。処理のコピー PR5）。
+    const disabled = mapping.enabled === false;
+    const randomized = disabled ? { mapping, meta: {} } : resolveRandomizedMapping(mapping, ctx.log);
     if (ctx.run && randomized.mapping !== mapping) ctx.run.notice(`ランダム選択: ${randomized.mapping.commandFile}（実行ごとに抽選）`);
     mapping = randomized.mapping;
     const now = Date.now();
@@ -1782,12 +1767,12 @@ async function main() {
     if (!isStreak) {
       const cooldownKey = `${giftId}:${sender}`;
       const last = ctx.lastExecAt.get(cooldownKey) || 0;
-      const fileCooldown = clampInt(randomized.meta?.COOLDOWN ?? giftCooldownMs, 0, 60000, giftCooldownMs);
+      const fileCooldown = boundedInt(randomized.meta?.COOLDOWN ?? giftCooldownMs, 0, 60000, giftCooldownMs);
       if (now - last < fileCooldown) return;
       ctx.lastExecAt.set(cooldownKey, now);
     }
 
-    const baseRepeat = clampInt(mapping.repeat ?? 1, 1, 100, 1);
+    const baseRepeat = boundedInt(mapping.repeat ?? 1, 1, 100, 1);
 
     // streakは「増えた分(delta)」だけ反応（詳細は computeStreakDelta のコメント参照）
     const delta = isStreak
@@ -1797,7 +1782,12 @@ async function main() {
     let times = delta * baseRepeat;
     if (times <= 0) return; // 連打終了通知は追加ギフトではない（送信時の最小1への丸めも避ける）。
     // 時限倍率（例：1.5倍）で小数になったら四捨五入する。BridgeMOD は小数の回数を拒否し、ギフトが丸ごと消えていた。
-    times = giftTimes(ctx.featureEngine.recordGift({ giftId, sender, commandFile: mapping.commandFile, count: times }));
+    // 無効の割り当てはコマンドを渡さない。コマンドのないコンボの段は、割り当てのコマンドの代わりに何も撃たない（emitFeature が飛ばす）。
+    times = giftTimes(ctx.featureEngine.recordGift({ giftId, sender, commandFile: disabled ? "" : mapping.commandFile, count: times }));
+    if (disabled) {
+      ctx.log(`[Gift] (disabled) id=${giftId} name="${giftName}" from=${sender}${repeatText} 割り当ては無効です（ゲームの数え方にだけ入れます）`);
+      return;
+    }
 
     if (bridgeMod) {
       ctx.log(
@@ -1917,7 +1907,7 @@ async function main() {
         if (Date.now() - lastAt < 3000) continue; // 3秒クールダウン（連投スパム対策）
         ctx.commentGiftLastAt.set(ruleKey, Date.now());
 
-        const repeat = clampInt(rule.repeat ?? 1, 1, 100, 1);
+        const repeat = boundedInt(rule.repeat ?? 1, 1, 100, 1);
         ctx.log(`[CommentGift] "${match}" from=${sender} -> ${rule.commandFile} x${repeat}`);
         dispatchBridgeEvent(ctx, `comment:${rule.commandFile}`, {
           type: "other",
@@ -2029,7 +2019,7 @@ async function main() {
     ctx.featureEngine.recordLikes(total, getStableSender(data), previousTotal, progress.local);
     for (const ev of likeEvents) {
       if (ev.enabled === false || !ev.commandFile || !ev.threshold) continue;
-      const thresh = clampInt(ev.threshold, 1, 1000000, 10);
+      const thresh = boundedInt(ev.threshold, 1, 1000000, 10);
       const lastMultiple = Math.floor(previousTotal / thresh);
       const ruleProgress = likeRuleProgress(ev, total, lastMultiple, maxLikeCatchUpPerEvent);
       const { newTriggers } = ruleProgress;
@@ -2039,7 +2029,7 @@ async function main() {
 
       const mapping = { commandFile: ensureTxt(ev.commandFile), name: ev.label || `${thresh}いいね` };
       const sender = getStableSender(data);
-      const evRepeat = clampInt(ev.repeat ?? 1, 1, 100, 1);
+      const evRepeat = boundedInt(ev.repeat ?? 1, 1, 100, 1);
 
       if (bridgeMod) {
         const count = triggersToRun * evRepeat;
@@ -2105,7 +2095,7 @@ async function main() {
 
     const mapping = { commandFile: ensureTxt(shareEvent.commandFile), name: "シェア" };
     const sender = getStableSender(data);
-    const shareRepeat = clampInt(shareEvent.repeat ?? 1, 1, 100, 1);
+    const shareRepeat = boundedInt(shareEvent.repeat ?? 1, 1, 100, 1);
     if (bridgeMod) {
       ctx.log(`[Share] from=${sender} -> BridgeMod repeat=${shareRepeat} file=${shareEvent.commandFile}`);
       dispatchBridgeEvent(ctx, "share", {
@@ -2161,7 +2151,7 @@ async function main() {
     ctx.featureEngine.recordFollow(sender);
     if (!enabledCommand(followEvent)) return;
     const mapping = { commandFile: ensureTxt(followEvent.commandFile), name: "フォロー" };
-    const followRepeat = clampInt(followEvent.repeat ?? 1, 1, 100, 1);
+    const followRepeat = boundedInt(followEvent.repeat ?? 1, 1, 100, 1);
     if (bridgeMod) {
       ctx.log(`[Follow] from=${sender} -> BridgeMod repeat=${followRepeat} file=${followEvent.commandFile}`);
       dispatchBridgeEvent(ctx, "follow", {
@@ -2217,7 +2207,7 @@ async function main() {
 
     const mapping = { commandFile: ensureTxt(memberEvent.commandFile), name: "訪問" };
     const sender = getStableSender(data);
-    const memberRepeat = clampInt(memberEvent.repeat ?? 1, 1, 100, 1);
+    const memberRepeat = boundedInt(memberEvent.repeat ?? 1, 1, 100, 1);
     if (bridgeMod) {
       ctx.log(`[Member] join=${sender} -> BridgeMod repeat=${memberRepeat} file=${memberEvent.commandFile}`);
       dispatchBridgeEvent(ctx, "member", {
@@ -2257,7 +2247,7 @@ async function main() {
   // --------------------
   // 本番と同じ処理・同じ送る列を、本番とは別の新しい状態で通す（2026-10-16 ユーザーの決定）。
   // 本番の状態（クールダウン・連打・コンボ・いいねとフォローの累計）には触らない。
-  const TEST_FIRE_WAIT_MS = clampInt(process.env.BRIDGE_TEST_FIRE_WAIT_MS ?? 10000, 100, 60000, 10000);
+  const TEST_FIRE_WAIT_MS = boundedInt(process.env.BRIDGE_TEST_FIRE_WAIT_MS ?? 10000, 100, 60000, 10000);
   // テスト発火のログは、行頭に [Test] を付けて本番の行と見分ける。
   const testLog = (...args) => console.log("[Test]", ...args);
 
@@ -2328,7 +2318,8 @@ async function main() {
     if (!bridgeMod) throw new Error("テスト発火は、Minecraft を BridgeMOD で動かしているときだけ使えます。");
     // 保存した直後でも、新しいイベント設定・割り当てで試す（自動の読み直しと同じ確かめを通す）。
     reloadDynamicConfig(testLog, testLog);
-    const { sender, actions, notes } = testEventActions(input, { mappedGiftIds: new Set(mappingById.keys()) });
+    const disabledGiftIds = new Set([...mappingById.values()].filter(mapping => !mapping.enabled).map(mapping => mapping.giftId));
+    const { sender, actions, notes } = testEventActions(input, { mappedGiftIds: new Set(mappingById.keys()), disabledGiftIds });
     const run = createTestRun({ preview: input.preview === true });
     const name = getStableSender({ nickname: sender });
     if (input.type !== "death" && isMuted({ nickname: sender }, testLog)) {
@@ -2392,7 +2383,6 @@ module.exports = {
   applyPlaceholders,
   dedupeKeyFromGift,
   isDuplicateEvent,
-  clampInt,
   sendBridgeModEvent,
   enqueueBridgeModEvent,
   commandFileToBridgeKey,

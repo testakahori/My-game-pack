@@ -50,12 +50,27 @@ test('無効にしてある設定は、Bridgeと同じく発火しないので�
   });
   assert.deepEqual(commandFileRefs(disabled), []);
   assert.equal(validateForSave(disabled, { previous: [null] }).ok, true);
-  // ギフト割り当て・コンボ・ルーレット項目は Bridge が enabled を見ずに発火するので、enabled:false でも数える。
+  // コンボ・ルーレット項目は Bridge が enabled を見ずに発火するので、enabled:false でも数える。
+  // ギフト割り当ては、無効なら BRIDGE も動かさない（設計書 10。処理のコピー PR5）ので数えない。
   const ignoredFlag = config({ mappings: [{ enabled: false, giftId: '1', name: 'ハート', commandFile: 'ねこ.txt' }],
     roulette: { enabled: true, items: [{ enabled: false, label: '外れ', commandFile: 'あたり.txt' }] },
     options: { commandTransport: 'bridge_mod', gameplay: { combo: { levels: [{ enabled: false, count: 5, commandFile: 'ねこ.txt' }] } } } });
   const where = commandFileRefs(ignoredFlag).map(ref => ref.where);
-  for (const expected of ['ギフト割り当て（ハート）', 'ルーレット項目（外れ）', 'コンボ（5連）']) assert.ok(where.includes(expected), expected);
+  for (const expected of ['ルーレット項目（外れ）', 'コンボ（5連）']) assert.ok(where.includes(expected), expected);
+  assert.ok(!where.includes('ギフト割り当て（ハート）'), '無効のギフト割り当ては数えない');
+  // ルーレットは BRIDGE が真の値なら回す（index.js の rouletteCfg?.enabled）ので、手で書いた 1 でも数える（PR5 の最終レビュー）。
+  assert.ok(commandFileRefs({ roulette: { enabled: 1, items: [{ label: '当たり', commandFile: 'a.txt' }] } }).some(ref => ref.where === 'ルーレット項目（当たり）'));
+});
+
+// 設計書 13：参照を数える所は、自分の数え方（設定全体の commandFile をたどる写し）を持たない（PR5 の最終レビュー）。
+test('参照の数え方の写し: 配信前チェック・ゲームの候補の確かめ・ゲームの切り替えは commandFileRefs を使う', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  for (const file of ['electron/preflight.cjs', 'electron/game_command_scope.cjs', 'electron/game_profiles.cjs']) {
+    const source = fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
+    assert.doesNotMatch(source, /key === ['"]commandFile['"]|function collect\(/, file + ' に参照の数え方の写しが残っている');
+    assert.match(source, /commandFileRefs\(/, file + ' が commandFileRefs を使っていない');
+  }
 });
 
 test('前から保存されていた割り当ては警告に留め、一括起動やほかの保存を止めない', () => {
