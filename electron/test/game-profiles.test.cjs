@@ -58,6 +58,20 @@ test('ゲーム選択は両側をBridgeMODと選択ゲームだけにし、旧MO
   await x.api.activate('common'); config = JSON.parse(fs.readFileSync(x.config)); assert.equal(config.mappings[0].commandFile, 'zombie.txt'); assert.equal(config.shareEvent.enabled, true);
 });
 
+// ゲーム別に保存した設定（profiles.json）も「古い設定を読み込む所」。戻すときに保存済みの設定と同じ直しを通す（PR3 の最終レビュー）。
+test('ゲームの切り替え: 更新前に保存したゲーム別の設定（回数 2.5・"3"）は、戻すときに直して書く', async t => {
+  const x = fixture(t); await x.api.install(x.pack('umetate'));
+  await x.api.activate('umetate');
+  const stateFile = path.join(x.storage, 'profiles.json');
+  const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  state.profiles.common.mappings = [{ giftId: '1', name: 'rose', commandFile: 'zombie.txt', repeat: 2.5 }];
+  state.profiles.common.options = { gameplay: { combo: { levels: [{ count: 5, commandFile: 'zombie.txt', repeat: '3' }] } } };
+  fs.writeFileSync(stateFile, JSON.stringify(state));
+  await x.api.activate('common');
+  const config = JSON.parse(fs.readFileSync(x.config, 'utf8'));
+  assert.deepEqual([config.mappings[0].repeat, config.options.gameplay.combo.levels[0].repeat, config.configVersion], [3, 3, 2]);
+});
+
 test('片側の入替失敗で両MODフォルダ・選択中ゲーム・設定をロールバックする', async t => {
   const x = fixture(t, { beforeStep: i => { if (i === 1) throw new Error('client locked'); } });
   await x.api.install(x.pack('run')); const before = fs.readFileSync(x.config, 'utf8');

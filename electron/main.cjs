@@ -20,6 +20,7 @@ const appConfig = createAppConfig({
   isServerStarting: () => serverProcess.isStarting(),
   getConfigPath: () => getConfigPath(),
   getSettingsBackups: () => settingsBackups,
+  migrateSavedConfig: () => bridgeSettings.ensureSavedConfigMigrated(),
   refreshGameModsOnStartup: () => refreshGameModsOnStartup(),
 });
 const { getAppConfigPath, readAppConfig, writeAppConfig, consumeInstallerSetupReset } = appConfig;
@@ -165,6 +166,7 @@ const bridgeProcess = createBridgeProcess({
   process, spawn, spawnSync, shell, runProc, stopRequests, eulerCredentials, getBridgeBatDir, getServerRoot, getConfigPath, getNodeCommand, getGvToolPath,
   getBridgeEntryPoint, ensureNodeRuntimeAvailable, assertGameProfileIdle, selectableCommandNames, gameProfiles, waitChildExit,
   assertMapIdle: () => mapOperations.assertIdle(),
+  migrateSavedConfig: () => bridgeSettings.ensureSavedConfigMigrated(),
 });
 // BRIDGE の子プロセス・再起動の待ちは bridge_process.cjs が持つ。main とほかのモジュールは、それを読む関数（child・isActive）を
 // 呼ばれたときに bridgeProcess.xxx() で読み、分割代入では受けない（テストが差し替えて配線を確かめるため）。下の操作の関数は受けてよい。

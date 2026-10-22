@@ -15,7 +15,7 @@ const waitChildExit = (child, ms) => new Promise(resolve => {
   child.once('exit', () => { clearTimeout(timer); resolve(true); });
 });
 
-function setup(t, { ensureNodeRuntimeAvailable = async () => {} } = {}) {
+function setup(t, { ensureNodeRuntimeAvailable = async () => {}, migrateSavedConfig = () => {} } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-process-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const bridge = path.join(root, 'bridge'), server = path.join(root, 'server');
@@ -38,7 +38,7 @@ function setup(t, { ensureNodeRuntimeAvailable = async () => {} } = {}) {
     getNodeCommand: () => 'node-fixture', getGvToolPath: name => path.join(root, name),
     getBridgeEntryPoint: dir => path.join(dir, 'index.js'), ensureNodeRuntimeAvailable,
     assertGameProfileIdle: () => {}, selectableCommandNames: () => [], gameProfiles: { list: () => ({ applied: true, recoveryRequired: false, active: 'common' }) },
-    waitChildExit, assertMapIdle: () => {},
+    waitChildExit, assertMapIdle: () => {}, migrateSavedConfig,
   });
   bridgeProcess.register({ handle: (name, fn) => handlers.set(name, fn) });
   return { bridge, server, spawned, children, records, bridgeProcess, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
@@ -58,6 +58,16 @@ test('BRIDGE の起動と停止: main から受け取った spawn・Euler の鍵
   assert.deepEqual(x.records, ['bridge:home:stop']);
   assert.equal(x.bridgeProcess.child(), null);
   assert.equal(x.bridgeProcess.isActive(), false);
+});
+
+// 起動のときの直しが届かなかった設定（手動インストールのあと、古いフォルダーを使い直したときなど）も、BRIDGE を起動する前に直す（PR3 の最終レビュー）。
+test('BRIDGE の起動: 起動する前に保存済みの設定の直しを呼ぶ', async t => {
+  let spawnedWhenMigrated = null;
+  const x = setup(t, { migrateSavedConfig: () => { spawnedWhenMigrated = x.spawned.length; } });
+  await x.invoke('bridge:launch');
+  assert.equal(spawnedWhenMigrated, 0, '起動（spawn）より前に直す');
+  assert.equal(x.spawned.length, 1);
+  await x.invoke('bridge:stop', 'home:stop');
 });
 
 // 配信中につなぎ方（TikTok ID など）を変えて保存したら、BRIDGE が runtime-status.json に書いた名前を配信ホームへ渡す（2026-10-18 処理のコピー PR2）。

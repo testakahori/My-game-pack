@@ -581,6 +581,11 @@ test('起動: 保存済みの設定の直しは画面が設定を読む前（cre
   const at = text => { const index = ready.indexOf(text); assert.ok(index >= 0, text); return index; };
   assert.ok(at('migrateSavedConfigOnStartup()') < at('createWindow();'));
   assert.ok(at('createWindow();') < at('notifyConfigMigration('));
+  // 起動のときの直しが届かない設定（手動インストールのあとのセットアップ前など）のため、セットアップを終えたとき・BRIDGE を起動する前にも直す。
+  for (const factory of ['createAppConfig({', 'createBridgeProcess({']) {
+    const deps = source.slice(source.indexOf(factory), source.indexOf('});', source.indexOf(factory)));
+    assert.match(deps, /migrateSavedConfig: \(\) => bridgeSettings\.ensureSavedConfigMigrated\(\)/, factory);
+  }
   const panel = fs.readFileSync(path.resolve(__dirname, '../../src/components/SettingsBackupsPanel.tsx'), 'utf8');
   assert.match(panel, /reason === "migration" \? "更新で直す前の自動保存"/);
 });

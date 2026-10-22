@@ -8,7 +8,7 @@ const { assertGameCommands } = require('./game_command_scope.cjs');
 
 // MAP の作業中かは map_operations が持つので、呼ばれたときに読む関数（assertMapIdle）で受け取る。
 function createBridgeProcess({ process, spawn, spawnSync, shell, runProc, stopRequests, eulerCredentials, getBridgeBatDir, getServerRoot, getConfigPath, getNodeCommand, getGvToolPath,
-  getBridgeEntryPoint, ensureNodeRuntimeAvailable, assertGameProfileIdle, selectableCommandNames, gameProfiles, waitChildExit, assertMapIdle }) {
+  getBridgeEntryPoint, ensureNodeRuntimeAvailable, assertGameProfileIdle, selectableCommandNames, gameProfiles, waitChildExit, assertMapIdle, migrateSavedConfig }) {
   let bridgeEulerRevision = null;
   // BRIDGE を起動した時刻。runtime-status.json がこれより前に書かれていれば、前の BRIDGE が残したもの（2026-10-18）。
   let bridgeStartedAt = 0;
@@ -78,6 +78,8 @@ function createBridgeProcess({ process, spawn, spawnSync, shell, runProc, stopRe
 
   async function launchBridge() {
     assertGameProfileIdle();
+    // 起動のときの直しが届かなかった古い版の設定（手動インストールのあと・古いフォルダーを使い直したときなど）も、起動する前に直す（PR3 の最終レビュー）。
+    migrateSavedConfig?.();
     assertGameCommands(JSON.parse(fs.readFileSync(getConfigPath(), "utf8")), selectableCommandNames(), gameProfiles.list());
     const dir = getBridgeBatDir();
     const indexJs = getBridgeEntryPoint(dir);

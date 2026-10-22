@@ -62,6 +62,20 @@ function createBridgeSettings({
     return { changes };
   }
 
+  // 起動のとき以外の直し（初期セットアップを終えたとき・保存先を変えたとき・BRIDGE を起動する前）。手動インストールのあとは、
+  // セットアップを終えるまで設定の場所が userData/bridge の予備を指すので、起動のときの直しが配信者の設定に届かない（PR3 の最終レビュー）。
+  // 直したらその場で知らせる。失敗しても呼んだ側（保存・起動）は止めず、ログに残す（直せなかった値は確かめのエラーとして出る）。
+  function ensureSavedConfigMigrated() {
+    try {
+      const { changes } = migrateSavedConfigOnStartup();
+      notifyConfigMigration(changes).catch(e => console.warn("[Config]", e?.message || e));
+      return changes;
+    } catch (e) {
+      console.error("[Config] 保存済みの設定を直せませんでした:", e?.message || e);
+      return [];
+    }
+  }
+
   // 直したものを配信者に1回だけ知らせる（ウィンドウを出したあとに呼ぶ）。直したものがなければ何も出さない。
   async function notifyConfigMigration(changes) {
     if (!changes?.length) return;
@@ -215,7 +229,7 @@ function createBridgeSettings({
     });
   }
 
-  return { readSavedBridgeConfig, writeBridgeConfig, migrateSavedConfigOnStartup, notifyConfigMigration, selectableCommandNames, readCommandMetadata, register };
+  return { readSavedBridgeConfig, writeBridgeConfig, migrateSavedConfigOnStartup, ensureSavedConfigMigrated, notifyConfigMigration, selectableCommandNames, readCommandMetadata, register };
 }
 
 module.exports = { createBridgeSettings };

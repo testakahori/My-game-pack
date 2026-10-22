@@ -19,10 +19,25 @@ function setup(t, { packaged = false, serverStarting = false } = {}) {
     getConfigPath: () => path.join(dir, 'config.minecraft.json'),
     getSettingsBackups: () => ({ create: kind => calls.push('backup:' + kind) }),
     refreshGameModsOnStartup: async () => { calls.push('refreshMods'); },
+    migrateSavedConfig: () => calls.push('migrateConfig'),
   });
   appConfig.register({ handle: (name, fn) => handlers.set(name, fn) });
   return { dir, app, appConfig, calls, invoke: (name, ...args) => handlers.get(name)({}, ...args), handlers };
 }
+
+// 手動インストール（更新も含む）のあとは、初期セットアップを終えるまで設定の場所が userData/bridge の予備を指す。
+// 起動のときの直しは配信者の設定に届かないので、セットアップを終えたときと保存先を変えたときにも直す（PR3 の最終レビュー）。
+test('保存済みの設定の直し: 初期セットアップを終えたときと保存先を変えたときに呼ぶ。ほかの保存では呼ばない', async t => {
+  const x = setup(t);
+  await x.invoke('app:config:write', { minecraftPlayerName: 'Steve' });
+  assert.ok(!x.calls.includes('migrateConfig'), 'セットアップ前の保存では呼ばない');
+  await x.invoke('app:config:write', { setupComplete: true });
+  assert.equal(x.calls.filter(c => c === 'migrateConfig').length, 1, 'セットアップを終えたとき');
+  await x.invoke('app:config:write', { minecraftPlayerName: 'Alex' });
+  assert.equal(x.calls.filter(c => c === 'migrateConfig').length, 1, 'ほかの保存では呼ばない');
+  await x.invoke('app:config:write', { serverFolder: x.dir });
+  assert.equal(x.calls.filter(c => c === 'migrateConfig').length, 2, '保存先を変えたとき');
+});
 
 test('読み込み: ファイルがない・壊れているときは既定値、書き込みは今の値に足し、保存先は絶対パスにする', t => {
   const { dir, appConfig } = setup(t);

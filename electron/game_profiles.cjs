@@ -6,6 +6,7 @@ const zlib = require('node:zlib');
 const { atomicWrite } = require('./settings_backups.cjs');
 const saikutu = require('./saikutu_commands.cjs');
 const { isTxtName } = require('../bridge/command_files.cjs');
+const { migrateBridgeConfig } = require('../bridge/config_migration.cjs');
 
 const GAMES = [{ id: 'common', name: 'サバイバル', modName: 'BridgeMOD' },
   { id: 'umetate', name: '埋め立て', modName: 'UmetateMOD' },
@@ -254,7 +255,10 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
       config.gameProfile = id;
       for (const name of oldNames) fs.unlinkSync(path.join(commandDir, name));
       for (const [name, text] of Object.entries(gameFiles)) atomicWrite(path.join(commandDir, name), text);
-      atomicWrite(configPath(), JSON.stringify(config, null, 2));
+      // ゲーム別に保存した設定は更新前のこともあるので、保存済みの設定と同じ直しを通して書く（2026-10-18 設計書の 7。PR3 の最終レビュー）。
+      const migrated = migrateBridgeConfig(config);
+      if (migrated.changes.length) console.log(`[Config] ゲームの設定を直しました: ${migrated.changes.join("、")}`);
+      atomicWrite(configPath(), JSON.stringify(migrated.config, null, 2));
       next.active = id; next.appliedRoots = dirs; next.appliedFormat = 3; writeJson(stateFile(), next);
       fs.unlinkSync(journalFile());
       return { ...list(), backupFolders: dirs.map(d => path.join(d, '.mygamepack-mod-switch', operation, 'previous')) };

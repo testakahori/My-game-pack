@@ -19,7 +19,7 @@ function setup(t) {
   const config = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../bridge/config.minecraft.json'), 'utf8'));
   fs.writeFileSync(configPath, JSON.stringify({ ...config, tiktokUsername: 'akahoridouma', mappings: [] }));
   const calls = [], state = { bridgeRunning: false }, handlers = new Map(), dialogs = [], backedUp = [];
-  const settings = createBridgeSettings({
+  const deps = {
     app: { getVersion: () => '9.9.9' }, shell: { openPath: async () => '' },
     dialog: { showMessageBox: async options => { dialogs.push(options); return { response: 0 }; } },
     getConfigPath: () => configPath, ensureConfigExists: () => {}, getBridgeBatDir: () => bridge, getServerRoot: () => root,
@@ -31,9 +31,10 @@ function setup(t) {
     readTtsSettings: () => ({ enabled: false, engine: 'voicevox' }),
     requestBridgeMod: async (...args) => { calls.push('mod:' + args.join(' ')); return { ok: true }; },
     isBridgeRunning: () => state.bridgeRunning,
-  });
+  };
+  const settings = createBridgeSettings(deps);
   settings.register({ handle: (name, fn) => handlers.set(name, fn) });
-  return { bridge, configPath, calls, state, settings, dialogs, backedUp, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
+  return { bridge, configPath, calls, state, settings, deps, dialogs, backedUp, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
 }
 
 // 保存済みの設定は、アプリの更新のときに1回だけ直す（2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 7）。
@@ -68,6 +69,23 @@ test('TikTok ID の保存: 形が正しくない ID は止め、@ や大文字�
   await assert.rejects(x.invoke('config:write', { ...current, tiktokUsername: 'foo-bar' }), /TikTok ID「foo-bar」の形が正しくありません/);
   await x.invoke('config:write', { ...current, tiktokUsername: ' @Foo_Bar ' });
   assert.equal(JSON.parse(fs.readFileSync(x.configPath, 'utf8')).tiktokUsername, ' @Foo_Bar ');
+});
+
+// 起動のとき以外（初期セットアップを終えたとき・保存先を変えたとき・BRIDGE を起動する前）に呼ぶ直し。直したらその場で知らせ、失敗しても呼んだ側を止めない。
+test('保存済みの設定を直す（起動のとき以外）: 直して知らせる。バックアップが取れなければ書かずにログだけ残し、例外を出さない', async t => {
+  const x = setup(t);
+  const saved = JSON.parse(fs.readFileSync(x.configPath, 'utf8'));
+  fs.writeFileSync(x.configPath, JSON.stringify({ ...saved, mappings: [{ giftId: '1', name: 'バラ', commandFile: 'zombie.txt', repeat: 2.5 }] }));
+  assert.deepEqual(x.settings.ensureSavedConfigMigrated(), ['ギフト割り当て（バラ）の回数 2.5 → 3']);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(x.dialogs.length, 1);
+  assert.deepEqual(x.settings.ensureSavedConfigMigrated(), [], '2回目は何もしない');
+  const broken = setup(t);
+  const before = JSON.stringify({ ...saved, mappings: [{ giftId: '1', name: 'バラ', commandFile: 'zombie.txt', repeat: 2.5 }] });
+  fs.writeFileSync(broken.configPath, before);
+  const failing = createBridgeSettings({ ...broken.deps, settingsBackups: { create: () => { throw new Error('disk full'); } } });
+  assert.deepEqual(failing.ensureSavedConfigMigrated(), []);
+  assert.equal(fs.readFileSync(broken.configPath, 'utf8'), before, 'バックアップが取れなければ書かない');
 });
 
 test('保存済みの設定を直す: 知らせは10件まで（ほかは件数）', async t => {
