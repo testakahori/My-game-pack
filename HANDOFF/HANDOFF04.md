@@ -379,9 +379,15 @@
        - BridgeMOD 1.8.2：`CommandRouting.java` の一覧を `GAME_IDS` の1つにし、`publicKey` は大文字小文字を区別しない。`GameEvents.java` に `isGameModId`（予約名と null を断る）。契約テスト（`scripts/test-bridge-contracts.cjs`）は2つの例の一覧を JS と Java に通し、Java の一覧が `games.json` と同じことも確かめる。直す前の RED はビルドが止まる形（関数がない）だったので、直したあとに大文字小文字の区別と予約名の確かめを一時的に外して、契約テストが落ちることも確かめた。オフラインのビルドで `bridgemod-1.8.2.jar` ができる。`scripts/test-game-contract.cjs` も通る。
        - 実装で決めたこと（作業の記録の Ruling）：計画にあった `CommandRoutingContractTest.java` の 20〜21 行目は試すファイル名で、一覧の写しではないので変えなかった。
        - `npm run verify`：アプリ 573/573、BRIDGE 15/15、型チェック・ビルドが通る。
-       - 次の配布のリリースノートに足す：「バックアップを戻すとき、game_mode_on.txt のように game_ で始まる共通のコマンドを使う設定でも止まらなくなりました」「採掘に初めて切り替えるとき、共通のコマンド（game_ で始まるもの）の割り当てを外さなくなりました」「新しい BridgeMOD（1.8.2）はサーバーを起動し直すと入れ替わります」。
+       - 次の配布のリリースノートに足す：「バックアップを戻すとき、game_mode_on.txt のように game_ で始まる共通のコマンドを使う設定でも止まらなくなりました」「採掘に初めて切り替えるとき、共通のコマンド（game_ で始まるもの）の割り当てを外さなくなりました」「ゲームのコマンドのファイル（game_<ゲーム>_<名前>.txt）は、大文字で書いたものもゲームの切り替えで入れ替わり、TXT の作成では作れません」「新しい BridgeMOD（1.8.2）はサーバーを起動し直すと入れ替わります」。
+     - PR6 の最終レビュー（別のレビュー役、10-22）：重大 0・重要 0・軽い 6。判定は「直してから」。レビュー役は、直す前の版（18d5f40）で新しいテストが5本とも落ちること、契約テスト・ビルド・jar の中身（`isGameModId` など）、`build.files`、予約名を使う MOD がないこと、切り替えの記録から戻すときにフォルダーの外へ書けないことを確かめた。軽い6件はユーザーの指示（10-22「6件とも直してから PR」）で直した（commit 31f297f）：
+       - 切り替えで消すファイルが、手で作った `.` や `-` のある名前（`game_run_notes.v2.txt` など。消すと戻せない）まで広がっていた。消すのはパックが作れる名前（`game_<id>_<key>.txt`、key は大文字小文字を区別せずパックの key の決まりに合うもの）だけにした。大文字の `GAME_RUN_X.TXT` は決めたとおり入れ替える。
+       - 採掘のプロフィールを初めて作るとき、`.txt` を書いていない文字列のほかのゲームの参照も外す。
+       - テスト：アプリの経路で採掘のコマンドの `chatKey` が `dig` になること、開発用のモックの `chatKey`、配列で書いた一覧の写しも見つける見張り（bridge・scripts・`src/types.ts` も見る）、MOD の ID の境目の「通す」例。
+       - `docs/ゲームMOD連携API_v1.4.md` に、ゲーム MOD の ID の決まりと予約名を書いた。
+       - `npm run verify`（直したあと）：アプリ 574/574、BRIDGE 15/15、型チェック・ビルドが通る。契約テストも通る（MOD の ID 11件）。
        - 計画で私が決めたこと：ゲーム専用の判定は大文字小文字を区別しない（`GAME_RUN_X.TXT` も RUN のもの）、既定のゲームとしての `'common'` の直書きは残す、予約名の `# GAME_MOD:` は BRIDGE も送らない、パックの key の決まりは JavaScript だけ（設計書は「GameEvents.java と合わせる」としていたが、Java に key の決まりがなく、足すと大文字の `GAME_KEY` を断る）、`withoutOtherGameCommands` は文字列の参照も外す、コマンド一覧のチャットの名前はアプリが付ける `chatKey` を使う。BridgeMOD は 1.8.2 に上げる（一覧を1つにし、`GameEvents` に予約名の確かめを足す）。
-     - **次にやること**：PR6 の最終レビュー（別のレビュー役）→ 指摘の扱いをユーザーに聞く → PR → CI → ユーザーの許可を得てマージ。そのあと PR7（音・粒子の ID と前から残っている問題・画面の写し）。
+     - **次にやること**：PR6 の PR → CI → ユーザーの許可を得てマージ。そのあと PR7（音・粒子の ID と前から残っている問題・画面の写し）。
      - PR1 のレビューで見つけた前からの問題（直していない。PR3・PR4 か別の PR で）：`foo.txt.txt` は BRIDGE が `foo.txt` を送り、MOD がもう一度 `.txt` を除くので `foo.txt` を実行する。設定に `../x.txt` と書くと名前の確かめを通り、RCON の経路と条件だけ確認でコマンドのフォルダーの外を読む。`bridge/index.js:1456` のルーレットの判定 `=== "roulette"` は大文字小文字を区別する（`roulette.cjs` は区別しない）。Shift_JIS の txt は JS が U+FFFD にして読み、MOD は読めない。`gift_templates.cjs:45` の `missing()` は名前を大文字小文字まで比べる。TXT の書き込みのゲームパックの判定は大文字小文字を区別する。electron が読む `../bridge/*.cjs` が `build.files` に全部あるかを確かめるテストがない。`src/` に残る写し（`CommandSetManager.tsx`・`CommandsListPage.tsx`・`EventSettings2Page.tsx`・`ImageEditorPage.tsx`）は、設計書 3 のとおり画面が決まりを持たない形に PR3・PR4 でそろえる。
    - リリース手順が2つ
 
