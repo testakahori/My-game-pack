@@ -353,7 +353,8 @@
        - `bridge_settings.cjs` の使われない変数（前から）を消した。
        - `npm run verify`：アプリ 549/549、BRIDGE 15/15、型チェック・ビルドが通る。
        - レビュー役が判断を任せたもの（私が決めた）：送り先が 7dtd の設定に `commandsDir` が無いと既定が `commands/minecraft` になる（同梱の `config.7dtd.json` は `commands/7dtd` を書いているので影響なし）。ゲームの設定の中の既定値（`feature_engine.js`）・画面の案内の文言・`command_files.cjs` の `transport || "rcon"` は対象にしない。範囲外の値の表示と丸めの違い・保存先を移したときの絶対パス・ジャンクションでの `__dirname` のずれ・配信前チェックが `target.rcon` を見ない件は前からの動きのまま。
-     - **次にやること**：PR4 の PR → CI → ユーザーの許可を得てマージ。そのあと PR5（参照の数え方・ギフト割り当て・ゲーム ID など）。
+     - PR4 は CI（3つとも通った）のあと、ユーザーの許可を得てマージした（PR #121、マージコミット d2b79a8）。
+     - **次にやること**：PR5（参照の数え方・ギフト割り当て・ゲーム ID など。設計書の 6・10 と、3 の小さい関数の重複）の計画を書いてユーザーの承認を得る。ブランチ `fix/logic-copies-5`（main の d2b79a8 から切った）。
      - PR1 のレビューで見つけた前からの問題（直していない。PR3・PR4 か別の PR で）：`foo.txt.txt` は BRIDGE が `foo.txt` を送り、MOD がもう一度 `.txt` を除くので `foo.txt` を実行する。設定に `../x.txt` と書くと名前の確かめを通り、RCON の経路と条件だけ確認でコマンドのフォルダーの外を読む。`bridge/index.js:1456` のルーレットの判定 `=== "roulette"` は大文字小文字を区別する（`roulette.cjs` は区別しない）。Shift_JIS の txt は JS が U+FFFD にして読み、MOD は読めない。`gift_templates.cjs:45` の `missing()` は名前を大文字小文字まで比べる。TXT の書き込みのゲームパックの判定は大文字小文字を区別する。electron が読む `../bridge/*.cjs` が `build.files` に全部あるかを確かめるテストがない。`src/` に残る写し（`CommandSetManager.tsx`・`CommandsListPage.tsx`・`EventSettings2Page.tsx`・`ImageEditorPage.tsx`）は、設計書 3 のとおり画面が決まりを持たない形に PR3・PR4 でそろえる。
    - リリース手順が2つ
 
