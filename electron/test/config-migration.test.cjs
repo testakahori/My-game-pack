@@ -13,13 +13,18 @@ test('TikTok ID: 前後の空白・先頭の @ を除いて小文字にし、半
 });
 
 // 設計書 13：1つにまとめた関数は、今それを使っている所すべてが同じ関数を呼ぶ（自分の写しを持ち続けない）。
-test('TikTok ID: 配信前チェック・LIVE の確かめ・BRIDGE の接続・再起動の比べ方は、自分の整え方や正規表現を持たず tiktok_id.cjs を使う', () => {
+test('TikTok ID: 配信前チェック・LIVE の確かめ・BRIDGE の接続・再起動の比べ方・ギフト一覧の自動更新は、自分の整え方や正規表現を持たず tiktok_id.cjs を使う', () => {
   const fs = require('node:fs');
   const path = require('node:path');
-  for (const file of ['electron/preflight.cjs', 'electron/tiktok_live_status.cjs', 'bridge/index.js', 'bridge/live_config.cjs']) {
+  for (const file of ['electron/preflight.cjs', 'electron/tiktok_live_status.cjs', 'bridge/index.js', 'bridge/live_config.cjs', 'electron/gifts_viewer.cjs']) {
     const source = fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
     assert.doesNotMatch(source, /\{1,24\}/, file + ' に ID の正規表現の写しが残っている');
-    assert.doesNotMatch(source, /tiktokUsername[^\n]*replace\(\/\^@\//, file + ' に @ を除く写しが残っている');
+    // 設定の ID と、ギフト一覧を取った ID（gifts.meta.json の username）の両方を見る。
+    // gifts_viewer.cjs の updateGifts の確かめ（[\w.]{1,64}）と gv:settings:write の整え方は、ギフト一覧の画面で入力した ID の
+    // 写しとして残してある（src/・GiftsViewer/ の写しと一緒に PR4・PR5 でそろえる）。このファイルが片付いたわけではない。
+    assert.doesNotMatch(source, /(tiktokUsername|meta\.username)[^\n]*replace\(\/\^@\//, file + ' に @ を除く写しが残っている');
+    // 小文字にするだけで比べる写し（前の配信前チェックの「LIVE へ接続しているか」）も見る。
+    assert.doesNotMatch(source, /username[^\n]*\.toLowerCase\(\)/i, file + ' に小文字にして比べる写しが残っている');
     assert.match(source, /normalizeTikTokId\(/, file + ' が normalizeTikTokId を使っていない');
   }
   const index = fs.readFileSync(path.resolve(__dirname, '../../bridge/index.js'), 'utf8');
@@ -51,6 +56,14 @@ test('保存済みの設定を直す: 書いていない回数・閾値は足さ
   assert.deepEqual(config.likeEvents.map(ev => ev.threshold), [100, 2000000]);
   assert.deepEqual(changes, ['いいね（99.6いいねごと）の閾値 99.6 → 100']);
   assert.deepEqual(migrateBridgeConfig({}).config, { configVersion: 2 }, '空の設定にも版だけ付ける');
+});
+
+// オブジェクトでないもの（壊れたプリセットなど）を {configVersion:2} にすると、確かめが「TikTok IDが未承認です」という
+// 関係のない文を出す（PR3 の最終レビュー）。そのまま返し、確かめに「設定全体がJSONオブジェクトではありません」を出させる。
+test('保存済みの設定を直す: オブジェクトでないものは直さずそのまま返す', () => {
+  for (const value of [null, undefined, [], [{ repeat: 2.5 }], 'x', 3, true]) {
+    assert.deepEqual(migrateBridgeConfig(value), { config: value, changes: [] }, JSON.stringify(value));
+  }
 });
 
 test('回数と閾値の対象: 無効の項目・ゲームの設定も含めてすべて並べ、場所の名前は commandFileRefs と同じ', () => {

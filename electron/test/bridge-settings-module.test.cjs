@@ -55,7 +55,14 @@ test('保存済みの設定を更新のときに1回だけ直す: 直す前に�
   assert.equal(x.dialogs.length, 1);
   assert.equal(x.dialogs[0].title, '設定を直しました');
   assert.match(x.dialogs[0].detail, /ギフト割り当て（バラ）の回数 2\.5 → 3/);
-  assert.match(x.dialogs[0].detail, /直す前の設定は「設定のバックアップ」から戻せます。$/);
+  // 「戻せます」とは書かない。バックアップを戻してももう一度直すので、2.5 などには戻らない（PR3 の最終レビュー）。
+  assert.match(x.dialogs[0].detail, /直す前の設定は「設定のバックアップ」に「更新で直す前の自動保存」として残っています。$/);
+  assert.doesNotMatch(x.dialogs[0].detail, /戻せます/);
+  // 知らせの文のバックアップの名前は、画面の一覧（SettingsBackupsPanel.tsx の reasonLabel）の migration の名前と同じ。
+  const panel = fs.readFileSync(path.resolve(__dirname, '../../src/components/SettingsBackupsPanel.tsx'), 'utf8');
+  const label = panel.match(/reason === "migration" \? "([^"]+)"/)?.[1];
+  assert.ok(label, 'SettingsBackupsPanel.tsx に migration の名前がある');
+  assert.ok(x.dialogs[0].detail.includes(`「${label}」`), `知らせの文に画面の名前「${label}」がない`);
   x.calls.length = 0;
   assert.deepEqual(x.settings.migrateSavedConfigOnStartup().changes, []);
   assert.deepEqual(x.calls, [], '2回目はバックアップも取らない');

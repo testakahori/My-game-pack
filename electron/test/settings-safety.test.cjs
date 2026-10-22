@@ -149,6 +149,9 @@ test("配信前チェック: 接続・一覧の新鮮さ・コマンド・音声
   write(p.config, { ...cfg, tiktokUsername: " @AkahoriDouma " });
   const account = (await runPreflight(deps)).checks.find(row => row.id === "account");
   assert.deepEqual([account.status, account.detail], ["ok", "@akahoridouma"]);
+  // ギフト一覧を取った ID も同じ形に整えて比べる（ギフト一覧の自動更新と同じ。PR3 の最終レビュー）。
+  write(giftsMetaPath, { username: " @AkahoriDouma ", generatedAt: new Date().toISOString() });
+  assert.equal((await runPreflight(deps)).checks.find(row => row.id === "gifts").status, "ok");
   write(p.config, { ...cfg, tiktokUsername: "foo-bar" });
   assert.equal((await runPreflight(deps)).checks.find(row => row.id === "account").status, "error");
 });

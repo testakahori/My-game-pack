@@ -68,14 +68,28 @@ test('BridgeMOD が受け付けない名前: previous を渡さなければ警�
 });
 
 // electron が読む ../bridge/*.cjs・*.js は、配布のアプリ（asar）に入っていないと起動で落ちる（PR1 の最終レビューで見つけた穴）。
-test('配布: electron が読む bridge のモジュールは、すべて package.json の build.files にある', () => {
+// bridge のモジュールが中で読む ./*.cjs も同じなので、たどって確かめる（PR3 の最終レビュー）。
+test('配布: electron が読む bridge のモジュールは、その中で読むものも含めて、すべて package.json の build.files にある', () => {
   const root = path.resolve(__dirname, '../..');
   const files = new Set(JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).build.files);
   const required = new Set();
+  // require と同じく、書いたままの名前・.js・.cjs・.json の順にファイルを探す。bridge/ の外（electron/** など）は glob で入るので見ない。
+  const visit = (spec, from) => {
+    const base = path.posix.join(path.posix.dirname(from), spec);
+    if (!base.startsWith('bridge/')) return;
+    const file = ['', '.js', '.cjs', '.json'].map(ext => base + ext).find(name => fs.existsSync(path.join(root, name)) && fs.statSync(path.join(root, name)).isFile());
+    assert.ok(file, `${from} が読む ${spec} が見つからない`);
+    if (required.has(file)) return;
+    required.add(file);
+    if (file.endsWith('.json')) return;
+    const source = fs.readFileSync(path.join(root, file), 'utf8');
+    for (const match of source.matchAll(/require\(\s*["'](\.{1,2}\/[^"']+)["']\s*\)/g)) visit(match[1], file);
+  };
   for (const name of fs.readdirSync(path.join(root, 'electron')).filter(n => n.endsWith('.cjs'))) {
     const source = fs.readFileSync(path.join(root, 'electron', name), 'utf8');
-    for (const match of source.matchAll(/require\(\s*["']\.\.\/bridge\/([^"']+)["']\s*\)/g)) required.add(`bridge/${match[1]}`);
+    for (const match of source.matchAll(/require\(\s*["'](\.\.\/bridge\/[^"']+)["']\s*\)/g)) visit(match[1], `electron/${name}`);
   }
   assert.ok(required.has('bridge/config_schema.js'), [...required].join(', '));
+  assert.ok(required.has('bridge/tiktok_events.cjs'), 'audience_stats.cjs が中で読む tiktok_events.cjs までたどる: ' + [...required].join(', '));
   for (const file of required) assert.ok(files.has(file), `${file} が build.files にない`);
 });

@@ -575,6 +575,18 @@ test('プリセット: 古い版で保存したプリセット（回数 2.5 な�
   assert.deepEqual([saved.mappings[0].repeat, saved.configVersion], [3, 2]);
 });
 
+test('プリセット: 中身がオブジェクトでないプリセットは「設定全体がJSONオブジェクトではありません」で止め、設定を変えない', async t => {
+  const app = loadApp(t);
+  const dir = path.join(path.dirname(app.configPath), 'presets');
+  app.invoke('presets:save', 'base');
+  const before = fs.readFileSync(app.configPath, 'utf8');
+  for (const [name, text] of [['array.json', '[]'], ['text.json', '"x"'], ['null.json', 'null']]) {
+    fs.writeFileSync(path.join(dir, name), text);
+    assert.throws(() => app.invoke('presets:load', name), error => error.message === '設定全体がJSONオブジェクトではありません', name);
+  }
+  assert.equal(fs.readFileSync(app.configPath, 'utf8'), before);
+});
+
 test('起動: 保存済みの設定の直しは画面が設定を読む前（createWindow の前）に行い、知らせはウィンドウを出したあと', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '../main.cjs'), 'utf8');
   const ready = source.slice(source.indexOf('app.whenReady()'));

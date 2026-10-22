@@ -4,6 +4,7 @@
 const path = require("path");
 const fs = require("fs");
 const { fetchGiftImage } = require("./gift_image.cjs");
+const { normalizeTikTokId } = require("../bridge/tiktok_id.cjs");
 
 // 同梱 node の準備（BRIDGE の配布）は、あとで main で定義されるので、呼ばれたときに読む関数で受け取る。
 function createGiftsViewer({
@@ -21,13 +22,14 @@ function createGiftsViewer({
   async function autoUpdateGiftsIfStale() {
     let bridgeCfg = {};
     try { bridgeCfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch {}
-    const username = String(bridgeCfg.tiktokUsername || "").trim().replace(/^@/, "");
+    // 配信前チェック・BRIDGE と同じ形に整える（2026-10-18 設計書の 9）。取った一覧の ID も同じ形で比べる。
+    const username = normalizeTikTokId(bridgeCfg.tiktokUsername);
     if (!username) return { skipped: "username" };
     const metaPath = path.join(getGvDataDir(), "gifts.meta.json");
     try {
       const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
       const age = Date.now() - Date.parse(meta.generatedAt);
-      if (meta.username === username && meta.count > 0 && age >= 0 && age < 86400000 &&
+      if (normalizeTikTokId(meta.username) === username && meta.count > 0 && age >= 0 && age < 86400000 &&
           fs.existsSync(path.join(getGvDataDir(), "gifts.min.json"))) return { skipped: "fresh" };
     } catch { /* 壊れたメタデータも再取得する */ }
     await updateGifts(username);
@@ -42,7 +44,8 @@ function createGiftsViewer({
   let giftUpdateUsername = "";
 
   async function updateGifts(username) {
-    const user = String(username || "").trim().replace(/^@/, "");
+    // 自動更新と同じ形に整える。形が違うと、自動更新の最中に押した同じ ID の更新が「別のアカウント」で止まる。
+    const user = normalizeTikTokId(username);
     if (!/^[\w.]{1,64}$/.test(user)) throw new Error("TikTok IDを入力してください（英数字・ピリオド・アンダースコア）。");
     if (giftUpdateTask) {
       if (giftUpdateUsername !== user) throw new Error("別のアカウントのギフトを更新中です。完了してからお試しください。");

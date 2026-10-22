@@ -81,7 +81,8 @@ function createBridgeSettings({
     if (!changes?.length) return;
     const shown = changes.slice(0, 10).join("\n") + (changes.length > 10 ? `\nほか ${changes.length - 10} 件` : "");
     await dialog.showMessageBox({ type: "info", title: "設定を直しました", message: "古い版で保存した設定の一部を、今の決まりに合わせて直しました。",
-      detail: `${shown}\n\n直す前の設定は「設定のバックアップ」から戻せます。` });
+      // 「戻せます」とは書かない。バックアップを戻すともう一度直すので、直す前の値には戻らない。
+      detail: `${shown}\n\n直す前の設定は「設定のバックアップ」に「更新で直す前の自動保存」として残っています。` });
   }
 
   // --------------------

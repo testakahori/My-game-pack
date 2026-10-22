@@ -51,8 +51,10 @@ function fixThreshold(value) {
 }
 
 // 直した写しと、直したもの（場所・前の値・あとの値）を返す。元の設定は変えない。書いていない値は足さない。
+// オブジェクトでないもの（壊れたプリセットなど）はそのまま返し、確かめに「設定全体がJSONオブジェクトではありません」を出させる。
 function migrateBridgeConfig(config) {
-  const copy = isItem(config) ? structuredClone(config) : {};
+  if (!isItem(config)) return { config, changes: [] };
+  const copy = structuredClone(config);
   const changes = [];
   // 場所の名前は直す前の値で決める（「いいね（0いいねごと）の閾値 0 → 1」）。
   const repeats = repeatTargets(copy);
