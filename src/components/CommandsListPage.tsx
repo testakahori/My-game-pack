@@ -6,7 +6,8 @@ import React from "react";
 import { copyText } from "../lib/clipboard";
 import { INVALID_COMMAND_NAME_HINT } from "../lib/commandLabel";
 
-type CommandMeta = { name: string; title: string; category: string; description?: string; invalidName?: boolean };
+// chatKey はアプリが付けるチャットの名前（bridge/game_commands.cjs の publicCommandKey。BridgeMOD の publicKey と同じ。処理のコピー PR6）。
+type CommandMeta = { name: string; title: string; category: string; description?: string; invalidName?: boolean; chatKey?: string };
 
 function getApi() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -34,8 +35,9 @@ const CATEGORY_ORDER: { key: string; icon: string; note: string }[] = [
   { key: "その他", icon: "📦", note: "" },
 ];
 
+// 画面は名前の決まりを持たず、アプリが付けた chatKey を使う（無いときはファイル名のまま）。
 function chatCommandOf(meta: CommandMeta): string {
-  return `/bridge ${meta.name.replace(/\.txt$/i, "").replace(/^game_(?:saikutu|umetate|run)_/, "")} 1`;
+  return `/bridge ${meta.chatKey ?? meta.name} 1`;
 }
 
 const CommandsListPage: React.FC = () => {

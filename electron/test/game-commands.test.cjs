@@ -38,6 +38,14 @@ test('ゲームの一覧と判定の写し: アプリ・BRIDGE・画面は自分
   }
 });
 
+// 画面は決まりを持たず、データは bridge/ の JSON か、アプリが付けて渡す値を使う（設計書 3。処理のコピー PR6）。
+test('画面: コマンド一覧のチャットの名前はアプリが付ける chatKey を使い、開発用のモックの一覧は games.json から', () => {
+  const read = file => fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
+  assert.match(read('src/components/CommandsListPage.tsx'), /meta\.chatKey \?\? meta\.name/);
+  assert.match(read('src/lib/devApiMock.ts'), /from "\.\.\/\.\.\/bridge\/games\.json"/);
+  assert.match(read('vite.config.ts'), /publicCommandKey\(name\)/);
+});
+
 test('ゲーム MOD の ID とパックの key', () => {
   for (const c of fixture('game-mod-ids.json')) assert.equal(isGameModId(c.id), c.ok, c.id);
   assert.equal(isGameModId(undefined), false);
