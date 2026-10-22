@@ -55,6 +55,7 @@ function commandFileProblem(commandFile) {
 // 設定の中で、Bridge が実際に発火しうるコマンドファイルの参照を、画面に出す名前付きで列挙する。
 // 無効にしてある設定は Bridge も実行しないので数えない。どれが enabled を見るかは bridge/index.js・
 // event_rules.cjs・feature_engine.js・roulette.cjs と同じにする（見ないものは enabled:false でも数える）。
+// 参照の数え方はこの1つ（設定の確かめ・配信前チェック・ゲームの候補の確かめ・ゲームの切り替え。処理のコピー PR5）。
 function commandFileRefs(config) {
   const refs = [];
   const add = (where, value, { honorsEnabled = false } = {}) => {
@@ -63,7 +64,8 @@ function commandFileRefs(config) {
     if (String(commandFile ?? "").trim()) refs.push({ where, commandFile: String(commandFile).trim() });
   };
   const list = value => (Array.isArray(value) ? value : []);
-  for (const m of list(config?.mappings)) add(`ギフト割り当て（${m?.name || m?.giftId || "名前なし"}）`, m);
+  // 無効のギフト割り当ては BRIDGE も動かさない（数えるのはゲームの数え方だけ。2026-10-22 ユーザーの決定）。
+  for (const m of list(config?.mappings)) add(`ギフト割り当て（${m?.name || m?.giftId || "名前なし"}）`, m, { honorsEnabled: true });
   for (const ev of list(config?.likeEvents)) add(`いいね（${ev?.threshold ?? "?"}いいねごと）`, ev, { honorsEnabled: true });
   for (const [key, label] of [["shareEvent", "シェア"], ["followEvent", "フォロー"], ["memberEvent", "訪問"], ["unmappedGiftEvent", "未設定ギフト"]]) {
     add(label, config?.[key], { honorsEnabled: true });
