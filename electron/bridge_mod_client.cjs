@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const { bridgeModTokenPath, withBridgeModToken } = require("../bridge/bridge_mod_token.cjs");
 const { usesBridgeModTransport } = require("../bridge/command_files.cjs");
+const { bridgeModEndpoint } = require("../bridge/config_defaults.cjs");
 const { assertGameCommands } = require('./game_command_scope.cjs');
 
 // サーバーと BRIDGE の子プロセスは main・server_process が持つので、呼ばれたときに読む関数で受け取る。
@@ -15,8 +16,8 @@ function createBridgeModClient({ getConfigPath, getServerRoot, stopRequests, sel
     return new Promise((resolve, reject) => {
       let cfg = configOverride || {};
       if (!configOverride) try { cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch {}
-      const host = cfg.options?.bridgeModHost || cfg.options?.doumaModHost || "127.0.0.1";
-      const port = Number(cfg.options?.bridgeModPort || cfg.options?.doumaModPort || 25576);
+      // 接続先の読み方は BRIDGE と同じ bridge/config_defaults.cjs（前はホストの前後の空白を除かなかった。処理のコピー PR4）。
+      const { host, port } = bridgeModEndpoint(cfg.options);
       const data = body ? Buffer.from(JSON.stringify(body)) : null;
       // BridgeMOD はサーバー起動ごとのトークンがない要求を 403 で拒否する。
       const headers = withBridgeModToken(bridgeModTokenPath(getServerRoot()),

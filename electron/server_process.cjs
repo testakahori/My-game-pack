@@ -3,6 +3,7 @@
 const path = require("path");
 const fs = require("fs");
 const { isConsoleStop } = require("./stop_requests.cjs");
+const { bridgeCommandsDir, bridgeModEndpoint } = require("../bridge/config_defaults.cjs");
 
 // MAP の保存・BridgeMOD との通信は、あとで main で作られるので、呼ばれたときに読む関数で受け取る。
 function createServerProcess({
@@ -87,7 +88,7 @@ function createServerProcess({
     // インストール版はどちらもサーバーフォルダーなので渡さない（利用者の環境に残っていても消す）。
     const serverEnv = { ...process.env, NO_PAUSE: "1" };
     if (app.isPackaged) delete serverEnv.BRIDGE_MOD_COMMANDS_DIR;
-    else serverEnv.BRIDGE_MOD_COMMANDS_DIR = path.join(getBridgeBatDir(), "commands", "minecraft");
+    else serverEnv.BRIDGE_MOD_COMMANDS_DIR = bridgeCommandsDir(getBridgeBatDir());
     const proc = spawn("cmd.exe", ["/c", bat], {
       cwd: dir,
       windowsHide: true,
@@ -114,7 +115,7 @@ function createServerProcess({
     let modReady = false, modAuthFailed = false;
     try {
       const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8"));
-      const host = String(cfg.options?.bridgeModHost || cfg.options?.doumaModHost || "127.0.0.1").toLowerCase();
+      const host = bridgeModEndpoint(cfg.options).host.toLowerCase();
       if (["127.0.0.1", "localhost", "::1"].includes(host)) {
         const status = await requestBridgeMod("GET", "/bridge/status");
         modReady = status.ok === true && Number.isFinite(status.tps) && typeof status.player?.online === "boolean";

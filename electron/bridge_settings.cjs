@@ -10,6 +10,7 @@ const { runPreflight } = require("./preflight.cjs");
 const { atomicWrite } = require("./settings_backups.cjs");
 const { commandFileProblem, isTxtName } = require("../bridge/command_files.cjs");
 const { parseCommandText } = require("../bridge/command_text.cjs");
+const { bridgeCommandsDir } = require("../bridge/config_defaults.cjs");
 const { availableGameCommands, assertGameCommands } = require("./game_command_scope.cjs");
 const { checkEngine } = require("./tts.cjs");
 
@@ -31,9 +32,8 @@ function createBridgeSettings({
     const configPath = getConfigPath();
     ensureConfigExists(configPath);
 
-    // commandsDir を常にセットアップフォルダ内の絶対パスに固定
-    const bridgeDir = getBridgeBatDir();
-    const commandsDirAbs = path.join(bridgeDir, "commands", "minecraft");
+    // commandsDir を常にセットアップフォルダ内の絶対パスに固定（場所の決め方は BRIDGE と同じ bridge/config_defaults.cjs）
+    const commandsDirAbs = bridgeCommandsDir(getBridgeBatDir());
     // 確かめを通った値なので、今の決まりの版を書く（画面が送る設定に版が無くても、次の起動で手で書き換えた値を黙って直さないように）。
     const merged = { ...nextConfig, configVersion: CONFIG_VERSION };
     if (merged.options) {
@@ -89,7 +89,7 @@ function createBridgeSettings({
   // bridge/commands/minecraft/ 内の .txt ファイル一覧
   // --------------------
   function selectableCommandNames() {
-    const dir = path.join(getBridgeBatDir(), 'commands', 'minecraft');
+    const dir = bridgeCommandsDir(getBridgeBatDir());
     if (!fs.existsSync(dir)) return [];
     const names = fs.readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isFile()).map(entry => entry.name);
     return availableGameCommands(names, gameProfiles.list()).sort();
@@ -99,7 +99,7 @@ function createBridgeSettings({
   // bridge/commands/minecraft/ の TITLE + CATEGORY + 説明文 メタ情報一覧
   // --------------------
   function readCommandMetadata() {
-    const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
+    const dir = bridgeCommandsDir(getBridgeBatDir());
     if (!fs.existsSync(dir)) return [];
     const files = selectableCommandNames();
     return files.map((name) => {
@@ -147,7 +147,7 @@ function createBridgeSettings({
     ipcMain.handle("config:giftMapping:save", (_event, request) => {
       const configPath = getConfigPath();
       ensureConfigExists(configPath);
-      const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
+      const dir = bridgeCommandsDir(getBridgeBatDir());
       const names = selectableCommandNames();
       const next = updateGiftMapping(JSON.parse(fs.readFileSync(configPath, "utf8")), request, names);
       // Keep read / compare / write synchronous so another IPC cannot interleave.
@@ -170,7 +170,7 @@ function createBridgeSettings({
     ipcMain.handle("preflight:run", () => {
       if (!preflightTask) preflightTask = runPreflight({
         configPath: getConfigPath(), serverRoot: getServerRoot(),
-        commandsDir: path.join(getBridgeBatDir(), "commands", "minecraft"),
+        commandsDir: bridgeCommandsDir(getBridgeBatDir()),
         giftsPath: getGiftsMinPath(), giftsMetaPath: getGiftsMetaPath(),
         modStatus: async () => { try { return { ...(await requestBridgeMod("GET", "/bridge/status")), online: true }; } catch (e) { return { online: false, authFailed: e?.authFailed === true, error: e?.message || "" }; } },
         bridgeStatus: () => {
@@ -211,7 +211,7 @@ function createBridgeSettings({
       const nameProblem = commandFileProblem(filename);
       if (nameProblem) throw new Error(nameProblem);
       if (Buffer.byteLength(content, "utf8") > 1024 * 1024) throw new Error("command file is too large (max 1MB)");
-      const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
+      const dir = bridgeCommandsDir(getBridgeBatDir());
       fs.mkdirSync(dir, { recursive: true });
       const fullPath = path.join(dir, filename);
       if (fs.existsSync(getConfigPath())) settingsBackups.create("automatic");
@@ -223,7 +223,7 @@ function createBridgeSettings({
     // IPC: bridge/commands/minecraft/ をエクスプローラーで開く
     // --------------------
     ipcMain.handle("bridge:commands:openFolder", async () => {
-      const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
+      const dir = bridgeCommandsDir(getBridgeBatDir());
       fs.mkdirSync(dir, { recursive: true });
       await shell.openPath(dir);
       return { ok: true };

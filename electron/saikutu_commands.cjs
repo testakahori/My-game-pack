@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { bridgeCommandsDir } = require('../bridge/config_defaults.cjs');
 // 採掘へ移したコマンド。最初の14件と、2026-10-12 に移した採掘速度上昇・低下（give_haste・give_fatigue）。
 const KEYS = Object.freeze(["randomtp","skytrap","cataclysm","iceage","flood","maguma_jigoku","fissure","otosiana","tntdaibakuhatu","get_ender_pearl","get_iron_pickaxe","get_tree","get_water_backet","pikkerubossyuu","give_haste","give_fatigue"]);
 const FILES = new Set(KEYS.map(key => key + '.txt'));
@@ -23,7 +24,7 @@ function withoutLegacy(value) {
 }
 // Move only the former bundled commands listed in KEYS; keep their original text for recovery.
 function retireCommands(bridgeRoot) {
-  const dir = path.join(bridgeRoot,'commands','minecraft');
+  const dir = bridgeCommandsDir(bridgeRoot);
   const found = KEYS.map(key => key + '.txt').filter(name => fs.existsSync(path.join(dir,name)));
   if (!found.length) return;
   const backup = path.join(bridgeRoot,'.retired-saikutu-commands',crypto.randomUUID());

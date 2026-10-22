@@ -49,3 +49,16 @@ test('既定値の写し: BRIDGE は既定値・コマンドの場所・接続�
   }
   assert.match(fs.readFileSync(path.resolve(__dirname, '../../bridge/index.js'), 'utf8'), /既定値は bridge\/config_defaults\.json/);
 });
+
+test('既定値の写し: アプリは雛形・コマンドの場所・BridgeMOD の接続先を自分で持たず config_defaults を使う', () => {
+  const read = file => fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
+  const files = fs.readdirSync(path.resolve(__dirname, '..')).filter(name => name.endsWith('.cjs')).map(name => 'electron/' + name).concat(['vite.config.ts', 'scripts/prepare-bridge-runtime.cjs']);
+  for (const file of files) {
+    const source = read(file);
+    assert.doesNotMatch(source, /["']commands["']\s*,\s*["']minecraft["']/, file + ' にコマンドの場所の写しがある');
+    assert.doesNotMatch(source, /(bridgeModHost|doumaModHost|bridgeModPort|doumaModPort)\s*\|\|/, file + ' に BridgeMOD の接続先の写しがある');
+    assert.doesNotMatch(source, /giftCooldownMs:\s*300/, file + ' に雛形の写しがある');
+  }
+  assert.match(read('electron/paths.cjs'), /newBridgeConfig\(\)/);
+  assert.match(read('scripts/prepare-bridge-runtime.cjs'), /newBridgeConfig\(\)/);
+});

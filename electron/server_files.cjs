@@ -2,6 +2,7 @@
 // main.cjs から分けた（2026-10-17 設計書 docs/superpowers/specs/2026-10-17-main-split-design.md）。electron は読み込まず、BridgeMOD との通信は main から受け取る。
 const path = require("path");
 const fs = require("fs");
+const { bridgeCommandsDir } = require("../bridge/config_defaults.cjs");
 
 // サーバーの子プロセス・MAP の作業中・BridgeMOD との通信は、あとで main で作られるので、呼ばれたときに読む関数で受け取る。
 function createServerFiles({ getServerRoot, getBridgeBatDir, readAppConfig, assertMapIdle, serverChild, waitForBridgeMod, requestBridgeMod }) {
@@ -36,7 +37,7 @@ function createServerFiles({ getServerRoot, getBridgeBatDir, readAppConfig, asse
       if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) {
         throw new Error("マイクラIDが未設定か形式が不正です（英数字と_で3〜16文字）。ダッシュボードで保存してください。");
       }
-      const dir = path.join(getBridgeBatDir(), "commands", "minecraft");
+      const dir = bridgeCommandsDir(getBridgeBatDir());
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, "_op.txt"), `# TITLE: OP付与\nop ${name}\n`, "utf8");
       try {

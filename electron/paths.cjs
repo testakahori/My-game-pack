@@ -3,6 +3,7 @@
 // app・process・appDir（main.cjs の __dirname）は main から受け取る。テストは main.cjs を一時フォルダーで動かすので、自分の __dirname は使わない。
 const path = require("path");
 const fs = require("fs");
+const { newBridgeConfig } = require("../bridge/config_defaults.cjs");
 
 function createPaths({ app, process, appDir, readAppConfig }) {
   // ✅ 重要：dev/prod ではなく「パッケージ済みか」で分岐する
@@ -72,27 +73,8 @@ function createPaths({ app, process, appDir, readAppConfig }) {
 
     // options/likeEvents/各種イベントを欠いた最小configだと、config:write の commandsDir矯正
     // （options が無いと発火しない）や各イベントの既定動作が効かなくなるため、完全な形で書き出す。
-    const defaultConfig = {
-      tiktokUsername: "",
-      rcon: { host: "127.0.0.1", port: 25575, password: "" },
-      mappings: [],
-      likeEvents: [],
-      unmappedGiftEvent: { commandFile: "", repeat: 1, enabled: false },
-      shareEvent: { commandFile: "", repeat: 1, enabled: false },
-      followEvent: { commandFile: "", repeat: 1, enabled: false },
-      memberEvent: { commandFile: "", repeat: 1, enabled: false },
-      options: {
-        giftCooldownMs: 300,
-        maxCommandsPerGift: 200,
-        commandTransport: "bridge_mod",
-        bridgeModHost: "127.0.0.1",
-        bridgeModPort: 25576,
-        maxLikeCatchUpPerEvent: 5,
-        logUnknownGifts: true,
-      },
-    };
-
-    fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2), "utf-8");
+    // 雛形は bridge/config_defaults.cjs の1か所（配布の準備 scripts/prepare-bridge-runtime.cjs と同じ。処理のコピー PR4）。
+    fs.writeFileSync(configPath, JSON.stringify(newBridgeConfig(), null, 2), "utf-8");
   }
 
   // テンプレートパス（常にバンドル版を返す）
