@@ -933,8 +933,11 @@ test("設定保存: 旧版で保存した使えない名前の割り当ては残
   assert.equal((await app.invoke("config:read")).tiktokUsername, "another_id");
   const check = await app.invoke("config:validate", { ...legacy, tiktokUsername: "another_id" });
   assert.equal(check.ok, true); assert.ok(check.warnings.some(w => w.includes("ネコ.txt")));
-  // 別のギフトへ新しく割り当てるのは保存前に止める。
-  await assert.rejects(app.invoke("config:mappings:write", [...legacy.mappings, { giftId: "1", name: "ハート", commandFile: "ネコ.txt", repeat: 1 }]), /ハート.*半角英数字/s);
+  // 「新しいか」はコマンドの名前で決める（2026-10-18 設計書の 7）。保存済みの名前を別のギフトへ割り当てるのは止めず、保存済みに無い名前は保存前に止める。
+  fs.writeFileSync(path.join(app.root, "bridge", "commands", "minecraft", "イヌ.txt"), "say inu\n");
+  await assert.rejects(app.invoke("config:mappings:write", [...legacy.mappings, { giftId: "1", name: "ハート", commandFile: "イヌ.txt", repeat: 1 }]), /ハート.*半角英数字/s);
+  await app.invoke("config:mappings:write", [...legacy.mappings, { giftId: "1", name: "ハート", commandFile: "ネコ.txt", repeat: 1 }]);
+  assert.equal((await app.invoke("config:read")).mappings.length, 2);
   // コマンドの一覧には使えない名前の印を付ける。title はルーレット名・ギフト画像に使われるので変えない。
   const meta = await app.invoke("bridge:commands:readMeta");
   const listed = meta.find(row => row.name === "ネコ.txt");
@@ -1086,7 +1089,8 @@ test("ギフトテンプレートIPC: 確認後に割り当てのみ適用し、
   const backups = await app.invoke('settings:backups:list');
   assert.equal(backups.length, 1);
   await app.invoke('settings:backups:restore', backups[0].id);
-  assert.deepEqual(JSON.parse(fs.readFileSync(app.configPath, 'utf8')), before);
+  // 戻した設定には、今の決まりで確かめた印の版の番号が付く（2026-10-18 設計書の 7）。
+  assert.deepEqual(JSON.parse(fs.readFileSync(app.configPath, 'utf8')), { ...before, configVersion: 2 });
 });
 
 

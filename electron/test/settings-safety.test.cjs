@@ -67,6 +67,26 @@ test("未完成の設定もバックアップでき、修正後に元の状態�
   assert.deepEqual(read(p.config).mappings, unfinished.mappings);
 });
 
+// 一覧の「問題の数」は、戻したときに書く設定（今のつなぎ方を戻し、古い版の値を直したもの）で数える（2026-10-18 設計書の 7）。
+test("設定バックアップの一覧: 戻したときの設定で問題を数える（警告と、戻すときに直る値は数えない）", t => {
+  const { p, cfg, store } = fixture(t);
+  const issues = config => { write(p.config, config); const row = store.create(); write(p.config, cfg); return store.list().find(r => r.id === row.id).issues; };
+  assert.equal(issues({ ...cfg, mappings: [{ giftId: "1", name: "ネコ", commandFile: "ネコ.txt" }] }), 0);
+  assert.equal(issues({ ...cfg, mappings: [{ giftId: "5655", commandFile: "rose.txt", repeat: 2.5 }] }), 0);
+  assert.equal(issues({ ...cfg, tiktokUsername: "foo-bar" }), 1);
+});
+
+test("設定復元: 古い版のバックアップの回数（2.5 など）は戻すときに直す", t => {
+  const { p, cfg, store } = fixture(t);
+  write(p.config, { ...cfg, mappings: [{ giftId: "5655", commandFile: "rose.txt", repeat: 2.5 }], likeEvents: [{ threshold: 0, commandFile: "rose.txt" }] });
+  const row = store.create();
+  write(p.config, cfg);
+  store.restore(row.id);
+  const restored = read(p.config);
+  assert.deepEqual([restored.mappings[0].repeat, restored.likeEvents[0].threshold, restored.configVersion], [3, 1, 2]);
+  assert.equal(validateBridgeConfig(restored).ok, true);
+});
+
 test("設定復元: 起動中・破損・別サーバー・パス脱出は書き込み前に拒否", t => {
   const { p, store, deps } = fixture(t);
   const row = store.create();

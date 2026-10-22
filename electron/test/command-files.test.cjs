@@ -28,14 +28,15 @@ const config = (extra = {}) => ({
 });
 
 test('アプリの保存では、新しく割り当てた使えない名前を場所付きのエラーにする', () => {
-  const result = validateForSave(config());
+  // アプリの保存は保存済みの設定（無ければ null）を previous に渡す。保存済みに無い名前はエラー。
+  const result = validateForSave(config(), { previous: [null] });
   assert.equal(result.ok, false);
   const text = result.errors.join('\n');
   for (const where of ['ギフト割り当て（バラ）', 'フォロー', 'ルーレット項目（当たり）', 'コンボ（10連）', 'コメントコマンド（「!猫」）']) assert.ok(text.includes(where), where);
   assert.ok(!text.includes('いいね（10いいねごと）'));
   assert.equal(commandFileRefs(config()).length, 9);
   // RCON はファイルを直接読むので名前の制限は掛けない。
-  assert.equal(validateForSave(config({ options: { commandTransport: 'rcon' } })).ok, true);
+  assert.equal(validateForSave(config({ options: { commandTransport: 'rcon' } }), { previous: [null] }).ok, true);
 });
 
 test('無効にしてある設定は、Bridgeと同じく発火しないので検査しない', () => {
@@ -48,7 +49,7 @@ test('無効にしてある設定は、Bridgeと同じく発火しないので�
     options: { commandTransport: 'bridge_mod', gameplay: { poll: { enabled: false, options: { 1: 'ねこ.txt' } } } },
   });
   assert.deepEqual(commandFileRefs(disabled), []);
-  assert.equal(validateForSave(disabled).ok, true);
+  assert.equal(validateForSave(disabled, { previous: [null] }).ok, true);
   // ギフト割り当て・コンボ・ルーレット項目は Bridge が enabled を見ずに発火するので、enabled:false でも数える。
   const ignoredFlag = config({ mappings: [{ enabled: false, giftId: '1', name: 'ハート', commandFile: 'ねこ.txt' }],
     roulette: { enabled: true, items: [{ enabled: false, label: '外れ', commandFile: 'あたり.txt' }] },
@@ -63,12 +64,13 @@ test('前から保存されていた割り当ては警告に留め、一括起�
   const result = validateForSave({ ...saved, tiktokUsername: 'changed' }, { previous: [saved] });
   assert.equal(result.ok, true);
   assert.ok(result.warnings.some(w => w.includes('ギフト割り当て（バラ）') && w.includes('実行されません')));
-  // 同じ名前でも、新しい場所への割り当てはエラーにする。
-  const added = { ...saved, mappings: [...saved.mappings, { giftId: '1', name: 'ハート', commandFile: 'ネコ.txt' }] };
+  // 「新しいか」はコマンドの名前で決める（2026-10-18 設計書の 7）。保存済みの名前を別の場所へ割り当てても警告、保存済みに無い名前はエラー。
+  const added = { ...saved, mappings: [...saved.mappings, { giftId: '1', name: 'ハート', commandFile: 'ネコ.txt' }, { giftId: '2', name: 'スター', commandFile: 'イヌ.txt' }] };
   const next = validateForSave(added, { previous: [saved] });
   assert.equal(next.ok, false);
-  assert.ok(next.errors.some(e => e.includes('ギフト割り当て（ハート）')));
-  assert.ok(!next.errors.some(e => e.includes('ギフト割り当て（バラ）')));
+  assert.ok(next.errors.some(e => e.includes('ギフト割り当て（スター）')));
+  assert.ok(!next.errors.some(e => e.includes('ギフト割り当て（ハート）') || e.includes('ギフト割り当て（バラ）')));
+  assert.ok(next.warnings.some(w => w.includes('ギフト割り当て（ハート）')));
 });
 
 test('Bridgeの起動・再読込では警告に留め、Bridge自体は起動できる', () => {
