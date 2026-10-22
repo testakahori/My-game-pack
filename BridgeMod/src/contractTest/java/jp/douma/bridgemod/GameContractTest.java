@@ -7,7 +7,7 @@ public class GameContractTest {
     public static void main(String[] args) throws Exception {
         Path root = Path.of(args[0]);
         Files.writeString(root.resolve("zombie.txt"),"common");
-        for (String game : List.of("saikutu","run","umetate")) {
+        for (String game : CommandRouting.GAME_IDS) {
             Path file = root.resolve("game_"+game+"_otosiana.txt"); Files.writeString(file,"game");
             check(CommandRouting.resolve(root,"otosiana").equals(file));
             check(CommandRouting.resolve(root,"game_"+game+"_otosiana").equals(file));

@@ -55,11 +55,20 @@ public final class GameEvents {
         return Collections.unmodifiableMap(copy);
     }
     private GameEvents() {}
+    /** ゲーム MOD の ID に使えない名前（アプリの MOD と、前の名前）。 */
+    public static final Set<String> RESERVED_MOD_IDS = Set.of("bridgemod", "displaymod", "doumacmd");
+    /**
+     * ゲーム MOD の ID の決まり（アプリ・BRIDGE の bridge/game_commands.cjs の isGameModId と同じ。scripts/test-bridge-contracts.cjs で比べる）。
+     * 前は予約名を断らず、null を渡すと NullPointerException になっていた（処理のコピー PR6）。
+     */
+    public static boolean isGameModId(String id) {
+        return id != null && id.matches("[a-z][a-z0-9_]{1,63}") && !RESERVED_MOD_IDS.contains(id);
+    }
     public static void register(String id, Function<Map<String, Object>, Integer> receiver,
                                 Supplier<Map<String, Object>> status) {
         Objects.requireNonNull(receiver);
         Objects.requireNonNull(status);
-        if (!id.matches("[a-z][a-z0-9_]{1,63}") || RECEIVERS.putIfAbsent(id, receiver) != null)
+        if (!isGameModId(id) || RECEIVERS.putIfAbsent(id, receiver) != null)
             throw new IllegalArgumentException("Duplicate or invalid game MOD: " + id);
         STATUS.put(id, status);
     }
