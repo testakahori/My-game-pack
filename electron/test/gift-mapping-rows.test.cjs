@@ -21,3 +21,12 @@ test('ギフト設定の画面: 設定から読んで書き戻しても enabled:
   assert.equal(rows.length, 2, 'giftId の無い行は出さない');
   assert.deepEqual(toConfigMappings(rows), [{ giftId: '1', name: 'バラ', commandFile: 'a.txt', repeat: 2, enabled: false }, { giftId: '2', name: '2', commandFile: 'b.txt', repeat: 1 }]);
 });
+
+// 実際に使うギフト設定の画面（一覧・カタログ・MappingEditor）は、この行の giftId で同じギフトかを決める（PR5 の最終レビュー）。
+// 空白の付いた保存済みの " 5655 " を「未設定」と出し、カタログから 5655 を選ぶと同じギフトの行がもう1行できていた。
+test('ギフト設定の画面: giftId の前後の空白を除いて読み、書くときも除く', () => {
+  const rows = fromConfigMappings({ mappings: [{ giftId: ' 5655 ', name: 'バラ', commandFile: 'a.txt', repeat: 1 }] }, () => 'id');
+  assert.equal(rows[0].giftId, '5655');
+  assert.equal(rows[0].name, 'バラ');
+  assert.equal(toConfigMappings([{ ...rows[0], giftId: ' 5655 ' }])[0].giftId, '5655');
+});

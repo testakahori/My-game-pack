@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { availableGameCommands, assertGameCommands } = require('../game_command_scope.cjs');
+const { availableGameCommands, assertGameCommands, assertGameCommandFile } = require('../game_command_scope.cjs');
 const names = ['zombie.txt', 'cod.txt', 'roulette.txt', 'get_ender_pearl.txt', 'game_saikutu_get_ender_pearl.txt', 'game_run_race.txt', 'game_umetate_fill.txt', '_gamerules.txt'];
 const status = active => ({ active, applied: true, recoveryRequired: false });
 test('ゲーム保存前・復旧中には候補を返さず設定も保存できない', () => {
@@ -41,4 +41,11 @@ test('BRIDGE が動かさない設定は確かめず、名前は .txt・前後�
 
 test('大文字の拡張子（TNT.TXT）のコマンドも候補に出す（.txt は大文字小文字を問わない。2026-10-18）', () => {
   assert.ok(availableGameCommands(['TNT.TXT', 'zombie.txt'], status('common')).includes('TNT.TXT'));
+});
+
+// 1つのコマンドだけを確かめる（テスト発火の「ギフト（コマンド直接）」が使う。PR5 の最終レビュー）。
+test('1つのコマンドの確かめ: 候補にない名前は場所の名前付きで止め、.txt・前後の空白・大文字小文字は区別しない', () => {
+  assert.throws(() => assertGameCommandFile('game_saikutu_get_ender_pearl.txt', names, status('common'), 'テスト発火'), /使えないコマンドです: game_saikutu_get_ender_pearl\.txt（テスト発火）/);
+  assert.doesNotThrow(() => assertGameCommandFile(' COD ', names, status('common'), 'テスト発火'));
+  assert.throws(() => assertGameCommandFile('cod.txt', names, null, 'テスト発火'), /TOP/);
 });

@@ -19,12 +19,21 @@ function assertGameCommands(config, names, status) {
   assertGameReady(status);
   if ((config?.gameProfile || 'common') !== status.active) throw new Error('ゲームが切り替わっています。設定画面を開き直してください。');
   // 確かめるのは BRIDGE が動かしうる参照だけ（command_files.cjs の commandFileRefs の1か所。処理のコピー PR5）。
-  // 名前は .txt を付けて、大文字小文字を区別せずに比べる（BRIDGE・BridgeMOD と同じ）。
-  const available = new Set(availableGameCommands(names, status).map(name => name.toLowerCase()));
-  for (const ref of commandFileRefs(config)) {
-    if (!available.has(ensureTxt(ref.commandFile).toLowerCase())) {
-      throw new Error('選択したゲームでは使えないコマンドです: ' + ref.commandFile + '（' + ref.where + '）。TOPでゲームを確認してください。');
-    }
+  const available = availableSet(names, status);
+  for (const ref of commandFileRefs(config)) checkCommandFile(ref.commandFile, available, ref.where);
+}
+// 名前は .txt を付けて、大文字小文字を区別せずに比べる（BRIDGE・BridgeMOD と同じ。処理のコピー PR5）。
+function availableSet(names, status) {
+  return new Set(availableGameCommands(names, status).map(name => name.toLowerCase()));
+}
+function checkCommandFile(commandFile, available, where) {
+  if (!available.has(ensureTxt(commandFile).toLowerCase())) {
+    throw new Error('選択したゲームでは使えないコマンドです: ' + commandFile + '（' + where + '）。TOPでゲームを確認してください。');
   }
 }
-module.exports = { assertGameReady, availableGameCommands, assertGameCommands };
+// 設定の外で1つのコマンドだけを確かめる（テスト発火の「ギフト（コマンド直接）」。PR5 の最終レビュー）。
+function assertGameCommandFile(commandFile, names, status, where) {
+  assertGameReady(status);
+  checkCommandFile(String(commandFile ?? '').trim(), availableSet(names, status), where);
+}
+module.exports = { assertGameReady, availableGameCommands, assertGameCommands, assertGameCommandFile };
