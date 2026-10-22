@@ -354,7 +354,10 @@
        - `npm run verify`：アプリ 549/549、BRIDGE 15/15、型チェック・ビルドが通る。
        - レビュー役が判断を任せたもの（私が決めた）：送り先が 7dtd の設定に `commandsDir` が無いと既定が `commands/minecraft` になる（同梱の `config.7dtd.json` は `commands/7dtd` を書いているので影響なし）。ゲームの設定の中の既定値（`feature_engine.js`）・画面の案内の文言・`command_files.cjs` の `transport || "rcon"` は対象にしない。範囲外の値の表示と丸めの違い・保存先を移したときの絶対パス・ジャンクションでの `__dirname` のずれ・配信前チェックが `target.rcon` を見ない件は前からの動きのまま。
      - PR4 は CI（3つとも通った）のあと、ユーザーの許可を得てマージした（PR #121、マージコミット d2b79a8）。
-     - **次にやること**：PR5（参照の数え方・ギフト割り当て・ゲーム ID など。設計書の 6・10 と、3 の小さい関数の重複）の計画を書いてユーザーの承認を得る。ブランチ `fix/logic-copies-5`（main の d2b79a8 から切った）。
+     - PR5 の前に今のコードを調べた（10-22、読むだけの調べ役3つ）。参照の数え方は4つとも違う（文字列で書いたコメントコマンドを数えるのは `command_files.cjs` だけ、`enabled: false` の見方もばらばらで、BRIDGE は無効のギフト割り当ても動かす）。ギフト割り当ての整え方は設計書の5つのほかに、ギフト設定の画面（保存のたびに `enabled` を落とす）。ゲーム ID の一覧は JS に3つ・正規表現に5か所・Java に2つ。音・粒子の ID は JS と DisplayMOD で決まりが違う。PR1 のレビューの残り（`foo.txt.txt`・ルーレットの判定の大文字小文字・Shift_JIS・`missing()`・画面の写し）はまだある。`../x.txt` は名前の確かめを通るが、RCON の本番の経路は外を読まない（HANDOFF の前の書き方は言い過ぎ）。
+     - ユーザーの決定（10-22）：残りを3本に分ける。PR5 は参照の数え方・無効の扱い・ギフト割り当て・小さい関数。PR6 はゲーム ID・ゲーム専用の判定・MOD ID とパックの key（Java との契約テスト）。PR7 は音・粒子の ID と前から残っている問題・画面の写し。手で `enabled: false` にしたギフト割り当ては、コマンドを撃たず未設定ギフトにも回さないが、ゲームの数え方（上位者・コンボ・時限倍率）には入れる（コマンドのないコンボの段は撃たない）。
+     - PR5 の計画：`docs/superpowers/plans/2026-10-22-logic-copies-pr5.md`（10-22 に書いた。ユーザーの承認待ち）。ブランチ `fix/logic-copies-5`（main の d2b79a8 から切った）。
+     - **次にやること**：PR5 の計画をユーザーに見てもらい、承認と進め方を聞く。承認されたら実装 → `npm run verify` → 最終レビュー → PR → CI → ユーザーの許可を得てマージ。そのあと PR6・PR7。
      - PR1 のレビューで見つけた前からの問題（直していない。PR3・PR4 か別の PR で）：`foo.txt.txt` は BRIDGE が `foo.txt` を送り、MOD がもう一度 `.txt` を除くので `foo.txt` を実行する。設定に `../x.txt` と書くと名前の確かめを通り、RCON の経路と条件だけ確認でコマンドのフォルダーの外を読む。`bridge/index.js:1456` のルーレットの判定 `=== "roulette"` は大文字小文字を区別する（`roulette.cjs` は区別しない）。Shift_JIS の txt は JS が U+FFFD にして読み、MOD は読めない。`gift_templates.cjs:45` の `missing()` は名前を大文字小文字まで比べる。TXT の書き込みのゲームパックの判定は大文字小文字を区別する。electron が読む `../bridge/*.cjs` が `build.files` に全部あるかを確かめるテストがない。`src/` に残る写し（`CommandSetManager.tsx`・`CommandsListPage.tsx`・`EventSettings2Page.tsx`・`ImageEditorPage.tsx`）は、設計書 3 のとおり画面が決まりを持たない形に PR3・PR4 でそろえる。
    - リリース手順が2つ
 
