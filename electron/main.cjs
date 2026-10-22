@@ -204,7 +204,11 @@ app.whenReady().then(() => {
   consumeInstallerSetupReset();
   pruneOperationsHistoryOldRows(30);
   installProdOnlyCsp();
+  // 古い版で保存した設定は、画面が読む前に1回だけ直す。直せなくても起動は止めない（2026-10-18 設計書の 7）。
+  let configMigration = { changes: [] };
+  try { configMigration = bridgeSettings.migrateSavedConfigOnStartup(); } catch (e) { console.error("[Config] 保存済みの設定を直せませんでした:", e?.message || e); }
   createWindow();
+  bridgeSettings.notifyConfigMigration(configMigration.changes).catch(e => console.warn("[Config]", e?.message || e));
   scheduleBridgeSync();
   setTimeout(() => autoUpdateGiftsIfStale().catch(e =>
     console.warn("[gifts:auto-update]", e?.message || e)), 5000);

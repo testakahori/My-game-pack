@@ -564,6 +564,27 @@ test('プリセット: 設定を名前を付けて保存し、一覧に出し、
   assert.throws(() => app.invoke('presets:load', 'missing.json'), /プリセットがありません/);
 });
 
+// 古い設定を読み込む所は、保存済みの設定と同じ直しを通してから確かめる（2026-10-18 設計書の 7）。
+test('プリセット: 古い版で保存したプリセット（回数 2.5 など）も、読み込むときに直して読み込める', async t => {
+  const app = loadApp(t);
+  app.invoke('presets:save', 'old');
+  const file = path.join(path.dirname(app.configPath), 'presets', 'old.json');
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), mappings: [{ giftId: '5655', name: 'バラ', commandFile: 'zombie.txt', repeat: 2.5 }] }));
+  assert.equal(app.invoke('presets:load', 'old.json').config.mappings[0].repeat, 3);
+  const saved = await app.invoke('config:read');
+  assert.deepEqual([saved.mappings[0].repeat, saved.configVersion], [3, 2]);
+});
+
+test('起動: 保存済みの設定の直しは画面が設定を読む前（createWindow の前）に行い、知らせはウィンドウを出したあと', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../main.cjs'), 'utf8');
+  const ready = source.slice(source.indexOf('app.whenReady()'));
+  const at = text => { const index = ready.indexOf(text); assert.ok(index >= 0, text); return index; };
+  assert.ok(at('migrateSavedConfigOnStartup()') < at('createWindow();'));
+  assert.ok(at('createWindow();') < at('notifyConfigMigration('));
+  const panel = fs.readFileSync(path.resolve(__dirname, '../../src/components/SettingsBackupsPanel.tsx'), 'utf8');
+  assert.match(panel, /reason === "migration" \? "更新で直す前の自動保存"/);
+});
+
 test('Minecraft の起動: アプリ設定で指定したランチャーを、切り離した子プロセスで開く', async t => {
   const app = loadApp(t);
   const launcher = path.join(app.root, 'MyLauncher.exe');

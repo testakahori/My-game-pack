@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createBridgeSettings } = require('../bridge_settings.cjs');
+const { validateBridgeConfig } = require('../../bridge/config_schema.js');
 
 function setup(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-settings-'));
@@ -17,22 +18,73 @@ function setup(t) {
   const configPath = path.join(bridge, 'config.minecraft.json');
   const config = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../bridge/config.minecraft.json'), 'utf8'));
   fs.writeFileSync(configPath, JSON.stringify({ ...config, tiktokUsername: 'akahoridouma', mappings: [] }));
-  const calls = [], state = { bridgeRunning: false }, handlers = new Map();
+  const calls = [], state = { bridgeRunning: false }, handlers = new Map(), dialogs = [], backedUp = [];
   const settings = createBridgeSettings({
-    app: { getVersion: () => '9.9.9' }, dialog: {}, shell: { openPath: async () => '' },
+    app: { getVersion: () => '9.9.9' }, shell: { openPath: async () => '' },
+    dialog: { showMessageBox: async options => { dialogs.push(options); return { response: 0 }; } },
     getConfigPath: () => configPath, ensureConfigExists: () => {}, getBridgeBatDir: () => bridge, getServerRoot: () => root,
     getGiftsMinPath: () => path.join(root, 'gifts.min.json'), getGiftsMetaPath: () => path.join(root, 'gifts.meta.json'),
     getInstalledBridgeRoot: () => root, getBridgeDir: () => bridge,
     gameProfiles: { list: () => ({ applied: true, recoveryRequired: false, active: 'common' }) },
     assertGameProfileIdle: () => calls.push('gameProfileIdle'),
-    settingsBackups: { create: kind => calls.push('backup:' + kind), list: () => [], restore: id => calls.push('restore:' + id) },
+    settingsBackups: { create: kind => { calls.push('backup:' + kind); backedUp.push(fs.readFileSync(configPath, 'utf8')); }, list: () => [], restore: id => calls.push('restore:' + id) },
     readTtsSettings: () => ({ enabled: false, engine: 'voicevox' }),
     requestBridgeMod: async (...args) => { calls.push('mod:' + args.join(' ')); return { ok: true }; },
     isBridgeRunning: () => state.bridgeRunning,
   });
   settings.register({ handle: (name, fn) => handlers.set(name, fn) });
-  return { bridge, configPath, calls, state, settings, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
+  return { bridge, configPath, calls, state, settings, dialogs, backedUp, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
 }
+
+// 保存済みの設定は、アプリの更新のときに1回だけ直す（2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 7）。
+test('保存済みの設定を更新のときに1回だけ直す: 直す前にバックアップを取って書き、知らせは1回。2回目は何もしない', async t => {
+  const x = setup(t);
+  const saved = JSON.parse(fs.readFileSync(x.configPath, 'utf8'));
+  fs.writeFileSync(x.configPath, JSON.stringify({ ...saved,
+    mappings: [{ giftId: '1', name: 'バラ', commandFile: 'zombie.txt', repeat: 2.5 }, { giftId: '2', name: 'ハート', commandFile: 'zombie.txt', repeat: '3' }, { giftId: '3', name: 'スター', commandFile: 'zombie.txt', repeat: 500 }],
+    likeEvents: [{ threshold: 0, commandFile: 'zombie.txt', repeat: 1 }] }));
+  const { changes } = x.settings.migrateSavedConfigOnStartup();
+  assert.equal(changes.length, 4, changes.join('\n'));
+  assert.deepEqual(x.calls, ['backup:migration']);
+  assert.match(x.backedUp[0], /"repeat":2\.5/, 'バックアップは直す前の設定');
+  const written = JSON.parse(fs.readFileSync(x.configPath, 'utf8'));
+  assert.deepEqual([...written.mappings.map(m => m.repeat), written.likeEvents[0].threshold, written.configVersion], [3, 3, 100, 1, 2]);
+  assert.deepEqual(validateBridgeConfig(written).errors, []);
+  await x.settings.notifyConfigMigration(changes);
+  assert.equal(x.dialogs.length, 1);
+  assert.equal(x.dialogs[0].title, '設定を直しました');
+  assert.match(x.dialogs[0].detail, /ギフト割り当て（バラ）の回数 2\.5 → 3/);
+  assert.match(x.dialogs[0].detail, /直す前の設定は「設定のバックアップ」から戻せます。$/);
+  x.calls.length = 0;
+  assert.deepEqual(x.settings.migrateSavedConfigOnStartup().changes, []);
+  assert.deepEqual(x.calls, [], '2回目はバックアップも取らない');
+  await x.settings.notifyConfigMigration([]);
+  assert.equal(x.dialogs.length, 1, '直したものがなければ知らせない');
+});
+
+test('保存済みの設定を直す: 知らせは10件まで（ほかは件数）', async t => {
+  const x = setup(t);
+  await x.settings.notifyConfigMigration(Array.from({ length: 12 }, (_, i) => `直したもの${i + 1}`));
+  assert.match(x.dialogs[0].detail, /直したもの10\nほか 2 件/);
+  assert.doesNotMatch(x.dialogs[0].detail, /直したもの11/);
+});
+
+test('保存済みの設定を直す: 直すものがなければバックアップなしで版だけ書く。設定が無い・読めないときは何もしない。保存はいつも版を書く', async t => {
+  const x = setup(t);
+  assert.deepEqual(x.settings.migrateSavedConfigOnStartup().changes, []);
+  assert.deepEqual(x.calls, []);
+  assert.equal(JSON.parse(fs.readFileSync(x.configPath, 'utf8')).configVersion, 2);
+  fs.writeFileSync(x.configPath, '{broken');
+  assert.deepEqual(x.settings.migrateSavedConfigOnStartup().changes, []);
+  assert.equal(fs.readFileSync(x.configPath, 'utf8'), '{broken');
+  fs.rmSync(x.configPath);
+  assert.deepEqual(x.settings.migrateSavedConfigOnStartup().changes, []);
+  assert.equal(fs.existsSync(x.configPath), false, '設定のファイルを作らない');
+  const y = setup(t);
+  const { configVersion, ...withoutVersion } = JSON.parse(fs.readFileSync(y.configPath, 'utf8'));
+  await y.invoke('config:write', withoutVersion);
+  assert.equal(JSON.parse(fs.readFileSync(y.configPath, 'utf8')).configVersion, 2);
+});
 
 test('BRIDGE の設定の保存: 先にゲームの切り替え中でないかを確かめ、中身が変わったときだけ自動バックアップを作る', async t => {
   const x = setup(t);

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import type { SettingsBackup } from "../types/electron";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 
-const reasonLabel = (reason: string) => reason === "manual" ? "手動保存" : reason === "before-restore" ? "復元前の自動保存" : "設定変更前の自動保存";
+const reasonLabel = (reason: string) => reason === "manual" ? "手動保存" : reason === "before-restore" ? "復元前の自動保存" : reason === "migration" ? "更新で直す前の自動保存" : "設定変更前の自動保存";
 export default function SettingsBackupsPanel({ onRestored }: { onRestored: () => void }) {
   const [rows, setRows] = useState<SettingsBackup[]>([]);
   const [selected, setSelected] = useState("");
