@@ -5,6 +5,7 @@ import MinecraftCommandIcon from "./MinecraftCommandIcon";
 import { useUnsavedChanges } from "../UnsavedChanges";
 import { commandOptionLabel } from "../lib/commandLabel";
 import { toRepeat } from "../lib/integerInput";
+import { findCommandFile, sameCommandFile } from "../lib/commandFiles";
 
 type Props = {
   mappings?: GiftMapping[];
@@ -46,7 +47,10 @@ const MappingEditor: React.FC<Props> = (props) => {
     return [...groups].sort(([a], [b]) => a.localeCompare(b, "ja"));
   }, [cmdFiles]);
   const visibleCommandGroups = useMemo(() => commandGroups.map(([category, files]) => ({ category, files: files.filter(file => (!commandCategoryFilter || category === commandCategoryFilter) && `${file.title} ${file.name} ${file.description || ""}`.toLowerCase().includes(commandQuery.trim().toLowerCase())) })).filter(group => group.files.length), [commandGroups, commandCategoryFilter, commandQuery]);
-  const selectedCommandVisible = visibleCommandGroups.some(group => group.files.some(file => file.name === selectedTxtName));
+  // 同じコマンドかは .txt の有無・大文字小文字を問わない（src/lib/commandFiles.ts。処理のコピー PR8）。
+  // 手で書いた Neko.TXT の割り当ても、一覧の neko.txt を選んだ形で出す（選択の値は一覧の名前）。
+  const selectedListedName = findCommandFile(cmdFiles, selectedTxtName)?.name ?? selectedTxtName;
+  const selectedCommandVisible = visibleCommandGroups.some(group => group.files.some(file => sameCommandFile(file.name, selectedTxtName)));
   const [listQuery, setListQuery]         = useState<string>("");
   const [giftImageMap, setGiftImageMap]   = useState<Record<string, string>>({});
   const [giftDiamondMap, setGiftDiamondMap] = useState<Record<string, number>>({});
@@ -58,11 +62,7 @@ const MappingEditor: React.FC<Props> = (props) => {
   const [savedSnapshot, setSavedSnapshot] = useState(currentSnapshot);
   useUnsavedChanges(currentSnapshot !== savedSnapshot, saving);
 
-  const titleMap = useMemo(() => {
-    const m: Record<string, string> = {};
-    for (const f of cmdFiles) m[f.name] = f.title;
-    return m;
-  }, [cmdFiles]);
+  const titleOf = (commandFile: string) => findCommandFile(cmdFiles, commandFile)?.title;
 
   const already = useMemo(
     () => mappings.find((m) => String(m.giftId) === String(giftId)),
@@ -215,14 +215,14 @@ const MappingEditor: React.FC<Props> = (props) => {
               <span className="gift-command-icon"><MinecraftCommandIcon command={commandFile || selectedTxtName} /></span>
               <select
                 disabled={saving}
-                value={selectedTxtName}
+                value={selectedListedName}
                 onChange={(e) => handleSelectTxt(e.target.value)}
                 aria-label="実行するコマンド"
               >
                 <option value="">
                   {cmdFiles.length === 0 ? "コマンド設定でTXTを作成してください" : "選択してください"}
                 </option>
-                {selectedTxtName && !selectedCommandVisible && <optgroup label="現在の設定"><option value={selectedTxtName}>{titleMap[selectedTxtName] || selectedTxtName}</option></optgroup>}
+                {selectedTxtName && !selectedCommandVisible && <optgroup label="現在の設定"><option value={selectedListedName}>{titleOf(selectedTxtName) || selectedTxtName}</option></optgroup>}
                 {visibleCommandGroups.map(group => <optgroup key={group.category} label={group.category}>
                   {group.files.map(file => <option key={file.name} value={file.name}>{commandOptionLabel(file)}</option>)}
                 </optgroup>)}
@@ -288,7 +288,7 @@ const MappingEditor: React.FC<Props> = (props) => {
             {visibleMappings.map((mapping, index) => {
               const missing = !(mapping.commandFile || "").trim();
               const mappingImage = giftImageMap[String(mapping.giftId)];
-              const resolvedTitle = mapping.commandFile ? (titleMap[mapping.commandFile] || mapping.commandFile) : "未設定";
+              const resolvedTitle = mapping.commandFile ? (titleOf(mapping.commandFile) || mapping.commandFile) : "未設定";
               const isCurrentlyEditing = String(mapping.giftId) === String(giftId);
 
               return (

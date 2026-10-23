@@ -4,6 +4,7 @@ import type { GiftAssignment } from '../types/electron';
 import { useUnsavedChanges, useUnsavedGuard } from '../UnsavedChanges';
 import { applyPanelTemplate, cardColors, clamp, createPanel, normalizePanel, panelFilename, panelId, panelLayout, readPanelLibrary, PANEL_STORAGE_KEY, TEMPLATES, TONES, toneForCategory, type PanelCard, type PanelDesign, type PanelLibrary } from '../lib/giftPanel';
 import { drawGiftPanel, type PanelImages } from '../lib/giftPanelCanvas';
+import { commandFileStem, findCommandFile } from '../lib/commandFiles';
 
 type Gift = { id: number; name: string; diamond_count: number; image?: string | null };
 type Meta = { name: string; title: string; category: string };
@@ -90,9 +91,10 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
   }, [reload]);
   const mappedCards = useMemo(() => savedMappings.filter(m => m.commandFile).map((m, i): PanelCard => {
     const gift = gifts.find(g => String(g.id) === String(m.giftId));
-    const meta = metadata.find(c => c.name === m.commandFile);
+    // 同じコマンドかは .txt の有無・大文字小文字を問わない（src/lib/commandFiles.ts。処理のコピー PR8）。
+    const meta = findCommandFile(metadata, m.commandFile);
     return { id: 'mapped-' + i, giftId: String(m.giftId), giftName: m.name || gift?.name || String(m.giftId),
-      image: gift?.image || null, title: meta?.title || m.commandFile!.replace(/\.txt$/i, ''),
+      image: gift?.image || null, title: meta?.title || commandFileStem(m.commandFile),
       repeat: m.repeat || 1, category: meta?.category || '', tone: toneForCategory(meta?.category || '') };
   }), [savedMappings, gifts, metadata]);
   const available = useMemo(() => {

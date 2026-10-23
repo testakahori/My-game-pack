@@ -7,7 +7,7 @@ import { copyText } from "../lib/clipboard";
 import { INVALID_COMMAND_NAME_HINT } from "../lib/commandLabel";
 
 // chatKey はアプリが付けるチャットの名前（bridge/game_commands.cjs の publicCommandKey。BridgeMOD の publicKey と同じ。処理のコピー PR6）。
-type CommandMeta = { name: string; title: string; category: string; description?: string; invalidName?: boolean; chatKey?: string };
+type CommandMeta = { name: string; title: string; category: string; description?: string; invalidName?: boolean; chatKey?: string; roulette?: boolean };
 
 function getApi() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -61,8 +61,9 @@ const CommandsListPage: React.FC = () => {
     }
     try {
       const list: CommandMeta[] = await api.bridgeCommandsReadMeta();
-      // roulette.txt はギフト用の演出プレースホルダなのでチートシートには出さない
-      setCommands((list || []).filter((c) => c.name !== "roulette.txt"));
+      // roulette.txt はギフト用の演出プレースホルダなのでチートシートには出さない。
+      // ルーレットかは main が付けた印で見る（大文字の Roulette.TXT も。bridge/command_rows.cjs。処理のコピー PR8）。
+      setCommands((list || []).filter((c) => !c.roulette));
     } catch (e: any) {
       setErr(e?.message || String(e));
     }

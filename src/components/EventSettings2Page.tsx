@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 import { commandOptionLabel } from "../lib/commandLabel";
 import { toRepeat } from "../lib/integerInput";
+import { commandFileStem, findCommandFile } from "../lib/commandFiles";
 import { ToggleSlider } from "./ToggleSlider";
 
 type RouletteItem = {
@@ -34,7 +35,7 @@ type CommentGiftRule = {
   enabled: boolean;
 };
 
-type CommandFile = { name: string; title: string; invalidName?: boolean };
+type CommandFile = { name: string; title: string; invalidName?: boolean; roulette?: boolean };
 
 const api = (window as any).mygamepack;
 
@@ -134,11 +135,12 @@ function CmdSelect({
   onChange: (v: string) => void;
   commandFiles: CommandFile[];
 }) {
-  const selected = commandFiles.find((f) => f.name === value);
+  // 同じコマンドかは .txt の有無・大文字小文字を問わない（src/lib/commandFiles.ts。処理のコピー PR8）。手で書いた Neko.TXT も一覧の neko.txt を選んだ形で出す。
+  const selected = findCommandFile(commandFiles, value);
   return (
     <select
       aria-label={label}
-      value={value}
+      value={selected?.name ?? value}
       onChange={(e) => onChange(e.target.value)}
       className="w-full bg-gray-900 border border-gray-600 rounded-xl px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
     >
@@ -175,7 +177,7 @@ function RouletteItemsEditor({
       )}
       {items.map((item, index) => (
         <div key={item.id} className="grid grid-cols-1 md:grid-cols-[1fr_180px_70px_90px_70px_40px] gap-2 items-center bg-gray-900/50 border border-gray-700/60 rounded-xl p-2">
-          <CmdSelect label={`項目${index + 1}の実行コマンド`} value={item.commandFile} onChange={(v) => update(item.id, { commandFile: v, label: item.label || commandFiles.find(file => file.name === v)?.title || v.replace(/\.txt$/i, "") })} commandFiles={commandFiles} />
+          <CmdSelect label={`項目${index + 1}の実行コマンド`} value={item.commandFile} onChange={(v) => update(item.id, { commandFile: v, label: item.label || findCommandFile(commandFiles, v)?.title || commandFileStem(v) })} commandFiles={commandFiles} />
           <input
             type="text"
             aria-label={`項目${index + 1}の表示ラベル`}
@@ -309,7 +311,8 @@ const EventSettings2Page: React.FC = () => {
         api.configRead(),
         api.bridgeCommandsList().catch(() => [] as CommandFile[]),
       ]);
-      setCommandFiles((files as CommandFile[]).filter((f) => f.name !== "roulette.txt"));
+      // ルーレット自身は項目に選べない（BRIDGE は項目から外す）。ルーレットかは main が付けた印で見る（処理のコピー PR8）。
+      setCommandFiles((files as CommandFile[]).filter((f) => !f.roulette));
       const r = cfg?.roulette || {};
       const loadedRoulette = {
         enabled: r.enabled === true,
