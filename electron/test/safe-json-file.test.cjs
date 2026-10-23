@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { writeFileDurable, lastGoodPath, describeRecovery, createSafeJsonFile, peekJsonFile } = require('../../bridge/safe_json_file.cjs');
+const { writeFileDurable, lastGoodPath, describeRecovery, createSafeJsonFile, peekJsonFile, inspectJsonFile, preserveBrokenCopy, writeWithLastGood, setAsideBrokenFile } = require('../../bridge/safe_json_file.cjs');
 
 const NOW = () => new Date(2026, 9, 23, 15, 30, 12);
 const problem = value => typeof value.a === 'number' ? '項目 a の型が違う' : '';
@@ -349,4 +349,78 @@ test('読む: 戻すあいだに別のプロセスが書き換えたら、上書
 test('書く: エラーの文は label を使う（どちらのフォルダーか分かる）', t => {
   const { store } = setup(t, { label: 'x.json（BRIDGE のフォルダー）' });
   assert.throws(() => store.write({ a: 1 }), /x\.json（BRIDGE のフォルダー） に書く値が正しくありません（項目 a の型が違う）/);
+});
+
+// ギフト設定は、戻す元が無いとき雛形で動かさず、壊れたファイルを元の場所に置いたままにする
+// （2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 6.4。設定ファイルの PR3）。
+test('置いたまま: 戻す元が無ければ壊れたファイルを元の場所に置き、中身の写しを残して記録する。何度読んでも1回だけ', t => {
+  const { dir, file, records, store, brokenFile } = setup(t, { keepBroken: true });
+  fs.writeFileSync(file, '{壊れた');
+  for (let i = 0; i < 3; i++) assert.deepEqual(store.check(), { state: 'kept', reason: 'JSON として読めない' });
+  assert.equal(fs.readFileSync(file, 'utf8'), '{壊れた', '元の場所に置いたまま');
+  assert.equal(fs.readFileSync(brokenFile, 'utf8'), '{壊れた');
+  assert.deepEqual(records, [{ file, reason: 'JSON として読めない', action: 'kept', brokenFile }]);
+  assert.equal(fs.readdirSync(dir).filter(name => name.includes('.broken-')).length, 1);
+});
+
+test('置いたまま: 写しがあれば今までどおり戻す', t => {
+  const { file, store } = setup(t, { keepBroken: true });
+  fs.writeFileSync(lastGoodPath(file), '{"a":"good"}');
+  fs.writeFileSync(file, '{壊れた');
+  assert.equal(store.check().state, 'restored');
+  assert.equal(fs.readFileSync(file, 'utf8'), '{"a":"good"}');
+});
+
+// ギフト設定とゲームの切り替えの記録は、写しの「今のゲーム」がもう片方と合うときだけ写しを使う（設計書 6.6）。
+test('写しを選ぶ: acceptSource が false の写しは使わない', t => {
+  for (const keepBroken of [true, false]) {
+    const { file, store } = setup(t, { keepBroken, acceptSource: value => value.a === 'ok' });
+    fs.writeFileSync(lastGoodPath(file), '{"a":"other"}');
+    fs.writeFileSync(file, '{壊れた');
+    assert.equal(store.check().state, keepBroken ? 'kept' : 'defaults');
+    fs.writeFileSync(lastGoodPath(file), '{"a":"ok"}');
+    fs.writeFileSync(file, '{また壊れた');
+    assert.equal(store.check().state, 'restored');
+    assert.equal(fs.readFileSync(file, 'utf8'), '{"a":"ok"}');
+  }
+});
+
+// 書く所が多いギフト設定のため、道具を持たずに書く前に写しと壊れたファイルを残す（設定ファイルの PR3）。
+test('書く前に残す: 正しければ写しに、壊れていれば壊れたファイルとして1回だけ残してから書く', t => {
+  const { dir, file, brokenFile } = setup(t);
+  const options = { now: NOW };
+  fs.writeFileSync(file, '{"a":"1"}');
+  writeWithLastGood(file, '{"a":"2"}', options);
+  assert.equal(fs.readFileSync(lastGoodPath(file), 'utf8'), '{"a":"1"}');
+  assert.equal(fs.readFileSync(file, 'utf8'), '{"a":"2"}');
+  fs.writeFileSync(file, '{壊れた');
+  writeWithLastGood(file, '{"a":"3"}', options);
+  assert.equal(fs.readFileSync(lastGoodPath(file), 'utf8'), '{"a":"1"}', '壊れた中身で写しを上書きしない');
+  assert.equal(fs.readFileSync(brokenFile, 'utf8'), '{壊れた');
+  assert.equal(fs.readFileSync(file, 'utf8'), '{"a":"3"}');
+  fs.writeFileSync(file, '{壊れた');
+  assert.equal(preserveBrokenCopy(file, options), brokenFile, '同じ中身はもう残してある');
+  writeWithLastGood(file, '{"a":"4"}', options);
+  assert.equal(fs.readdirSync(dir).filter(name => name.includes('.broken-')).length, 1, '同じ中身を2回残さない');
+  assert.equal(preserveBrokenCopy(file, options), '', '正しいファイルは残さない');
+  assert.equal(preserveBrokenCopy(path.join(dir, 'none.json'), options), '', '無いファイルは残さない');
+});
+
+test('外す: 壊れたファイルを別の名前に残して消す', t => {
+  const { file, brokenFile } = setup(t);
+  fs.writeFileSync(file, '{壊れた');
+  assert.equal(inspectJsonFile(file).reason, 'JSON として読めない');
+  assert.equal(setAsideBrokenFile(file, { now: NOW }), brokenFile);
+  assert.equal(fs.existsSync(file), false);
+  assert.equal(fs.readFileSync(brokenFile, 'utf8'), '{壊れた');
+});
+
+test('記録の文: kept・set-aside', () => {
+  const entry = { file: path.join(os.tmpdir(), 'config.minecraft.json'), reason: 'JSON として読めない', brokenFile: path.join(os.tmpdir(), 'config.minecraft.json.broken-20261023-153012') };
+  assert.equal(describeRecovery({ ...entry, action: 'kept' }),
+    'config.minecraft.json が壊れていた（JSON として読めない）。前の正しい状態の写しが無い（または使えない）ので、そのまま置いた。壊れたファイルの写し: config.minecraft.json.broken-20261023-153012');
+  assert.equal(describeRecovery({ ...entry, action: 'kept', brokenFile: '' }),
+    'config.minecraft.json が壊れていた（JSON として読めない）。別の名前で残せなかったので、ファイルには触らず、そのまま置いた');
+  assert.equal(describeRecovery({ ...entry, action: 'set-aside' }),
+    'config.minecraft.json が壊れていた（JSON として読めない）ので、別の名前で残して外した。壊れたファイル: config.minecraft.json.broken-20261023-153012');
 });
