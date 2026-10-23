@@ -10,6 +10,7 @@ const { EventEmitter } = require('node:events');
 const { createRequire } = require('node:module');
 const source = path.resolve(__dirname, '../../../bridge/index.js');
 const bridgeRequire = createRequire(source);
+const bridgeDir = path.dirname(source);
 const { TikTokLiveConnection } = bridgeRequire('tiktok-live-connector');
 const proto = bridgeRequire('tiktok-live-connector');
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -35,7 +36,11 @@ async function startBridgeFixture(t, { commands = {}, commandsFolder = 'commands
     });
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  let stopped = false;
   t.after(async () => {
+    // 片付けを始めたら、新しいタイマーは動かさない。偽 BridgeMOD を閉じるのを待つ間に届いた返事で、送り直しやルーレットの演出が
+    // 新しいタイマーを作ると、それが残ってプロセスが終わらない（処理のコピー PR7 の最後のレビュー）。
+    stopped = true;
     for (const timer of timers) { clearInterval(timer); clearTimeout(timer); }
     for (const watcher of watchers) watcher.close();
     await new Promise(resolve => server.close(resolve));
@@ -61,11 +66,36 @@ async function startBridgeFixture(t, { commands = {}, commandsFolder = 'commands
     send: message => { replies.push(JSON.parse(JSON.stringify(message))); return true; } });
   const testFs = { ...fs, watch: (...args) => { const w = fs.watch(...args); watchers.push(w); return w; },
     createWriteStream: (...args) => { const s = fs.createWriteStream(...args); streams.push(s); return s; } };
+  // 片付けのあとは、止めたタイマーを返す（unref などを呼ばれても困らない形のまま、中身は動かさない）。
+  const track = (create, clear) => (fn, ms, ...args) => {
+    const timer = create(fn, ms, ...args);
+    if (stopped) clear(timer); else timers.add(timer);
+    return timer;
+  };
+  const timerApi = { setTimeout: track(setTimeout, clearTimeout), clearTimeout, setInterval: track(setInterval, clearInterval), clearInterval };
+  // BRIDGE が読む同じフォルダーのファイル（送り直し・ルーレットの演出など）も、上の数えるタイマーで動かし、片付けで止める。
+  // 前は本物の require で読んだので、演出の途中でテストを終えると送り直しが続き、node --test が終わらなかった（処理のコピー PR7 の最後のレビュー）。
+  const localModules = new Map();
+  const requireFrom = fromFile => {
+    const real = createRequire(fromFile);
+    const local = id => {
+      const file = real.resolve(id);
+      if (!file.startsWith(bridgeDir + path.sep) || file.includes(`${path.sep}node_modules${path.sep}`) || !/\.c?js$/.test(file)) return real(id);
+      if (!localModules.has(file)) {
+        const module = { exports: {} };
+        localModules.set(file, module);
+        const run = vm.compileFunction(fs.readFileSync(file, 'utf8'), ['exports', 'require', 'module', '__filename', '__dirname', ...Object.keys(timerApi)], { filename: file });
+        run(module.exports, requireFrom(file), module, file, path.dirname(file), ...Object.values(timerApi));
+      }
+      return localModules.get(file).exports;
+    };
+    return Object.assign(local, { resolve: real.resolve });
+  };
+  const bridgeLocalRequire = requireFrom(source);
   const context = { module: { exports: {} }, exports: {}, __dirname: dir, __filename: source, process: fakeProcess, Buffer, URL,
     console: Object.fromEntries(['log', 'warn', 'error'].map(name => [name, (...args) => logs.push(args.join(' '))])),
-    setTimeout: (fn, ms, ...args) => { const timer = setTimeout(fn, ms, ...args); timers.add(timer); return timer; }, clearTimeout,
-    setInterval: (fn, ms, ...args) => { const timer = setInterval(fn, ms, ...args); timers.add(timer); return timer; }, clearInterval,
-    require: id => id === 'tiktok-live-connector' ? { TikTokLiveConnection: FixtureConnection } : id === 'fs' ? testFs : bridgeRequire(id) };
+    ...timerApi,
+    require: id => id === 'tiktok-live-connector' ? { TikTokLiveConnection: FixtureConnection } : id === 'fs' ? testFs : bridgeLocalRequire(id) };
   vm.runInNewContext(fs.readFileSync(source, 'utf8') + '\nmodule.exports.startFixture=main;', context, { filename: source });
   await context.module.exports.startFixture();
   await until(() => logs.some(x => x.includes('[TikTok] Connected.')), 'connected');

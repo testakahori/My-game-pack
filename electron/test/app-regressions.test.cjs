@@ -982,8 +982,13 @@ test("設定保存: 旧版で保存した使えない名前の割り当ては残
   assert.equal(listed.invalidName, true); assert.equal(listed.title, "ネコ.txt");
   assert.ok(!meta.find(row => row.name === "cod.txt").invalidName);
   // いいね・ルーレットなどの候補（bridge:commands:list）にも同じ印を届ける。
+  // 印には直し方の文（commandFileProblem）も付ける。foo.txt.txt は「半角英数字に」では直らない（PR7 の最後のレビュー。画面に出すのは PR8）。
+  assert.match(listed.invalidReason, /ネコ\.txt.*半角英数字/);
+  fs.writeFileSync(path.join(app.root, "bridge", "commands", "minecraft", "foo.txt.txt"), "say foo\n");
+  const double = (await app.invoke("bridge:commands:readMeta")).find(row => row.name === "foo.txt.txt");
+  assert.equal(double.invalidName, true); assert.match(double.invalidReason, /\.txt が2つあります/);
   const options = await app.invoke("bridge:commands:list");
-  assert.deepEqual({ ...options.find(row => row.name === "ネコ.txt") }, { name: "ネコ.txt", title: "ネコ.txt", invalidName: true });
+  assert.deepEqual({ ...options.find(row => row.name === "ネコ.txt") }, { name: "ネコ.txt", title: "ネコ.txt", invalidName: true, invalidReason: listed.invalidReason });
   assert.deepEqual(Object.keys(options.find(row => row.name === "cod.txt")).sort(), ["name", "title"]);
   await assert.rejects(app.invoke("bridge:commands:write", { filename: "ネコ2.txt", content: "say x" }), /半角英数字/);
 });

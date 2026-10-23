@@ -2285,7 +2285,8 @@ async function main() {
     switch (action.kind) {
       case "direct": {
         const roulette = isRouletteCommand(action.commandFile);
-        // ファイルがあるかを見る前に名前を確かめる（../x.txt で commands/minecraft の外を見ない。処理のコピー PR7）。
+        // ファイルがあるかを見る前に名前を確かめ、foo.txt.txt や日本語の名前には「見つかりません」ではなく直し方を返す
+        // （/ と \ は test_fire.cjs の commandName が先に断る。処理のコピー PR7）。
         const problem = commandFileProblem(action.commandFile);
         if (problem) throw new Error(problem);
         if (roulette && !rouletteCfg?.enabled) throw new Error("ルーレットが無効です。イベント設定②で有効にして保存してください。");

@@ -61,7 +61,13 @@ function commandFileProblem(commandFile) {
   const name = String(commandFile ?? "").trim();
   const stem = bridgeCommandStem(commandFile);
   if (/[\\/]/.test(name)) return `コマンドファイル名「${name}」にフォルダーの区切り（/ や \\）は使えません。commands/minecraft の中のファイル名だけを書いてください`;
-  if (isTxtName(stem) && BRIDGE_COMMAND_KEY.test(stem)) return `コマンドファイル名「${name}」は終わりに .txt が2つあります。ファイル名を ${stem} に直してください`;
+  if (isTxtName(stem) && BRIDGE_COMMAND_KEY.test(stem)) {
+    // 直し先は、終わりの .txt を全部除いて1つ付けた名前（x.txt.txt.txt でも x.txt）。拡張子を表示していないエクスプローラーでは
+    // foo.txt.txt が「foo.txt」と見えるので、そのときは名前を foo にすればよいことも書く（PR7 の最後のレビュー）。
+    const base = name.replace(/(\.txt)+$/i, "");
+    const count = (name.length - base.length) / 4;
+    return `コマンドファイル名「${name}」は終わりに .txt が${count}つあります。ファイル名を ${base}.txt に直してください（エクスプローラーで拡張子を表示していないときは、名前を ${base} にしてください）`;
+  }
   return `コマンドファイル名「${name}」は使えません。半角英数字と _ . - だけの名前にしてください（例: neko.txt）`;
 }
 

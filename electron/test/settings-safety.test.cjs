@@ -193,7 +193,8 @@ test("設定復元: binaryCommands の名前と値も確かめ、パス脱出は
     const payload = { ...good.payload, binaryCommands };
     write(file, { ...good, payload, sha256: crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex") });
   };
-  for (const bad of [{ "../outside.txt": SJIS.toString("base64") }, { "sjis.txt": 1 }, []]) {
+  // commands と同じ名前（rose.txt）・base64 でない値も断る（手で作ったバックアップ。PR7 の最後のレビュー）。
+  for (const bad of [{ "../outside.txt": SJIS.toString("base64") }, { "sjis.txt": 1 }, [], { "rose.txt": SJIS.toString("base64") }, { "sjis.txt": "@@@" }]) {
     rewrite(bad);
     assert.throws(() => store.restore(row.id), /コマンド/, JSON.stringify(bad));
   }

@@ -69,6 +69,9 @@ function createSettingsBackups(deps) {
     if (!["voicevox", "aivis"].includes(tts.engine) || typeof tts.enabled !== "boolean") throw new Error("読み上げ設定が不正です。");
     if (value.payload.binaryCommands !== undefined && !object(value.payload.binaryCommands)) throw new Error("コマンドのバックアップが不正です。");
     if (commandEntries(value.payload).some(([name, body]) => !validCommand(name) || typeof body !== "string")) throw new Error("コマンドのバックアップが不正です。");
+    // 手で作ったバックアップの、2か所にある同じ名前と base64 でない値も断る（PR7 の最後のレビュー）。
+    const binary = Object.entries(value.payload.binaryCommands || {});
+    if (binary.some(([name, body]) => Object.hasOwn(commands, name) || Buffer.from(body, "base64").toString("base64") !== body)) throw new Error("コマンドのバックアップが不正です。");
     return value;
   }
   // 今の設定（読めなければ {}）。一覧・作成・復元で1回だけ読み、summary に渡す。
