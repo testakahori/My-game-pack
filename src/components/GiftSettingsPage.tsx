@@ -9,7 +9,8 @@ import GiftsGridSection from "./GiftsGridSection";
 import ImageEditorPage from "./ImageEditorPage";
 import MinecraftCommandIcon from "./MinecraftCommandIcon";
 import { useUnsavedGuard } from "../UnsavedChanges";
-import { fromConfigMappings, toConfigMappings } from "../lib/giftMappingRows";
+import { fromConfigMappings, isDisabledMapping, toConfigMappings } from "../lib/giftMappingRows";
+import DisabledMappingMark from "./DisabledMappingMark";
 
 const LS_ACTIVE_TAB   = "mc_bridge_active_tab_v1";
 const LS_MAPPINGS     = "mc_tiktok_mappings_unified_v1";
@@ -191,7 +192,7 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
               </div>
               <div className="gift-preview-heading">
                 <h2>{pickedGiftName || "ギフトを選択"}</h2>
-                <em>{!pickedGiftId ? "未選択" : pickedMapping ? "設定済み" : "未設定"}</em>
+                <em>{!pickedGiftId ? "未選択" : pickedMapping ? "設定済み" : "未設定"}{isDisabledMapping(pickedMapping) ? <DisabledMappingMark /> : null}</em>
               </div>
               <p>コスト: <strong>{pickedGiftId && pickedGiftDiamonds !== undefined ? `💎 ${pickedGiftDiamonds}` : "—"}</strong></p>
               <div className="gift-preview-route">

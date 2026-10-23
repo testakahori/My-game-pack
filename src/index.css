@@ -1899,6 +1899,14 @@
   color: #ff6677;
 }
 
+/* 編集中のギフトの割り当てが無効のときの注意（右下の文と重ならないように、流れの中に置く。処理のコピー PR8）。 */
+.gift-flow-disabled-note {
+  margin: 8px 24px 0;
+  color: #fca5a5;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .gift-registered-panel {
   min-height: 222px;
   padding: 13px 15px 12px;
@@ -5356,6 +5364,30 @@ button.tts-status-card:hover {
   font-size: 9px;
   font-weight: 800;
   vertical-align: middle;
+}
+
+/* 無効のギフト割り当て（設定ファイルで enabled: false）の印。.ops-wip-badge の形に合わせる（処理のコピー PR8）。 */
+.gift-disabled-mark {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, .18);
+  border: 1px solid rgba(248, 113, 113, .55);
+  color: #fca5a5;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.3;
+  vertical-align: middle;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.gift-disabled-mark.is-compact {
+  margin-left: 0;
+  padding: 1px 4px;
+  font-size: 7px;
+  line-height: 1;
 }
 
 .ops-json-help {

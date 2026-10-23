@@ -47,7 +47,8 @@ export type GiftsReadResult = {
   metaPath?: string;
 };
 
-export type GiftAssignment = { giftId: string | number; name?: string; commandFile?: string; repeat?: number };
+// enabled: false は設定ファイルで無効にした割り当て（ギフトは数えるが、コマンドは動かさない。画面は印を出す。処理のコピー PR5・PR8）。
+export type GiftAssignment = { giftId: string | number; name?: string; commandFile?: string; repeat?: number; enabled?: boolean };
 export type GiftTemplatePreview = { token: string; name: string; appVersion: string; currentCount: number; missingCommands: string[]; mappings: Array<{ giftId: string; name: string; commandFile: string; repeat: number; title: string }> };
 export type GiftMappingSaveRequest = { giftId: string; name: string; commandFile: string; repeat: number; expected: GiftAssignment[] };
 
@@ -59,6 +60,7 @@ export type BridgeConfig = {
     name?: string;
     commandFile?: string;
     repeat?: number;
+    enabled?: boolean;
   }>;
   [k: string]: any; // 互換のため許容
 };

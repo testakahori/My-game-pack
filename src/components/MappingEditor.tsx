@@ -6,6 +6,8 @@ import { useUnsavedChanges } from "../UnsavedChanges";
 import { commandOptionLabel } from "../lib/commandLabel";
 import { toRepeat } from "../lib/integerInput";
 import { findCommandFile, sameCommandFile } from "../lib/commandFiles";
+import { isDisabledMapping } from "../lib/giftMappingRows";
+import DisabledMappingMark from "./DisabledMappingMark";
 
 type Props = {
   mappings?: GiftMapping[];
@@ -198,6 +200,7 @@ const MappingEditor: React.FC<Props> = (props) => {
             </div>
             <b>{hasGift ? (giftName || giftId) : "ギフト未選択"}</b>
             <small>{hasGift ? `💎 ${giftDiamonds ?? 1}` : "上から選択してください"}</small>
+            {isDisabledMapping(already) ? <DisabledMappingMark /> : null}
           </div>
 
           <div className="gift-flow-link" aria-hidden="true"><i /><span>◆</span><i /></div>
@@ -263,6 +266,7 @@ const MappingEditor: React.FC<Props> = (props) => {
         </div>
 
         {already ? <p className="gift-flow-notice">設定済みのギフトです。保存すると現在のルートを上書きします。</p> : null}
+        {isDisabledMapping(already) ? <p className="gift-flow-disabled-note">このギフトの割り当ては設定ファイルで無効になっています。保存しても無効のままです。</p> : null}
         {saveMsg ? <p className={`gift-flow-message gift-flow-message--${saveMsg.type}`}>{saveMsg.text}</p> : null}
       </section>
 
@@ -317,7 +321,7 @@ const MappingEditor: React.FC<Props> = (props) => {
                     {mappingImage ? <img src={mappingImage} alt="" /> : null}
                   </span>
                   <div>
-                    <b>{mapping.name}</b>
+                    <b>{mapping.name}{isDisabledMapping(mapping) ? <DisabledMappingMark /> : null}</b>
                     <small>{resolvedTitle}</small>
                     <em>× {mapping.repeat ?? 1}回</em>
                   </div>
