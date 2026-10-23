@@ -10,6 +10,7 @@ import { stopConfirmMessage, stopState, type StopTarget } from "../lib/stopSafet
 import type { PauseView } from "../lib/disruptionPause";
 import { toRepeat } from "../lib/integerInput";
 import { ipcErrorMessage } from "../lib/ipcError";
+import { isValidTikTokId, normalizeTikTokId, sameTikTokId } from "../lib/tiktokId";
 // 既定値は BRIDGE と同じ表（bridge/config_defaults.json。処理のコピー PR4）。
 import CONFIG_DEFAULTS from "../../bridge/config_defaults.json";
 
@@ -319,14 +320,16 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
     (async () => {
       try {
         const cfg = await api.configRead();
-        const fromCfg = String(cfg?.tiktokUsername ?? cfg?.tiktok?.username ?? cfg?.tiktok?.user ?? "").trim().replace(/^@/, "");
-        const fromLs = (localStorage.getItem(LS_TIKTOK_USER) || "").trim().replace(/^@/, "");
+        // 読むのは tiktokUsername だけ（BRIDGE・設定の確かめ・配信前チェックと同じ。古い tiktok.username だけの設定は前から動いていなかった。処理のコピー PR9）。
+        // 入力のままの形で出し、比べるときに整える（src/lib/tiktokId.ts）。
+        const fromCfg = typeof cfg?.tiktokUsername === "string" ? cfg.tiktokUsername.trim() : "";
+        const fromLs = (localStorage.getItem(LS_TIKTOK_USER) || "").trim();
         const initial = fromCfg || fromLs;
         if (initial) setUsername(initial);
         // config に保存済みの ID ＝ 承認済み。再起動しても承認状態を復元する。
         if (fromCfg) setAppliedUsername(fromCfg);
       } catch {
-        const fromLs = (localStorage.getItem(LS_TIKTOK_USER) || "").trim().replace(/^@/, "");
+        const fromLs = (localStorage.getItem(LS_TIKTOK_USER) || "").trim();
         if (fromLs) setUsername(fromLs);
       } finally {
         usernameLoadedRef.current = true;
@@ -342,7 +345,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
   useEffect(() => {
     let disposed = false;
     let checking = false;
-    const id = username.trim().replace(/^@/, "").toLowerCase();
+    const id = normalizeTikTokId(username);
     setAccountLive({ username: id, state: id ? "checking" : "empty" });
     if (!id) return;
     const refresh = async () => {
@@ -440,7 +443,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
   // 選び直したら、その場で保存する（2026-10-16 ユーザーの決定。以前は見えない隠しボタンと一括起動でしか保存できなかった）。
   const setSubfolder = (v: string) => { const next = `${WORLD_PREFIX}/${v}`; setDraft(next); void handleWorldSave(next); };
   const isWorldDirty = draft !== levelName;
-  useUnsavedChanges(!worldLoading && (isWorldDirty || (appliedUsername !== null && username.trim().replace(/^@/, "") !== appliedUsername)), applyBusy || worldSaving);
+  useUnsavedChanges(!worldLoading && (isWorldDirty || (appliedUsername !== null && normalizeTikTokId(username) !== normalizeTikTokId(appliedUsername))), applyBusy || worldSaving);
 
   // ── ハンドラー ──
   const handleServerStart = async () => {
@@ -552,12 +555,11 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
     const mappings = Array.isArray(existingCfg?.mappings) ? existingMappings : uiMappings;
 
     // username は「UIで明示入力があればそれ、無ければ config の既存値」。ハードコード既定値は使わない。
-    const existingUsername = String(
-      existingCfg?.tiktokUsername ?? existingCfg?.tiktok?.username ?? existingCfg?.tiktok?.user ?? ""
-    ).trim().replace(/^@/, "");
-    const typedUsername = username.trim().replace(/^@/, "");
-    const u = typedUsername || existingUsername;
-    if (!u) {
+    // 保存する形は入力したまま（PR3）。空か（「@」だけも空）は整えた形で見る。形の確かめは保存（config:write）が設定の確かめで行う。
+    const existingUsername = typeof existingCfg?.tiktokUsername === "string" ? existingCfg.tiktokUsername.trim() : "";
+    const typedUsername = username.trim();
+    const u = normalizeTikTokId(typedUsername) ? typedUsername : existingUsername;
+    if (!normalizeTikTokId(u)) {
       throw new Error("TikTok IDが入力されていません。アカウント欄にIDを入力してから「IDを承認する」を押してください。");
     }
 
@@ -653,7 +655,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
         const applied = await applyBridgeConfig();
         setApplyMsg({ type: "ok", text: `適用しました（${applied.mappingCount}件）` });
         setAppliedUsername(applied.username);
-        addLog(`TikTok設定をBRIDGEに適用しました (@${applied.username}, ${applied.mappingCount}件)`, "ok");
+        addLog(`TikTok設定をBRIDGEに適用しました (@${normalizeTikTokId(applied.username)}, ${applied.mappingCount}件)`, "ok");
       } catch (e: any) {
         setApplyMsg({ type: "error", text: e?.message ?? String(e) });
         addLog(`Bridge設定適用エラー: ${e?.message ?? String(e)}`, "error");
@@ -837,19 +839,23 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
       const applied = await applyBridgeConfig();
       setApplyMsg({ type: "ok", text: `適用しました（${applied.mappingCount}件）` });
       setAppliedUsername(applied.username);
-      addLog(`TikTok設定をBRIDGEに適用しました (@${applied.username}, ${applied.mappingCount}件)`, "ok");
+      addLog(`TikTok設定をBRIDGEに適用しました (@${normalizeTikTokId(applied.username)}, ${applied.mappingCount}件)`, "ok");
     } catch (e: any) {
       setApplyMsg({ type: "error", text: e?.message ?? String(e) });
       addLog(`Bridge設定適用エラー: ${e?.message ?? String(e)}`, "error");
     } finally { setApplyBusy(false); }
   };
 
-  const tiktokConfigured = username.trim().length > 0;
+  // 整えた形で比べる・出す（大文字小文字だけ違う ID も同じ ID。BRIDGE も同じ ID として扱う。処理のコピー PR9）。
+  const typedTikTokId = normalizeTikTokId(username);
+  const tiktokConfigured = typedTikTokId.length > 0;
   const tiktokConnected = bridgeProcess.running === true && bridgeProcess.tiktok?.state === "connected";
-  const typedUsername = username.trim().replace(/^@/, "");
-  const liveState = accountLive.username === typedUsername.toLowerCase() ? accountLive.state : "checking";
+  const liveState = accountLive.username === typedTikTokId ? accountLive.state : "checking";
   const liveLabel = liveState === "live" ? "接続済み（配信中）" : liveState === "offline" ? "配信していません" : liveState === "empty" ? "未設定" : liveState === "error" ? "確認できません" : "配信を確認中";
-  const idApproved = typedUsername.length > 0 && appliedUsername === typedUsername;
+  // LIVE の確かめの理由は長いので、丸い表示には出さず、マウスを載せると出す（PR9 の最後のレビュー）。
+  const liveTitle = liveState === "error" ? accountLive.error : undefined;
+  // 保存済みの ID の形が正しくなければ承認済みと出さない（BRIDGE は起動しない。PR9 の最後のレビュー）。
+  const idApproved = sameTikTokId(username, appliedUsername) && isValidTikTokId(appliedUsername);
   const worldDisplay = levelName ? levelName.replace(`${WORLD_PREFIX}/`, "") : "未設定";
   const stepForge: StepStatus = forgeState  === "running" ? "done" : forgeState  === "error" ? "error" : forgeState  === "starting" ? "active" : "pending";
   const stepBridge: StepStatus = bridgeState === "running" ? "done" : bridgeState === "error" ? "error" : bridgeState === "starting" ? "active" : "pending";
@@ -863,7 +869,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
   };
 
   const pipeline = [
-    { label: "TikTok LIVE", value: tiktokConfigured ? `@${typedUsername}` : "未設定", icon: "tiktok", state: liveState === "live" ? "running" : liveState === "checking" ? "starting" : liveState === "error" ? "error" : "stopped", tone: "green", runningText: "接続済み（配信中）" },
+    { label: "TikTok LIVE", value: tiktokConfigured ? `@${typedTikTokId}` : "未設定", icon: "tiktok", state: liveState === "live" ? "running" : liveState === "checking" ? "starting" : liveState === "error" ? "error" : "stopped", tone: "green", runningText: "接続済み（配信中）" },
     { label: "Forge Server", value: serverProc.running && serverProc.managed === false ? "起動済み（アプリ外）" : "Forge 1.20.1", icon: "▣", state: forgeState, tone: "red", runningText: "接続中" },
     { label: "Game", value: gameRunning ? "Minecraft 検知中" : worldDisplay, icon: "world", state: gameRunning ? "running" : "stopped", tone: "green", runningText: "起動中" },
     { label: "Bridge", value: "TikTok → Minecraft", icon: "⛓", state: bridgeState, tone: "red", runningText: "接続中" },
@@ -888,7 +894,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
                   <div className="cockpit-node-ring">
                     <span>{item.icon === "tiktok" ? <TikTokMark /> : item.icon === "world" ? <GrassBlockIcon /> : item.icon}</span>
                   </div>
-                  <em className={item.state === "running" ? "is-running" : "is-stopped"}>
+                  <em className={item.state === "running" ? "is-running" : "is-stopped"} title={item.icon === "tiktok" ? liveTitle : undefined}>
                     ● {item.icon === "tiktok" ? liveLabel : item.state === "running" ? item.runningText : item.state === "starting" ? "処理中" : item.state === "error" ? "エラー" : "停止中"}
                   </em>
                   <small>{item.value}</small>

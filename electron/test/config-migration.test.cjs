@@ -20,8 +20,6 @@ test('TikTok ID: 配信前チェック・LIVE の確かめ・BRIDGE の接続・
     const source = fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
     assert.doesNotMatch(source, /\{1,24\}/, file + ' に ID の正規表現の写しが残っている');
     // 設定の ID と、ギフト一覧を取った ID（gifts.meta.json の username）の両方を見る。
-    // gifts_viewer.cjs の updateGifts の確かめ（[\w.]{1,64}）と gv:settings:write の整え方は、ギフト一覧の画面で入力した ID の
-    // 写しとして残してある（src/・GiftsViewer/ の写しと一緒に PR4・PR5 でそろえる）。このファイルが片付いたわけではない。
     assert.doesNotMatch(source, /(tiktokUsername|meta\.username)[^\n]*replace\(\/\^@\//, file + ' に @ を除く写しが残っている');
     // 小文字にするだけで比べる写し（前の配信前チェックの「LIVE へ接続しているか」）も見る。
     assert.doesNotMatch(source, /username[^\n]*\.toLowerCase\(\)/i, file + ' に小文字にして比べる写しが残っている');
@@ -29,6 +27,28 @@ test('TikTok ID: 配信前チェック・LIVE の確かめ・BRIDGE の接続・
   }
   const index = fs.readFileSync(path.resolve(__dirname, '../../bridge/index.js'), 'utf8');
   assert.match(index, /const tiktokUsername = normalizeTikTokId\(config\.tiktokUsername\);/, 'BRIDGE は整えた形で接続する');
+});
+
+// ギフト一覧の画面で入力した ID・preload・別のアプリ GiftsViewer も同じ決まり（処理のコピー PR9）。
+// preload と GiftsViewer のアプリの main は値をそのまま渡し、整えと確かめは受け取る側（gifts_viewer.cjs・GiftsViewer の道具）が行う。
+test('TikTok ID: preload・ギフト一覧・GiftsViewer は自分の整え方や正規表現を持たない', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const read = file => fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
+  for (const file of ['electron/preload.cjs', 'electron/gifts_viewer.cjs', 'GiftsViewer/tools/fetch_gifts.cjs', 'GiftsViewer/electron/main.cjs']) {
+    const source = read(file);
+    assert.doesNotMatch(source, /\.replace\(\/\^@\//, file + ' に @ を除く写しが残っている');
+    assert.doesNotMatch(source, /\[\\w\.\]\{1,64\}/, file + ' に ID の正規表現の写しが残っている');
+    assert.doesNotMatch(source, /username is empty/, file + ' に英語の空の文が残っている');
+  }
+  for (const file of ['electron/gifts_viewer.cjs', 'GiftsViewer/tools/fetch_gifts.cjs']) {
+    assert.match(read(file), /normalizeTikTokId\(/, file + ' が normalizeTikTokId を使っていない');
+  }
+  const { tiktokIdProblem } = require('../../bridge/tiktok_id.cjs');
+  assert.equal(tiktokIdProblem(' @Foo_Bar '), '');
+  assert.equal(tiktokIdProblem(''), '', '空の扱いは呼ぶ側');
+  assert.equal(tiktokIdProblem(' foo-bar '), 'TikTok ID「foo-bar」の形が正しくありません。半角英数字・_・. の24文字以内で入力してください');
+  assert.match(read('bridge/config_schema.js'), /tiktokIdProblem\(/, '設定の確かめも同じ文を使う');
 });
 
 test('保存済みの設定を直す: 回数は四捨五入して1〜100、閾値は四捨五入して1以上。無効な項目も直し、元は変えない', () => {
@@ -90,4 +110,18 @@ test('回数と閾値の対象: 無効の項目・ゲームの設定も含めて
   assert.equal(repeatTargets(config)[0].item, config.mappings[0], '項目そのものを返す（直す・確かめる側が値を読む）');
   assert.deepEqual(repeatTargets(null), []);
   assert.deepEqual(repeatTargets({ mappings: 'x', options: { gameplay: { combo: { levels: {} } } } }), [], '形が違うものは飛ばす');
+});
+
+// 入力された TikTok ID の文（空なら「入力してください」、形が正しくなければ設定の確かめと同じ文）は tiktok_id.cjs の1か所（PR9 の最後のレビュー）。
+// ギフト一覧の更新と GiftsViewer の道具が使う。前の道具は「@」だけのとき英語の Usage の文で止まった。
+test('TikTok ID: 入力の文は tiktokIdInputProblem の1つで、ギフト一覧の更新と GiftsViewer の道具が使う', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { tiktokIdInputProblem } = require('../../bridge/tiktok_id.cjs');
+  for (const empty of ['', '@', '  ', null, 3]) assert.equal(tiktokIdInputProblem(empty), 'TikTok ID を入力してください', String(empty));
+  assert.equal(tiktokIdInputProblem(' @Foo_Bar '), '');
+  assert.match(tiktokIdInputProblem('foo-bar'), /^TikTok ID「foo-bar」の形が正しくありません/);
+  for (const file of ['electron/gifts_viewer.cjs', 'GiftsViewer/tools/fetch_gifts.cjs']) {
+    assert.match(fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8'), /tiktokIdInputProblem\(/, file);
+  }
 });

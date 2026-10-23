@@ -6,6 +6,7 @@ const { validateBridgeConfig } = require("./config_schema.cjs");
 const { isTxtName } = require("../bridge/command_files.cjs");
 const { migrateBridgeConfig } = require("../bridge/config_migration.cjs");
 const { isUtf8Text } = require("../bridge/command_text.cjs");
+const { normalizeTikTokId } = require("../bridge/tiktok_id.cjs");
 
 const PREFS = ["autoBackupOnServerStart"];
 // つなぎ方の options はバックアップに入れず、戻すときは今の値を使う（rcon も同じ）。
@@ -80,7 +81,8 @@ function createSettingsBackups(deps) {
   }
   function summary(value, id, current) {
     return { id, createdAt: value.createdAt, reason: value.reason, version: value.version,
-      username: value.payload.bridge.tiktokUsername || "", mappings: value.payload.bridge.mappings?.length || 0,
+      // 一覧の TikTok ID は整えた形（画面は「@」を付けて出すので、保存済みの「@Foo」が「@@Foo」になっていた。処理のコピー PR9）。
+      username: normalizeTikTokId(value.payload.bridge.tiktokUsername), mappings: value.payload.bridge.mappings?.length || 0,
       commands: commandEntries(value.payload).length, ttsEnabled: value.payload.tts.enabled === true,
       issues: validateBridgeConfig(restoredBridgeConfig(value, current)).errors.length };
   }

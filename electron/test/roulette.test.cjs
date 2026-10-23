@@ -108,3 +108,17 @@ test("ルーレットの判定: isRouletteCommand は大文字小文字・前後
   const round = prepareRoulette({ items: [{ commandFile: "Roulette.TXT" }, { commandFile: "zombie.txt" }] }, dir, () => 0);
   assert.deepEqual(round.items.map(item => item.commandFile), ["zombie.txt"], "ルーレット自身は項目に入れない");
 });
+
+// 止まる音・粒子の既定は bridge/config_defaults.json の1か所。デスルーレットはウィザーの音と魂の炎（2026-10-23 ユーザーの決定。処理のコピー PR9）。
+// 前は BRIDGE が2つとも同じ既定（レベルアップ・不死のトーテム）で、画面はデスルーレットにウィザーの音と出していた。
+test("ルーレットの止まる音・粒子の既定: デスルーレットはウィザーの音と魂の炎、普通のルーレットは今のまま", t => {
+  const { CONFIG_DEFAULTS } = require("../../bridge/config_defaults.cjs");
+  assert.deepEqual(CONFIG_DEFAULTS.roulette, { stopSound: "entity.player.levelup", particle: "minecraft:totem_of_undying" });
+  assert.deepEqual(CONFIG_DEFAULTS.deathRoulette, { everyDeaths: 3, stopSound: "entity.wither.spawn", particle: "minecraft:soul_fire_flame" });
+  const { dir } = fixture(t);
+  const items = [{ commandFile: "zombie.txt" }];
+  const death = prepareRoulette({ items, stopSound: "a:b:c" }, dir, () => 0, CONFIG_DEFAULTS.deathRoulette);
+  assert.deepEqual([death.stopSound, death.particle], ["entity.wither.spawn", "minecraft:soul_fire_flame"]);
+  const plain = prepareRoulette({ items }, dir, () => 0);
+  assert.deepEqual([plain.stopSound, plain.particle], ["entity.player.levelup", "minecraft:totem_of_undying"]);
+});

@@ -10,9 +10,9 @@ function isString(v) {
   return typeof v === "string";
 }
 
-function normalizeUsername(u) {
-  if (!isString(u)) return "";
-  return u.trim().replace(/^@/, "");
+// TikTok ID はそのまま main へ渡す。整えと確かめ（空・形）は main が bridge/tiktok_id.cjs で行う（preload は bridge のモジュールを読まない。処理のコピー PR9）。
+function usernameArg(u) {
+  return isString(u) ? u : "";
 }
 
 contextBridge.exposeInMainWorld("mygamepack", {
@@ -91,11 +91,7 @@ contextBridge.exposeInMainWorld("mygamepack", {
 
   // UIからギフト一覧を更新（bat不要化）
   // username は "akahoridouma" / "@akahoridouma" どちらでもOK
-  giftsUpdate: (username) => {
-    const u = normalizeUsername(username);
-    if (!u) throw new Error("giftsUpdate: username is empty");
-    return ipcRenderer.invoke("gifts:update", u);
-  },
+  giftsUpdate: (username) => ipcRenderer.invoke("gifts:update", usernameArg(username)),
 
   // エクスプローラーで data/gifts を開く
   giftsOpenFolder: () => ipcRenderer.invoke("gifts:openFolder"),
@@ -216,11 +212,7 @@ contextBridge.exposeInMainWorld("mygamepack", {
   // --------------------
   gvGiftsRead: () => ipcRenderer.invoke("gv:gifts:read"),
 
-  gvGiftsUpdate: (username) => {
-    const u = normalizeUsername(username);
-    if (!u) throw new Error("gvGiftsUpdate: username is empty");
-    return ipcRenderer.invoke("gv:gifts:update", u);
-  },
+  gvGiftsUpdate: (username) => ipcRenderer.invoke("gv:gifts:update", usernameArg(username)),
 
   gvGiftsOpenFolder: () => ipcRenderer.invoke("gv:gifts:openFolder"),
   gvGiftsOpenHtml: () => ipcRenderer.invoke("gv:gifts:openHtml"),

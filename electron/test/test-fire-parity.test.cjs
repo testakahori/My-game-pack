@@ -369,3 +369,19 @@ test('BridgeMOD 経路でないときは、テスト発火を使えないと返�
   const source = fs.readFileSync(path.resolve(__dirname, '../../bridge/index.js'), 'utf8');
   assert.match(source, /if \(!bridgeMod\) throw new Error\("テスト発火は、Minecraft を BridgeMOD で動かしているときだけ使えます。"\);/);
 });
+
+// 「何回死ぬごと」と止まる音が設定に無いデスルーレット（2026-10-23 ユーザーの決定。処理のコピー PR9）。本番と同じ処理で3回ごとに回り、ウィザーの音で止まる。
+test('デスルーレット: everyDeaths と止まる音が無ければ、3回死ぬごとに回りウィザーの音で止まる', async t => {
+  const bridge = await startBridgeFixture(t, {
+    commands: { qa: 'say qa\n' },
+    config: { deathRoulette: { enabled: true, items: [{ commandFile: 'qa.txt', label: 'QA', weight: 1, repeat: 1 }] } },
+  });
+  for (const deaths of [1, 2]) {
+    const miss = await bridge.testEvent({ type: 'death', deaths });
+    assert.deepEqual(miss.steps, [], `死亡 ${deaths} 回目で回した（前は毎回回していた）`);
+  }
+  const hit = await bridge.testEvent({ type: 'death', deaths: 3 });
+  assert.equal(hit.steps[0].label, 'デスルーレット');
+  assert.ok(bridge.requests.some(request => JSON.stringify(request).includes('entity.wither.spawn')), 'ウィザーの音で止まる');
+  assert.ok(!bridge.requests.some(request => JSON.stringify(request).includes('entity.player.levelup')));
+});

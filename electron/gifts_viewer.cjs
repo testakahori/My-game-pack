@@ -4,7 +4,7 @@
 const path = require("path");
 const fs = require("fs");
 const { fetchGiftImage } = require("./gift_image.cjs");
-const { normalizeTikTokId } = require("../bridge/tiktok_id.cjs");
+const { normalizeTikTokId, tiktokIdProblem, tiktokIdInputProblem } = require("../bridge/tiktok_id.cjs");
 
 // 同梱 node の準備（BRIDGE の配布）は、あとで main で定義されるので、呼ばれたときに読む関数で受け取る。
 function createGiftsViewer({
@@ -45,8 +45,10 @@ function createGiftsViewer({
 
   async function updateGifts(username) {
     // 自動更新と同じ形に整える。形が違うと、自動更新の最中に押した同じ ID の更新が「別のアカウント」で止まる。
+    // 確かめは設定の確かめと同じ決まりと文（bridge/tiktok_id.cjs）。前は 25〜64 文字も通して TikTok へ問い合わせていた（処理のコピー PR9）。
+    const problem = tiktokIdInputProblem(username);
+    if (problem) throw new Error(problem);
     const user = normalizeTikTokId(username);
-    if (!/^[\w.]{1,64}$/.test(user)) throw new Error("TikTok IDを入力してください（英数字・ピリオド・アンダースコア）。");
     if (giftUpdateTask) {
       if (giftUpdateUsername !== user) throw new Error("別のアカウントのギフトを更新中です。完了してからお試しください。");
       return giftUpdateTask;
@@ -216,7 +218,10 @@ function createGiftsViewer({
 
     ipcMain.handle("gv:settings:write", async (_event, v) => {
       const p = getGvSettingsPath();
-      const next = { username: String(v?.username || "").trim().replace(/^@/, "") };
+      // 確かめてから、整えた形で保存する（前は確かめる前に保存し、正しくない ID が次に開いたときも残った。処理のコピー PR9）。空は保存してよい。
+      const problem = tiktokIdProblem(v?.username);
+      if (problem) throw new Error(problem);
+      const next = { username: normalizeTikTokId(v?.username) };
       fs.writeFileSync(p, JSON.stringify(next, null, 2), "utf-8");
       return { ok: true };
     });

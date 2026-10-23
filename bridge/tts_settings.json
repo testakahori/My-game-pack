@@ -1,0 +1,22 @@
+{
+  "defaults": {
+    "engine": "voicevox",
+    "speakerId": 2,
+    "speedScale": 1.2,
+    "pitchScale": 0,
+    "intonationScale": 1,
+    "volume": 1,
+    "enabled": true,
+    "commentEnabled": true,
+    "giftEnabled": true,
+    "giftTemplate": "{sender}さんから{gift}が来たよ！"
+  },
+  "ranges": {
+    "speedScale": [0.5, 2],
+    "pitchScale": [-0.15, 0.15],
+    "intonationScale": [0, 2],
+    "volume": [0, 2]
+  },
+  "ports": { "voicevox": 50021, "aivis": 10101 },
+  "giftTemplateMax": 200
+}

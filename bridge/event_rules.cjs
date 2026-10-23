@@ -1,5 +1,6 @@
 // 本番Bridgeとオフラインテストで共有するイベント条件。
 const { isResourceId } = require('./minecraft_ids.cjs');
+const { CONFIG_DEFAULTS } = require('./config_defaults.cjs');
 // txt の # COOLDOWN（ミリ秒）の上限。BRIDGE と TXT 作成の確かめ（bridge/command_rows.cjs）が使う（処理のコピー PR8）。
 const COMMAND_COOLDOWN_MAX_MS = 60000;
 function boundedInt(value, min, max, fallback = min) {
@@ -17,7 +18,12 @@ function matchingCommentRules(config, text) {
 function deathRouletteMatches(config, deaths) {
   const n = Number(deaths);
   return config?.enabled === true && Number.isInteger(n) && n > 0 &&
-    n % boundedInt(config.everyDeaths ?? 1, 1, 1000, 1) === 0;
+    n % deathRouletteEvery(config) === 0;
+}
+// 何回死ぬごとに回すか。設定に無いときは config_defaults.json の 3（画面の表示に合わせる。2026-10-23 ユーザーの決定。処理のコピー PR9）。
+function deathRouletteEvery(config) {
+  const fallback = CONFIG_DEFAULTS.deathRoulette.everyDeaths;
+  return boundedInt(config?.everyDeaths ?? fallback, 1, 1000, fallback);
 }
 function likeRuleProgress(rule, total, previousMultiple, catchUpLimit = 5) {
   const threshold = boundedInt(rule.threshold, 1, 1000000, 10);
@@ -42,4 +48,4 @@ function giftTimes(amount) {
   const times = Math.round(Number(amount));
   return Number.isFinite(times) && times >= 1 ? times : 1;
 }
-module.exports = { COMMAND_COOLDOWN_MAX_MS, boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes };
+module.exports = { COMMAND_COOLDOWN_MAX_MS, boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, deathRouletteEvery, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes };

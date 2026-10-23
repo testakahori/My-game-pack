@@ -4,10 +4,8 @@ const fs = require("fs");
 const path = require("path");
 const { TikTokLiveConnection } = require("tiktok-live-connector");
 const { connectionOptions, redactSecrets } = require('../../bridge/tiktok_connection.cjs');
-
-function normalizeUniqueId(id) {
-  return String(id || "").trim().replace(/^@/, "");
-}
+// TikTok ID の整え方と確かめは本体のアプリ・BRIDGE と同じ bridge/tiktok_id.cjs（束ねるときに一緒に入る。処理のコピー PR9）。
+const { normalizeTikTokId, tiktokIdInputProblem } = require('../../bridge/tiktok_id.cjs');
 
 function pickArg(flag) {
   const i = process.argv.indexOf(flag);
@@ -81,11 +79,17 @@ async function fetchGiftCatalog(connection) {
 }
 
 async function main() {
-  const uniqueId = normalizeUniqueId(process.argv[2]);
-  if (!uniqueId) {
+  if (process.argv[2] === undefined) {
     console.error("Usage: node tools/fetch_gifts.cjs <tiktokUniqueId> [--out <dir>]");
     process.exit(1);
   }
+  // 「@」だけ・空も日本語の文で止める（前は英語の Usage の文だった。PR9 の最後のレビュー）。
+  const problem = tiktokIdInputProblem(process.argv[2]);
+  if (problem) {
+    console.error(problem);
+    process.exit(1);
+  }
+  const uniqueId = normalizeTikTokId(process.argv[2]);
 
   const outBase = pickArg("--out") ? path.resolve(pickArg("--out")) : process.cwd();
   ensureDir(outBase);
@@ -138,5 +142,5 @@ async function main() {
   }
 }
 
-module.exports = { fetchGiftCatalog, normalizeUniqueId, configureSystemCertificates, formatFetchError };
+module.exports = { fetchGiftCatalog, configureSystemCertificates, formatFetchError };
 if (require.main === module) main();

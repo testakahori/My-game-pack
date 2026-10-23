@@ -10,7 +10,21 @@ const { migrateBridgeConfig } = require('../../bridge/config_migration.cjs');
 const file = path.resolve(__dirname, '../../src/lib/integerInput.ts');
 const compiled = new Module(file, module);
 compiled._compile(transformSync(fs.readFileSync(file, 'utf8'), { loader: 'ts', format: 'cjs', target: 'node20' }).code, file);
-const { toRepeat, toThreshold } = compiled.exports;
+const { toRepeat, toThreshold, toWeight } = compiled.exports;
+
+// ルーレットの項目の重みは上限なし（BRIDGE も上限が無い。強さの上限は設けない方針。処理のコピー PR9）。読み込みの式は BRIDGE の weightOf と同じ。
+// 前は読み込みで数でない値が NaN になり、入力では 100 に丸めていた（保存済みの 500 は 500 のまま出た）。
+test('ルーレットの重み: BRIDGE の weightOf と同じ値の一覧で同じ結果', () => {
+  const { weightOf } = require('../../bridge/feature_engine.js');
+  for (const value of [0, 0.5, 1, 2.5, 100, 500, -3, 'x', '', null, undefined, '7']) assert.equal(toWeight(value), weightOf(value), String(value));
+});
+
+// デスルーレットの「何回死ぬごと」の丸め方も BRIDGE（event_rules.cjs の deathRouletteEvery）と同じ（前の画面は小数のまま・文字は NaN）。
+test('デスルーレットの何回死ぬごと: BRIDGE の deathRouletteEvery と同じ値の一覧で同じ結果', () => {
+  const { deathRouletteEvery } = require('../../bridge/event_rules.cjs');
+  const { toEveryDeaths } = compiled.exports;
+  for (const value of [1, 2.9, 0, -5, 1001, 'x', '', '4', null, undefined]) assert.equal(toEveryDeaths(value, 3), deathRouletteEvery({ everyDeaths: value }), String(value));
+});
 
 test('入力欄の回数と閾値: 整数に丸める（保存済みの設定の直しと同じ式）', () => {
   assert.deepEqual([2.5, '3', 500, -1, 'x', 0, '', null].map(toRepeat), [3, 3, 100, 1, 1, 1, 1, 1]);

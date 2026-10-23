@@ -7,10 +7,8 @@ import path from "node:path";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
-const TTS_ENGINE_PORTS = {
-  voicevox: 50021,
-  aivis: 10101,
-} as const;
+// エンジンのポートはアプリ・BRIDGE と同じ bridge/tts_settings.json（処理のコピー PR9）。
+const TTS_ENGINE_PORTS: { voicevox: number; aivis: number } = createRequire(import.meta.url)("./bridge/tts_settings.json").ports;
 
 type TtsEngine = keyof typeof TTS_ENGINE_PORTS;
 
@@ -291,12 +289,12 @@ export default defineConfig({
     port: 5174,
     proxy: {
       "/__tts/voicevox": {
-        target: "http://127.0.0.1:50021",
+        target: `http://127.0.0.1:${TTS_ENGINE_PORTS.voicevox}`,
         changeOrigin: true,
         rewrite: (requestPath) => requestPath.replace(/^\/__tts\/voicevox/, ""),
       },
       "/__tts/aivis": {
-        target: "http://127.0.0.1:10101",
+        target: `http://127.0.0.1:${TTS_ENGINE_PORTS.aivis}`,
         changeOrigin: true,
         rewrite: (requestPath) => requestPath.replace(/^\/__tts\/aivis/, ""),
       },

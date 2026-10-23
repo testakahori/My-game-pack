@@ -134,3 +134,31 @@ test('写し: BRIDGE の # COOLDOWN の上限は COMMAND_COOLDOWN_MAX_MS を使�
   assert.equal(cooldownLines.length, 1);
   assert.equal(cooldownLines[0].includes('60000'), false, 'bridge/index.js に # COOLDOWN の上限の写しがある');
 });
+
+// ルーレット・デスルーレットの既定（止まる音・粒子・何回死ぬごと）は bridge/config_defaults.json の1か所（処理のコピー PR9）。
+// 音の候補の一覧と入力欄の例には同じ文字があるので、既定として使う形（stopSound: "…"・|| "…"・?? の既定）だけを探す。
+test('既定値の写し: ルーレット・デスルーレットの既定は config_defaults.json から読む', () => {
+  const read = file => fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
+  const roulette = read('bridge/roulette.cjs');
+  assert.equal(roulette.includes('"entity.player.levelup"') || roulette.includes('"minecraft:totem_of_undying"'), false, 'roulette.cjs に止まる音の既定の写しがある');
+  for (const file of ['bridge/event_rules.cjs', 'bridge/index.js']) assert.equal(read(file).includes('everyDeaths ?? 1'), false, file + ' に何回死ぬごとの既定の写しがある');
+  const page = read('src/components/EventSettings2Page.tsx');
+  assert.match(page, /bridge\/config_defaults\.json/);
+  // 空の文字（コメントギフトの「なし」の || ""）は既定値ではないので見ない。
+  assert.doesNotMatch(page, /(stopSound|particle): "[^"]|(stopSound|particle) \|\| "[^"]|everyDeaths: 3|everyDeaths \?\? 3/, '画面に既定値の写しがある');
+  // 重みは上限なし・読み込みは weightOf と同じ式（src/lib/integerInput.ts の toWeight）。
+  assert.doesNotMatch(page, /Math\.min\(100, Number\(e\.target\.value\)/);
+  assert.match(page, /weight: toWeight\(/);
+  // コメントギフトのルールの音・粒子は「なし」を選べる（2026-10-23 ユーザーの決定）。
+  assert.match(page, /なし（鳴らさない）/);
+  assert.match(page, /なし（出さない）/);
+});
+
+// コメントギフトの「なし」の動き（空を空のまま出し、「なし」の選び方が先頭にある）を見張る（PR9 の最後のレビュー。文字があるかだけでは足りなかった）。
+test('コメントギフトの音・粒子の「なし」: 空の値は空のまま「なし」を選んだ形で出す', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../src/components/EventSettings2Page.tsx'), 'utf8');
+  assert.match(page, /value=\{rule\.sound \|\| ""\}/, '空の音を一覧の先頭（レベルアップ）と出している');
+  assert.match(page, /value=\{rule\.particle \|\| ""\}/);
+  assert.match(page, /COMMENT_SOUND_PRESETS = \[\{ value: "", label: "なし（鳴らさない）" \}/);
+  assert.match(page, /COMMENT_PARTICLE_PRESETS = \[\{ value: "", label: "なし（出さない）" \}/);
+});

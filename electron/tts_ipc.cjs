@@ -3,45 +3,14 @@
 const path = require("path");
 const fs = require("fs");
 const { ENGINE_PORTS, checkEngine, getSpeakers, flattenSpeakers, synthesize } = require("./tts.cjs");
+// 既定値・範囲と整え方は BRIDGE と同じ bridge/tts_settings.cjs（処理のコピー PR9）。
+const { TTS_SETTINGS, normalizeTtsSettings } = require("../bridge/tts_settings.cjs");
+const TTS_DEFAULTS = TTS_SETTINGS.defaults;
 
 function createTtsIpc({ app, process, shell, spawn, getBridgeBatDir, getConfigPath, settingsBackups }) {
   // --------------------
   // TTS (読み上げ)
   // --------------------
-  const TTS_DEFAULTS = {
-    engine: "voicevox",
-    speakerId: 2,
-    speedScale: 1.2,
-    pitchScale: 0.0,
-    intonationScale: 1.0,
-    volume: 1.0,
-    enabled: true,
-    commentEnabled: true,
-    giftEnabled: true,
-    giftTemplate: "{sender}さんから{gift}が来たよ！",
-  };
-
-  function clampNumber(value, min, max, fallback) {
-    const number = Number(value);
-    return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback;
-  }
-
-  function normalizeTtsSettings(settings) {
-    const value = { ...TTS_DEFAULTS, ...(settings && typeof settings === "object" ? settings : {}) };
-    return {
-      engine: value.engine === "aivis" ? "aivis" : "voicevox",
-      speakerId: Math.trunc(clampNumber(value.speakerId, 0, Number.MAX_SAFE_INTEGER, TTS_DEFAULTS.speakerId)),
-      speedScale: clampNumber(value.speedScale, 0.5, 2.0, TTS_DEFAULTS.speedScale),
-      pitchScale: clampNumber(value.pitchScale, -0.15, 0.15, TTS_DEFAULTS.pitchScale),
-      intonationScale: clampNumber(value.intonationScale, 0.0, 2.0, TTS_DEFAULTS.intonationScale),
-      volume: clampNumber(value.volume, 0.0, 2.0, TTS_DEFAULTS.volume),
-      enabled: value.enabled !== false,
-      commentEnabled: value.commentEnabled !== false,
-      giftEnabled: value.giftEnabled !== false,
-      giftTemplate: String(value.giftTemplate || TTS_DEFAULTS.giftTemplate).slice(0, 200),
-    };
-  }
-
   function getTtsSettingsPath() {
     return path.join(app.getPath("userData"), "tts-settings.json");
   }
@@ -168,14 +137,8 @@ function createTtsIpc({ app, process, shell, spawn, getBridgeBatDir, getConfigPa
         const ok = await checkEngine(normalized.engine);
         if (!ok) return { ok: false, message: "エンジンが起動していません" };
         const text = ((settings?.testText && String(settings.testText).trim()) || "テスト再生。こんにちは！").slice(0, 200);
-        const wav = await synthesize(
-          normalized.engine,
-          text,
-          normalized.speakerId,
-          normalized.speedScale,
-          normalized.pitchScale,
-          normalized.intonationScale
-        );
+        // 整えた設定ごと渡す（音量も入る。本番の BRIDGE と同じ。前は音量を渡さず、100〜200% が同じ大きさで鳴った）。
+        const wav = await synthesize(normalized.engine, text, normalized);
         return { ok: true, base64: wav.toString("base64") };
       } catch (e) {
         return { ok: false, message: e.message };

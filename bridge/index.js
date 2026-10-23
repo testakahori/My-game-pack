@@ -40,7 +40,7 @@ const { commandFileProblem, ensureTxt, bridgeCommandKey } = require("./command_f
 const { parseCommandText } = require("./command_text.cjs");
 const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("./bridge_mod_token.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require("./feature_engine");
-const { COMMAND_COOLDOWN_MAX_MS, boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes } = require("./event_rules.cjs");
+const { COMMAND_COOLDOWN_MAX_MS, boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, deathRouletteEvery, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes } = require("./event_rules.cjs");
 const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter, createMuteMatcher } = require("./tiktok_events.cjs");
 const { testEventActions, createTestRun, noMatchNote } = require("./test_fire.cjs");
 let runtimeProtection = { enabled: false };
@@ -180,41 +180,9 @@ function scheduleRconDisconnect() {
 // --------------------
 // TTS (読み上げ)
 // --------------------
-const TTS_DEFAULTS = {
-  engine: "voicevox",
-  speakerId: 2,
-  speedScale: 1.2,
-  pitchScale: 0.0,
-  intonationScale: 1.0,
-  volume: 1.0,
-  enabled: true,
-  commentEnabled: true,
-  giftEnabled: true,
-  giftTemplate: "{sender}さんから{gift}が来たよ！",
-};
-
-const TTS_PORTS = { voicevox: 50021, aivis: 10101 };
-
-function ttsNumber(value, min, max, fallback) {
-  const number = Number(value);
-  return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback;
-}
-
-function normalizeTtsConfig(settings) {
-  const value = { ...TTS_DEFAULTS, ...(settings && typeof settings === "object" ? settings : {}) };
-  return {
-    engine: value.engine === "aivis" ? "aivis" : "voicevox",
-    speakerId: Math.trunc(ttsNumber(value.speakerId, 0, Number.MAX_SAFE_INTEGER, TTS_DEFAULTS.speakerId)),
-    speedScale: ttsNumber(value.speedScale, 0.5, 2.0, TTS_DEFAULTS.speedScale),
-    pitchScale: ttsNumber(value.pitchScale, -0.15, 0.15, TTS_DEFAULTS.pitchScale),
-    intonationScale: ttsNumber(value.intonationScale, 0.0, 2.0, TTS_DEFAULTS.intonationScale),
-    volume: ttsNumber(value.volume, 0.0, 2.0, TTS_DEFAULTS.volume),
-    enabled: value.enabled !== false,
-    commentEnabled: value.commentEnabled !== false,
-    giftEnabled: value.giftEnabled !== false,
-    giftTemplate: String(value.giftTemplate || TTS_DEFAULTS.giftTemplate).slice(0, 200),
-  };
-}
+// 既定値・範囲・ポートと整え方は bridge/tts_settings.cjs の1か所（アプリの electron/tts_ipc.cjs も同じ。処理のコピー PR9）。
+const { TTS_SETTINGS, TTS_PORTS, normalizeTtsSettings: normalizeTtsConfig, applyVoiceSettings } = require("./tts_settings.cjs");
+const TTS_DEFAULTS = TTS_SETTINGS.defaults;
 
 function loadTtsConfig() {
   const p = path.join(__dirname, "tts-settings.json");
@@ -278,7 +246,7 @@ async function speakText(text, cfg) {
   let tmpWav = null;
   try {
     const port = TTS_PORTS[cfg.engine] || TTS_PORTS.voicevox;
-    const speakerId = cfg.speakerId ?? 2;
+    const speakerId = cfg.speakerId;
 
     console.log(`[TTS] 音声合成を開始 engine=${cfg.engine} speaker=${speakerId} chars=${text.length}`);
 
@@ -293,10 +261,8 @@ async function speakText(text, cfg) {
     }
 
     const query = JSON.parse(queryRes.body.toString());
-    query.speedScale = cfg.speedScale ?? 1.2;
-    query.pitchScale = cfg.pitchScale ?? 0.0;
-    query.intonationScale = cfg.intonationScale ?? 1.0;
-    query.volumeScale = cfg.volume ?? 1.0;
+    // cfg は normalizeTtsConfig を通してある（既定を付け直さない）。声の設定の入れ方はアプリの読み上げのテストと同じ。
+    applyVoiceSettings(query, cfg);
 
     const synthRes = await ttsHttpPost(
       port,
@@ -1434,7 +1400,7 @@ async function main() {
     }
     let round;
     try {
-      round = prepareRoulette(rl, commandsDirAbs);
+      round = prepareRoulette(rl, commandsDirAbs, Math.random, rouletteDefaults(request.historyType));
     } catch (error) {
       console.error(`${tag}[Roulette]`, error.message + (left > 1 ? `（残り${left}回を取りやめました）` : ""));
       request.run?.failStep(request.step, error.message, left);
@@ -1467,10 +1433,14 @@ async function main() {
     if (run?.preview) { previewEvent(run, event); return; }
     enqueueMod(run ? run.mark(event) : event);
   }
+  // 止まる音・粒子の既定（デスルーレットはウィザーの音と魂の炎。config_defaults.json。処理のコピー PR9）。
+  function rouletteDefaults(historyType) {
+    return historyType === "death_roulette" ? CONFIG_DEFAULTS.deathRoulette : CONFIG_DEFAULTS.roulette;
+  }
   // 条件だけ確認のルーレット：回さずに回数だけ書く。回すときと同じ確かめ（有効な項目があるか）を通し、通らなければ理由を書く。
   function previewRoulette(run, config, event) {
     const step = run.step(event, { roulette: true });
-    try { prepareRoulette(config, commandsDirAbs); }
+    try { prepareRoulette(config, commandsDirAbs, Math.random, rouletteDefaults(event.historyType)); }
     catch (error) { run.notice(`${run.steps[step].label}: ${error?.message || error}`); }
   }
   // 条件だけ確認：送る前の確かめ（名前・コマンドファイル・GAME_MOD）を送るときと同じく通し、通らなければ理由を書く。
@@ -1522,7 +1492,7 @@ async function main() {
     const rl = deathRouletteCfg;
     if (!rl || rl.enabled !== true) return;
     const deaths = Number(status.deaths || 0);
-    const every = boundedInt(rl.everyDeaths ?? 1, 1, 1000, 1);
+    const every = deathRouletteEvery(rl);
     if (deathRouletteMatches(rl, deaths)) {
       ctx.log(`[DeathRoulette] deaths=${deaths}（${every}回ごと）→ ルーレット始動`);
       if (ctx.run?.preview) previewRoulette(ctx.run, rl, { commandFile: "roulette.txt", count: 1, historyType: "death_roulette" });

@@ -162,14 +162,16 @@ ipcMain.handle("settings:read", async () => {
 
 ipcMain.handle("settings:write", async (_e, v) => {
   const p = settingsPath();
-  const next = { username: String(v?.username || "").trim().replace(/^@/, "") };
+  // 入力のまま保存する（整えと確かめは道具 tools/fetch_gifts.cjs が bridge/tiktok_id.cjs で行う。単独で束ねたとき、ここからは bridge/ が読めない。処理のコピー PR9）。
+  const next = { username: typeof v?.username === "string" ? v.username.trim() : "" };
   fs.writeFileSync(p, JSON.stringify(next, null, 2), "utf-8");
   return { ok: true };
 });
 
 ipcMain.handle("gifts:update", async (_e, username) => {
-  const user = String(username || "").trim().replace(/^@/, "");
-  if (!user) throw new Error("username is empty");
+  // 値はそのまま道具へ渡す（整えと形の確かめは道具が bridge/tiktok_id.cjs で行い、正しくなければ設定の確かめと同じ文で止まる）。
+  const user = typeof username === "string" ? username.trim() : "";
+  if (!user) throw new Error("TikTok ID を入力してください");
 
   ensureToolsExist();
 

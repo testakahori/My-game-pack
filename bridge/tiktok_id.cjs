@@ -14,4 +14,17 @@ function isValidTikTokId(value) {
   return TIKTOK_ID.test(normalizeTikTokId(value));
 }
 
-module.exports = { normalizeTikTokId, isValidTikTokId };
+// 形が正しくないときの文（設定の確かめ・ギフト一覧の更新・画面が同じ文を出す。処理のコピー PR9）。正しければ空。
+// 空の値も空を返す（空のときの文は場所ごとに違うので、呼ぶ側が決める）。
+function tiktokIdProblem(value) {
+  if (!normalizeTikTokId(value) || isValidTikTokId(value)) return "";
+  return `TikTok ID「${String(value).trim()}」の形が正しくありません。半角英数字・_・. の24文字以内で入力してください`;
+}
+
+// 入力された TikTok ID の文。空（「@」だけ・文字列でない値も）なら「入力してください」、形が正しくなければ tiktokIdProblem の文、正しければ空。
+// ギフト一覧の更新と GiftsViewer の道具が使う（PR9 の最後のレビュー）。
+function tiktokIdInputProblem(value) {
+  return normalizeTikTokId(value) ? tiktokIdProblem(value) : "TikTok ID を入力してください";
+}
+
+module.exports = { normalizeTikTokId, isValidTikTokId, tiktokIdProblem, tiktokIdInputProblem };
