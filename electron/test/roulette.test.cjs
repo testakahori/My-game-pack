@@ -89,3 +89,22 @@ test("ルーレットの回数の丸めは前と同じ（0・空・数でない�
   const repeats = [0, "", "x", 2.9, 500].map(repeat => prepareRoulette({ items: [{ commandFile: "zombie.txt", repeat }] }, dir, () => 0).winner.repeat);
   assert.deepEqual(repeats, [1, 1, 1, 2, 100]);
 });
+
+// 音・粒子の ID は bridge/minecraft_ids.cjs の1か所（DisplayMOD と同じ決まり。処理のコピー PR7）。
+test("ルーレットの止まる音・粒子: 正しくない ID は今どおり既定にし、/ のある path は DisplayMOD と同じく通す", t => {
+  const { dir, config } = fixture(t);
+  assert.equal(prepareRoulette({ ...config, stopSound: "a:b:c" }, dir, () => 0).stopSound, "entity.player.levelup");
+  assert.equal(prepareRoulette({ ...config, stopSound: "minecraft:block/stone" }, dir, () => 0).stopSound, "minecraft:block/stone");
+});
+
+// ルーレットかどうかの判定は roulette.cjs の isRouletteCommand の1か所。大文字小文字を区別しない（処理のコピー PR7）。
+// 前は BRIDGE が === "roulette" で比べ、Roulette.TXT を割り当てたギフトを Roulette という名前のコマンドとして送っていた。
+test("ルーレットの判定: isRouletteCommand は大文字小文字・前後の空白・.txt の有無を問わない", t => {
+  const { isRouletteCommand } = require("../../bridge/roulette.cjs");
+  for (const name of ["roulette.txt", "Roulette.TXT", "ROULETTE", " roulette "]) assert.equal(isRouletteCommand(name), true, name);
+  for (const name of ["roulette2.txt", "my_roulette.txt", "", null, undefined]) assert.equal(isRouletteCommand(name), false, String(name));
+  const { dir } = fixture(t);
+  fs.writeFileSync(path.join(dir, "Roulette.TXT"), "say roulette\n");
+  const round = prepareRoulette({ items: [{ commandFile: "Roulette.TXT" }, { commandFile: "zombie.txt" }] }, dir, () => 0);
+  assert.deepEqual(round.items.map(item => item.commandFile), ["zombie.txt"], "ルーレット自身は項目に入れない");
+});

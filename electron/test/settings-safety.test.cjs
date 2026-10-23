@@ -160,3 +160,54 @@ test("配信前チェック: 接続・一覧の新鮮さ・コマンド・音声
   write(p.config, { ...cfg, tiktokUsername: "foo-bar" });
   assert.equal((await runPreflight(deps)).checks.find(row => row.id === "account").status, "error");
 });
+
+// Shift_JIS などの UTF-8 でない txt（処理のコピー PR7。HANDOFF04 の PR1 のレビューの残り）。
+// 前はバックアップが UTF-8 として読んで U+FFFD に変え、戻すとファイルが壊れていた。「# TITLE: ネコ」と「say hi」。
+const SJIS = Buffer.from([0x23, 0x20, 0x54, 0x49, 0x54, 0x4c, 0x45, 0x3a, 0x20, 0x83, 0x6c, 0x83, 0x52, 0x0a, 0x73, 0x61, 0x79, 0x20, 0x68, 0x69, 0x0a]);
+
+test("設定バックアップ: UTF-8 でない txt（Shift_JIS）はバイトのまま取り、戻すと元と同じ", t => {
+  const { p, store, deps } = fixture(t);
+  fs.writeFileSync(path.join(p.commands, "sjis.txt"), SJIS);
+  const backup = store.create();
+  assert.equal(backup.commands, 2, "UTF-8 の rose.txt と Shift_JIS の sjis.txt");
+  fs.writeFileSync(path.join(p.commands, "sjis.txt"), "say changed");
+  atomicWrite(path.join(p.commands, "rose.txt"), "say changed");
+  let names = [];
+  createSettingsBackups({ ...deps, validateRestore: (_config, commands) => { names = Object.keys(commands).sort(); } }).restore(backup.id);
+  assert.deepEqual(fs.readFileSync(path.join(p.commands, "sjis.txt")), SJIS, "前は U+FFFD に変わって戻っていた");
+  assert.equal(fs.readFileSync(path.join(p.commands, "rose.txt"), "utf8"), "say original");
+  assert.deepEqual(names, ["rose.txt", "sjis.txt"], "戻す前の確かめには両方の名前を渡す");
+  // 全部 UTF-8 のときは前の形（binaryCommands がない）のまま。前の版のバックアップと同じ形なので、同じ内容の自動保存も重ならない。
+  fs.unlinkSync(path.join(p.commands, "sjis.txt"));
+  const plain = store.create();
+  assert.equal(read(path.join(p.backups, plain.id)).payload.binaryCommands, undefined);
+});
+
+test("設定復元: binaryCommands の名前と値も確かめ、パス脱出は書き込み前に拒否", t => {
+  const { p, store } = fixture(t);
+  fs.writeFileSync(path.join(p.commands, "sjis.txt"), SJIS);
+  const row = store.create();
+  const file = path.join(p.backups, row.id);
+  const good = read(file);
+  const rewrite = binaryCommands => {
+    const payload = { ...good.payload, binaryCommands };
+    write(file, { ...good, payload, sha256: crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex") });
+  };
+  // commands と同じ名前（rose.txt）・base64 でない値も断る（手で作ったバックアップ。PR7 の最後のレビュー）。
+  for (const bad of [{ "../outside.txt": SJIS.toString("base64") }, { "sjis.txt": 1 }, [], { "rose.txt": SJIS.toString("base64") }, { "sjis.txt": "@@@" }]) {
+    rewrite(bad);
+    assert.throws(() => store.restore(row.id), /コマンド/, JSON.stringify(bad));
+  }
+  assert.equal(fs.existsSync(path.join(p.commands, "..", "outside.txt")), false);
+});
+
+test("配信前チェック: 参照しているコマンドが UTF-8 で保存されていなければエラーにする", async t => {
+  const { p, cfg, root } = fixture(t);
+  fs.writeFileSync(path.join(p.commands, "sjis.txt"), SJIS);
+  write(p.config, { ...cfg, mappings: [{ giftId: "5655", commandFile: "sjis.txt", repeat: 1 }] });
+  const deps = { configPath: p.config, serverRoot: root, commandsDir: p.commands, giftsPath: path.join(root, "none.json"), giftsMetaPath: path.join(root, "none.json"),
+    modStatus: async () => ({ online: false }), bridgeStatus: () => ({ running: false }), ttsStatus: async () => ({ enabled: false }) };
+  const commands = (await runPreflight(deps)).checks.find(row => row.id === "commands");
+  assert.equal(commands.status, "error", "前は ok だった（BRIDGE は U+FFFD にして読み、BridgeMOD は読めない）");
+  assert.match(commands.detail, /UTF-8 で保存されていないファイル: sjis\.txt。メモ帳などで UTF-8 で保存し直してください/);
+});

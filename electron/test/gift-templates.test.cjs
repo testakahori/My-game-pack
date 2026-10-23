@@ -132,3 +132,14 @@ test('oversize templates and exporting over the live config are rejected', async
 test('テンプレートのコマンドは大文字の拡張子（TNT.TXT）も受け付ける（.txt は大文字小文字を問わない。2026-10-18）', () => {
   assert.equal(parseTemplate(JSON.stringify({ ...template, mappings: [{ ...row, commandFile: 'TNT.TXT' }] })).mappings[0].commandFile, 'TNT.TXT');
 });
+
+// 同じコマンドかは .txt の有無・大文字小文字を問わずに比べる（Windows のファイル名も BridgeMOD も区別しない。処理のコピー PR7）。
+test('テンプレートの HEAL.TXT は、アプリの heal.txt と同じコマンドとして見つかり、題名も出る', async t => {
+  const h = harness(t);
+  const upper = { ...row, commandFile: 'HEAL.TXT' };
+  fs.writeFileSync(h.filePath, JSON.stringify({ ...template, mappings: [upper] }));
+  const opened = await h.service.open();
+  assert.deepEqual(opened.preview.missingCommands, [], '前は HEAL.TXT を見つからないコマンドに出していた');
+  assert.equal(opened.preview.mappings[0].title, '回復！');
+  assert.deepEqual(h.service.apply(opened.preview.token).mappings, [upper]);
+});

@@ -3,9 +3,16 @@ const path = require("node:path");
 const { parseCommandText } = require("./command_text.cjs");
 const { ensureTxt, bridgeCommandKey } = require("./command_files.cjs");
 const { boundedInt } = require("./event_rules.cjs");
+const { isResourceId } = require("./minecraft_ids.cjs");
 
 function cleanText(value, length) {
   return Array.from(String(value ?? "").replace(/[\r\n\t]/g, " ").replace(/[\u0000-\u001f\u007f]/g, "")).slice(0, length).join("");
+}
+
+// ルーレットを回すコマンドの名前か（roulette.txt）。大文字小文字・前後の空白・.txt の有無を問わない（BridgeMOD も区別しない）。
+// BRIDGE の判定と、項目から外す判定はこの1か所（処理のコピー PR7。前は BRIDGE が === "roulette" で比べ、Roulette.TXT を普通のコマンドとして送っていた）。
+function isRouletteCommand(commandFile) {
+  return ensureTxt(commandFile).slice(0, -4).toLowerCase() === "roulette";
 }
 
 function commandPath(commandsDir, commandFile) {
@@ -21,7 +28,7 @@ function prepareRoulette(config, commandsDir, random = Math.random) {
     const file = commandPath(commandsDir, String(item.commandFile).trim());
     if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return [];
     const commandFile = path.basename(file);
-    if (/^roulette\.txt$/i.test(commandFile)) return [];
+    if (isRouletteCommand(commandFile)) return [];
     // 説明文の読み方は command_text.cjs の1か所（アプリの一覧と同じ。2026-10-18）。
     const description = parseCommandText(fs.readFileSync(file, "utf8")).description;
     return [{
@@ -36,7 +43,8 @@ function prepareRoulette(config, commandsDir, random = Math.random) {
   if (!items.length) throw new Error("ルーレットの有効な項目がありません。イベント設定②で存在するコマンドを選び、保存してください。");
   let pick = random() * items.reduce((sum, item) => sum + item.weight, 0);
   const winner = items.find(item => (pick -= item.weight) < 0) || items.at(-1);
-  const mcId = (value, fallback) => /^[a-z0-9_.:-]+$/.test(String(value || "")) ? value : fallback;
+  // 音・粒子の ID の決まりは minecraft_ids.cjs の1か所（DisplayMOD と同じ）。正しくなければ既定にする（処理のコピー PR7）。
+  const mcId = (value, fallback) => isResourceId(value) ? value : fallback;
   return { items, winner, stopSound: mcId(config.stopSound, "entity.player.levelup"), particle: mcId(config.particle, "minecraft:totem_of_undying") };
 }
 
@@ -96,4 +104,4 @@ function rouletteSpins(count) {
   return Number.isFinite(spins) && spins >= 1 ? spins : 1;
 }
 
-module.exports = { commandPath, prepareRoulette, createRouletteRunner, rouletteSpins };
+module.exports = { isRouletteCommand, commandPath, prepareRoulette, createRouletteRunner, rouletteSpins };

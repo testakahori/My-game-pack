@@ -117,7 +117,9 @@ function createBridgeSettings({
       // Explorer で作った「ネコ.txt」「tnt - コピー.txt」なども一覧には出るが、BridgeMOD では実行できない。
       // title はルーレット名やギフト画像にそのまま使われるので変えず、印だけを付ける（割り当てた保存は理由付きで止まる）。
       // chatKey はチャットの名前（/bridge <名前>）。BridgeMOD の publicKey と同じ決まりで、画面は写しを持たずにこれを使う（処理のコピー PR6）。
-      return { name, title, category, description, chatKey: publicCommandKey(name), ...(commandFileProblem(name) ? { invalidName: true } : {}) };
+      // invalidReason は直し方の文（foo.txt.txt は「半角英数字に」では直らない。画面に出すのは PR8。PR7 の最後のレビュー）。
+      const problem = commandFileProblem(name);
+      return { name, title, category, description, chatKey: publicCommandKey(name), ...(problem ? { invalidName: true, invalidReason: problem } : {}) };
     });
   }
 
@@ -193,7 +195,7 @@ function createBridgeSettings({
     // --------------------
     // IPC: bridge/commands/minecraft/ 内の .txt ファイル一覧
     // --------------------
-    ipcMain.handle("bridge:commands:list", () => readCommandMetadata().map(({ name, title, invalidName }) => ({ name, title, ...(invalidName ? { invalidName } : {}) })));
+    ipcMain.handle("bridge:commands:list", () => readCommandMetadata().map(({ name, title, invalidName, invalidReason }) => ({ name, title, ...(invalidName ? { invalidName, invalidReason } : {}) })));
     ipcMain.handle("bridge:commands:readMeta", () => readCommandMetadata());
 
     // --------------------

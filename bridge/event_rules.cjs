@@ -1,4 +1,5 @@
 // 本番Bridgeとオフラインテストで共有するイベント条件。
+const { isResourceId } = require('./minecraft_ids.cjs');
 function boundedInt(value, min, max, fallback = min) {
   const n = Number(value);
   return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.floor(n))) : fallback;
@@ -24,7 +25,8 @@ function likeRuleProgress(rule, total, previousMultiple, catchUpLimit = 5) {
   return { threshold, currentMultiple, newTriggers, triggersToRun, skippedTriggers: newTriggers - triggersToRun };
 }
 function commentExtras(rule) {
-  const id = (value, fallback) => /^[a-z0-9_.:-]+$/.test(String(value || '')) ? value : fallback;
+  // 音・粒子の ID の決まりは minecraft_ids.cjs の1か所（DisplayMOD と同じ）。正しくなければ既定の音・粒子にする（処理のコピー PR7）。
+  const id = (value, fallback) => isResourceId(value) ? value : fallback;
   const commands = [];
   if (rule.sound) commands.push(`playsound ${id(rule.sound, 'entity.experience_orb.pickup')} master @a ~ ~ ~ 1 1`);
   if (rule.particle) commands.push(`execute at @a run particle ${id(rule.particle, 'minecraft:happy_villager')} ~ ~1 ~ 0.6 0.8 0.6 0.05 20 force`);
