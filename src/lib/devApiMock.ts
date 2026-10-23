@@ -5,6 +5,13 @@ import GAMES from "../../bridge/games.json";
 import { normalizeTikTokId, tiktokIdProblem } from "./tiktokId";
 import TTS_SETTINGS from "../../bridge/tts_settings.json";
 
+// 開発用の表示の TikTok ID の確かめ（設定の確かめと同じ文）。
+function mockTikTokIdProblem(next: any): string {
+  return !normalizeTikTokId(next?.tiktokUsername)
+    ? "TikTok IDが未承認です（「IDを承認する」ボタンが押されていません）。ダッシュボードでIDを入力して承認してください"
+    : tiktokIdProblem(next?.tiktokUsername);
+}
+
 // ゲームパックのゲームのコマンド（game_<id>_）か。アプリの bridge/game_commands.cjs の gameOfCommand と同じく、一覧から作り、大文字小文字を区別しない。
 const packGamePrefix = new RegExp(`^game_(${GAMES.filter(game => game.id !== "common").map(game => game.id).join("|")})_`, "i");
 
@@ -121,7 +128,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
     aivis: "/__tts/aivis",
   };
   // 既定値はアプリ・BRIDGE と同じ表（bridge/tts_settings.json。処理のコピー PR9。前は話者 3・速さ 1・抑揚 1.5 と違っていた）。
-  let ttsSettings: TtsSettings = { ...TTS_SETTINGS.defaults, engine: "voicevox" };
+  let ttsSettings: TtsSettings = { ...TTS_SETTINGS.defaults, engine: TTS_SETTINGS.defaults.engine === "aivis" ? "aivis" : "voicevox" };
 
   const ttsFetch = (engine: TtsEngine, requestPath: string, init?: RequestInit) => {
     return fetch(`${ttsProxyBase[engine]}${requestPath}`, {
@@ -399,16 +406,17 @@ if (import.meta.env.DEV && !win.mygamepack) {
       bridgeConfig.mappings = matches.length ? bridgeConfig.mappings.map((row: any) => String(row.giftId) === request.giftId ? updated : row) : [...bridgeConfig.mappings, updated];
       return { ok: true, mappings: structuredClone(bridgeConfig.mappings) };
     },
+    // 承認（configWrite）でも TikTok ID を確かめる（アプリの config:write と同じく、通らなければ保存しない。PR9 の最後のレビュー）。
     configWrite: async (next: any) => {
+      const problem = mockTikTokIdProblem(next);
+      if (problem) throw new Error(problem);
       bridgeConfig = structuredClone(next);
       return { ok: true };
     },
     configPath: async () => "config.minecraft.json（開発ブラウザーでは実パスなし）",
-    // TikTok ID だけはアプリと同じ決まりで確かめる（src/lib/tiktokId.ts。処理のコピー PR9）。前は何でも ok で、開発用の表示では foo-bar も承認できた。
+    // TikTok ID だけはアプリと同じ決まりで確かめる（src/lib/tiktokId.ts。処理のコピー PR9）。前は何でも ok だった。
     configValidate: async (next: any) => {
-      const problem = !normalizeTikTokId(next?.tiktokUsername)
-        ? "TikTok IDが未承認です（「IDを承認する」ボタンが押されていません）。ダッシュボードでIDを入力して承認してください"
-        : tiktokIdProblem(next?.tiktokUsername);
+      const problem = mockTikTokIdProblem(next);
       return problem ? { ok: false, errors: [problem], warnings: [] } : { ok: true, errors: [], warnings: [] };
     },
     bridgeCommandsList: readDevCommands,
@@ -490,6 +498,8 @@ if (import.meta.env.DEV && !win.mygamepack) {
       query.speedScale = settings.speedScale;
       query.pitchScale = settings.pitchScale;
       query.intonationScale = settings.intonationScale;
+      // 音量もエンジンに入れる（画面の再生では掛けない。アプリの bridge/tts_settings.cjs の applyVoiceSettings と同じ。PR9 の最後のレビュー）。
+      query.volumeScale = settings.volume;
       const synthesisResponse = await ttsFetch(settings.engine, `/synthesis?speaker=${settings.speakerId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

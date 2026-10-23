@@ -1,5 +1,6 @@
 import React from "react";
 import { normalizeTikTokId } from "../lib/tiktokId";
+import { ipcErrorMessage } from "../lib/ipcError";
 import { copyText } from "../lib/clipboard";
 
 type Gift = { id: number; name: string; diamond_count: number; image?: string | null };
@@ -104,7 +105,7 @@ const GiftsViewerPage: React.FC<Props> = ({ bridgeRunning, modOnline }) => {
       setMeta(res.meta ?? null);
       setExists(!!res.exists);
     } catch (e: any) {
-      setErr(e?.message || String(e));
+      setErr(ipcErrorMessage(e));
       if (throwOnError) throw e;
     }
   }, []);
@@ -142,7 +143,7 @@ const GiftsViewerPage: React.FC<Props> = ({ bridgeRunning, modOnline }) => {
       await reload(true);
       showToast("ギフト一覧を更新しました！");
     } catch (e: any) {
-      setErr(e?.message || String(e));
+      setErr(ipcErrorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -180,7 +181,7 @@ const GiftsViewerPage: React.FC<Props> = ({ bridgeRunning, modOnline }) => {
       await api.gvGiftsCopyPngDataUrl(canvas.toDataURL("image/png"));
       showToast("画像をクリップボードにコピーしました！");
     } catch (e: any) {
-      setErr("画像コピー失敗: " + (e?.message || String(e)));
+      setErr("画像コピー失敗: " + ipcErrorMessage(e));
     }
   };
 
@@ -260,7 +261,7 @@ const GiftsViewerPage: React.FC<Props> = ({ bridgeRunning, modOnline }) => {
       </section>
 
       <p className="gift-catalog-v2__meta">
-        更新日時: {meta ? fmtDate(meta.generatedAt) : "未取得"}　/　@{meta?.username || username || "—"}　/　
+        更新日時: {meta ? fmtDate(meta.generatedAt) : "未取得"}　/　@{meta?.username || normalizeTikTokId(username) || "—"}　/　
         <b>{filtered.length}</b> / {uniqueGifts.length} 件
       </p>
 

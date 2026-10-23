@@ -10,7 +10,7 @@ import { stopConfirmMessage, stopState, type StopTarget } from "../lib/stopSafet
 import type { PauseView } from "../lib/disruptionPause";
 import { toRepeat } from "../lib/integerInput";
 import { ipcErrorMessage } from "../lib/ipcError";
-import { normalizeTikTokId, sameTikTokId } from "../lib/tiktokId";
+import { isValidTikTokId, normalizeTikTokId, sameTikTokId } from "../lib/tiktokId";
 // 既定値は BRIDGE と同じ表（bridge/config_defaults.json。処理のコピー PR4）。
 import CONFIG_DEFAULTS from "../../bridge/config_defaults.json";
 
@@ -655,7 +655,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
         const applied = await applyBridgeConfig();
         setApplyMsg({ type: "ok", text: `適用しました（${applied.mappingCount}件）` });
         setAppliedUsername(applied.username);
-        addLog(`TikTok設定をBRIDGEに適用しました (@${applied.username}, ${applied.mappingCount}件)`, "ok");
+        addLog(`TikTok設定をBRIDGEに適用しました (@${normalizeTikTokId(applied.username)}, ${applied.mappingCount}件)`, "ok");
       } catch (e: any) {
         setApplyMsg({ type: "error", text: e?.message ?? String(e) });
         addLog(`Bridge設定適用エラー: ${e?.message ?? String(e)}`, "error");
@@ -839,7 +839,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
       const applied = await applyBridgeConfig();
       setApplyMsg({ type: "ok", text: `適用しました（${applied.mappingCount}件）` });
       setAppliedUsername(applied.username);
-      addLog(`TikTok設定をBRIDGEに適用しました (@${applied.username}, ${applied.mappingCount}件)`, "ok");
+      addLog(`TikTok設定をBRIDGEに適用しました (@${normalizeTikTokId(applied.username)}, ${applied.mappingCount}件)`, "ok");
     } catch (e: any) {
       setApplyMsg({ type: "error", text: e?.message ?? String(e) });
       addLog(`Bridge設定適用エラー: ${e?.message ?? String(e)}`, "error");
@@ -851,8 +851,11 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
   const tiktokConfigured = typedTikTokId.length > 0;
   const tiktokConnected = bridgeProcess.running === true && bridgeProcess.tiktok?.state === "connected";
   const liveState = accountLive.username === typedTikTokId ? accountLive.state : "checking";
-  const liveLabel = liveState === "live" ? "接続済み（配信中）" : liveState === "offline" ? "配信していません" : liveState === "empty" ? "未設定" : liveState === "error" ? (accountLive.error || "確認できません") : "配信を確認中";
-  const idApproved = sameTikTokId(username, appliedUsername);
+  const liveLabel = liveState === "live" ? "接続済み（配信中）" : liveState === "offline" ? "配信していません" : liveState === "empty" ? "未設定" : liveState === "error" ? "確認できません" : "配信を確認中";
+  // LIVE の確かめの理由は長いので、丸い表示には出さず、マウスを載せると出す（PR9 の最後のレビュー）。
+  const liveTitle = liveState === "error" ? accountLive.error : undefined;
+  // 保存済みの ID の形が正しくなければ承認済みと出さない（BRIDGE は起動しない。PR9 の最後のレビュー）。
+  const idApproved = sameTikTokId(username, appliedUsername) && isValidTikTokId(appliedUsername);
   const worldDisplay = levelName ? levelName.replace(`${WORLD_PREFIX}/`, "") : "未設定";
   const stepForge: StepStatus = forgeState  === "running" ? "done" : forgeState  === "error" ? "error" : forgeState  === "starting" ? "active" : "pending";
   const stepBridge: StepStatus = bridgeState === "running" ? "done" : bridgeState === "error" ? "error" : bridgeState === "starting" ? "active" : "pending";
@@ -891,7 +894,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
                   <div className="cockpit-node-ring">
                     <span>{item.icon === "tiktok" ? <TikTokMark /> : item.icon === "world" ? <GrassBlockIcon /> : item.icon}</span>
                   </div>
-                  <em className={item.state === "running" ? "is-running" : "is-stopped"}>
+                  <em className={item.state === "running" ? "is-running" : "is-stopped"} title={item.icon === "tiktok" ? liveTitle : undefined}>
                     ● {item.icon === "tiktok" ? liveLabel : item.state === "running" ? item.runningText : item.state === "starting" ? "処理中" : item.state === "error" ? "エラー" : "停止中"}
                   </em>
                   <small>{item.value}</small>

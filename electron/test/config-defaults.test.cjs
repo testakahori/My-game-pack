@@ -153,3 +153,12 @@ test('既定値の写し: ルーレット・デスルーレットの既定は co
   assert.match(page, /なし（鳴らさない）/);
   assert.match(page, /なし（出さない）/);
 });
+
+// コメントギフトの「なし」の動き（空を空のまま出し、「なし」の選び方が先頭にある）を見張る（PR9 の最後のレビュー。文字があるかだけでは足りなかった）。
+test('コメントギフトの音・粒子の「なし」: 空の値は空のまま「なし」を選んだ形で出す', () => {
+  const page = fs.readFileSync(path.resolve(__dirname, '../../src/components/EventSettings2Page.tsx'), 'utf8');
+  assert.match(page, /value=\{rule\.sound \|\| ""\}/, '空の音を一覧の先頭（レベルアップ）と出している');
+  assert.match(page, /value=\{rule\.particle \|\| ""\}/);
+  assert.match(page, /COMMENT_SOUND_PRESETS = \[\{ value: "", label: "なし（鳴らさない）" \}/);
+  assert.match(page, /COMMENT_PARTICLE_PRESETS = \[\{ value: "", label: "なし（出さない）" \}/);
+});

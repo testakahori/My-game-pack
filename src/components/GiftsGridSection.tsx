@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { GiftMapping } from "../types";
 import { isDisabledMapping } from "../lib/giftMappingRows";
 import { normalizeTikTokId } from "../lib/tiktokId";
+import { ipcErrorMessage } from "../lib/ipcError";
 import DisabledMappingMark from "./DisabledMappingMark";
 
 type Gift = { id: number; name: string; diamond_count: number; image?: string | null };
@@ -52,7 +53,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
       setGifts(res.gifts || []);
       setMeta(res.meta ?? null);
     } catch (e: any) {
-      setErr(e?.message || String(e));
+      setErr(ipcErrorMessage(e));
       if (throwOnError) throw e;
     }
   }, []);
@@ -79,7 +80,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
       await reload(true);
       showToast("ギフト一覧を更新しました ✓");
     } catch (e: any) {
-      setErr(e?.message || String(e));
+      setErr(ipcErrorMessage(e));
     } finally {
       setLoading(false);
     }

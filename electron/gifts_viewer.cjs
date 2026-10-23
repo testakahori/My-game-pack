@@ -4,7 +4,7 @@
 const path = require("path");
 const fs = require("fs");
 const { fetchGiftImage } = require("./gift_image.cjs");
-const { normalizeTikTokId, tiktokIdProblem } = require("../bridge/tiktok_id.cjs");
+const { normalizeTikTokId, tiktokIdProblem, tiktokIdInputProblem } = require("../bridge/tiktok_id.cjs");
 
 // 同梱 node の準備（BRIDGE の配布）は、あとで main で定義されるので、呼ばれたときに読む関数で受け取る。
 function createGiftsViewer({
@@ -46,9 +46,9 @@ function createGiftsViewer({
   async function updateGifts(username) {
     // 自動更新と同じ形に整える。形が違うと、自動更新の最中に押した同じ ID の更新が「別のアカウント」で止まる。
     // 確かめは設定の確かめと同じ決まりと文（bridge/tiktok_id.cjs）。前は 25〜64 文字も通して TikTok へ問い合わせていた（処理のコピー PR9）。
+    const problem = tiktokIdInputProblem(username);
+    if (problem) throw new Error(problem);
     const user = normalizeTikTokId(username);
-    if (!user) throw new Error("TikTok ID を入力してください");
-    if (tiktokIdProblem(username)) throw new Error(tiktokIdProblem(username));
     if (giftUpdateTask) {
       if (giftUpdateUsername !== user) throw new Error("別のアカウントのギフトを更新中です。完了してからお試しください。");
       return giftUpdateTask;

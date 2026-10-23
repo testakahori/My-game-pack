@@ -21,4 +21,10 @@ function tiktokIdProblem(value) {
   return `TikTok ID「${String(value).trim()}」の形が正しくありません。半角英数字・_・. の24文字以内で入力してください`;
 }
 
-module.exports = { normalizeTikTokId, isValidTikTokId, tiktokIdProblem };
+// 入力された TikTok ID の文。空（「@」だけ・文字列でない値も）なら「入力してください」、形が正しくなければ tiktokIdProblem の文、正しければ空。
+// ギフト一覧の更新と GiftsViewer の道具が使う（PR9 の最後のレビュー）。
+function tiktokIdInputProblem(value) {
+  return normalizeTikTokId(value) ? tiktokIdProblem(value) : "TikTok ID を入力してください";
+}
+
+module.exports = { normalizeTikTokId, isValidTikTokId, tiktokIdProblem, tiktokIdInputProblem };

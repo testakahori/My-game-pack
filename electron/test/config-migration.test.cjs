@@ -111,3 +111,17 @@ test('回数と閾値の対象: 無効の項目・ゲームの設定も含めて
   assert.deepEqual(repeatTargets(null), []);
   assert.deepEqual(repeatTargets({ mappings: 'x', options: { gameplay: { combo: { levels: {} } } } }), [], '形が違うものは飛ばす');
 });
+
+// 入力された TikTok ID の文（空なら「入力してください」、形が正しくなければ設定の確かめと同じ文）は tiktok_id.cjs の1か所（PR9 の最後のレビュー）。
+// ギフト一覧の更新と GiftsViewer の道具が使う。前の道具は「@」だけのとき英語の Usage の文で止まった。
+test('TikTok ID: 入力の文は tiktokIdInputProblem の1つで、ギフト一覧の更新と GiftsViewer の道具が使う', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { tiktokIdInputProblem } = require('../../bridge/tiktok_id.cjs');
+  for (const empty of ['', '@', '  ', null, 3]) assert.equal(tiktokIdInputProblem(empty), 'TikTok ID を入力してください', String(empty));
+  assert.equal(tiktokIdInputProblem(' @Foo_Bar '), '');
+  assert.match(tiktokIdInputProblem('foo-bar'), /^TikTok ID「foo-bar」の形が正しくありません/);
+  for (const file of ['electron/gifts_viewer.cjs', 'GiftsViewer/tools/fetch_gifts.cjs']) {
+    assert.match(fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8'), /tiktokIdInputProblem\(/, file);
+  }
+});

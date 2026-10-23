@@ -55,3 +55,50 @@ test('読み上げの設定: 既定値・範囲・ポートの写しを持たな
   assert.doesNotMatch(page, /engine === "voicevox" \? 3/, '話者の既定は表の speakerId');
   assert.doesNotMatch(page, /minLabel="0\.5" midLabel="1\.0" maxLabel="2\.0" onChange=\{\(intonationScale\)/, '抑揚の左端の目盛りは範囲の下限');
 });
+
+// 読み上げのテスト（tts:test → electron/tts.cjs の synthesize）を、通信なしで動かして音量が入ることを確かめる（PR9 の最後のレビュー）。
+// http.request を差し替え、エンジンへ送った synthesis の本文を見る（本物のポートは使わない）。
+test('読み上げのテスト: 整えた設定の音量・速さがエンジンへ送る本文に入る', async t => {
+  const http = require('node:http');
+  const { EventEmitter } = require('node:events');
+  const sent = [];
+  const original = http.request;
+  t.after(() => { http.request = original; });
+  http.request = (options, onResponse) => {
+    const req = new EventEmitter();
+    let body = '';
+    req.setTimeout = () => req;
+    req.destroy = () => {};
+    req.write = chunk => { body += chunk; };
+    req.end = () => {
+      sent.push({ path: options.path, body });
+      const res = new EventEmitter();
+      res.statusCode = 200;
+      setImmediate(() => {
+        onResponse(res);
+        res.emit('data', Buffer.from(options.path.startsWith('/audio_query') ? JSON.stringify({ accent_phrases: [] }) : 'RIFF'));
+        res.emit('end');
+      });
+    };
+    return req;
+  };
+  const { synthesize } = require('../tts.cjs');
+  const { normalizeTtsSettings } = require('../../bridge/tts_settings.cjs');
+  await synthesize('voicevox', 'テスト', normalizeTtsSettings({ volume: 1.8, speedScale: 9 }));
+  const synthesis = sent.find(request => request.path.startsWith('/synthesis'));
+  assert.ok(synthesis, JSON.stringify(sent));
+  assert.deepEqual(JSON.parse(synthesis.body), { accent_phrases: [], speedScale: 2, pitchScale: 0, intonationScale: 1, volumeScale: 1.8 });
+});
+
+// 画面と開発用の表示の既定のエンジンも表から読み、目盛りの端の文字も範囲から作る（PR9 の最後のレビュー）。
+test('読み上げの設定: 画面と開発用の表示はエンジンの既定も表から読み、開発用のテストも音量を入れる', () => {
+  for (const file of ['src/components/TTSSettingsPage.tsx', 'src/lib/devApiMock.ts']) {
+    assert.doesNotMatch(read(file), /\.\.\.TTS_SETTINGS\.defaults, engine: "voicevox"/, file + ' がエンジンの既定を書いたままにしている');
+  }
+  const page = read('src/components/TTSSettingsPage.tsx');
+  for (const label of ['maxLabel="2.0"', 'maxLabel="200%"', 'maxLabel="+0.15"', 'minLabel="-0.15"', 'minLabel="0%"']) {
+    assert.equal(page.includes(label), false, `目盛りの文字 ${label} を範囲から作っていない`);
+  }
+  const mock = read('src/lib/devApiMock.ts');
+  assert.match(mock, /query\.volumeScale = settings\.volume/, '開発用の読み上げのテストも音量を入れる（画面の再生では掛けないため）');
+});
