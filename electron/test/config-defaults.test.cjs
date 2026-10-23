@@ -132,5 +132,5 @@ test('写し: BRIDGE の # COOLDOWN の上限は COMMAND_COOLDOWN_MAX_MS を使�
   // # COOLDOWN を読む行だけを見る（テスト発火の待ち時間の上限 60000 は別の値）。
   const cooldownLines = index.split(/\r?\n/).filter(line => line.includes('meta?.COOLDOWN'));
   assert.equal(cooldownLines.length, 1);
-  assert.doesNotMatch(cooldownLines[0], /\b60000\b/, 'bridge/index.js に # COOLDOWN の上限の写しがある');
+  assert.equal(cooldownLines[0].includes('60000'), false, 'bridge/index.js に # COOLDOWN の上限の写しがある');
 });

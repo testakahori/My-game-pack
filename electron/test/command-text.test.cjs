@@ -40,9 +40,11 @@ test('見出し行の決まり: テストも見出し・説明文・コマンド
 });
 
 test('見出し行の決まり: BRIDGE・アプリの一覧・ルーレット・開発用の一覧は、自分の写しを持たず command_text.cjs を使う', () => {
-  for (const file of ['bridge/index.js', 'electron/bridge_settings.cjs', 'bridge/roulette.cjs', 'vite.config.ts']) {
+  // アプリと開発用の一覧は、1行を bridge/command_rows.cjs の commandListRow で作る（その中で command_text.cjs を読む。処理のコピー PR8）。
+  assert.match(fs.readFileSync(path.join(root, 'bridge/command_rows.cjs'), 'utf8'), /require\("\.\/command_text\.cjs"\)/);
+  for (const file of ['bridge/index.js', 'electron/bridge_settings.cjs', 'bridge/roulette.cjs', 'vite.config.ts', 'bridge/command_rows.cjs']) {
     const source = fs.readFileSync(path.join(root, file), 'utf8');
-    assert.match(source, /command_text\.cjs/, file + ': command_text.cjs を読む');
+    assert.match(source, /command_(text|rows)\.cjs/, file + ': command_text.cjs（一覧の1行は command_rows.cjs）を読む');
     assert.doesNotMatch(source, /\^#\\s\*|\^\\\/\\\/\\s\*/, file + ': 見出し・説明文の正規表現の写しを持たない');
   }
 });

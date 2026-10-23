@@ -51,7 +51,9 @@ test('画面: コマンド一覧のチャットの名前はアプリが付ける
   assert.match(read('src/components/CommandsListPage.tsx'), /meta\.chatKey \?\? meta\.name/);
   assert.match(read('src/lib/devApiMock.ts'), /from "\.\.\/\.\.\/bridge\/games\.json"/);
   assert.match(read('src/lib/devApiMock.ts'), /name: `game_saikutu_\$\{command\.key\}\.txt`[^\n]*chatKey: command\.key/, '開発用のモックの採掘のコマンドも /bridge <key> 1');
-  assert.match(read('vite.config.ts'), /publicCommandKey\(name\)/);
+  // 開発用の一覧の1行は、アプリと同じ bridge/command_rows.cjs の commandListRow（中で publicCommandKey を使う。処理のコピー PR8）。
+  assert.ok(read('vite.config.ts').includes('commandListRow(name, text)'), 'vite.config.ts が commandListRow を使っていない');
+  assert.match(read('bridge/command_rows.cjs'), /chatKey: publicCommandKey\(name\)/);
 });
 
 test('ゲーム MOD の ID とパックの key', () => {
