@@ -217,3 +217,23 @@ test('インストーラーの印は配布版でだけ受け取り、初期セ�
     assert.equal(appConfig.readAppConfig().serverFolder, dir, '保存先は残す');
   }
 });
+
+// 画面の型の宣言は、main と同じ表（app_config_fields.json）から型を取る（2026-10-23 設計書の 6.1）。
+// 前は手で書いていて、画面が書けない setupRequiredAt を書けるとし、main が返す minecraftGameFolder などが抜けていた。
+test('型の宣言は表を使い、画面が書ける項目・画面に渡さない項目が main と同じ', () => {
+  const dts = fs.readFileSync(path.join(__dirname, '../../src/types/electron.d.ts'), 'utf8');
+  const table = require('../app_config_fields.json');
+  assert.match(dts, /typeof import\("\.\.\/\.\.\/electron\/app_config_fields\.json"\)/);
+  // JSON の配列からは型の名前を取り出せないので、型の宣言にも名前を並べ、表と同じかをここで見張る。
+  const keys = name => {
+    const match = dts.match(new RegExp(`type ${name} = ([^;]+);`));
+    assert.ok(match, `${name} が無い`);
+    return [...match[1].matchAll(/"([^"]+)"/g)].map(m => m[1]).sort();
+  };
+  assert.deepEqual(keys('AppConfigWritableKey'), [...table.rendererWritable].sort());
+  assert.deepEqual(keys('AppConfigPrivateKey'), [...table.private].sort());
+  const start = dts.indexOf('appConfigRead:');
+  const block = dts.slice(start, dts.indexOf('Promise<{ ok: true }>', dts.indexOf('appConfigWrite:')));
+  assert.ok(start >= 0 && block.length > 0);
+  assert.doesNotMatch(block, /serverFolder: string;|setupRequiredAt: string;/, '項目を手で書かない');
+});
