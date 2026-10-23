@@ -86,3 +86,10 @@ test('テスト発火: main から受け取った BRIDGE の子プロセスへ�
   x.state.bridge = null;
   assert.equal((await x.invoke('mod:testEvent', { type: 'share', preview: true })).bridgeStopped, true);
 });
+
+// ギフト設定が読めないときは、配信前チェックと同じ案内で止める（PR3 の最後のレビューの軽い 3）。
+test('テスト発火: ギフト設定が読めなければ、配信前チェックと同じ案内で止める', async t => {
+  const x = setup(t);
+  fs.writeFileSync(x.configPath, '{壊れた');
+  await assert.rejects(x.invoke('mod:testEvent', { type: 'share', preview: true }), /設定を読み込めません。初期セットアップと設定バックアップを確認してください。/);
+});

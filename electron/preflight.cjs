@@ -7,6 +7,8 @@ const { isBridgeModTransport, ensureTxt, commandFileRefs } = require("../bridge/
 const { normalizeTikTokId, isValidTikTokId } = require("../bridge/tiktok_id.cjs");
 const { CONFIG_DEFAULTS } = require("../bridge/config_defaults.cjs");
 const { isUtf8Text } = require("../bridge/command_text.cjs");
+// ギフト設定が読めないときの案内。BRIDGE の起動・テスト発火も同じ文で止める（設定ファイルの PR3 の最後のレビューの軽い 3）。
+const CONFIG_UNREADABLE_MESSAGE = "設定を読み込めません。初期セットアップと設定バックアップを確認してください。";
 
 function bounded(action, timeoutMs = 6000) {
   let timer;
@@ -21,7 +23,7 @@ async function runPreflight(deps) {
     cfg = JSON.parse(fs.readFileSync(deps.configPath, "utf8"));
     if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) throw new Error("Invalid configuration");
   }
-  catch { return { checkedAt: new Date().toISOString(), checks: [{ id: "config", title: "設定ファイル", status: "error", detail: "設定を読み込めません。初期セットアップと設定バックアップを確認してください。", page: "operations" }] }; }
+  catch { return { checkedAt: new Date().toISOString(), checks: [{ id: "config", title: "設定ファイル", status: "error", detail: CONFIG_UNREADABLE_MESSAGE, page: "operations" }] }; }
   // BRIDGE が接続する形（tiktok_id.cjs で整えた形）で確かめる（2026-10-18 設計書の 9）。
   const username = normalizeTikTokId(cfg.tiktokUsername);
   add("account", "TikTokアカウント", isValidTikTokId(username) ? "ok" : "error", username ? `@${username}` : "ダッシュボードでIDを入力して承認してください。", "dashboard");
@@ -71,4 +73,4 @@ async function runPreflight(deps) {
   add("tts", "読み上げエンジン", voice?.enabled === false ? "skip" : voice?.online ? "ok" : "warn", voice?.enabled === false ? "読み上げは無効です。" : voice?.online ? `${voice.engine === "aivis" ? "AivisSpeech" : "VOICEVOX"}が応答しています。` : "読み上げ設定からエンジンを起動してください。", "tts");
   return { checkedAt: new Date().toISOString(), checks };
 }
-module.exports = { runPreflight };
+module.exports = { runPreflight, CONFIG_UNREADABLE_MESSAGE };

@@ -63,6 +63,7 @@ const gamesIpc = createGamesIpc({
   isBridgeActive: () => bridgeProcess.isActive(),
   getServerProcessStatus: () => getServerProcessStatus(),
   getMinecraftProcessStatus: strict => minecraftClient.getMinecraftProcessStatus(strict),
+  recordRecovery: entry => settingsRecovery.record(entry),
 });
 // ゲームの切り替え中かは games_ipc.cjs が持つ。設定の保存・バックアップの復元・ウィンドウを閉じるときに見る。
 const { gameProfiles, isGameProfileBusy, assertGameProfileIdle, gameProfileOperation } = gamesIpc;
@@ -81,6 +82,8 @@ const settingsBackups = createSettingsBackups({
   }),
   version: () => app.getVersion(), readTts: () => readTtsSettings(), readApp: () => readAppConfig(),
   isRunning: () => Boolean(bridgeProcess.isActive() || mapOperations.isBusy() || serverProcess.isStarting() || isGameProfileBusy() || gameProfiles.list().recoveryRequired),
+  // ギフト設定が読めないときに、バックアップのゲームと比べる今のゲーム（設定ファイルの PR3）。
+  activeGame: () => gameProfiles.peekActive(),
 });
 const { createTtsIpc } = require('./tts_ipc.cjs');
 const ttsIpc = createTtsIpc({ app, process, shell, spawn, getBridgeBatDir, getConfigPath, settingsBackups, recordRecovery: entry => settingsRecovery.record(entry) });
@@ -92,6 +95,7 @@ const bridgeSettings = createBridgeSettings({
   getInstalledBridgeRoot, getBridgeDir, gameProfiles, assertGameProfileIdle, settingsBackups, readTtsSettings,
   requestBridgeMod: (...args) => requestBridgeMod(...args),
   isBridgeRunning: () => Boolean(bridgeProcess.child()),
+  recordRecovery: entry => settingsRecovery.record(entry),
 });
 const { readSavedBridgeConfig, writeBridgeConfig, selectableCommandNames } = bridgeSettings;
 bridgeSettings.register(ipcMain);

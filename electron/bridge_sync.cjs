@@ -7,6 +7,8 @@ const crypto = require("crypto");
 const { migrateRetiredCommands } = require("./command_migration.cjs");
 const { bridgeCommandsDir } = require("../bridge/config_defaults.cjs");
 const { refreshGameModsAfterUpdate } = require("./game_mods_refresh.cjs");
+// 一時ファイルに書いてディスクに確実に残してから差し替える（設定ファイルの PR3）。
+const { writeFileDurable } = require("../bridge/safe_json_file.cjs");
 
 // サーバーの子プロセスとポートの稼働は、あとで main で作られるので、呼ばれたときに読む関数で受け取る。
 function createBridgeSync({
@@ -604,7 +606,7 @@ function createBridgeSync({
           const fresh = JSON.parse(fs.readFileSync(dstConfigPath, "utf8"));
           fresh.tiktokUsername = "";
           if (fresh.rcon) fresh.rcon.password = "";
-          fs.writeFileSync(dstConfigPath, JSON.stringify(fresh, null, 2), "utf8");
+          writeFileDurable(dstConfigPath, JSON.stringify(fresh, null, 2));
         } catch (e) {
           console.warn("[bridge:extractTo] fresh config sanitize failed:", e?.message || e);
         }

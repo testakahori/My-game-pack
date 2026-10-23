@@ -237,3 +237,69 @@ test("設定バックアップ: アプリの設定が壊れていても、写し
   assert.equal(read(p.app).autoBackupOnServerStart, true);
   assert.doesNotMatch(fs.readFileSync(path.join(__dirname, "../settings_backups.cjs"), "utf8"), /read\(p\.app\)/);
 });
+
+// ギフト設定が壊れていて写しも使えないときは、壊れたファイルを置いたまま、配信前チェックの案内どおり設定のバックアップから戻してもらう。
+// その戻す操作は、今のギフト設定が読めなくても止めない（2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 6.4。設定ファイルの PR3）。
+const brokenConfigCopies = p => fs.readdirSync(path.dirname(p.config)).filter(name => name.startsWith("config.json.broken-"));
+
+test("設定バックアップ: ギフト設定が壊れていて写しも無くても戻せる。つなぎ方は雛形、壊れたファイルは残る。戻す前の安全のためのバックアップも作る", t => {
+  const { p, cfg, store } = fixture(t);
+  const backup = store.create();
+  fs.writeFileSync(p.config, "{壊れた");
+  write(p.tts, { engine: "aivis", enabled: false, speakerId: 9 });
+  const result = store.restore(backup.id);
+  const restored = read(p.config);
+  assert.deepEqual(restored.mappings, cfg.mappings);
+  assert.equal(restored.options.commandTransport, "bridge_mod", "何も入れないと BRIDGE は RCON として動く");
+  assert.equal(brokenConfigCopies(p).length, 1);
+  assert.equal(fs.readFileSync(path.join(path.dirname(p.config), brokenConfigCopies(p)[0]), "utf8"), "{壊れた");
+  // ギフト設定の部分は写し（無ければ空の割り当て）で埋めて、読み上げの設定とコマンド txt を戻す前の状態に戻せるようにする（PR3 の最後のレビューの重要 3）。
+  assert.ok(result.safetyBackup, "戻す前の安全のためのバックアップを作る");
+  store.restore(result.safetyBackup);
+  assert.equal(read(p.tts).engine, "aivis", "読み上げの設定を戻す前の状態に戻せる");
+  assert.deepEqual(read(p.config).mappings, [], "ギフト設定の部分は空の割り当て");
+});
+
+test("設定バックアップ: ギフト設定が読めないときは、切り替えの記録の今のゲームと比べる", t => {
+  const { p, deps } = fixture(t);
+  const backup = createSettingsBackups(deps).create();
+  fs.writeFileSync(p.config, "{壊れた");
+  assert.throws(() => createSettingsBackups({ ...deps, activeGame: () => "run" }).restore(backup.id), /このバックアップのゲームを選択してから復元してください/);
+  assert.doesNotThrow(() => createSettingsBackups({ ...deps, activeGame: () => "common" }).restore(backup.id));
+});
+
+test("設定バックアップ: ギフト設定が読めないときは、つなぎ方を写しから取る", t => {
+  const { p, cfg, store } = fixture(t);
+  const backup = store.create();
+  fs.writeFileSync(lastGoodPath(p.config), JSON.stringify({ ...cfg, gameProfile: "run", options: { ...cfg.options, commandTransport: "rcon" }, rcon: { password: "p", port: 25575 } }));
+  fs.writeFileSync(p.config, "{壊れた");
+  store.restore(backup.id);
+  const restored = read(p.config);
+  assert.equal(restored.options.commandTransport, "rcon");
+  assert.equal(restored.rcon.password, "p");
+});
+
+test("設定バックアップ: ギフト設定が壊れていても一覧は出る", t => {
+  const { p, store } = fixture(t);
+  store.create();
+  fs.writeFileSync(p.config, "{壊れた");
+  assert.equal(store.list().length, 1);
+});
+
+// ギフト設定が読めないあいだ、読み上げの設定の保存・TXT の作成などの自動のバックアップで止めない（PR3 の最後のレビューの軽い 1）。
+test("設定バックアップ: ギフト設定が読めないときは、自動のバックアップを作らずに null を返す", t => {
+  const { p, store } = fixture(t);
+  fs.writeFileSync(p.config, "{壊れた");
+  assert.equal(store.create("automatic"), null);
+  assert.throws(() => store.create("manual"), "手で取るバックアップは今までどおり止める");
+});
+
+// 戻したあと、次の保存の前に壊れても、戻す前の中身に戻れるようにする（PR3 の最後のレビューの軽い 5）。
+test("設定バックアップ: 戻すと、ギフト設定の写しを戻す前の中身にする", t => {
+  const { p, cfg, store } = fixture(t);
+  const backup = store.create();
+  write(p.config, { ...cfg, tiktokUsername: "changed" });
+  const before = fs.readFileSync(p.config);
+  store.restore(backup.id);
+  assert.deepEqual(fs.readFileSync(lastGoodPath(p.config)), before);
+});

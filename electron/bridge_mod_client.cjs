@@ -6,6 +6,8 @@ const fs = require("fs");
 const { bridgeModTokenPath, withBridgeModToken } = require("../bridge/bridge_mod_token.cjs");
 const { usesBridgeModTransport } = require("../bridge/command_files.cjs");
 const { bridgeModEndpoint } = require("../bridge/config_defaults.cjs");
+const { peekJsonFile } = require("../bridge/safe_json_file.cjs");
+const { CONFIG_UNREADABLE_MESSAGE } = require("./preflight.cjs");
 const { assertGameCommands, assertGameCommandFile } = require('./game_command_scope.cjs');
 
 // サーバーと BRIDGE の子プロセスは main・server_process が持つので、呼ばれたときに読む関数で受け取る。
@@ -144,7 +146,9 @@ function createBridgeModClient({ getConfigPath, getServerRoot, stopRequests, sel
 
     ipcMain.handle("mod:testEvent", async (_event, value) => {
       if (testEventRunning) return { ok: false, message: "別のテストを実行中です。完了後にお試しください。" };
-      const bridgeCfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf8"));
+      // ギフト設定が読めなければ、配信前チェックと同じ案内で止める（設定ファイルの PR3）。
+      const bridgeCfg = peekJsonFile(getConfigPath());
+      if (!bridgeCfg) throw new Error(CONFIG_UNREADABLE_MESSAGE);
       assertGameCommands(bridgeCfg, selectableCommandNames(), gameProfiles.list());
       // 「ギフト（コマンド直接）」は設定の外のコマンドなので、1つだけを確かめる（参照の数え方は設定の中だけを見る。PR5 の最終レビュー）。
       if (value?.type === "gift") assertGameCommandFile(value.commandFile, selectableCommandNames(), gameProfiles.list(), "テスト発火（コマンド直接）");

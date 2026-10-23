@@ -347,3 +347,139 @@ test('保存先・設定のゲームが変わったら未保存として扱う',
   const config = JSON.parse(fs.readFileSync(x.config)); config.gameProfile = 'run'; fs.writeFileSync(x.config, JSON.stringify(config));
   assert.equal(x.api.list().applied, false);
 });
+
+// ゲームの切り替えの記録（profiles.json・pending-switch.json）も、壊れていたら写しから戻し、ギフト設定が壊れていても一覧を止めない
+// （2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 6.4〜6.6。設定ファイルの PR3）。
+function withRecords(t) {
+  const records = [];
+  const x = fixture(t, { recordRecovery: entry => records.push(entry), now: () => new Date(2026, 9, 24, 10, 0, 0) });
+  return { ...x, records, state: path.join(x.storage, 'profiles.json'), journal: path.join(x.storage, 'pending-switch.json') };
+}
+
+test('切り替えの記録: 壊れていたら写しから戻す', async t => {
+  const x = withRecords(t);
+  await x.api.install(x.pack('umetate'));
+  await x.api.activate('umetate');
+  await x.api.activate('umetate');
+  fs.writeFileSync(x.state, '{壊れた');
+  const list = x.api.list();
+  assert.equal(list.active, 'umetate');
+  assert.equal(list.games.find(g => g.id === 'umetate').installed, true, '登録したゲームパックも戻る');
+  assert.deepEqual(x.records.map(r => r.action), ['restored']);
+});
+
+// 切り替えは、ギフト設定を書いてから記録を書く。写しは書く前の中身なので、切り替えた直後に記録が壊れると、写しは前のゲームのまま。
+// そのまま戻してゲームを選び直すと、今の割り当てを前のゲームの保存済みの設定として上書きする（設計書 6.6）。写しは使い、今のゲームだけを
+// ギフト設定のゲームに直して「未保存」にする。登録したゲームパック・ほかのゲームの保存済みの設定は残る（2026-10-24 ユーザーの決定。PR3 の最後のレビューの重要 2）。
+test('切り替えの記録: 写しのゲームがギフト設定と合わなければ、今のゲームだけギフト設定に合わせて使う。選び直して保存しても、ほかのゲームの保存済みの設定を上書きしない', async t => {
+  const x = withRecords(t);
+  await x.api.install(x.pack('umetate')); await x.api.install(x.pack('run'));
+  await x.api.activate('umetate');
+  await x.api.activate('run');
+  const config = JSON.parse(fs.readFileSync(x.config, 'utf8'));
+  config.mappings = [{ giftId: 'rose', commandFile: 'game_run_fill.txt', repeat: 2 }];
+  fs.writeFileSync(x.config, JSON.stringify(config));
+  assert.equal(JSON.parse(fs.readFileSync(x.state + '.last-good', 'utf8')).active, 'umetate', '写しは前のゲーム');
+  fs.writeFileSync(x.state, '{壊れた');
+  const list = x.api.list();
+  assert.equal(list.active, 'run', 'ギフト設定のゲームで動く');
+  assert.equal(list.applied, false, '未保存になる');
+  assert.equal(list.games.find(g => g.id === 'umetate').installed, true, '登録したゲームパックは残る');
+  assert.deepEqual(x.records.map(r => [r.action, r.sourceLabel]), [['restored', '前の正しい状態の写し（今のゲームはギフト設定に合わせた）']]);
+  await x.api.activate('run');
+  const saved = JSON.parse(fs.readFileSync(x.state, 'utf8'));
+  assert.notEqual(saved.profiles.umetate?.mappings?.[0]?.commandFile, 'game_run_fill.txt', 'RUN の割り当てを埋め立ての保存済みの設定にしない');
+  assert.equal(saved.profiles.run.mappings[0].commandFile, 'game_run_fill.txt');
+  await x.api.activate('umetate');
+  assert.equal(JSON.parse(fs.readFileSync(x.config, 'utf8')).gameProfile, 'umetate', '前のゲームも選べる');
+});
+
+test('切り替えの記録: 形の違う記録（active が数）は壊れていると扱う', t => {
+  const x = withRecords(t);
+  fs.mkdirSync(x.storage, { recursive: true });
+  fs.writeFileSync(x.state, JSON.stringify({ format: 1, active: 3, packages: {}, profiles: {} }));
+  assert.equal(x.api.list().active, 'common');
+  assert.deepEqual(x.records.map(r => r.reason), ['項目 active の型が違う']);
+});
+
+test('一覧: ギフト設定が壊れていても投げない', t => {
+  const x = withRecords(t);
+  fs.writeFileSync(x.config, '{壊れた');
+  const list = x.api.list();
+  assert.equal(list.applied, false);
+  assert.equal(list.recoveryRequired, false);
+  assert.equal(x.api.peekActive(), null, '記録が無いときは null');
+});
+
+// 切り替えの途中の記録は切り替えの間だけあるので写しを作らない。壊れていたら、ホームの「復旧」で外す（PR3 の計画の決めたこと 5）。
+test('復旧: 壊れた途中の記録は外して記録し、そのあと切り替えられる', async t => {
+  const x = withRecords(t);
+  fs.mkdirSync(x.storage, { recursive: true });
+  fs.writeFileSync(x.journal, '{壊れた');
+  assert.equal(x.api.list().recoveryRequired, true);
+  const after = await x.api.recover();
+  assert.equal(after.recoveryRequired, false);
+  assert.ok(fs.readdirSync(x.storage).some(name => name.startsWith('pending-switch.json.broken-')));
+  assert.deepEqual(x.records.map(r => [r.action, r.reason]), [['set-aside', 'JSON として読めない']]);
+  await x.api.activate('common');
+  assert.equal(x.api.peekActive(), 'common');
+});
+
+test('本文: 切り替えの記録を readJson・writeJson で読み書きせず、ギフト設定は writeWithLastGood で書く', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../game_profiles.cjs'), 'utf8');
+  for (const old of ['readJson(stateFile()', 'writeJson(stateFile()', 'readJson(configPath()', 'atomicWrite(configPath()']) assert.ok(!source.includes(old), old);
+  assert.match(source, /writeWithLastGood\(configPath\(\)/);
+  const ipc = fs.readFileSync(path.join(__dirname, '../games_ipc.cjs'), 'utf8');
+  assert.match(ipc, /recordRecovery/);
+  const main = fs.readFileSync(path.join(__dirname, '../main.cjs'), 'utf8');
+  const start = main.indexOf('createGamesIpc({');
+  assert.match(main.slice(start, main.indexOf('});', start)), /recordRecovery:/);
+});
+
+// ゲームを切り替えた直後にギフト設定が壊れると、写しは前のゲームのものなので使わない（6.6）。そのときもゲームを選び直して直せるように、
+// ギフト設定が読めなくても切り替えを止めない。ゲームによらない部分は写し（無ければ雛形）から取り、今のゲームの保存済みの設定は上書きしない
+// （2026-10-24 ユーザーの決定。PR3 の最後のレビューの重要 1）。
+test('切り替え: 切り替えた直後にギフト設定が壊れても、前のゲームを選び直して直せる', async t => {
+  const x = withRecords(t);
+  await x.api.install(x.pack('umetate')); await x.api.install(x.pack('run'));
+  await x.api.activate('umetate');
+  const config = JSON.parse(fs.readFileSync(x.config, 'utf8'));
+  config.mappings = [{ giftId: 'rose', commandFile: 'game_umetate_fill.txt', repeat: 4 }];
+  fs.writeFileSync(x.config, JSON.stringify(config));
+  await x.api.activate('run');
+  fs.writeFileSync(x.config, '{壊れた');
+  await x.api.activate('umetate');
+  const restored = JSON.parse(fs.readFileSync(x.config, 'utf8'));
+  assert.equal(restored.gameProfile, 'umetate');
+  assert.equal(restored.mappings[0].repeat, 4, '埋め立ての保存済みの割り当てで戻る');
+  assert.equal(restored.tiktokUsername, 'viewer', 'ゲームによらない部分は写しから');
+  assert.equal(restored.rcon.password, 'keep-local-secret');
+  const saved = JSON.parse(fs.readFileSync(x.state, 'utf8'));
+  assert.equal(saved.profiles.run, undefined, '読めなかった設定で RUN の保存済みの設定を作らない');
+  assert.ok(fs.readdirSync(path.dirname(x.config)).some(name => name.startsWith('config.minecraft.json.broken-')), '壊れたファイルは残る');
+});
+
+// 切り替えに失敗して元に戻すときは、ギフト設定・記録の写しを切り替えの途中の中身にしない（PR3 の最後のレビューの軽い 4）。
+test('切り替え: 失敗して元に戻しても、写しは切り替えの前のまま', async t => {
+  const x = withRecords(t);
+  await x.api.install(x.pack('umetate'));
+  await x.api.activate('common');
+  let failures = 0;
+  const rename = fs.renameSync;
+  t.after(() => { fs.renameSync = rename; });
+  fs.renameSync = (from, to) => { if (to === x.state && failures < 5) { failures++; throw Object.assign(new Error('EPERM'), { code: 'EPERM' }); } return rename(from, to); };
+  await assert.rejects(x.api.activate('umetate'), /切替に失敗したため元へ戻しました/);
+  fs.renameSync = rename;
+  assert.equal(JSON.parse(fs.readFileSync(x.config, 'utf8')).gameProfile, 'common');
+  assert.equal(JSON.parse(fs.readFileSync(x.config + '.last-good', 'utf8')).gameProfile || 'common', 'common', 'ギフト設定の写しを切り替えの途中の中身にしない');
+  assert.equal(JSON.parse(fs.readFileSync(x.state, 'utf8')).active, 'common');
+});
+
+// 一瞬読めなかっただけの途中の記録は外さない（MOD のフォルダーを元に戻す情報なので。PR3 の最後のレビューの軽い 6）。
+test('復旧: 途中の記録を読めないときは外さず、もう一度押してもらう', async t => {
+  const x = withRecords(t);
+  fs.mkdirSync(x.journal, { recursive: true });
+  await assert.rejects(x.api.recover(), /途中の記録を読めません。もう一度「復旧」を押してください/);
+  assert.equal(fs.existsSync(x.journal), true);
+  assert.deepEqual(x.records, []);
+});

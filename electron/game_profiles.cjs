@@ -7,14 +7,23 @@ const { atomicWrite } = require('./settings_backups.cjs');
 const saikutu = require('./saikutu_commands.cjs');
 const { isTxtName, ensureTxt, commandFileRefs } = require('../bridge/command_files.cjs');
 const { migrateBridgeConfig } = require('../bridge/config_migration.cjs');
-const { bridgeCommandsDir } = require('../bridge/config_defaults.cjs');
+const { bridgeCommandsDir, newBridgeConfig } = require('../bridge/config_defaults.cjs');
 // ゲームの一覧と、ゲーム専用の判定・MOD の ID・パックの key の決まりは bridge/game_commands.cjs の1か所（処理のコピー PR6）。
 const { GAMES, RESERVED_MOD_IDS, gameOfCommand, isGameCommandFile, isGameModId, isGamePackKey } = require('../bridge/game_commands.cjs');
 const PROFILE_KEYS = ['mappings', 'likeEvents', 'unmappedGiftEvent', 'shareEvent', 'followEvent', 'memberEvent',
   'roulette', 'deathRoulette', 'commentGifts', 'milestones', 'combos'];
 const hash = data => crypto.createHash('sha256').update(data).digest('hex');
-const readJson = (file, fallback) => fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : fallback;
 const writeJson = (file, value) => atomicWrite(file, JSON.stringify(value, null, 2));
+// 切り替えの記録（profiles.json）とギフト設定は、壊れても消えないように読み書きする
+// （2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 6.4〜6.6。設定ファイルの PR3）。
+const { createSafeJsonFile, peekJsonFile, inspectJsonFile, setAsideBrokenFile, writeWithLastGood, writeFileDurable, lastGoodPath } = require('../bridge/safe_json_file.cjs');
+const isPlainObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+// 切り替えの記録の形。どの版もこの形で書いていた。違う形だと一覧（list）が落ちる。
+function stateProblem(value) {
+  if (typeof value.active !== 'string') return '項目 active の型が違う';
+  for (const key of ['packages', 'profiles']) if (value[key] !== undefined && !isPlainObject(value[key])) return `項目 ${key} の型が違う`;
+  return '';
+}
 const clone = value => JSON.parse(JSON.stringify(value));
 // 指定したゲーム以外のゲーム専用コマンド（game_<一覧のゲーム>_*.txt）を使う割り当てを外す。game_mode_on.txt などは共通のコマンドなので残す。
 // 文字列で書いたコメントコマンド・投票の選択肢も外す（切り替えの確かめはそれも数える。処理のコピー PR6）。
@@ -91,11 +100,28 @@ function inspectPackage(folder) {
   return { manifest: normalized, files, digest: hash(JSON.stringify(normalized) + Object.entries(files).map(([n, b]) => n + hash(b)).sort().join('')) };
 }
 
-function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridgeJar, displayJar = () => null, bundledPackages = () => [], ensureStopped, beforeStep = () => {} }) {
+// recordRecovery は、壊れていて戻したことの記録（main が logs/settings-recovery.log に書く）。
+function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridgeJar, displayJar = () => null, bundledPackages = () => [], ensureStopped, beforeStep = () => {}, recordRecovery, now }) {
   const root = () => path.resolve(storage());
   const stateFile = () => path.join(root(), 'profiles.json');
   const journalFile = () => path.join(root(), 'pending-switch.json');
-  const state = () => readJson(stateFile(), { format: 1, active: 'common', packages: {}, profiles: {} });
+  // ギフト設定の「今のゲーム」（読めなければ null）。
+  const configGame = () => { const config = peekJsonFile(configPath()); return config ? (config.gameProfile || 'common') : null; };
+  // 写しの「今のゲーム」がギフト設定と合わないときは、今のゲームだけをギフト設定のゲームに直し、「未保存」（appliedFormat・appliedRoots を外す）にして使う
+  // （設計書 6.6。2026-10-24 ユーザーの決定。PR3 の最後のレビューの重要 2）。選び直して保存しても、ほかのゲームの保存済みの設定を今の割り当てで
+  // 上書きせず、登録したゲームパックとほかのゲームの保存済みの設定も残る（切り替え1回分古いだけ）。写しが無いときは、ギフト設定のゲームにした既定の記録。
+  const stateStore = createSafeJsonFile({
+    file: stateFile, problem: stateProblem, record: recordRecovery, now,
+    adaptSource: value => {
+      const game = configGame();
+      if (!game || value.active === game) return value;
+      const { appliedFormat: _format, appliedRoots: _roots, ...rest } = value;
+      return { ...rest, active: game };
+    },
+    adaptedLabel: '前の正しい状態の写し（今のゲームはギフト設定に合わせた）',
+    defaults: () => ({ format: 1, active: configGame() || 'common', packages: {}, profiles: {} }),
+  });
+  const state = () => { const value = stateStore.read(); return { ...value, packages: value.packages || {}, profiles: value.profiles || {} }; };
   function targets() {
     const dirs = [serverRoot(), clientRoot()].map(p => path.resolve(p));
     const normalized = dirs.map(d => d.toLowerCase());
@@ -111,8 +137,9 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
   }
   function list() {
     const current = state();
-    const config = readJson(configPath(), {});
-    return { active: current.active, saikutuMigrationNeeded: saikutu.hasLegacy(readJson(configPath(), {})), displayBundled: Boolean(displayJar()), applied: (config.gameProfile || 'common') === current.active && current.appliedFormat === 3 && JSON.stringify(current.appliedRoots) === JSON.stringify([path.resolve(serverRoot()), path.resolve(clientRoot())]), serverMods: path.join(serverRoot(), 'mods'), clientMods: path.join(clientRoot(), 'mods'), recoveryRequired: fs.existsSync(journalFile()),
+    // ギフト設定が壊れていても投げない（アプリの設定の保存・ゲームの一覧・設定のバックアップから戻す操作を止めない。設計書 6.4）。
+    const config = peekJsonFile(configPath()) || {};
+    return { active: current.active, saikutuMigrationNeeded: saikutu.hasLegacy(config), displayBundled: Boolean(displayJar()), applied: (config.gameProfile || 'common') === current.active && current.appliedFormat === 3 && JSON.stringify(current.appliedRoots) === JSON.stringify([path.resolve(serverRoot()), path.resolve(clientRoot())]), serverMods: path.join(serverRoot(), 'mods'), clientMods: path.join(clientRoot(), 'mods'), recoveryRequired: fs.existsSync(journalFile()),
       games: GAMES.map(g => ({ ...g, installed: g.id === 'common' || Boolean(current.packages[g.id]) || bundledPackages().some(p => p.id === g.id), selected: current.active === g.id })) };
   }
   async function install(folder) {
@@ -124,7 +151,7 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     fs.mkdirSync(target, { recursive: true });
     for (const [name, bytes] of Object.entries(checked.files)) atomicWrite(path.join(target, name), bytes);
     writeJson(path.join(target, 'game.json'), checked.manifest);
-    current.packages[id] = path.basename(target); writeJson(stateFile(), current);
+    current.packages[id] = path.basename(target); stateStore.write(current);
     return list();
   }
   function packageFor(current, id) {
@@ -156,12 +183,22 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
       const file = path.join(commands, name);
       if (content === null) { if (fs.existsSync(file)) fs.unlinkSync(file); } else atomicWrite(file, content);
     }
-    atomicWrite(configPath(), journal.configBefore); writeJson(stateFile(), journal.stateBefore);
+    // 元に戻すときは写しを変えない（切り替えの途中の中身を写しにしない。PR3 の最後のレビューの軽い 4）。ギフト設定は切り替えで書いたときに、
+    // 切り替えの前の中身が写しになっている。切り替えの前のギフト設定が壊れていたなら、その壊れた中身に戻す（壊れたファイルは .broken-… に残してある）。
+    writeFileDurable(configPath(), journal.configBefore); stateStore.write(journal.stateBefore, { keepLastGood: true });
     fs.unlinkSync(journalFile());
   }
+  // 切り替えの途中の記録は切り替えの間だけあるので写しを作らない。壊れていたら、別の名前で残して外し、記録する
+  // （切り替えの前には戻せないので、今の記録のまま動く。ゲームを選び直す。PR3 の計画の決めたこと 5）。
   async function recover() {
     await ensureStopped();
-    if (fs.existsSync(journalFile())) restore(readJson(journalFile()));
+    const pending = inspectJsonFile(journalFile());
+    // 中身を読めないだけ（一瞬つかまれている・フォルダーになっている）なら外さない。MOD のフォルダーを元に戻す情報なので（PR3 の最後のレビューの軽い 6）。
+    if (pending.reason && !pending.bytes) throw new Error('途中の記録を読めません。もう一度「復旧」を押してください');
+    if (pending.reason) {
+      const brokenFile = setAsideBrokenFile(journalFile(), { now });
+      try { recordRecovery?.({ file: journalFile(), reason: pending.reason, action: 'set-aside', brokenFile }); } catch { /* 記録できなくても復旧は止めない */ }
+    } else if (!pending.missing) restore(pending.value);
     return list();
   }
   // BridgeMOD・DisplayMOD（全ゲームの標準装備）の jar。
@@ -201,14 +238,21 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     const dirs = targets(), current = state();
     const pack = id === 'common' ? null : packageFor(current, id);
     const commonFiles = commonModFiles();
-    const before = fs.readFileSync(configPath(), 'utf8'), config = JSON.parse(before);
+    const before = fs.readFileSync(configPath(), 'utf8');
+    // ギフト設定が壊れていて読めなくても止めない。切り替えた直後に壊れたとき、前のゲームを選び直して直せるように
+    // （写しは前のゲームのものなので戻さない。設計書 6.6。2026-10-24 ユーザーの決定。PR3 の最後のレビューの重要 1）。
+    // ゲームによらない部分（TikTok ID・つなぎ方など）はギフト設定の写し（ゲームが違っても使う）、無ければ新しい設定の雛形から取る。
+    const parsed = peekJsonFile(configPath());
+    const unreadable = !parsed;
+    const config = parsed || clone(peekJsonFile(lastGoodPath(configPath())) || newBridgeConfig());
     const commandDir = commandFolder();
     const gameFiles = gameCommandFiles(id, pack);
     assertGameCommandKeys(pack, commandDir);
     // 切り替えで消すゲームのファイル（大文字の GAME_RUN_X.TXT も同じゲームのもの。処理のコピー PR6）。
     const oldNames = fs.existsSync(commandDir) ? fs.readdirSync(commandDir).filter(isGameCommandFile) : [];
     const next = clone(current);
-    next.profiles[current.active] = { ...Object.fromEntries(PROFILE_KEYS.filter(k => Object.hasOwn(config, k)).map(k => [k, config[k]])),
+    // 読めなかったギフト設定（写し・雛形で埋めたもの）で、今のゲームの保存済みの設定を上書きしない。
+    if (!unreadable) next.profiles[current.active] = { ...Object.fromEntries(PROFILE_KEYS.filter(k => Object.hasOwn(config, k)).map(k => [k, config[k]])),
       options: { gameplay: clone(config.options?.gameplay || {}) } };
     // Preserve the complete previous profile, and carry its bindings into mining on first selection.
     for (const [profileId, profile] of Object.entries(next.profiles)) {
@@ -222,7 +266,7 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
         next.profiles[profileId] = profileId === 'saikutu' ? saikutu.mapLegacy(profile) : saikutu.withoutLegacy(profile);
       }
     }
-    const destination = id === current.active ? next.profiles[id] : next.profiles[id] || { mappings: [], likeEvents: [] };
+    const destination = id === current.active && !unreadable ? next.profiles[id] : next.profiles[id] || { mappings: [], likeEvents: [] };
     const available = new Set([...(fs.existsSync(commandDir) ? fs.readdirSync(commandDir).filter(n => isTxtName(n) && !oldNames.includes(n) && !saikutu.FILES.has(n)) : []), ...Object.keys(gameFiles)].map(n => n.toLowerCase()));
     // 確かめるのは BRIDGE が動かしうる参照だけ（command_files.cjs の commandFileRefs。保存の確かめと同じ。処理のコピー PR5）。
     for (const ref of commandFileRefs(destination)) {
@@ -257,8 +301,8 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
       // ゲーム別に保存した設定は更新前のこともあるので、保存済みの設定と同じ直しを通して書く（2026-10-18 設計書の 7。PR3 の最終レビュー）。
       const migrated = migrateBridgeConfig(config);
       if (migrated.changes.length) console.log(`[Config] ゲームの設定を直しました: ${migrated.changes.join("、")}`);
-      atomicWrite(configPath(), JSON.stringify(migrated.config, null, 2));
-      next.active = id; next.appliedRoots = dirs; next.appliedFormat = 3; writeJson(stateFile(), next);
+      writeWithLastGood(configPath(), JSON.stringify(migrated.config, null, 2), { now });
+      next.active = id; next.appliedRoots = dirs; next.appliedFormat = 3; stateStore.write(next);
       fs.unlinkSync(journalFile());
       return { ...list(), backupFolders: dirs.map(d => path.join(d, '.mygamepack-mod-switch', operation, 'previous')) };
     } catch (error) {
@@ -323,7 +367,9 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     }
     return { changed, game: id };
   }
-  return { list, install, activate, recover, refreshMods };
+  // 切り替えの記録の「今のゲーム」を読むだけ（無い・壊れていれば null）。ギフト設定の写しを使ってよいかを確かめるため（設計書 6.6）。
+  const peekActive = () => peekJsonFile(stateFile(), stateProblem)?.active ?? null;
+  return { list, install, activate, recover, refreshMods, peekActive };
 }
 
 module.exports = { GAMES, PROFILE_KEYS, jarModIds, inspectPackage, createGameProfiles };

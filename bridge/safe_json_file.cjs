@@ -81,6 +81,13 @@ function describeRecovery(entry) {
   const fallback = entry.defaultsLabel || "既定値";
   const source = entry.sourceLabel || "前の正しい状態の写し";
   const restored = entry.action === "restored";
+  // 戻す元が無く、壊れたファイルを元の場所に置いたまま（ギフト設定）。外した（切り替えの途中の記録）。設定ファイルの PR3。
+  if (entry.action === "kept") {
+    return entry.brokenFile
+      ? `${name} が壊れていた（${entry.reason}）。前の正しい状態の写しが無い（または使えない）ので、そのまま置いた。壊れたファイルの写し: ${path.basename(entry.brokenFile)}`
+      : `${name} が壊れていた（${entry.reason}）。別の名前で残せなかったので、ファイルには触らず、そのまま置いた`;
+  }
+  if (entry.action === "set-aside") return `${name} が壊れていた（${entry.reason}）ので、別の名前で残して外した。壊れたファイル: ${path.basename(entry.brokenFile)}`;
   if (!entry.brokenFile) {
     return `${name} が壊れていた（${entry.reason}）。別の名前で残せなかったので、ファイルには触らず、${restored ? `${source}の中身` : fallback}で動く`;
   }
@@ -97,12 +104,72 @@ function peekJsonFile(file, problem) {
   return current.missing || current.reason ? null : current.value;
 }
 
+// 同じ中身の壊れたファイル（<名前>.broken-…）がもう残してあれば、その場所（無ければ ""）。何度も同じものを残さないため。
+function existingBrokenCopy(file, bytes) {
+  const dir = path.dirname(file), prefix = `${path.basename(file)}.broken-`;
+  let names = [];
+  try { names = fs.readdirSync(dir).filter(name => name.startsWith(prefix)); } catch { return ""; }
+  for (const name of names) {
+    const candidate = path.join(dir, name);
+    try {
+      const stat = fs.statSync(candidate);
+      if (stat.isFile() && stat.size === bytes.length && fs.readFileSync(candidate).equals(bytes)) return candidate;
+    } catch { /* 読めないものは比べない */ }
+  }
+  return "";
+}
+
+// 今の中身が壊れていれば、同じ中身をまだ残していないときだけ写して残し、その場所を返す（もう残してあればその場所）。
+// 壊れていない・無い・写せないときは ""。元のファイルには触らない（設定ファイルの PR3）。
+function preserveBrokenCopy(file, { problem, now = () => new Date() } = {}) {
+  const current = inspect(file, problem);
+  if (current.missing || !current.reason || !current.bytes) return "";
+  const existing = existingBrokenCopy(file, current.bytes);
+  if (existing) return existing;
+  const brokenFile = brokenPath(file, now());
+  try { writeFileDurable(brokenFile, current.bytes); return brokenFile; } catch { return ""; }
+}
+
+// 書く前に、今の中身が正しければ写しに、壊れていれば壊れたファイルとして残してから書く。書く所の多いギフト設定のため
+// （設定ファイルの PR3）。壊れたファイルを残せないときは書かない（上書きで失わない）。
+function writeWithLastGood(file, content, { problem, now } = {}) {
+  const current = inspect(file, problem);
+  if (!current.missing && !current.reason) writeFileDurable(lastGoodPath(file), current.bytes);
+  else if (current.reason && !preserveBrokenCopy(file, { problem, now })) {
+    throw new Error(`${path.basename(file)} が壊れていて、別の名前で残せません（${current.reason}）`);
+  }
+  writeFileDurable(file, content);
+}
+
+// 壊れたファイルを別の名前に残し（写せなければ名前を変え）、元の場所から外して、残した場所を返す。
+// 残せなければ投げる（元のファイルには触らない）。切り替えの途中の記録のため（設定ファイルの PR3）。
+function setAsideBrokenFile(file, { now = () => new Date() } = {}) {
+  const current = inspect(file);
+  const brokenFile = brokenPath(file, now());
+  if (current.bytes) {
+    let copied = false;
+    try { writeFileDurable(brokenFile, current.bytes); copied = true; } catch { /* 下で名前を変える */ }
+    if (copied) {
+      // 写したあと消せなければ投げる（中身は写しに残っている）。
+      fs.unlinkSync(file);
+      return brokenFile;
+    }
+  }
+  fs.renameSync(file, brokenFile);
+  return brokenFile;
+}
+
 // 2回続けて元の場所に書き戻せなかったら、この間は書き戻しを試さない（読むたびに試すと、BRIDGE がコメントのたびに止まる。PR2 の最後のレビューの軽い 2）。
 const RETRY_AFTER_MS = 30000;
 
 // restoreSources は、写しより先に見る、同じ値を書いているほかのファイル（{ file, label } の並び）。写しは「1つ前の保存」なので、
 // BRIDGE 側の読み上げの設定は、アプリが同じ値を書いている userData 側の今の中身を先に使う（2026-10-24 ユーザーの決定。PR2 の最後のレビューの重要 1）。
-function createSafeJsonFile({ file, defaults, problem, record, now = () => new Date(), label, defaultsLabel, restoreSources }) {
+// keepBroken は、戻す元が無いとき、壊れたファイルを元の場所に置いたままにする（消さない・名前を変えない。中身の写しだけ残す）。
+// ギフト設定のため：空の雛形で動くと、配信者からは理由も分からずにギフト設定が消えたように見える（設計書 6.4。設定ファイルの PR3）。
+// acceptSource は、戻す元の値を使ってよいか（ギフト設定と切り替えの記録の「今のゲーム」が合うか。設計書 6.6）。
+// adaptSource は、戻す元の値を直して使う（null なら使わない）。直したときは記録の戻した元の名前を adaptedLabel にする
+// （切り替えの記録の写しは、今のゲームだけをギフト設定に合わせて使う。2026-10-24 ユーザーの決定。PR3 の最後のレビューの重要 2）。
+function createSafeJsonFile({ file, defaults, problem, record, now = () => new Date(), label, defaultsLabel, restoreSources, keepBroken = false, acceptSource, adaptSource, adaptedLabel }) {
   // このプロセスの間に扱った壊れたファイル（中身の印・残した名前・理由）。同じ壊れたファイルを何度も残したり記録したりせず、
   // 写しを書き戻せなかったときは次に読むときにやり直す（最後のレビューの重要 1。アプリの設定は何度も読まれる）。
   const handled = new Map();
@@ -117,21 +184,31 @@ function createSafeJsonFile({ file, defaults, problem, record, now = () => new D
     try { const stat = fs.statSync(target); return `${stat.size}:${stat.mtimeMs}`; } catch { return ""; }
   }
 
-  // 壊れたファイルを別の名前で残す。まず中身を写し（元の場所は空けない）、写せなければ名前を変える。
-  // どちらもできなければ brokenFile は ""（元のファイルには触らない）。
+  // 壊れたファイルを別の名前で残す。同じ中身をもう残してあればそれを使う（reused）。まず中身を写し（元の場所は空けない）、
+  // 写せなければ名前を変える（keepBroken のときは変えない）。どちらもできなければ brokenFile は ""（元のファイルには触らない）。
   function preserve(target, current) {
+    if (current.bytes) {
+      const existing = existingBrokenCopy(target, current.bytes);
+      if (existing) return { brokenFile: existing, renamed: false, reused: true };
+    }
     const brokenFile = brokenPath(target, now());
     if (current.bytes) {
       try { writeFileDurable(brokenFile, current.bytes); return { brokenFile, renamed: false }; } catch { /* 下で名前を変える */ }
     }
+    if (keepBroken) return { brokenFile: "", renamed: false };
     try { fs.renameSync(target, brokenFile); return { brokenFile, renamed: true }; } catch { return { brokenFile: "", renamed: false }; }
   }
 
-  // 戻す元を順に探す：restoreSources の今の中身 → 前の正しい状態の写し。
+  // 戻す元を順に探す：restoreSources の今の中身 → 前の正しい状態の写し。acceptSource が false の値は使わない。
   function findSource(target) {
     for (const source of [...(restoreSources?.() || []), { file: lastGoodPath(target) }]) {
       const found = inspect(source.file, problem);
-      if (!found.missing && !found.reason) return { ...found, label: source.label };
+      if (found.missing || found.reason || (acceptSource && !acceptSource(found.value))) continue;
+      if (!adaptSource) return { ...found, label: source.label };
+      const adapted = adaptSource(found.value);
+      if (!adapted) continue;
+      if (adapted === found.value) return { ...found, label: source.label };
+      return { value: adapted, bytes: Buffer.from(JSON.stringify(adapted, null, 2)), label: adaptedLabel || source.label };
     }
     return null;
   }
@@ -150,7 +227,8 @@ function createSafeJsonFile({ file, defaults, problem, record, now = () => new D
   function settle(target, entry) {
     const source = findSource(target);
     const waiting = entry.failures >= 2 && now().getTime() < entry.retryAt;
-    if (entry.brokenFile && !waiting) {
+    // keepBroken で戻す元が無ければ、元の場所に置いたまま何もしない（同じ壊れたファイルは、このプロセスの間は覚えておく）。
+    if (entry.brokenFile && !waiting && (source || !keepBroken)) {
       if (!unchanged(target, entry)) {
         handled.delete(target);
         return null;
@@ -164,7 +242,7 @@ function createSafeJsonFile({ file, defaults, problem, record, now = () => new D
         if (entry.failures >= 2) entry.retryAt = now().getTime() + RETRY_AFTER_MS;
       }
     }
-    const state = !entry.brokenFile ? "unpreserved" : source ? "restored" : "defaults";
+    const state = !entry.brokenFile ? "unpreserved" : source ? "restored" : keepBroken ? "kept" : "defaults";
     return { state, reason: entry.reason, good: Boolean(source), sourceLabel: source?.label, value: source ? source.value : defaults() };
   }
 
@@ -200,28 +278,34 @@ function createSafeJsonFile({ file, defaults, problem, record, now = () => new D
     }
     const result = settle(target, entry);
     if (!result) return again ? load(false) : missing();
-    if (fresh) note({ file: target, reason: entry.reason, action: result.good ? "restored" : "defaults", brokenFile: entry.brokenFile, ...(result.sourceLabel ? { sourceLabel: result.sourceLabel } : {}) });
+    // 置いたままの壊れたファイルを、前に（アプリを起動し直す前に）残してあれば、もう一度は記録しない。
+    if (fresh && !(keepBroken && entry.reused)) {
+      note({ file: target, reason: entry.reason, action: result.good ? "restored" : keepBroken ? "kept" : "defaults", brokenFile: entry.brokenFile, ...(result.sourceLabel ? { sourceLabel: result.sourceLabel } : {}) });
+    }
     return result;
   }
 
   return {
     read() { return load().value; },
+    // 値の代わりに状態を返す（ギフト設定を戻すだけで、値は使わない所のため）。
+    check() { const { state, reason } = load(); return reason ? { state, reason } : { state }; },
     // 今のファイルが初めから正しかったときだけ、その中身を写しにしてから書く（壊れた中身で写しを上書きしない）。
     // 壊れたファイルを別の名前で残せていないときは書かない（上書きで失わない）。
     // 書く値の型が違えば書かない（書くと次に読むときにファイル全体が壊れている扱いになり、1つ前の写しに戻る。最後のレビューの軽い 2）。
     // エラーの文の名前は label（どちらのフォルダーか分かる。PR2 の最後のレビューの軽い 6）。
-    write(value) {
+    // keepLastGood は写しを変えない（切り替えに失敗して元に戻すとき、写しを切り替えの途中の中身にしない。PR3 の最後のレビューの軽い 4）。
+    write(value, { keepLastGood = false } = {}) {
       const target = file();
       const name = label || path.basename(target);
       const invalid = valueProblem(value, problem);
       if (invalid) throw new Error(`${name} に書く値が正しくありません（${invalid}）`);
       const current = load();
       if (current.state === "unpreserved") throw new Error(`${name} が壊れていて、別の名前で残せません（${current.reason}）`);
-      if (current.state === "ok") writeFileDurable(lastGoodPath(target), current.bytes);
+      if (current.state === "ok" && !keepLastGood) writeFileDurable(lastGoodPath(target), current.bytes);
       writeFileDurable(target, JSON.stringify(value, null, 2));
       handled.delete(target);
     },
   };
 }
 
-module.exports = { writeFileDurable, lastGoodPath, describeRecovery, createSafeJsonFile, peekJsonFile };
+module.exports = { writeFileDurable, lastGoodPath, describeRecovery, createSafeJsonFile, peekJsonFile, inspectJsonFile: inspect, preserveBrokenCopy, writeWithLastGood, setAsideBrokenFile };
