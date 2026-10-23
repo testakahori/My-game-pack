@@ -124,7 +124,9 @@ test('読む: 同じ秒に2回壊れても、前の壊れたファイルを上�
   assert.equal(fs.readFileSync(brokenFile + '-2', 'utf8'), 'second');
 });
 
-test('読む: 名前を変えられないときは中身を写して残す。それもできなければ投げて、元のファイルを触らない', t => {
+// 読むのは止めない（アプリの設定は起動の途中でも読むので、投げるとウィンドウが出ない。最後のレビューの重要 1）。
+// 残せない壊れたファイルを上書きしないよう、止めるのは書くときだけ。
+test('読む: 中身を写せないときは名前を変えて残す。どちらもできなければファイルに触らず写しの値で動き、書くのは止める', t => {
   {
     const { file, store, brokenFile } = setup(t);
     fs.writeFileSync(file, '{壊れた');
@@ -140,10 +142,44 @@ test('読む: 名前を変えられないときは中身を写して残す。そ
     fs.writeFileSync(file, '{壊れた');
     fs.writeFileSync(lastGoodPath(file), '{"a":"good"}');
     const restore = replace(t, 'renameSync', () => () => { throw eperm(); });
-    assert.throws(() => store.read(), /x\.json が壊れていて、別の名前で残せません（JSON として読めない）/);
+    assert.deepEqual(store.read(), { a: 'good' }, '投げない');
+    assert.deepEqual(store.read(), { a: 'good' });
+    assert.throws(() => store.write({ a: 'new' }), /x\.json が壊れていて、別の名前で残せません（JSON として読めない）/);
     restore();
-    assert.equal(fs.readFileSync(file, 'utf8'), '{壊れた');
-    assert.deepEqual(records, []);
+    assert.equal(fs.readFileSync(file, 'utf8'), '{壊れた', '元のファイルには触らない');
+    assert.deepEqual(records, [{ file, reason: 'JSON として読めない', action: 'restored', brokenFile: '' }], '記録は1回');
+  }
+});
+
+// 前は壊れたファイルの名前を変えてから写しを書き戻していたので、書き戻しに失敗すると元の場所が空き、
+// 次に読むと「ファイルが無い」として黙って既定値になり、その後の保存で写しまで上書きした（最後のレビューの重要 1）。
+test('読む: 写しを書き戻せなくても投げず、壊れたファイルを元の場所に置いたまま、次に読むときにやり直す', t => {
+  const { dir, file, store, records, brokenFile } = setup(t);
+  fs.writeFileSync(file, '{壊れた');
+  fs.writeFileSync(lastGoodPath(file), '{"a":"good"}');
+  const restore = replace(t, 'renameSync', original => (from, to) => { if (to === file) throw eperm(); return original(from, to); });
+  assert.deepEqual(store.read(), { a: 'good' });
+  assert.equal(fs.readFileSync(file, 'utf8'), '{壊れた', '元の場所は空けない');
+  restore();
+  assert.deepEqual(store.read(), { a: 'good' });
+  assert.equal(fs.readFileSync(file, 'utf8'), '{"a":"good"}', '次に読むときに書き戻す');
+  assert.equal(fs.readFileSync(brokenFile, 'utf8'), '{壊れた');
+  assert.deepEqual(fs.readdirSync(dir).filter(name => name.includes('.broken-')), ['x.json.broken-20261023-153012'], '壊れたファイルは1つだけ');
+  assert.equal(records.length, 1);
+});
+
+// 別のプログラムが削除を許さずに開いていると、名前の変更も削除もできない。読むたびに壊れたファイルと記録を増やさない（最後のレビューの重要 1）。
+test('読む: 名前を変えられず消せないファイルでも、壊れたファイルを何度も残さず、記録も1回', t => {
+  for (const copy of [null, '{"a":"good"}']) {
+    const { dir, file, store, records } = setup(t);
+    fs.writeFileSync(file, '{壊れた');
+    if (copy) fs.writeFileSync(lastGoodPath(file), copy);
+    const restoreRename = replace(t, 'renameSync', original => (from, to) => { if (from === file || to === file) throw eperm(); return original(from, to); });
+    const restoreUnlink = replace(t, 'unlinkSync', original => target => { if (target === file) throw eperm(); return original(target); });
+    for (let i = 0; i < 5; i++) assert.deepEqual(store.read(), copy ? { a: 'good' } : { a: 'default' });
+    restoreRename(); restoreUnlink();
+    assert.equal(fs.readdirSync(dir).filter(name => name.includes('.broken-')).length, 1, String(copy));
+    assert.equal(records.length, 1, String(copy));
   }
 });
 
@@ -176,4 +212,8 @@ test('記録の文', () => {
     'app-config.json が壊れていた（JSON として読めない）ので、前の正しい状態の写しから戻した。壊れたファイル: app-config.json.broken-20261023-153012');
   assert.equal(describeRecovery({ ...entry, action: 'defaults' }),
     'app-config.json が壊れていた（JSON として読めない）。前の正しい状態の写しが無い（または壊れている）ので、既定値で動く。壊れたファイル: app-config.json.broken-20261023-153012');
+  assert.equal(describeRecovery({ ...entry, action: 'restored', brokenFile: '' }),
+    'app-config.json が壊れていた（JSON として読めない）。別の名前で残せなかったので、ファイルには触らず、前の正しい状態の写しの中身で動く');
+  assert.equal(describeRecovery({ ...entry, action: 'defaults', brokenFile: '' }),
+    'app-config.json が壊れていた（JSON として読めない）。別の名前で残せなかったので、ファイルには触らず、既定値で動く');
 });
