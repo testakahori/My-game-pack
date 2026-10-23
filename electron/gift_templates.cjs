@@ -3,7 +3,7 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { isDeepStrictEqual } = require('node:util');
 const { atomicWrite } = require('./settings_backups.cjs');
-const { isTxtName } = require('../bridge/command_files.cjs');
+const { isTxtName, ensureTxt } = require('../bridge/command_files.cjs');
 const { migrateBridgeConfig } = require('../bridge/config_migration.cjs');
 const { giftMappingOf } = require('../bridge/gift_mappings.cjs');
 
@@ -47,7 +47,9 @@ function parseTemplate(raw) {
 function createGiftTemplates({ dialog, context, writeConfig, appVersion, now = () => Date.now() }) {
   let pending = null;
   const read = file => JSON.parse(fs.readFileSync(file, 'utf8'));
-  const missing = (rows, commands) => [...new Set(rows.filter(row => !commands.some(command => command.name === row.commandFile)).map(row => row.commandFile))];
+  // 同じコマンドかは .txt の有無・大文字小文字を問わずに比べる（Windows のファイル名も BridgeMOD も区別しない。処理のコピー PR7）。
+  const commandOf = (commands, commandFile) => commands.find(command => ensureTxt(command.name).toLowerCase() === ensureTxt(commandFile).toLowerCase());
+  const missing = (rows, commands) => [...new Set(rows.filter(row => !commandOf(commands, row.commandFile)).map(row => row.commandFile))];
   return {
     async save() {
       const source = context();
@@ -74,7 +76,7 @@ function createGiftTemplates({ dialog, context, writeConfig, appVersion, now = (
       pending = { token, template, before, configPath: path.resolve(source.configPath), expires: now() + 15 * 60 * 1000 };
       return { canceled: false, preview: { token, name: template.name || path.basename(file), appVersion: template.appVersion,
         currentCount: before.length, missingCommands: missing(template.mappings, source.commands),
-        mappings: template.mappings.map(row => ({ ...row, title: source.commands.find(command => command.name === row.commandFile)?.title || row.commandFile })) } };
+        mappings: template.mappings.map(row => ({ ...row, title: commandOf(source.commands, row.commandFile)?.title || row.commandFile })) } };
     },
     apply(token) {
       if (!pending || pending.token !== token || pending.expires < now()) throw new Error('読込の確認が期限切れです。ファイルを選び直してください。');
