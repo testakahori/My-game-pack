@@ -184,14 +184,22 @@ function scheduleRconDisconnect() {
 const { TTS_SETTINGS, TTS_PORTS, normalizeTtsSettings: normalizeTtsConfig, applyVoiceSettings } = require("./tts_settings.cjs");
 const TTS_DEFAULTS = TTS_SETTINGS.defaults;
 
+// 壊れていたら前の正しい状態の写しから戻し、壊れたファイルは名前を変えて残す。写しも使えない（または無い）ときは、
+// アプリが起動のときに渡す userData 側の読み上げの設定を読むだけで使い、それも無いときだけ既定値。読み上げを切っていた配信者の
+// 読み上げが、壊れたせいで動き出さないように（2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 6.2）。
+// 古い版は画面の値をそのまま書いていたので、項目の型では壊れていると決めない（値は normalizeTtsConfig で整える）。記録は BRIDGE のログに書く。
+const { createSafeJsonFile, peekJsonFile, describeRecovery } = require("./safe_json_file.cjs");
+const TTS_FALLBACK_FILE = process.env.TTS_SETTINGS_FALLBACK_FILE || "";
+const ttsSettingsFile = createSafeJsonFile({
+  file: () => path.join(__dirname, "tts-settings.json"),
+  label: "tts-settings.json（BRIDGE のフォルダー）",
+  defaults: () => (TTS_FALLBACK_FILE && peekJsonFile(TTS_FALLBACK_FILE)) || { ...TTS_DEFAULTS },
+  defaultsLabel: TTS_FALLBACK_FILE ? "userData の読み上げの設定（無ければ既定値）" : undefined,
+  record: entry => console.warn(`[設定] ${describeRecovery(entry)}`),
+});
+
 function loadTtsConfig() {
-  const p = path.join(__dirname, "tts-settings.json");
-  if (!fs.existsSync(p)) return normalizeTtsConfig(TTS_DEFAULTS);
-  try {
-    return normalizeTtsConfig(JSON.parse(fs.readFileSync(p, "utf-8")));
-  } catch {
-    return normalizeTtsConfig(TTS_DEFAULTS);
-  }
+  return normalizeTtsConfig(ttsSettingsFile.read());
 }
 
 function ttsHttpPost(port, reqPath, body, timeoutMs = 15000) {

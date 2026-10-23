@@ -97,7 +97,9 @@
           "!stream-sessions.json",
           "!stream-metrics.jsonl",
           "!stream-audience.json",
-          "!stream-earnings.json"
+          "!stream-earnings.json",
+          "!**/*.last-good",
+          "!**/*.broken-*"
         ]
       },
       {

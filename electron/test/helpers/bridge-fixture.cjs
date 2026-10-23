@@ -97,6 +97,11 @@ async function startBridgeFixture(t, { commands = {}, commandsFolder = 'commands
     ...timerApi,
     require: id => id === 'tiktok-live-connector' ? { TikTokLiveConnection: FixtureConnection } : id === 'fs' ? testFs : bridgeLocalRequire(id) };
   vm.runInNewContext(fs.readFileSync(source, 'utf8') + '\nmodule.exports.startFixture=main;', context, { filename: source });
+  // 音を出す所だけを置き換え、読み上げに回った文をためる（テストを動かす PC で読み上げエンジンが動いていても声を出さない。
+  // 受信→コメントの判定→読み上げの設定→キューは本番を通す。bridge-live-events.test.cjs と同じ。設定ファイルの PR2）。
+  const speech = [];
+  context.fixtureSpeech = speech;
+  vm.runInNewContext('speakText = async (text, cfg) => { fixtureSpeech.push({ text, cfg }); };', context);
   await context.module.exports.startFixture();
   await until(() => logs.some(x => x.includes('[TikTok] Connected.')), 'connected');
   // Bridge はログファイルを少しあとに開く。開く前にテストが終わると、後片付けで消したフォルダーに開こうとして例外になる（PR #85 の ubuntu CI）。
@@ -121,7 +126,7 @@ async function startBridgeFixture(t, { commands = {}, commandsFolder = 'commands
     assert.ok(reply, 'Timed out: test event ' + id);
     return reply.result;
   };
-  return { dir, requests, logs, emit, until, wait, testEvent, connection: () => connection, setRoomId: id => { roomId = id; } };
+  return { dir, requests, logs, speech, emit, until, wait, testEvent, connection: () => connection, setRoomId: id => { roomId = id; } };
 }
 
 module.exports = { startBridgeFixture };

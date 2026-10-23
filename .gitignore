@@ -61,3 +61,6 @@ SaikutuMod/build/
 SaikutuMod/.gradle/
 SaikutuMod/bin/
 build/game-packs/
+# 設定ファイルの写しと壊れたファイル（開発版では bridge/ にできる。設定ファイルの PR2）
+*.last-good
+*.broken-*

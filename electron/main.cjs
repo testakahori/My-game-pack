@@ -174,6 +174,7 @@ const bridgeProcess = createBridgeProcess({
   getBridgeEntryPoint, ensureNodeRuntimeAvailable, assertGameProfileIdle, selectableCommandNames, gameProfiles, waitChildExit,
   assertMapIdle: () => mapOperations.assertIdle(),
   migrateSavedConfig: () => bridgeSettings.ensureSavedConfigMigrated(),
+  getTtsSettingsPath,
 });
 // BRIDGE の子プロセス・再起動の待ちは bridge_process.cjs が持つ。main とほかのモジュールは、それを読む関数（child・isActive）を
 // 呼ばれたときに bridgeProcess.xxx() で読み、分割代入では受けない（テストが差し替えて配線を確かめるため）。下の操作の関数は受けてよい。

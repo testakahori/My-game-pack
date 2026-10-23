@@ -39,9 +39,10 @@ function setup(t, { ensureNodeRuntimeAvailable = async () => {}, migrateSavedCon
     getBridgeEntryPoint: dir => path.join(dir, 'index.js'), ensureNodeRuntimeAvailable,
     assertGameProfileIdle: () => {}, selectableCommandNames: () => [], gameProfiles: { list: () => ({ applied: true, recoveryRequired: false, active: 'common' }) },
     waitChildExit, assertMapIdle: () => {}, migrateSavedConfig,
+    getTtsSettingsPath: () => path.join(root, 'userData', 'tts-settings.json'),
   });
   bridgeProcess.register({ handle: (name, fn) => handlers.set(name, fn) });
-  return { bridge, server, spawned, children, records, bridgeProcess, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
+  return { root, bridge, server, spawned, children, records, bridgeProcess, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
 }
 
 test('BRIDGE の起動と停止: main から受け取った spawn・Euler の鍵・トークンの場所で起動し、child() と isActive() に出る。止めると消える', async t => {
@@ -51,6 +52,8 @@ test('BRIDGE の起動と停止: main から受け取った spawn・Euler の鍵
   const [cmd, args, options] = x.spawned[0];
   assert.deepEqual([cmd, args, options.cwd], ['node-fixture', [path.join(x.bridge, 'index.js'), '--config', path.join(x.bridge, 'config.minecraft.json')], x.bridge]);
   assert.deepEqual([options.env.FIXTURE, options.env.BRIDGE_MOD_TOKEN_FILE], ['1', bridgeModTokenPath(x.server)]);
+  // BRIDGE 側の読み上げの設定が壊れていて写しも使えないとき、BRIDGE は userData 側を読む（設定ファイルの PR2）。
+  assert.equal(options.env.TTS_SETTINGS_FALLBACK_FILE, path.join(x.root, 'userData', 'tts-settings.json'));
   assert.equal(x.bridgeProcess.child(), x.children[0]);
   assert.equal(x.bridgeProcess.isActive(), true);
   assert.deepEqual(x.invoke('euler:status'), { revision: 7, running: true });
