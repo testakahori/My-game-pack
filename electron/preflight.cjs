@@ -6,6 +6,7 @@ const { validCommand } = require("./settings_backups.cjs");
 const { isBridgeModTransport, ensureTxt, commandFileRefs } = require("../bridge/command_files.cjs");
 const { normalizeTikTokId, isValidTikTokId } = require("../bridge/tiktok_id.cjs");
 const { CONFIG_DEFAULTS } = require("../bridge/config_defaults.cjs");
+const { isUtf8Text } = require("../bridge/command_text.cjs");
 
 function bounded(action, timeoutMs = 6000) {
   let timer;
@@ -40,7 +41,16 @@ async function runPreflight(deps) {
   // 文字列で書いたコメントコマンド・投票も数え、無効の割り当て・有効にしていないルーレットなどは数えない。
   const refs = new Set(commandFileRefs(cfg).map(ref => ref.commandFile));
   const missing = [...refs].filter(name => !validCommand(ensureTxt(name)) || !fs.existsSync(path.join(deps.commandsDir, ensureTxt(name))));
-  add("commands", "ギフト・イベントのコマンド", missing.length ? "error" : refs.size ? "ok" : "warn", missing.length ? `見つからないファイル: ${missing.slice(0, 8).join("、")}${missing.length > 8 ? " ほか" : ""}` : `${cfg.mappings?.length || 0}件のギフト設定 / ${refs.size}種類の参照コマンドを確認しました。`, "gifts");
+  // UTF-8 でない txt（Shift_JIS など）は、BRIDGE は U+FFFD に変えて読み、BridgeMOD は読めない（処理のコピー PR7）。
+  const notUtf8 = [...refs].filter(name => !missing.includes(name)).filter(name => {
+    try { return !isUtf8Text(fs.readFileSync(path.join(deps.commandsDir, ensureTxt(name)))); } catch { return false; }
+  });
+  const names = list => `${list.slice(0, 8).join("、")}${list.length > 8 ? " ほか" : ""}`;
+  const problems = [
+    ...(missing.length ? [`見つからないファイル: ${names(missing)}`] : []),
+    ...(notUtf8.length ? [`UTF-8 で保存されていないファイル: ${names(notUtf8)}。メモ帳などで UTF-8 で保存し直してください`] : []),
+  ];
+  add("commands", "ギフト・イベントのコマンド", problems.length ? "error" : refs.size ? "ok" : "warn", problems.length ? problems.join(" / ") : `${cfg.mappings?.length || 0}件のギフト設定 / ${refs.size}種類の参照コマンドを確認しました。`, "gifts");
   try {
     const meta = JSON.parse(fs.readFileSync(deps.giftsMetaPath, "utf8"));
     const gifts = JSON.parse(fs.readFileSync(deps.giftsPath, "utf8"));

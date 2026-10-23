@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 const { validateBridgeConfig } = require("./config_schema.cjs");
 const { isTxtName } = require("../bridge/command_files.cjs");
 const { migrateBridgeConfig } = require("../bridge/config_migration.cjs");
+const { isUtf8Text } = require("../bridge/command_text.cjs");
 
 const PREFS = ["autoBackupOnServerStart"];
 // つなぎ方の options はバックアップに入れず、戻すときは今の値を使う（rcon も同じ）。
@@ -46,12 +47,18 @@ function createSettingsBackups(deps) {
     for (const key of CONNECTION_OPTIONS) delete bridge.options[key];
     const app = fs.existsSync(p.app) ? read(p.app) : {};
     const preferences = Object.fromEntries(PREFS.map(key => [key, app[key] !== false]));
-    const commands = {};
+    // UTF-8 でない txt（Shift_JIS など）は base64 でバイトのまま取る。前は UTF-8 として読んで U+FFFD に変え、戻すと壊れていた（処理のコピー PR7）。
+    // 全部 UTF-8 なら binaryCommands を付けない（前の版のバックアップと同じ形）。
+    const commands = {}, binaryCommands = {};
     if (fs.existsSync(p.commands)) for (const entry of fs.readdirSync(p.commands, { withFileTypes: true })) {
-      if (entry.isFile() && validCommand(entry.name)) commands[entry.name] = fs.readFileSync(path.join(p.commands, entry.name), "utf8");
+      if (!entry.isFile() || !validCommand(entry.name)) continue;
+      const body = fs.readFileSync(path.join(p.commands, entry.name));
+      if (isUtf8Text(body)) commands[entry.name] = body.toString("utf8");
+      else binaryCommands[entry.name] = body.toString("base64");
     }
-    return { bridge, tts: deps.readTts(), preferences, commands };
+    return { bridge, tts: deps.readTts(), preferences, commands, ...(Object.keys(binaryCommands).length ? { binaryCommands } : {}) };
   }
+  const commandEntries = payload => [...Object.entries(payload.commands), ...Object.entries(payload.binaryCommands || {})];
   function validate(value) {
     if (!object(value) || value.schema !== 1 || !object(value.payload) || value.sha256 !== digest(value.payload)) throw new Error("バックアップが破損しているか、対応していない形式です。");
     if (value.scope !== path.resolve(paths().config)) throw new Error("別のサーバーのバックアップは復元できません。");
@@ -60,7 +67,8 @@ function createSettingsBackups(deps) {
     // An unfinished configuration is still worth backing up. Report semantic issues
     // in the preview; structural corruption and unsafe filenames remain rejected.
     if (!["voicevox", "aivis"].includes(tts.engine) || typeof tts.enabled !== "boolean") throw new Error("読み上げ設定が不正です。");
-    if (Object.entries(commands).some(([name, body]) => !validCommand(name) || typeof body !== "string")) throw new Error("コマンドのバックアップが不正です。");
+    if (value.payload.binaryCommands !== undefined && !object(value.payload.binaryCommands)) throw new Error("コマンドのバックアップが不正です。");
+    if (commandEntries(value.payload).some(([name, body]) => !validCommand(name) || typeof body !== "string")) throw new Error("コマンドのバックアップが不正です。");
     return value;
   }
   // 今の設定（読めなければ {}）。一覧・作成・復元で1回だけ読み、summary に渡す。
@@ -70,7 +78,7 @@ function createSettingsBackups(deps) {
   function summary(value, id, current) {
     return { id, createdAt: value.createdAt, reason: value.reason, version: value.version,
       username: value.payload.bridge.tiktokUsername || "", mappings: value.payload.bridge.mappings?.length || 0,
-      commands: Object.keys(value.payload.commands).length, ttsEnabled: value.payload.tts.enabled === true,
+      commands: commandEntries(value.payload).length, ttsEnabled: value.payload.tts.enabled === true,
       issues: validateBridgeConfig(restoredBridgeConfig(value, current)).errors.length };
   }
   function load(id) {
@@ -119,13 +127,15 @@ function createSettingsBackups(deps) {
     if ((current.gameProfile || 'common') !== (snapshot.payload.bridge.gameProfile || 'common')) throw new Error('このバックアップのゲームを選択してから復元してください');
     // 古い版のバックアップ（回数 2.5 など）も戻せるように、戻す前に直す。
     const config = restoredBridgeConfig(snapshot, current);
-    deps.validateRestore?.(config, snapshot.payload.commands);
+    // 戻す前の確かめ（ゲーム専用のコマンドなど）は名前だけを見る。UTF-8 でない txt の名前も渡す。
+    deps.validateRestore?.(config, Object.fromEntries(commandEntries(snapshot.payload)));
     const currentApp = fs.existsSync(p.app) ? read(p.app) : {};
     const prefs = Object.fromEntries(PREFS.map(key => [key, snapshot.payload.preferences[key] !== false]));
     const files = new Map([
       [p.config, json(config)], [p.tts, json(snapshot.payload.tts)], [p.bridgeTts, json(snapshot.payload.tts)],
       [p.app, json({ ...currentApp, ...prefs })],
       ...Object.entries(snapshot.payload.commands).map(([name, body]) => [path.join(p.commands, name), body]),
+      ...Object.entries(snapshot.payload.binaryCommands || {}).map(([name, body]) => [path.join(p.commands, name), Buffer.from(body, "base64")]),
     ]);
     const before = new Map([...files.keys()].map(file => [file, fs.existsSync(file) ? fs.readFileSync(file) : null]));
     const safety = create("before-restore");

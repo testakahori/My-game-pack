@@ -36,4 +36,11 @@ function parseCommandText(text) {
   return { meta, commands, description };
 }
 
-module.exports = { parseCommandText, trimText };
+// UTF-8 として正しく読めるバイトか。Shift_JIS などは false（BRIDGE は U+FFFD に変えて読み、BridgeMOD は読めない）。
+// バックアップと配信前チェックはこの1か所を使う（処理のコピー PR7）。
+function isUtf8Text(buffer) {
+  try { new TextDecoder("utf-8", { fatal: true }).decode(buffer); return true; }
+  catch { return false; }
+}
+
+module.exports = { parseCommandText, trimText, isUtf8Text };
