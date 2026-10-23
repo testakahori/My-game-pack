@@ -416,6 +416,12 @@ if (import.meta.env.DEV && !win.mygamepack) {
     bridgeCommandsList: readDevCommands,
     bridgeCommandsReadMeta: readDevCommands,
     bridgeCommandsWrite: ok,
+    // 確かめはアプリと同じ bridge/command_rows.cjs（vite.config.ts の /__dev/commands/check。処理のコピー PR8）。
+    bridgeCommandsCheck: async (request: { filename: string; content: string }) => {
+      const response = await fetch("/__dev/commands/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) });
+      if (!response.ok) throw new Error("TXT の確かめに失敗しました（開発用）");
+      return response.json();
+    },
     bridgeCommandsOpenFolder: ok,
     giftsRead: readDevGifts,
     giftsUpdate: ok,

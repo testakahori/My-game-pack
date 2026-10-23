@@ -322,6 +322,12 @@ contextBridge.exposeInMainWorld("mygamepack", {
     return ipcRenderer.invoke("bridge:commands:write", { filename, content });
   },
 
+  // TXT 作成の確かめ（名前・コマンドの行・見出し・同じ名前のファイルがあるか）。決まりは main（bridge/command_rows.cjs）が持つ（処理のコピー PR8）。
+  bridgeCommandsCheck: ({ filename, content }) => {
+    if (!isString(filename) || !isString(content)) throw new Error("bridgeCommandsCheck: filename and content must be strings");
+    return ipcRenderer.invoke("bridge:commands:check", { filename, content });
+  },
+
   // bridge/commands/minecraft/ をエクスプローラーで開く
   bridgeCommandsOpenFolder: () => ipcRenderer.invoke("bridge:commands:openFolder"),
 

@@ -122,3 +122,15 @@ test('写し: アプリと開発用の一覧は commandListRow で1行を作り�
   assert.match(templates, /sameCommandFile\(/);
   assert.doesNotMatch(templates, /ensureTxt\([^)]*\)\.toLowerCase\(\)/, 'gift_templates.cjs に同じコマンドかの比べ方の写しがある');
 });
+
+// txt の # COOLDOWN の上限は bridge/event_rules.cjs の COMMAND_COOLDOWN_MAX_MS の1か所。TXT 作成の確かめも同じ値を使う（処理のコピー PR8）。
+test('写し: BRIDGE の # COOLDOWN の上限は COMMAND_COOLDOWN_MAX_MS を使う', () => {
+  const { COMMAND_COOLDOWN_MAX_MS } = require('../../bridge/event_rules.cjs');
+  assert.equal(COMMAND_COOLDOWN_MAX_MS, 60000);
+  const index = fs.readFileSync(path.resolve(__dirname, '../../bridge/index.js'), 'utf8');
+  assert.match(index, /COMMAND_COOLDOWN_MAX_MS/);
+  // # COOLDOWN を読む行だけを見る（テスト発火の待ち時間の上限 60000 は別の値）。
+  const cooldownLines = index.split(/\r?\n/).filter(line => line.includes('meta?.COOLDOWN'));
+  assert.equal(cooldownLines.length, 1);
+  assert.doesNotMatch(cooldownLines[0], /\b60000\b/, 'bridge/index.js に # COOLDOWN の上限の写しがある');
+});

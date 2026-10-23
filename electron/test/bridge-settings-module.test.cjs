@@ -133,6 +133,14 @@ test('BRIDGE の設定の保存: 先にゲームの切り替え中でないか�
   assert.deepEqual(x.calls, ['gameProfileIdle', 'restore:b1']);
 });
 
+// TXT 作成の確かめ（処理のコピー PR8）。同じ名前のファイルがあるかは、コマンドの場所の txt 全部と比べる。
+test('コマンド txt: bridge:commands:check は確かめの結果と、同じ名前のファイルがあるかを返す', async t => {
+  const x = setup(t);
+  assert.equal((await x.invoke('bridge:commands:check', { filename: 'husk', content: 'say x' })).exists, true, '標準の husk.txt がある');
+  const fresh = await x.invoke('bridge:commands:check', { filename: 'my_new_cmd', content: 'say x' });
+  assert.deepEqual(fresh, { filename: 'my_new_cmd.txt', commands: ['say x'], problems: [], exists: false });
+});
+
 test('コマンド txt: 選んでいるゲームのコマンドだけを出し、ゲームパックのものは書かず、書く前にバックアップを作る', async t => {
   const x = setup(t);
   const names = x.invoke('bridge:commands:list').map(row => row.name);

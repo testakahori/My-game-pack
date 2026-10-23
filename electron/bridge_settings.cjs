@@ -9,7 +9,7 @@ const { createGiftTemplates } = require("./gift_templates.cjs");
 const { runPreflight } = require("./preflight.cjs");
 const { atomicWrite } = require("./settings_backups.cjs");
 const { commandFileProblem, isTxtName } = require("../bridge/command_files.cjs");
-const { commandListRow } = require("../bridge/command_rows.cjs");
+const { commandListRow, checkCommandDraft } = require("../bridge/command_rows.cjs");
 const { bridgeCommandsDir } = require("../bridge/config_defaults.cjs");
 const { gameOfCommand } = require("../bridge/game_commands.cjs");
 const { availableGameCommands, assertGameCommands } = require("./game_command_scope.cjs");
@@ -186,6 +186,12 @@ function createBridgeSettings({
     // --------------------
     ipcMain.handle("bridge:commands:list", () => readCommandMetadata().map(({ name, title, invalidName, invalidReason, roulette }) => ({ name, title, ...(invalidName ? { invalidName, invalidReason } : {}), ...(roulette ? { roulette } : {}) })));
     ipcMain.handle("bridge:commands:readMeta", () => readCommandMetadata());
+    // TXT 作成の確かめ（処理のコピー PR8）。同じ名前のファイルがあるかは、コマンドの場所の txt 全部と比べる（選んでいるゲームのものに限らない）。
+    ipcMain.handle("bridge:commands:check", (_event, { filename, content } = {}) => {
+      const dir = bridgeCommandsDir(getBridgeBatDir());
+      const existingNames = fs.existsSync(dir) ? fs.readdirSync(dir).filter(name => isTxtName(name)) : [];
+      return checkCommandDraft({ filename, content, existingNames });
+    });
 
     // --------------------
     // IPC: bridge/commands/minecraft/ にTXTを書き込む
