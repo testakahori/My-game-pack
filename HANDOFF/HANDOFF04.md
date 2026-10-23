@@ -422,9 +422,9 @@
          6. BRIDGE の試験台（`electron/test/helpers/bridge-fixture.cjs`）は、BRIDGE が読む同じフォルダーのファイル（送り直し・ルーレットの演出など）も試験台が数えるタイマーで動かし、片付けで止める。片付けを始めたら新しいタイマーは動かさない（偽 BridgeMOD を閉じるのを待つ間に届いた返事で、送り直しが新しいタイマーを作るため。初めの直しでは `npm run verify` の中でだけ、たまに止まった）。演出の途中やギフトを送った直後に終えるテストも、プロセスが終わる（`bridge-fixture-cleanup.test.cjs` が `helpers/fixture-ends-mid-roulette.cjs` を別のプロセスで動かす。直す前は20秒で打ち切り）。
        - 直したあとの `npm run verify`：BRIDGE 15/15、アプリ 587/587、型チェック・ビルドが通る（アプリはもう1回回しても通った）。契約テストも通る。
        - 最後のレビューで判断しなかったこと（私が決めた）：Shift_JIS を UTF-8 として読むほかの所（コマンド一覧の題名・アプリの編集画面の保存・ゲームの切り替えの記録）は、計画の決めたこと 4 の範囲（バックアップと配信前チェック）のまま変えない。配信前チェックが知らせるので、使う人は直し方が分かる。
+     - PR7 は CI（3つとも通った。mod-build で DisplayMOD・BridgeMOD のビルドと契約テストも）のあと、ユーザーの許可を得てマージした（PR #124、マージコミット 530f461）。
      - **次にやること**：
-       1. PR7 の PR → CI → 許可をもらってマージ。
-       2. PR8（画面の写し）。上の「ユーザーの決定（10-23）」のとおり、「無効（動きません）」の印を3か所に出す（切り替えは作らない）ことと、`GiftCommandDialog.tsx` を消すことを含める。使えない名前の印の文は、PR7 でアプリが渡すようにした `invalidReason` を出す（`src/lib/commandLabel.ts` の「半角英数字に変えると使えます」の決め打ちをやめる）。計画を書いてユーザーの承認をもらってから実装する。
+       1. PR8（画面の写し）。ブランチ `fix/logic-copies-8`（main の 530f461 から切った）。上の「ユーザーの決定（10-23）」のとおり、「無効（動きません）」の印を3か所に出す（切り替えは作らない）ことと、`GiftCommandDialog.tsx` を消すことを含める。使えない名前の印の文は、PR7 でアプリが渡すようにした `invalidReason` を出す（`src/lib/commandLabel.ts` の「半角英数字に変えると使えます」の決め打ちをやめる）。計画を書いてユーザーの承認をもらってから実装する。
      - PR1 のレビューで見つけた前からの問題：`foo.txt.txt` は BRIDGE が `foo.txt` を送り、MOD がもう一度 `.txt` を除くので `foo.txt` を実行する（PR7 で直した）。設定に `../x.txt` と書くと BridgeMOD 向けの名前の確かめを通った（PR7 で直した。RCON の経路と条件だけ確認でコマンドのフォルダーの外を読む、という前の書き方は言い過ぎで、`resolveCommands` は外を読まない）。`bridge/index.js` のルーレットの判定 `=== "roulette"` は大文字小文字を区別する（PR7 で直した）。Shift_JIS の txt は JS が U+FFFD にして読み、MOD は読めない（PR7 でバックアップを壊さず、配信前チェックで知らせるようにした）。`gift_templates.cjs` の `missing()` は名前を大文字小文字まで比べる（PR7 で直した）。TXT の書き込みのゲームパックの判定は大文字小文字を区別する（PR6 で直した）。electron が読む `../bridge/*.cjs` が `build.files` に全部あるかを確かめるテストがない（PR3 の軽い指摘の直しで足した）。`src/` に残る写し（`CommandSetManager.tsx`・`CommandsListPage.tsx`・`EventSettings2Page.tsx`・`ImageEditorPage.tsx`）は PR8 で、設計書 3 のとおり画面が決まりを持たない形にそろえる。
    - リリース手順が2つ
 
