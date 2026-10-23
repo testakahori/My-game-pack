@@ -47,7 +47,8 @@ export type GiftsReadResult = {
   metaPath?: string;
 };
 
-export type GiftAssignment = { giftId: string | number; name?: string; commandFile?: string; repeat?: number };
+// enabled: false は設定ファイルで無効にした割り当て（ギフトは数えるが、コマンドは動かさない。画面は印を出す。処理のコピー PR5・PR8）。
+export type GiftAssignment = { giftId: string | number; name?: string; commandFile?: string; repeat?: number; enabled?: boolean };
 export type GiftTemplatePreview = { token: string; name: string; appVersion: string; currentCount: number; missingCommands: string[]; mappings: Array<{ giftId: string; name: string; commandFile: string; repeat: number; title: string }> };
 export type GiftMappingSaveRequest = { giftId: string; name: string; commandFile: string; repeat: number; expected: GiftAssignment[] };
 
@@ -59,6 +60,7 @@ export type BridgeConfig = {
     name?: string;
     commandFile?: string;
     repeat?: number;
+    enabled?: boolean;
   }>;
   [k: string]: any; // 互換のため許容
 };
@@ -76,8 +78,11 @@ declare global {
       gamesSelectClientFolder: (folder: string) => Promise<GameStatus>;
 
       // invalidName: BridgeMOD が拒否する名前（日本語・空白・.txt が2つなど）。割り当てて保存すると理由付きで止まる。invalidReason はその直し方の文。
-      bridgeCommandsReadMeta: () => Promise<Array<{ name: string; title: string; category: string; description?: string; invalidName?: boolean; invalidReason?: string }>>;
-      bridgeCommandsList: () => Promise<Array<{ name: string; title: string; invalidName?: boolean; invalidReason?: string }>>;
+      // roulette: ルーレットを回すコマンド（roulette.txt。大文字小文字を問わない）。一覧や項目の候補からは除く。
+      bridgeCommandsReadMeta: () => Promise<Array<{ name: string; title: string; category: string; description?: string; chatKey?: string; invalidName?: boolean; invalidReason?: string; roulette?: boolean }>>;
+      bridgeCommandsList: () => Promise<Array<{ name: string; title: string; invalidName?: boolean; invalidReason?: string; roulette?: boolean }>>;
+      // TXT 作成の確かめ。filename は .txt を付けた保存の名前、commands はコマンドの行、exists は同じ名前のファイルがあるか（保存は上書き）。
+      bridgeCommandsCheck: (draft: { filename: string; content: string }) => Promise<{ filename: string; commands: string[]; problems: string[]; exists: boolean }>;
       testEvent: (event: { type: string; preview?: boolean; listenerName?: string; commandFile?: string; giftId?: string; count?: number; previousLikes?: number; likeCount?: number; deaths?: number; followCount?: number; comment?: string; pollOption?: string }) => Promise<{ ok: boolean; message: string; preview?: boolean; matched?: boolean; bridgeStopped?: boolean; notes?: string[]; steps?: Array<{ label: string; commandFile: string; count: number; type?: string; roulette?: boolean }>; fired?: Array<{ stepIndex?: number; commandFile?: string; count?: number; state?: 'delivered' | 'pending' | 'failed' | 'discarded'; message: string }> }>;
       worldSavesList: () => Promise<{ world: string; busy: boolean; recoveryPending: boolean; saves: MapSave[] }>;
       worldSavesSave: (name: string) => Promise<MapOperationResult>;

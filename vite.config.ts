@@ -135,21 +135,40 @@ function ttsDevHelperPlugin(): Plugin {
           sendJson(res, 200, []);
           return;
         }
-        const { parseCommandText } = load("./bridge/command_text.cjs");
         const { isTxtName } = load("./bridge/command_files.cjs");
-        // チャットの名前もアプリと同じ bridge/game_commands.cjs で付ける（処理のコピー PR6）。
-        const { publicCommandKey } = load("./bridge/game_commands.cjs");
+        // 1行の作り方（題名・チャットの名前・ルーレットと使えない名前の印）はアプリと同じ bridge/command_rows.cjs（処理のコピー PR8）。
+        const { commandListRow } = load("./bridge/command_rows.cjs");
         const files = fs.readdirSync(dir).filter((file) => isTxtName(file)).sort();
         const commands = files.map((name) => {
-          let title = name, category = "";
-          try {
-            const { meta } = parseCommandText(fs.readFileSync(path.join(dir, name), "utf-8"));
-            title = meta.TITLE || name;
-            category = meta.CATEGORY || "";
-          } catch {}
-          return { name, title, category, chatKey: publicCommandKey(name) };
+          let text: string | null = null;
+          try { text = fs.readFileSync(path.join(dir, name), "utf-8"); } catch {}
+          return commandListRow(name, text);
         });
         sendJson(res, 200, commands);
+      });
+
+      // TXT 作成の確かめも、アプリの bridge:commands:check と同じ bridge/command_rows.cjs の checkCommandDraft（処理のコピー PR8）。
+      server.middlewares.use("/__dev/commands/check", (req, res) => {
+        if (req.method !== "POST") {
+          sendJson(res, 405, { ok: false, message: "POST only" });
+          return;
+        }
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk: Buffer) => chunks.push(chunk));
+        req.on("end", () => {
+          try {
+            const load = createRequire(import.meta.url);
+            const { bridgeCommandsDir } = load("./bridge/config_defaults.cjs");
+            const { isTxtName } = load("./bridge/command_files.cjs");
+            const { checkCommandDraft } = load("./bridge/command_rows.cjs");
+            const body = JSON.parse(Buffer.concat(chunks).toString("utf-8") || "{}");
+            const dir = bridgeCommandsDir(path.join(process.cwd(), "bridge"));
+            const existingNames = fs.existsSync(dir) ? fs.readdirSync(dir).filter((name) => isTxtName(name)) : [];
+            sendJson(res, 200, checkCommandDraft({ filename: body.filename, content: body.content, existingNames }));
+          } catch (error: any) {
+            sendJson(res, 500, { ok: false, message: error?.message ?? String(error) });
+          }
+        });
       });
 
       server.middlewares.use("/__dev/worlds/list", (req, res) => {

@@ -9,6 +9,7 @@ import type { GiftMapping } from "../types";
 import { stopConfirmMessage, stopState, type StopTarget } from "../lib/stopSafety";
 import type { PauseView } from "../lib/disruptionPause";
 import { toRepeat } from "../lib/integerInput";
+import { ipcErrorMessage } from "../lib/ipcError";
 // 既定値は BRIDGE と同じ表（bridge/config_defaults.json。処理のコピー PR4）。
 import CONFIG_DEFAULTS from "../../bridge/config_defaults.json";
 
@@ -61,9 +62,7 @@ function safeParse<T>(raw: string | null, fallback: T): T {
 function nowStr(): string {
   return new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
-function errorMessage(error: any): string {
-  return String(error?.message ?? error).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "");
-}
+const errorMessage = ipcErrorMessage;
 
 let logIdCounter = 0;
 

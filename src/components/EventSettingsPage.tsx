@@ -5,6 +5,7 @@ import EventTypeIcon, { type EventIconKind } from "./EventTypeIcon";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 import { commandOptionLabel } from "../lib/commandLabel";
 import { toRepeat, toThreshold } from "../lib/integerInput";
+import { findCommandFile } from "../lib/commandFiles";
 
 type LikeEvent = {
   id: string;
@@ -29,7 +30,7 @@ type Config = {
   memberEvent?: SimpleEvent;
 };
 
-type CommandFile = { name: string; title: string; invalidName?: boolean };
+type CommandFile = { name: string; title: string; invalidName?: boolean; invalidReason?: string };
 
 type Props = {
   onDirtyChange?: (dirty: boolean) => void;
@@ -53,13 +54,14 @@ function CmdFileSelect({
   onChange: (v: string) => void;
   commandFiles: CommandFile[];
 }) {
-  const selected = commandFiles.find((f) => f.name === value);
+  // 同じコマンドかは .txt の有無・大文字小文字を問わない（src/lib/commandFiles.ts。処理のコピー PR8）。手で書いた Neko.TXT も一覧の neko.txt を選んだ形で出す。
+  const selected = findCommandFile(commandFiles, value);
   return (
     <div className="event-command-select flex items-center gap-2">
       {commandFiles.length > 0 ? (
         <select
           aria-label={label}
-          value={value}
+          value={selected?.name ?? value}
           onChange={(e) => onChange(e.target.value)}
           className="flex-1 bg-gray-900 border border-gray-600 rounded-xl px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
         >

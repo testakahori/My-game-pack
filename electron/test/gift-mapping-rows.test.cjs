@@ -14,7 +14,33 @@ function loadLib(relative) {
   compiled._compile(outputFiles[0].text, file);
   return compiled.exports;
 }
-const { fromConfigMappings, toConfigMappings } = loadLib('giftMappingRows.ts');
+const { fromConfigMappings, toConfigMappings, isDisabledMapping, disabledGiftIds, DISABLED_MAPPING_MARK, mappingGiftName } = loadLib('giftMappingRows.ts');
+
+// 画像作成のカードのギフト名（PR8 の最後のレビュー）。名前が空か giftId と同じ（名前を書かずに保存した割り当て）なら、カタログのギフト名を使う。
+// 前は fromConfigMappings が空の名前を giftId で埋めるので、手で書いた名前の無い割り当てのカードに「Rose」でなく「5655」と出た。
+test('画像作成のカードのギフト名: 名前が無ければカタログの名前', () => {
+  assert.equal(mappingGiftName({ giftId: '5655', name: '5655' }, 'Rose'), 'Rose');
+  assert.equal(mappingGiftName({ giftId: '5655', name: '' }, 'Rose'), 'Rose');
+  assert.equal(mappingGiftName({ giftId: '5655', name: 'バラ' }, 'Rose'), 'バラ');
+  assert.equal(mappingGiftName({ giftId: '5655', name: '' }, undefined), '5655');
+});
+
+// 無効の割り当て（手で書いた enabled: false）は、画面に「無効（動きません）」の印を出す（2026-10-23 ユーザーの決定。処理のコピー PR8）。
+test('無効の割り当て: 印の文と、無効のギフトの見分け方', () => {
+  assert.equal(DISABLED_MAPPING_MARK, '無効（動きません）');
+  assert.equal(isDisabledMapping({ enabled: false }), true);
+  assert.equal(isDisabledMapping({}), false);
+  assert.equal(isDisabledMapping({ enabled: true }), false);
+  assert.equal(isDisabledMapping(null), false);
+  assert.deepEqual(disabledGiftIds([{ giftId: ' 5655 ', enabled: false }, { giftId: '1' }, { giftId: '2', enabled: true }]), new Set(['5655']));
+});
+
+// 編集画面で無効の割り当てのコマンドを変えて保存しても、無効のまま（GiftSettingsPage の updateMapping と同じ形でまぜる）。
+test('無効の割り当て: コマンドを変えて保存しても enabled:false が残る', () => {
+  const [row] = fromConfigMappings({ mappings: [{ giftId: '5655', name: 'バラ', commandFile: 'a.txt', repeat: 1, enabled: false }] }, () => 'id');
+  const updated = { ...row, ...{ giftId: '5655', name: 'バラ', commandFile: 'heal.txt', repeat: 2, commandSetLabel: 'heal.txt' } };
+  assert.deepEqual(toConfigMappings([updated]), [{ giftId: '5655', name: 'バラ', commandFile: 'heal.txt', repeat: 2, enabled: false }]);
+});
 
 test('ギフト設定の画面: 設定から読んで書き戻しても enabled:false を落とさない', () => {
   const rows = fromConfigMappings({ mappings: [{ giftId: '1', name: 'バラ', commandFile: 'a.txt', repeat: 2, enabled: false }, { giftId: '2', name: '', commandFile: 'b.txt' }, { giftId: ' ' }] }, () => 'id');

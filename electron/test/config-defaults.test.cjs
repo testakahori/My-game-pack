@@ -109,3 +109,28 @@ test('画面: 運用センター・配信ホームは既定値を config_default
   assert.doesNotMatch(read('src/components/DashboardPage.tsx'), /commandsDir:/, '保存のたびに main が上書きするので書かない');
   assert.doesNotMatch(read('src/lib/devApiMock.ts'), /likeBatchMs|likeCatchupLimit/);
 });
+
+// コマンドの一覧の1行は bridge/command_rows.cjs の commandListRow の1か所。同じコマンドかは command_files.cjs の sameCommandFile（処理のコピー PR8）。
+test('写し: アプリと開発用の一覧は commandListRow で1行を作り、テンプレートは sameCommandFile で比べる', () => {
+  const read = file => fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
+  for (const file of ['electron/bridge_settings.cjs', 'vite.config.ts']) {
+    const source = read(file);
+    assert.match(source, /commandListRow\(/, file + ' が commandListRow を使っていない');
+    assert.doesNotMatch(source, /chatKey: publicCommandKey\(/, file + ' に一覧の1行の作り方の写しがある');
+  }
+  const templates = read('electron/gift_templates.cjs');
+  assert.match(templates, /sameCommandFile\(/);
+  assert.doesNotMatch(templates, /ensureTxt\([^)]*\)\.toLowerCase\(\)/, 'gift_templates.cjs に同じコマンドかの比べ方の写しがある');
+});
+
+// txt の # COOLDOWN の上限は bridge/event_rules.cjs の COMMAND_COOLDOWN_MAX_MS の1か所。TXT 作成の確かめも同じ値を使う（処理のコピー PR8）。
+test('写し: BRIDGE の # COOLDOWN の上限は COMMAND_COOLDOWN_MAX_MS を使う', () => {
+  const { COMMAND_COOLDOWN_MAX_MS } = require('../../bridge/event_rules.cjs');
+  assert.equal(COMMAND_COOLDOWN_MAX_MS, 60000);
+  const index = fs.readFileSync(path.resolve(__dirname, '../../bridge/index.js'), 'utf8');
+  assert.match(index, /COMMAND_COOLDOWN_MAX_MS/);
+  // # COOLDOWN を読む行だけを見る（テスト発火の待ち時間の上限 60000 は別の値）。
+  const cooldownLines = index.split(/\r?\n/).filter(line => line.includes('meta?.COOLDOWN'));
+  assert.equal(cooldownLines.length, 1);
+  assert.equal(cooldownLines[0].includes('60000'), false, 'bridge/index.js に # COOLDOWN の上限の写しがある');
+});

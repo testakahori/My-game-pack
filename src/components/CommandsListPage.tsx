@@ -4,10 +4,10 @@
 // カードクリックでチャット欄に貼り付けられる「/bridge <コマンド名> 1」をコピーする。
 import React from "react";
 import { copyText } from "../lib/clipboard";
-import { INVALID_COMMAND_NAME_HINT } from "../lib/commandLabel";
+import { invalidCommandMessage } from "../lib/commandLabel";
 
 // chatKey はアプリが付けるチャットの名前（bridge/game_commands.cjs の publicCommandKey。BridgeMOD の publicKey と同じ。処理のコピー PR6）。
-type CommandMeta = { name: string; title: string; category: string; description?: string; invalidName?: boolean; chatKey?: string };
+type CommandMeta = { name: string; title: string; category: string; description?: string; invalidName?: boolean; invalidReason?: string; chatKey?: string; roulette?: boolean };
 
 function getApi() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -61,8 +61,9 @@ const CommandsListPage: React.FC = () => {
     }
     try {
       const list: CommandMeta[] = await api.bridgeCommandsReadMeta();
-      // roulette.txt はギフト用の演出プレースホルダなのでチートシートには出さない
-      setCommands((list || []).filter((c) => c.name !== "roulette.txt"));
+      // roulette.txt はギフト用の演出プレースホルダなのでチートシートには出さない。
+      // ルーレットかは main が付けた印で見る（大文字の Roulette.TXT も。bridge/command_rows.cjs。処理のコピー PR8）。
+      setCommands((list || []).filter((c) => !c.roulette));
     } catch (e: any) {
       setErr(e?.message || String(e));
     }
@@ -187,9 +188,7 @@ const CommandsListPage: React.FC = () => {
                   </div>
                   <p className="cmd-card__desc">{meta.description || "説明なし"}</p>
                   {meta.invalidName && (
-                    <p className="cmd-card__warn">
-                      ⚠ この名前（{meta.name}）は BridgeMOD で実行できません。{INVALID_COMMAND_NAME_HINT}（使える文字：半角英数字と _ . -）。
-                    </p>
+                    <p className="cmd-card__warn">{invalidCommandMessage(meta)}</p>
                   )}
                   <code className="cmd-card__code">{chatCommandOf(meta)}</code>
                 </button>

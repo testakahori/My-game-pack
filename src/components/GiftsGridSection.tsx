@@ -1,6 +1,8 @@
 // src/components/GiftsGridSection.tsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { GiftMapping } from "../types";
+import { isDisabledMapping } from "../lib/giftMappingRows";
+import DisabledMappingMark from "./DisabledMappingMark";
 
 type Gift = { id: number; name: string; diamond_count: number; image?: string | null };
 type GiftsMeta = { generatedAt: string; username: string; count: number } | null;
@@ -243,6 +245,8 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
               const id = String(g.id);
               const isSelected = id === selectedGiftId;
               const isSet      = !!(mappingsByGiftId[id]?.commandFile);
+              // 無効の割り当ても「設定済み」に数える（割り当てはある。動かないだけ）。札だけを無効の印にする（処理のコピー PR8）。
+              const isDisabled = isDisabledMapping(mappingsByGiftId[id]);
 
               return (
                 <button
@@ -260,6 +264,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
                 >
                   {/* 状態バッジ */}
                   <div className="absolute -top-1 -right-1 z-10">
+                    {isDisabled ? <DisabledMappingMark compact /> : (
                     <span className={`text-[7px] px-1 py-0.5 rounded-full font-black border leading-none ${
                       isSet
                         ? "bg-emerald-700 text-white border-emerald-600"
@@ -267,6 +272,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
                     }`}>
                       {isSet ? "済" : "未"}
                     </span>
+                    )}
                   </div>
 
                   {/* 画像 */}

@@ -40,7 +40,7 @@ const { commandFileProblem, ensureTxt, bridgeCommandKey } = require("./command_f
 const { parseCommandText } = require("./command_text.cjs");
 const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("./bridge_mod_token.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require("./feature_engine");
-const { boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes } = require("./event_rules.cjs");
+const { COMMAND_COOLDOWN_MAX_MS, boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes } = require("./event_rules.cjs");
 const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter, createMuteMatcher } = require("./tiktok_events.cjs");
 const { testEventActions, createTestRun, noMatchNote } = require("./test_fire.cjs");
 let runtimeProtection = { enabled: false };
@@ -1767,7 +1767,7 @@ async function main() {
     if (!isStreak) {
       const cooldownKey = `${giftId}:${sender}`;
       const last = ctx.lastExecAt.get(cooldownKey) || 0;
-      const fileCooldown = boundedInt(randomized.meta?.COOLDOWN ?? giftCooldownMs, 0, 60000, giftCooldownMs);
+      const fileCooldown = boundedInt(randomized.meta?.COOLDOWN ?? giftCooldownMs, 0, COMMAND_COOLDOWN_MAX_MS, giftCooldownMs);
       if (now - last < fileCooldown) return;
       ctx.lastExecAt.set(cooldownKey, now);
     }

@@ -3,6 +3,7 @@ import setupCompleteHeroImage from "../../assets/初期セットアップ完了.
 import setupBeforeHeroImage from "../../assets/初期セットアップ完了前01.png";
 import setupBeforeForgeImage from "../../assets/初期セットアップ完了前02.png";
 import setupBeforeEnvImage from "../../assets/初期セットアップ完了前03.png";
+import { ipcErrorMessage } from "../lib/ipcError";
 
 type Props = {
   setupComplete: boolean;
@@ -11,7 +12,7 @@ type Props = {
 };
 
 const DEFAULT_SERVER_FOLDER = "ドキュメント内の MyGamePack / Server";
-const setupError = (error: unknown) => String((error as { message?: string })?.message || error).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "");
+const setupError = ipcErrorMessage;
 
 const AkahoriAvatar: React.FC<{ className?: string }> = ({ className }) => (
   <svg className={className ?? "setup-avatar"} viewBox="0 0 160 210" role="img" aria-label="赤堀堂馬のMinecraftアバター">

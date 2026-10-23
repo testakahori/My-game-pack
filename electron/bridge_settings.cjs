@@ -9,9 +9,9 @@ const { createGiftTemplates } = require("./gift_templates.cjs");
 const { runPreflight } = require("./preflight.cjs");
 const { atomicWrite } = require("./settings_backups.cjs");
 const { commandFileProblem, isTxtName } = require("../bridge/command_files.cjs");
-const { parseCommandText } = require("../bridge/command_text.cjs");
+const { commandListRow, checkCommandDraft } = require("../bridge/command_rows.cjs");
 const { bridgeCommandsDir } = require("../bridge/config_defaults.cjs");
-const { gameOfCommand, publicCommandKey } = require("../bridge/game_commands.cjs");
+const { gameOfCommand } = require("../bridge/game_commands.cjs");
 const { availableGameCommands, assertGameCommands } = require("./game_command_scope.cjs");
 const { checkEngine } = require("./tts.cjs");
 
@@ -103,23 +103,12 @@ function createBridgeSettings({
     const dir = bridgeCommandsDir(getBridgeBatDir());
     if (!fs.existsSync(dir)) return [];
     const files = selectableCommandNames();
+    // 1行の作り方（題名・説明文・チャットの名前・ルーレットと使えない名前の印）は bridge/command_rows.cjs の1か所（処理のコピー PR8）。
+    // Explorer で作った「ネコ.txt」なども一覧には出るが、BridgeMOD では実行できないので印が付く（割り当てた保存は理由付きで止まる）。
     return files.map((name) => {
-      let title = name;
-      let category = "";
-      let description = "";
-      try {
-        // 読み方は BRIDGE・BridgeMOD と同じ command_text.cjs（2026-10-18）。説明文は最初の // の行（コマンド一覧ページの表示用）。
-        const parsed = parseCommandText(fs.readFileSync(path.join(dir, name), "utf8"));
-        if (parsed.meta.TITLE) title = parsed.meta.TITLE;
-        category = parsed.meta.CATEGORY || "";
-        description = parsed.description;
-      } catch {}
-      // Explorer で作った「ネコ.txt」「tnt - コピー.txt」なども一覧には出るが、BridgeMOD では実行できない。
-      // title はルーレット名やギフト画像にそのまま使われるので変えず、印だけを付ける（割り当てた保存は理由付きで止まる）。
-      // chatKey はチャットの名前（/bridge <名前>）。BridgeMOD の publicKey と同じ決まりで、画面は写しを持たずにこれを使う（処理のコピー PR6）。
-      // invalidReason は直し方の文（foo.txt.txt は「半角英数字に」では直らない。画面に出すのは PR8。PR7 の最後のレビュー）。
-      const problem = commandFileProblem(name);
-      return { name, title, category, description, chatKey: publicCommandKey(name), ...(problem ? { invalidName: true, invalidReason: problem } : {}) };
+      let text = null;
+      try { text = fs.readFileSync(path.join(dir, name), "utf8"); } catch {}
+      return commandListRow(name, text);
     });
   }
 
@@ -195,8 +184,14 @@ function createBridgeSettings({
     // --------------------
     // IPC: bridge/commands/minecraft/ 内の .txt ファイル一覧
     // --------------------
-    ipcMain.handle("bridge:commands:list", () => readCommandMetadata().map(({ name, title, invalidName, invalidReason }) => ({ name, title, ...(invalidName ? { invalidName, invalidReason } : {}) })));
+    ipcMain.handle("bridge:commands:list", () => readCommandMetadata().map(({ name, title, invalidName, invalidReason, roulette }) => ({ name, title, ...(invalidName ? { invalidName, invalidReason } : {}), ...(roulette ? { roulette } : {}) })));
     ipcMain.handle("bridge:commands:readMeta", () => readCommandMetadata());
+    // TXT 作成の確かめ（処理のコピー PR8）。同じ名前のファイルがあるかは、コマンドの場所の txt 全部と比べる（選んでいるゲームのものに限らない）。
+    ipcMain.handle("bridge:commands:check", (_event, { filename, content } = {}) => {
+      const dir = bridgeCommandsDir(getBridgeBatDir());
+      const existingNames = fs.existsSync(dir) ? fs.readdirSync(dir).filter(name => isTxtName(name)) : [];
+      return checkCommandDraft({ filename, content, existingNames });
+    });
 
     // --------------------
     // IPC: bridge/commands/minecraft/ にTXTを書き込む

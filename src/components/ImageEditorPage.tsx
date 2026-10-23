@@ -4,6 +4,9 @@ import type { GiftAssignment } from '../types/electron';
 import { useUnsavedChanges, useUnsavedGuard } from '../UnsavedChanges';
 import { applyPanelTemplate, cardColors, clamp, createPanel, normalizePanel, panelFilename, panelId, panelLayout, readPanelLibrary, PANEL_STORAGE_KEY, TEMPLATES, TONES, toneForCategory, type PanelCard, type PanelDesign, type PanelLibrary } from '../lib/giftPanel';
 import { drawGiftPanel, type PanelImages } from '../lib/giftPanelCanvas';
+import { commandFileStem, findCommandFile } from '../lib/commandFiles';
+import { disabledGiftIds, fromConfigMappings, mappingGiftName } from '../lib/giftMappingRows';
+import DisabledMappingMark from './DisabledMappingMark';
 
 type Gift = { id: number; name: string; diamond_count: number; image?: string | null };
 type Meta = { name: string; title: string; category: string };
@@ -83,16 +86,20 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
         if (canceled) return;
         setGifts(Array.isArray(catalog?.gifts) ? catalog.gifts : []);
         setMetadata(Array.isArray(commands) ? commands : []);
-        setSavedMappings(Array.isArray(config?.mappings) ? config.mappings : []);
+        // 割り当てはギフト設定の画面と同じ形で読む（giftId の前後の空白を除き、手で書いた enabled: false を落とさない。処理のコピー PR8）。
+        setSavedMappings(fromConfigMappings(config, () => ''));
       }).catch(e => { if (!canceled) setDataError('ギフトを読み込めませんでした: ' + String(e?.message || e)); })
       .finally(() => { if (!canceled) setLoading(false); });
     return () => { canceled = true; };
   }, [reload]);
+  // 無効の割り当て（設定ファイルで enabled: false）のギフト。一覧の項目にだけ印を出し、パネルの絵には描かない（処理のコピー PR8）。
+  const disabledIds = useMemo(() => disabledGiftIds(savedMappings), [savedMappings]);
   const mappedCards = useMemo(() => savedMappings.filter(m => m.commandFile).map((m, i): PanelCard => {
     const gift = gifts.find(g => String(g.id) === String(m.giftId));
-    const meta = metadata.find(c => c.name === m.commandFile);
-    return { id: 'mapped-' + i, giftId: String(m.giftId), giftName: m.name || gift?.name || String(m.giftId),
-      image: gift?.image || null, title: meta?.title || m.commandFile!.replace(/\.txt$/i, ''),
+    // 同じコマンドかは .txt の有無・大文字小文字を問わない（src/lib/commandFiles.ts。処理のコピー PR8）。
+    const meta = findCommandFile(metadata, m.commandFile);
+    return { id: 'mapped-' + i, giftId: String(m.giftId), giftName: mappingGiftName(m, gift?.name),
+      image: gift?.image || null, title: meta?.title || commandFileStem(m.commandFile),
       repeat: m.repeat || 1, category: meta?.category || '', tone: toneForCategory(meta?.category || '') };
   }), [savedMappings, gifts, metadata]);
   const available = useMemo(() => {
@@ -169,7 +176,8 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
     finally { setExporting(false); }
   };
   const retryImages = () => { failed.forEach(url => cache.current.delete(url)); setImageTick(t => t + 1); };
-  const addMapped = () => addCards(mappedCards.filter(c => !design.cards.some(d => d.giftId === c.giftId)));
+  // 無効のギフトは入れない（パネルの絵は視聴者に見せるもの。動かないギフトを載せない。2026-10-23 ユーザーの決定）。一つずつなら印を見て選べる。
+  const addMapped = () => addCards(mappedCards.filter(c => !disabledIds.has(c.giftId) && !design.cards.some(d => d.giftId === c.giftId)));
   const switchDocument = (id: string) => {
     if (storageError && !confirmDiscard()) return;
     const next = libraryRef.current.designs.find(d => d.id === id); if (!next) return;
@@ -275,7 +283,7 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
           <div className="panel-library-heading"><div className="panel-section-label"><span>02</span><h2>画像に使うギフト</h2></div><button className="studio-quiet" onClick={addMapped} disabled={!mappedCards.length || design.cards.length >= 96 || loading}>設定済みをまとめて追加</button></div>
           <div className="panel-library-tools"><div className="panel-segments"><button aria-pressed={source === 'mapped'} onClick={() => setSource('mapped')}>設定済み {mappedCards.length}</button><button aria-pressed={source === 'all'} onClick={() => setSource('all')}>すべて {gifts.length}</button></div><label className="panel-search"><i className="fa-solid fa-magnifying-glass" /><input aria-label="画像に使うギフトを検索" placeholder="ギフト名・効果名で検索" value={search} onChange={e => setSearch(e.target.value)} /></label></div>
           {loading ? <p className="panel-library-empty" role="status">ギフトを読み込んでいます…</p> : dataError ? <div className="studio-alert" role="alert">{dataError}<button onClick={() => setReload(n => n + 1)}>再読み込み</button></div> : !available.length ? <p className="panel-library-empty">{source === 'mapped' && !mappedCards.length ? '「すべて」からギフトを選んで画像に追加できます。' : '一致するギフトがありません。検索する文字を変えてください。'}</p> : <div className="panel-gift-grid">{available.slice(0, 100).map(c => <article key={c.id} className="panel-gift-entry"><button className="panel-gift-add" aria-label={c.giftName + 'を画像に追加'} disabled={design.cards.length >= 96} onClick={() => addCards([c])} title={c.giftName + ' / ' + c.title}>
-            <div>{c.image ? <img src={c.image} alt="" loading="lazy" /> : <i className="fa-solid fa-gift" />}<span className="panel-gift-plus">+</span></div><b>{c.giftName}</b><small>{c.title}</small>
+            <div>{c.image ? <img src={c.image} alt="" loading="lazy" /> : <i className="fa-solid fa-gift" />}<span className="panel-gift-plus">+</span></div><b>{c.giftName}</b><small>{c.title}</small>{disabledIds.has(c.giftId) ? <DisabledMappingMark /> : null}
           </button></article>)}</div>}
           {available.length > 100 && <p className="panel-hint">先頭100件を表示しています。検索してギフトを絞り込めます。</p>}
           {design.cards.length >= 96 && <p className="panel-hint">1つの画像には96枚まで追加できます。別のデザインに分けて作成してください。</p>}

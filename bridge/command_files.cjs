@@ -38,6 +38,13 @@ function ensureTxt(name) {
   return isTxtName(value) ? value : `${value}.txt`;
 }
 
+// 同じコマンドファイルか。.txt の有無・大文字小文字・前後の空白を問わない（Windows のファイル名も BridgeMOD も区別しない）。
+// どちらかが空なら false。アプリ・開発用の一覧・テンプレートはこの1つを使い、画面の src/lib/commandFiles.ts は同じ結果になる写し（処理のコピー PR8）。
+function sameCommandFile(a, b) {
+  const left = ensureTxt(a), right = ensureTxt(b);
+  return Boolean(left) && left.toLowerCase() === right.toLowerCase();
+}
+
 function bridgeCommandKey(commandFile) {
   const name = String(commandFile ?? "").trim().replace(/\\/g, "/").split("/").pop();
   return isTxtName(name) ? name.slice(0, -4) : name;
@@ -56,7 +63,8 @@ function isBridgeCommandFile(commandFile) {
   return !/[\\/]/.test(stem) && BRIDGE_COMMAND_KEY.test(stem) && !isTxtName(stem);
 }
 
-function commandFileProblem(commandFile) {
+// explorerHint: false は、アプリの欄に名前を打つ所（TXT 作成）向け。エクスプローラーの話を付けない（処理のコピー PR8 の最後のレビュー）。
+function commandFileProblem(commandFile, { explorerHint = true } = {}) {
   if (isBridgeCommandFile(commandFile)) return "";
   const name = String(commandFile ?? "").trim();
   const stem = bridgeCommandStem(commandFile);
@@ -66,7 +74,8 @@ function commandFileProblem(commandFile) {
     // foo.txt.txt が「foo.txt」と見えるので、そのときは名前を foo にすればよいことも書く（PR7 の最後のレビュー）。
     const base = name.replace(/(\.txt)+$/i, "");
     const count = (name.length - base.length) / 4;
-    return `コマンドファイル名「${name}」は終わりに .txt が${count}つあります。ファイル名を ${base}.txt に直してください（エクスプローラーで拡張子を表示していないときは、名前を ${base} にしてください）`;
+    const hint = explorerHint ? `（エクスプローラーで拡張子を表示していないときは、名前を ${base} にしてください）` : "";
+    return `コマンドファイル名「${name}」は終わりに .txt が${count}つあります。ファイル名を ${base}.txt に直してください${hint}`;
   }
   return `コマンドファイル名「${name}」は使えません。半角英数字と _ . - だけの名前にしてください（例: neko.txt）`;
 }
@@ -116,4 +125,4 @@ function invalidCommandFileRefs(config) {
     .map(ref => ({ ...ref, message: `${ref.where}: ${commandFileProblem(ref.commandFile)}` }));
 }
 
-module.exports = { BRIDGE_COMMAND_KEY, isBridgeModTransport, isKnownTransport, usesBridgeModTransport, isTxtName, ensureTxt, bridgeCommandKey, isBridgeCommandFile, commandFileProblem, commandFileRefs, invalidCommandFileRefs };
+module.exports = { BRIDGE_COMMAND_KEY, isBridgeModTransport, isKnownTransport, usesBridgeModTransport, isTxtName, ensureTxt, sameCommandFile, bridgeCommandKey, bridgeCommandStem, isBridgeCommandFile, commandFileProblem, commandFileRefs, invalidCommandFileRefs };

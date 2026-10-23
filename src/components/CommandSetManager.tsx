@@ -1,29 +1,13 @@
 // src/components/CommandSetManager.tsx
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useUnsavedChanges } from "../UnsavedChanges";
+import { ipcErrorMessage } from "../lib/ipcError";
+import { saveCommandDraft, type DraftCheck } from "../lib/commandDraft";
 
 const CATEGORIES = ["お助け系", "妨害系", "その他"] as const;
 
-function normalizeFileName(name: string) {
-  const base = (name || "")
-    .trim()
-    .replace(/\s+/g, "_")
-    .replace(/[^\w.\-]/g, "");
-  if (!base) return "";
-  return base.toLowerCase().endsWith(".txt") ? base : `${base}.txt`;
-}
-
-function downloadText(filename: string, text: string, mime = "text/plain;charset=utf-8") {
-  const blob = new Blob([text], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
+// 名前・コマンドの行・見出しの確かめと、同じ名前のファイルがあるかは main（bridge/command_rows.cjs の checkCommandDraft）が持つ。
+// 画面は結果を出すだけで、名前を書き換えず、自分で数えない。保存の決め方は src/lib/commandDraft.ts（処理のコピー PR8）。
 
 const CommandSetManager: React.FC = () => {
   const [title, setTitle]           = useState("ハスク！");
@@ -32,7 +16,8 @@ const CommandSetManager: React.FC = () => {
   const [commandsText, setCommandsText] = useState(
     `execute as @p at @p run summon minecraft:husk ^ ^ ^ {NoAI:0b,NoGravity:0b,CustomNameVisible:1b,CustomName:"\\"{ListenerName}\\""}\neffect give @e[type=minecraft:husk,sort=nearest,limit=1] minecraft:slow_falling 3 1 true`
   );
-  const [filename, setFilename]     = useState("husk.txt");
+  // 標準の husk.txt と重ならない名前にする（前は既定のまま保存すると標準のコマンドを黙って上書きした）。
+  const [filename, setFilename]     = useState("my_husk.txt");
   const [cooldown, setCooldown]     = useState("");
   const [weight, setWeight]         = useState("");
   const [random, setRandom]         = useState("");
@@ -45,31 +30,8 @@ const CommandSetManager: React.FC = () => {
   const [savedSnapshot, setSavedSnapshot] = useState(currentSnapshot);
   useUnsavedChanges(currentSnapshot !== savedSnapshot, saving);
 
-  const normalizedFilename = useMemo(() => normalizeFileName(filename), [filename]);
-
-  const commandLines = useMemo(() => {
-    return commandsText
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
-  }, [commandsText]);
-
-  const healthProblems = useMemo(() => {
-    const problems: string[] = [];
-    commandLines.forEach((line, i) => {
-      if (line.startsWith("{")) problems.push(`${i + 1}行目: コマンド名がありません`);
-      if (/\{PlayerMe\}/i.test(line)) problems.push(`${i + 1}行目: 未対応の {PlayerMe} があります`);
-      if (/summon\s+\S+\s+\^-?\d|\^-?\d+(\.\d+)?\s+\^/.test(line)) problems.push(`${i + 1}行目: 視線依存の^座標は埋没の原因になります`);
-    });
-    if (cooldown && (!Number.isFinite(+cooldown) || +cooldown < 0)) problems.push("# COOLDOWN は0以上の数値にしてください");
-    if (weight && (!Number.isFinite(+weight) || +weight <= 0)) problems.push("# WEIGHT は1以上の数値にしてください");
-    return problems;
-  }, [commandLines, cooldown, weight]);
-
-  const canSave =
-    title.trim().length > 0 &&
-    normalizedFilename.length > 0 &&
-    commandLines.length > 0 && healthProblems.length === 0;
+  // 書くときの本文（空でない行を前後の空白を除いて並べる）。コマンドの行かどうかは数えない（main の確かめが数える）。
+  const bodyLines = useMemo(() => commandsText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean), [commandsText]);
 
   const buildContent = () => {
     const parts: string[] = [];
@@ -83,38 +45,65 @@ const CommandSetManager: React.FC = () => {
     if (particle.trim()) parts.push(`# PARTICLE: ${particle.trim()}`);
     if (destructive) parts.push("# DESTRUCTIVE: true");
     parts.push("");
-    parts.push(...commandLines);
+    parts.push(...bodyLines);
     return parts.join("\n");
   };
+  const content = buildContent();
 
-  const handleSave = async () => {
-    if (!canSave) return;
-    setSaving(true);
-    setSaveMsg(null);
-    const content = buildContent();
-    const fn = normalizedFilename;
+  // 中身と名前が変わるたびに main で確かめる。古い返事は捨てる。確かめを待つ間は保存できない。
+  // 待つ間も前の結果を出したままにする（前は入力のたびに消し、問題の枠・保存先・保存ボタンがちらついた。PR8 の最後のレビュー）。
+  const [check, setCheck] = useState<DraftCheck | null>(null);
+  const [checkError, setCheckError] = useState("");
+  const [checking, setChecking] = useState(true);
+  useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const api: any = (window as any).mygamepack;
+    let current = true;
+    if (!api?.bridgeCommandsCheck) {
+      setCheckError("この画面では TXT を確かめられません。アプリの中で開いてください");
+      setChecking(false);
+      return;
+    }
+    setChecking(true);
+    Promise.resolve(api.bridgeCommandsCheck({ filename, content }))
+      .then((result: DraftCheck) => { if (current) { setCheck(result); setCheckError(""); } })
+      .catch((error: unknown) => { if (current) setCheckError(ipcErrorMessage(error)); })
+      .finally(() => { if (current) setChecking(false); });
+    return () => { current = false; };
+  }, [filename, content]);
 
+  // 画面独自の確かめ（BRIDGE の決まりではない注意）。番号は main が数えたコマンドの何個目か。
+  const healthProblems = useMemo(() => {
+    const problems: string[] = [...(check?.problems ?? [])];
+    (check?.commands ?? []).forEach((line, i) => {
+      if (line.startsWith("{")) problems.push(`${i + 1}個目のコマンド: コマンド名がありません`);
+      if (/\{PlayerMe\}/i.test(line)) problems.push(`${i + 1}個目のコマンド: 未対応の {PlayerMe} があります`);
+      if (/summon\s+\S+\s+\^-?\d|\^-?\d+(\.\d+)?\s+\^/.test(line)) problems.push(`${i + 1}個目のコマンド: 視線依存の^座標は埋没の原因になります`);
+    });
+    if (checkError) problems.push(`確かめられませんでした: ${checkError}`);
+    return problems;
+  }, [check, checkError]);
+
+  const canSave = title.trim().length > 0 && Boolean(check) && !checking && healthProblems.length === 0;
+
+  const handleSave = async () => {
+    if (!canSave || !check) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api: any = (window as any).mygamepack;
+    setSaving(true);
+    setSaveMsg(null);
     try {
-      if (api?.bridgeCommandsWrite) {
-        await api.bridgeCommandsWrite({ filename: fn, content });
-        setSavedSnapshot(currentSnapshot);
-        setSaveMsg({ type: "ok", text: `保存しました: bridge/commands/minecraft/${fn}` });
-      } else {
-        downloadText(fn, content);
-        setSaveMsg({ type: "ok", text: `ダウンロードしました: ${fn}（bridge/commands/minecraft に配置してください）` });
-      }
-    } catch (e: any) {
-      // 書き込み失敗時: フォルダを開いてDL
-      try {
-        if (api?.bridgeCommandsOpenFolder) await api.bridgeCommandsOpenFolder();
-      } catch {}
-      downloadText(fn, content);
-      setSaveMsg({
-        type: "error",
-        text: `フォルダへの直接保存に失敗しました。フォルダを開きファイルを移動してください（ダウンロード済: ${fn}）`,
+      const result = await saveCommandDraft({
+        check, content,
+        confirm: (message: string) => window.confirm(message),
+        write: api?.bridgeCommandsWrite ? (request) => api.bridgeCommandsWrite(request) : undefined,
       });
+      if (result.type === "canceled") return;
+      if (result.type === "ok") {
+        setSavedSnapshot(currentSnapshot);
+        setCheck(result.check);
+      }
+      setSaveMsg({ type: result.type, text: result.text });
     } finally {
       setSaving(false);
     }
@@ -183,11 +172,11 @@ const CommandSetManager: React.FC = () => {
             placeholder={"例:\nexecute as @p at @p run summon minecraft:husk ^ ^ ^\n# {ListenerName} で訪問者名に置換されます"}
           />
           <div className="mt-1 text-[11px] text-gray-500">
-            コマンド行：<span className="text-cyan-300 font-bold">{commandLines.length}</span> 行
+            コマンド行：<span className="text-cyan-300 font-bold">{check ? check.commands.length : "…"}</span> 行（# と // で始まる行は数えません）
           </div>
           <div className="mt-2 flex gap-2">
-            <button type="button" className="rounded-lg bg-gray-700 px-3 py-1 text-xs" onClick={()=>setCommandsText('execute at @p if block ~ ~3 ~ air run summon minecraft:zombie ~ ~3 ~\\nexecute at @p unless block ~ ~3 ~ air run summon minecraft:zombie ~2 ~ ~')}>安全スポーン雛形</button>
-            <button type="button" className="rounded-lg bg-gray-700 px-3 py-1 text-xs" onClick={()=>setCommandsText('playsound entity.experience_orb.pickup master @a ~ ~ ~ 1 1\\nexecute at @a run particle minecraft:happy_villager ~ ~1 ~ 0.5 0.8 0.5 0.05 20 force')}>演出雛形</button>
+            <button type="button" className="rounded-lg bg-gray-700 px-3 py-1 text-xs" onClick={()=>setCommandsText('execute at @p if block ~ ~3 ~ air run summon minecraft:zombie ~ ~3 ~\nexecute at @p unless block ~ ~3 ~ air run summon minecraft:zombie ~2 ~ ~')}>安全スポーン雛形</button>
+            <button type="button" className="rounded-lg bg-gray-700 px-3 py-1 text-xs" onClick={()=>setCommandsText('playsound entity.experience_orb.pickup master @a ~ ~ ~ 1 1\nexecute at @a run particle minecraft:happy_villager ~ ~1 ~ 0.5 0.8 0.5 0.05 20 force')}>演出雛形</button>
           </div>
           {healthProblems.length > 0 && <div className="mt-2 rounded-lg border border-red-700/40 bg-red-900/20 p-2 text-xs text-red-300">{healthProblems.map(p=><div key={p}>• {p}</div>)}</div>}
         </div>
@@ -202,9 +191,10 @@ const CommandSetManager: React.FC = () => {
               className="w-full mt-2 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-cyan-500"
               placeholder="例: husk_1.txt"
             />
-            {normalizedFilename && (
+            {check?.filename && (
               <p className="text-[11px] text-gray-500 mt-1">
-                保存先：<code className="text-cyan-300">bridge/commands/minecraft/{normalizedFilename}</code>
+                保存先：<code className="text-cyan-300">bridge/commands/minecraft/{check.filename}</code>
+                {check.exists && <span className="ml-2 text-amber-300">同じ名前のファイルがあります。保存すると上書きします。</span>}
               </p>
             )}
           </div>

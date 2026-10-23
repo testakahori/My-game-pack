@@ -16,7 +16,7 @@ export default function EventTestPanel({ onTested, bridgeRunning }: { onTested: 
   const api = window.mygamepack;
   const { hasChanges } = useUnsavedGuard();
   const [type, setType] = useState('gift');
-  const [commands, setCommands] = useState<Array<{ name: string; title: string; invalidName?: boolean }>>([]);
+  const [commands, setCommands] = useState<Array<{ name: string; title: string; invalidName?: boolean; invalidReason?: string }>>([]);
   const [mappings, setMappings] = useState<Array<{ giftId: string | number; name?: string }>>([]);
   const [commandFile, setCommandFile] = useState('');
   const [sender, setSender] = useState('テスト視聴者');

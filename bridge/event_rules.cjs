@@ -1,5 +1,7 @@
 // 本番Bridgeとオフラインテストで共有するイベント条件。
 const { isResourceId } = require('./minecraft_ids.cjs');
+// txt の # COOLDOWN（ミリ秒）の上限。BRIDGE と TXT 作成の確かめ（bridge/command_rows.cjs）が使う（処理のコピー PR8）。
+const COMMAND_COOLDOWN_MAX_MS = 60000;
 function boundedInt(value, min, max, fallback = min) {
   const n = Number(value);
   return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.floor(n))) : fallback;
@@ -40,4 +42,4 @@ function giftTimes(amount) {
   const times = Math.round(Number(amount));
   return Number.isFinite(times) && times >= 1 ? times : 1;
 }
-module.exports = { boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes };
+module.exports = { COMMAND_COOLDOWN_MAX_MS, boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes };

@@ -5,6 +5,9 @@ import MinecraftCommandIcon from "./MinecraftCommandIcon";
 import { useUnsavedChanges } from "../UnsavedChanges";
 import { commandOptionLabel } from "../lib/commandLabel";
 import { toRepeat } from "../lib/integerInput";
+import { findCommandFile, sameCommandFile } from "../lib/commandFiles";
+import { isDisabledMapping } from "../lib/giftMappingRows";
+import DisabledMappingMark from "./DisabledMappingMark";
 
 type Props = {
   mappings?: GiftMapping[];
@@ -23,7 +26,7 @@ type Props = {
   defaultCommandsDirHint?: string;
 };
 
-type CmdFile = { name: string; title: string; category?: string; description?: string; invalidName?: boolean };
+type CmdFile = { name: string; title: string; category?: string; description?: string; invalidName?: boolean; invalidReason?: string };
 const commandCategory = (raw = "") => { const key = raw.split("|")[0].trim(); return key === "お助け" ? "お助け系" : key === "妨害" ? "妨害系" : key || "その他"; };
 type SaveMsg = { type: "ok" | "error"; text: string };
 
@@ -46,7 +49,10 @@ const MappingEditor: React.FC<Props> = (props) => {
     return [...groups].sort(([a], [b]) => a.localeCompare(b, "ja"));
   }, [cmdFiles]);
   const visibleCommandGroups = useMemo(() => commandGroups.map(([category, files]) => ({ category, files: files.filter(file => (!commandCategoryFilter || category === commandCategoryFilter) && `${file.title} ${file.name} ${file.description || ""}`.toLowerCase().includes(commandQuery.trim().toLowerCase())) })).filter(group => group.files.length), [commandGroups, commandCategoryFilter, commandQuery]);
-  const selectedCommandVisible = visibleCommandGroups.some(group => group.files.some(file => file.name === selectedTxtName));
+  // 同じコマンドかは .txt の有無・大文字小文字を問わない（src/lib/commandFiles.ts。処理のコピー PR8）。
+  // 手で書いた Neko.TXT の割り当ても、一覧の neko.txt を選んだ形で出す（選択の値は一覧の名前）。
+  const selectedListedName = findCommandFile(cmdFiles, selectedTxtName)?.name ?? selectedTxtName;
+  const selectedCommandVisible = visibleCommandGroups.some(group => group.files.some(file => sameCommandFile(file.name, selectedTxtName)));
   const [listQuery, setListQuery]         = useState<string>("");
   const [giftImageMap, setGiftImageMap]   = useState<Record<string, string>>({});
   const [giftDiamondMap, setGiftDiamondMap] = useState<Record<string, number>>({});
@@ -58,11 +64,7 @@ const MappingEditor: React.FC<Props> = (props) => {
   const [savedSnapshot, setSavedSnapshot] = useState(currentSnapshot);
   useUnsavedChanges(currentSnapshot !== savedSnapshot, saving);
 
-  const titleMap = useMemo(() => {
-    const m: Record<string, string> = {};
-    for (const f of cmdFiles) m[f.name] = f.title;
-    return m;
-  }, [cmdFiles]);
+  const titleOf = (commandFile: string) => findCommandFile(cmdFiles, commandFile)?.title;
 
   const already = useMemo(
     () => mappings.find((m) => String(m.giftId) === String(giftId)),
@@ -198,6 +200,7 @@ const MappingEditor: React.FC<Props> = (props) => {
             </div>
             <b>{hasGift ? (giftName || giftId) : "ギフト未選択"}</b>
             <small>{hasGift ? `💎 ${giftDiamonds ?? 1}` : "上から選択してください"}</small>
+            {isDisabledMapping(already) ? <DisabledMappingMark /> : null}
           </div>
 
           <div className="gift-flow-link" aria-hidden="true"><i /><span>◆</span><i /></div>
@@ -215,14 +218,14 @@ const MappingEditor: React.FC<Props> = (props) => {
               <span className="gift-command-icon"><MinecraftCommandIcon command={commandFile || selectedTxtName} /></span>
               <select
                 disabled={saving}
-                value={selectedTxtName}
+                value={selectedListedName}
                 onChange={(e) => handleSelectTxt(e.target.value)}
                 aria-label="実行するコマンド"
               >
                 <option value="">
                   {cmdFiles.length === 0 ? "コマンド設定でTXTを作成してください" : "選択してください"}
                 </option>
-                {selectedTxtName && !selectedCommandVisible && <optgroup label="現在の設定"><option value={selectedTxtName}>{titleMap[selectedTxtName] || selectedTxtName}</option></optgroup>}
+                {selectedTxtName && !selectedCommandVisible && <optgroup label="現在の設定"><option value={selectedListedName}>{titleOf(selectedTxtName) || selectedTxtName}</option></optgroup>}
                 {visibleCommandGroups.map(group => <optgroup key={group.category} label={group.category}>
                   {group.files.map(file => <option key={file.name} value={file.name}>{commandOptionLabel(file)}</option>)}
                 </optgroup>)}
@@ -263,6 +266,7 @@ const MappingEditor: React.FC<Props> = (props) => {
         </div>
 
         {already ? <p className="gift-flow-notice">設定済みのギフトです。保存すると現在のルートを上書きします。</p> : null}
+        {isDisabledMapping(already) ? <p className="gift-flow-disabled-note">このギフトの割り当ては設定ファイルで無効になっています。保存しても無効のままです。</p> : null}
         {saveMsg ? <p className={`gift-flow-message gift-flow-message--${saveMsg.type}`}>{saveMsg.text}</p> : null}
       </section>
 
@@ -288,7 +292,7 @@ const MappingEditor: React.FC<Props> = (props) => {
             {visibleMappings.map((mapping, index) => {
               const missing = !(mapping.commandFile || "").trim();
               const mappingImage = giftImageMap[String(mapping.giftId)];
-              const resolvedTitle = mapping.commandFile ? (titleMap[mapping.commandFile] || mapping.commandFile) : "未設定";
+              const resolvedTitle = mapping.commandFile ? (titleOf(mapping.commandFile) || mapping.commandFile) : "未設定";
               const isCurrentlyEditing = String(mapping.giftId) === String(giftId);
 
               return (
@@ -321,6 +325,8 @@ const MappingEditor: React.FC<Props> = (props) => {
                     <small>{resolvedTitle}</small>
                     <em>× {mapping.repeat ?? 1}回</em>
                   </div>
+                  {/* 名前の欄は狭く、はみ出すと「…」になるので、印はカードの横幅いっぱいの行に置く（PR8 の最後のレビュー）。 */}
+                  {isDisabledMapping(mapping) ? <div className="gift-route-disabled"><DisabledMappingMark /></div> : null}
                   <footer>💎 {giftDiamondMap[String(mapping.giftId)] ?? "?"}</footer>
                 </article>
               );

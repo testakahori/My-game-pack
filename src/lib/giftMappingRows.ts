@@ -25,6 +25,28 @@ export function fromConfigMappings(cfg: any, makeId: () => string): GiftMapping[
     });
 }
 
+// 無効の割り当て（設定ファイルで enabled: false）の印（2026-10-23 ユーザーの決定。処理のコピー PR8）。
+// BRIDGE はギフトを数えるが、コマンドは動かさない（PR5）。画面での切り替えは作らない（設定ファイルを手で書き換えた人は、戻すのも設定ファイルでできるため）。
+export const DISABLED_MAPPING_MARK = "無効（動きません）";
+export const DISABLED_MAPPING_HINT = "設定ファイル（config.minecraft.json）でこの割り当てが enabled: false になっています。ギフトは数えますが、コマンドは動きません。動かすには設定ファイルの enabled: false を消してください。";
+
+export function isDisabledMapping(mapping?: { enabled?: boolean } | null): boolean {
+  return mapping?.enabled === false;
+}
+
+// 無効の割り当てのギフト ID（前後の空白を除いた文字列）。
+export function disabledGiftIds(mappings: ReadonlyArray<{ giftId?: unknown; enabled?: boolean }>): Set<string> {
+  return new Set(mappings.filter(isDisabledMapping).map((m) => String(m.giftId ?? "").trim()).filter(Boolean));
+}
+
+// 画像作成のカードのギフト名（PR8 の最後のレビュー）。割り当ての名前が空か giftId と同じ（名前を書かずに保存した割り当て。
+// fromConfigMappings と toConfigMappings は空の名前を giftId で埋める）なら、カタログのギフト名を使う。無ければ giftId。
+export function mappingGiftName(mapping: { giftId?: unknown; name?: unknown }, catalogName?: string | null): string {
+  const giftId = String(mapping.giftId ?? "").trim();
+  const name = String(mapping.name ?? "").trim();
+  return (name && name !== giftId ? name : "") || catalogName || giftId;
+}
+
 // 画面の行を設定の mappings へ（保存する4項目と、無効のときだけ enabled: false）。
 export function toConfigMappings(list: GiftMapping[]): object[] {
   return list.map((m) => ({
