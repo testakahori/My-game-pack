@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { GiftMapping } from "../types";
 import { isDisabledMapping } from "../lib/giftMappingRows";
+import { normalizeTikTokId } from "../lib/tiktokId";
 import DisabledMappingMark from "./DisabledMappingMark";
 
 type Gift = { id: number; name: string; diamond_count: number; image?: string | null };
@@ -69,11 +70,12 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
       if (api.configRead) {
         try {
           const cfg = await api.configRead();
-          username = cfg?.tiktokUsername ?? cfg?.tiktok?.username ?? cfg?.tiktok?.user ?? "";
+          // 読むのは tiktokUsername だけ（BRIDGE と同じ。処理のコピー PR9）。整えと確かめは main。
+          username = typeof cfg?.tiktokUsername === "string" ? cfg.tiktokUsername : "";
         } catch { /* ignore */ }
       }
-      if (!username.trim()) throw new Error("TikTokユーザー名を先に設定してください");
-      await api.giftsUpdate(username.trim().replace(/^@/, ""));
+      if (!normalizeTikTokId(username)) throw new Error("配信ホームで TikTok ID を承認してください");
+      await api.giftsUpdate(username);
       await reload(true);
       showToast("ギフト一覧を更新しました ✓");
     } catch (e: any) {

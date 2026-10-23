@@ -10,6 +10,7 @@ import ImageEditorPage from "./ImageEditorPage";
 import MinecraftCommandIcon from "./MinecraftCommandIcon";
 import { useUnsavedGuard } from "../UnsavedChanges";
 import { fromConfigMappings, isDisabledMapping, toConfigMappings } from "../lib/giftMappingRows";
+import { normalizeTikTokId } from "../lib/tiktokId";
 import DisabledMappingMark from "./DisabledMappingMark";
 
 const LS_ACTIVE_TAB   = "mc_bridge_active_tab_v1";
@@ -77,7 +78,8 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
       if (unfinished) throw new Error(`ギフト「${unfinished.name || unfinished.giftId || "未設定"}」のコマンドが未設定です。その設定を完成させるか、不要なら削除してください。`);
       // 手で書いた enabled: false を落とさない（前は保存のたびに消え、無効にしたギフトが動き出した。処理のコピー PR5）。
       const normalized = toConfigMappings(list);
-      if (!String(cfg?.tiktokUsername || "").trim()) throw new Error("配信ホームでTikTok IDを承認してから保存してください。");
+      // 空か（「@」だけも空）は整えた形で見る（src/lib/tiktokId.ts。処理のコピー PR9）。
+      if (!normalizeTikTokId(cfg?.tiktokUsername)) throw new Error("配信ホームでTikTok IDを承認してから保存してください。");
       if (api.configMappingsWrite) await api.configMappingsWrite(normalized);
       else await api.configWrite({ ...cfg, mappings: normalized });
   }, []);

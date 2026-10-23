@@ -2,6 +2,7 @@ import pkg from "../../package.json";
 import miningPack from "../../game-packs/saikutu/game.json";
 // ゲームの一覧はアプリ・BRIDGE と同じ bridge/games.json（処理のコピー PR6）。
 import GAMES from "../../bridge/games.json";
+import { normalizeTikTokId, tiktokIdProblem } from "./tiktokId";
 
 // ゲームパックのゲームのコマンド（game_<id>_）か。アプリの bridge/game_commands.cjs の gameOfCommand と同じく、一覧から作り、大文字小文字を区別しない。
 const packGamePrefix = new RegExp(`^game_(${GAMES.filter(game => game.id !== "common").map(game => game.id).join("|")})_`, "i");
@@ -412,7 +413,13 @@ if (import.meta.env.DEV && !win.mygamepack) {
       return { ok: true };
     },
     configPath: async () => "config.minecraft.json（開発ブラウザーでは実パスなし）",
-    configValidate: async () => ({ ok: true, errors: [], warnings: [] }),
+    // TikTok ID だけはアプリと同じ決まりで確かめる（src/lib/tiktokId.ts。処理のコピー PR9）。前は何でも ok で、開発用の表示では foo-bar も承認できた。
+    configValidate: async (next: any) => {
+      const problem = !normalizeTikTokId(next?.tiktokUsername)
+        ? "TikTok IDが未承認です（「IDを承認する」ボタンが押されていません）。ダッシュボードでIDを入力して承認してください"
+        : tiktokIdProblem(next?.tiktokUsername);
+      return problem ? { ok: false, errors: [problem], warnings: [] } : { ok: true, errors: [], warnings: [] };
+    },
     bridgeCommandsList: readDevCommands,
     bridgeCommandsReadMeta: readDevCommands,
     bridgeCommandsWrite: ok,

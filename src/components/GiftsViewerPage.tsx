@@ -1,4 +1,5 @@
 import React from "react";
+import { normalizeTikTokId } from "../lib/tiktokId";
 import { copyText } from "../lib/clipboard";
 
 type Gift = { id: number; name: string; diamond_count: number; image?: string | null };
@@ -115,7 +116,7 @@ const GiftsViewerPage: React.FC<Props> = ({ bridgeRunning, modOnline }) => {
       try {
         const st = await api.gvSettingsRead();
         if (typeof st?.username === "string" && st.username.trim()) {
-          setUsername(st.username.trim().replace(/^@/, ""));
+          setUsername(st.username.trim());
         }
       } catch { /* ignore */ }
       await reload();
@@ -134,10 +135,10 @@ const GiftsViewerPage: React.FC<Props> = ({ bridgeRunning, modOnline }) => {
       return;
     }
     try {
-      const u = username.trim().replace(/^@/, "");
-      if (!u) throw new Error("username is empty");
-      await api.gvSettingsWrite({ username: u });
-      await api.gvGiftsUpdate(u);
+      // 整えと確かめは main（bridge/tiktok_id.cjs）。ここでは空だけを見て、main の理由をそのまま出す（処理のコピー PR9）。
+      if (!normalizeTikTokId(username)) throw new Error("TikTok ID を入力してください");
+      await api.gvSettingsWrite({ username });
+      await api.gvGiftsUpdate(username);
       await reload(true);
       showToast("ギフト一覧を更新しました！");
     } catch (e: any) {

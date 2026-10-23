@@ -119,7 +119,7 @@ export default function App() {
       try {
         const st = await api.settingsRead();
         const u = st?.username;
-        if (typeof u === "string" && u.trim()) setUsername(u.trim().replace(/^@/, ""));
+        if (typeof u === "string" && u.trim()) setUsername(u.trim());
       } catch {
         // ignore
       }
@@ -210,8 +210,9 @@ export default function App() {
     }
 
     try {
-      const u = username.trim().replace(/^@/, "");
-      if (!u) throw new Error("username is empty");
+      // 整えと確かめは道具（tools/fetch_gifts.cjs が bridge/tiktok_id.cjs で行う）。ここでは空だけを見る（処理のコピー PR9）。
+      const u = username.trim();
+      if (!u) throw new Error("TikTok ID を入力してください");
 
       // 先に保存（次回起動で復元できるように）
       await api.settingsWrite({ username: u });
