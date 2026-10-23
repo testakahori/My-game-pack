@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
+// 既定値・範囲はアプリ・BRIDGE と同じ表（bridge/tts_settings.json。処理のコピー PR9）。
+import TTS_SETTINGS from "../../bridge/tts_settings.json";
 
 type TtsEngine = "voicevox" | "aivis";
 
@@ -20,18 +22,8 @@ type Speaker = { id: number; label: string };
 type EngineStatus = "checking" | "ok" | "ng";
 type VoiceTone = "mint" | "violet" | "rose" | "amber" | "sky";
 
-const DEFAULT: TtsSettings = {
-  engine: "voicevox",
-  speakerId: 2,
-  speedScale: 1.2,
-  pitchScale: 0,
-  intonationScale: 1,
-  volume: 1,
-  enabled: true,
-  commentEnabled: true,
-  giftEnabled: true,
-  giftTemplate: "{sender}さんから{gift}が来たよ！",
-};
+const DEFAULT: TtsSettings = { ...TTS_SETTINGS.defaults, engine: "voicevox" };
+const RANGES = TTS_SETTINGS.ranges;
 
 const WAVEFORM = [18, 30, 42, 22, 54, 34, 64, 28, 46, 74, 38, 58, 30, 66, 44, 24, 50, 70, 34, 56, 26, 48, 62, 32, 44, 20, 36, 28, 42, 18, 30, 22, 34, 16];
 const EQUALIZER = [10, 18, 28, 16, 38, 52, 28, 62, 44, 72, 36, 56, 76, 48, 64, 34, 54, 70, 42, 58, 30, 48, 28, 40, 22, 32, 18, 26];
@@ -197,7 +189,8 @@ function getEngineLabel(engine: TtsEngine) {
 
 function pickSpeakerId(engine: TtsEngine, currentId: number, speakers: Speaker[]) {
   if (speakers.some((speaker) => speaker.id === currentId)) return currentId;
-  return speakers[0]?.id ?? (engine === "voicevox" ? 3 : currentId);
+  // 話者の一覧が読めないときは表の既定（前は VOICEVOX のとき 3 にしていた。処理のコピー PR9）。
+  return speakers[0]?.id ?? (engine === "voicevox" ? DEFAULT.speakerId : currentId);
 }
 
 function fmtSec(seconds: number): string {
@@ -391,7 +384,7 @@ const TTSSettingsPage: React.FC = () => {
       audioRef.current?.pause();
       const audio = new Audio(`data:audio/wav;base64,${result.base64}`);
       audioRef.current = audio;
-      audio.volume = Math.min(1, Math.max(0, settings.volume));
+      // 音量はエンジンが入れる（本番と同じ）ので、再生では掛けない。
       setPlayback({ current: 0, duration: 0 });
       audio.addEventListener("loadedmetadata", () => setPlayback((p) => ({ ...p, duration: audio.duration || 0 })));
       audio.addEventListener("timeupdate", () => setPlayback((p) => ({ ...p, current: audio.currentTime })));
@@ -611,10 +604,10 @@ const TTSSettingsPage: React.FC = () => {
           <div><h2>音声チューニング</h2><p>読み上げの音声を細かく調整できます</p></div>
         </div>
         <div className="tts-tuning-grid">
-          <TuningControl kind="speed" label="速度" value={settings.speedScale.toFixed(2)} inputValue={settings.speedScale} min={0.5} max={2} step={0.05} minLabel="0.5" midLabel="1.0" maxLabel="2.0" onChange={(speedScale) => patch({ speedScale })} />
-          <TuningControl kind="volume" label="音量" value={`${Math.round(settings.volume * 100)}%`} inputValue={settings.volume} min={0} max={2} step={0.05} minLabel="0%" midLabel="100%" maxLabel="200%" onChange={(volume) => patch({ volume })} />
-          <TuningControl kind="pitch" label="ピッチ（高低）" value={`${settings.pitchScale >= 0 ? "+" : ""}${settings.pitchScale.toFixed(2)}`} inputValue={settings.pitchScale} min={-0.15} max={0.15} step={0.01} minLabel="-0.15" midLabel="0" maxLabel="+0.15" onChange={(pitchScale) => patch({ pitchScale })} />
-          <TuningControl kind="intonation" label="抑揚（イントネーション）" value={settings.intonationScale.toFixed(2)} inputValue={settings.intonationScale} min={0} max={2} step={0.1} minLabel="0.5" midLabel="1.0" maxLabel="2.0" onChange={(intonationScale) => patch({ intonationScale })} />
+          <TuningControl kind="speed" label="速度" value={settings.speedScale.toFixed(2)} inputValue={settings.speedScale} min={RANGES.speedScale[0]} max={RANGES.speedScale[1]} step={0.05} minLabel={String(RANGES.speedScale[0])} midLabel="1.0" maxLabel="2.0" onChange={(speedScale) => patch({ speedScale })} />
+          <TuningControl kind="volume" label="音量" value={`${Math.round(settings.volume * 100)}%`} inputValue={settings.volume} min={RANGES.volume[0]} max={RANGES.volume[1]} step={0.05} minLabel="0%" midLabel="100%" maxLabel="200%" onChange={(volume) => patch({ volume })} />
+          <TuningControl kind="pitch" label="ピッチ（高低）" value={`${settings.pitchScale >= 0 ? "+" : ""}${settings.pitchScale.toFixed(2)}`} inputValue={settings.pitchScale} min={RANGES.pitchScale[0]} max={RANGES.pitchScale[1]} step={0.01} minLabel="-0.15" midLabel="0" maxLabel="+0.15" onChange={(pitchScale) => patch({ pitchScale })} />
+          <TuningControl kind="intonation" label="抑揚（イントネーション）" value={settings.intonationScale.toFixed(2)} inputValue={settings.intonationScale} min={RANGES.intonationScale[0]} max={RANGES.intonationScale[1]} step={0.1} minLabel={String(RANGES.intonationScale[0])} midLabel="1.0" maxLabel="2.0" onChange={(intonationScale) => patch({ intonationScale })} />
         </div>
       </section>
 

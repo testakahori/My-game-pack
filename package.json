@@ -60,6 +60,8 @@
       "bridge/event_rules.cjs",
       "bridge/command_files.cjs",
       "bridge/command_rows.cjs",
+      "bridge/tts_settings.cjs",
+      "bridge/tts_settings.json",
       "bridge/command_text.cjs",
       "bridge/config_schema.js",
       "bridge/config_migration.cjs",

@@ -3,6 +3,7 @@ import miningPack from "../../game-packs/saikutu/game.json";
 // ゲームの一覧はアプリ・BRIDGE と同じ bridge/games.json（処理のコピー PR6）。
 import GAMES from "../../bridge/games.json";
 import { normalizeTikTokId, tiktokIdProblem } from "./tiktokId";
+import TTS_SETTINGS from "../../bridge/tts_settings.json";
 
 // ゲームパックのゲームのコマンド（game_<id>_）か。アプリの bridge/game_commands.cjs の gameOfCommand と同じく、一覧から作り、大文字小文字を区別しない。
 const packGamePrefix = new RegExp(`^game_(${GAMES.filter(game => game.id !== "common").map(game => game.id).join("|")})_`, "i");
@@ -119,18 +120,8 @@ if (import.meta.env.DEV && !win.mygamepack) {
     voicevox: "/__tts/voicevox",
     aivis: "/__tts/aivis",
   };
-  let ttsSettings: TtsSettings = {
-    engine: "voicevox",
-    speakerId: 3,
-    speedScale: 1,
-    pitchScale: 0,
-    intonationScale: 1.5,
-    volume: 1,
-    enabled: true,
-    commentEnabled: true,
-    giftEnabled: true,
-    giftTemplate: "{sender}さんから{gift}が来たよ！",
-  };
+  // 既定値はアプリ・BRIDGE と同じ表（bridge/tts_settings.json。処理のコピー PR9。前は話者 3・速さ 1・抑揚 1.5 と違っていた）。
+  let ttsSettings: TtsSettings = { ...TTS_SETTINGS.defaults, engine: "voicevox" };
 
   const ttsFetch = (engine: TtsEngine, requestPath: string, init?: RequestInit) => {
     return fetch(`${ttsProxyBase[engine]}${requestPath}`, {

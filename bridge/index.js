@@ -180,41 +180,9 @@ function scheduleRconDisconnect() {
 // --------------------
 // TTS (読み上げ)
 // --------------------
-const TTS_DEFAULTS = {
-  engine: "voicevox",
-  speakerId: 2,
-  speedScale: 1.2,
-  pitchScale: 0.0,
-  intonationScale: 1.0,
-  volume: 1.0,
-  enabled: true,
-  commentEnabled: true,
-  giftEnabled: true,
-  giftTemplate: "{sender}さんから{gift}が来たよ！",
-};
-
-const TTS_PORTS = { voicevox: 50021, aivis: 10101 };
-
-function ttsNumber(value, min, max, fallback) {
-  const number = Number(value);
-  return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback;
-}
-
-function normalizeTtsConfig(settings) {
-  const value = { ...TTS_DEFAULTS, ...(settings && typeof settings === "object" ? settings : {}) };
-  return {
-    engine: value.engine === "aivis" ? "aivis" : "voicevox",
-    speakerId: Math.trunc(ttsNumber(value.speakerId, 0, Number.MAX_SAFE_INTEGER, TTS_DEFAULTS.speakerId)),
-    speedScale: ttsNumber(value.speedScale, 0.5, 2.0, TTS_DEFAULTS.speedScale),
-    pitchScale: ttsNumber(value.pitchScale, -0.15, 0.15, TTS_DEFAULTS.pitchScale),
-    intonationScale: ttsNumber(value.intonationScale, 0.0, 2.0, TTS_DEFAULTS.intonationScale),
-    volume: ttsNumber(value.volume, 0.0, 2.0, TTS_DEFAULTS.volume),
-    enabled: value.enabled !== false,
-    commentEnabled: value.commentEnabled !== false,
-    giftEnabled: value.giftEnabled !== false,
-    giftTemplate: String(value.giftTemplate || TTS_DEFAULTS.giftTemplate).slice(0, 200),
-  };
-}
+// 既定値・範囲・ポートと整え方は bridge/tts_settings.cjs の1か所（アプリの electron/tts_ipc.cjs も同じ。処理のコピー PR9）。
+const { TTS_SETTINGS, TTS_PORTS, normalizeTtsSettings: normalizeTtsConfig, applyVoiceSettings } = require("./tts_settings.cjs");
+const TTS_DEFAULTS = TTS_SETTINGS.defaults;
 
 function loadTtsConfig() {
   const p = path.join(__dirname, "tts-settings.json");
@@ -278,7 +246,7 @@ async function speakText(text, cfg) {
   let tmpWav = null;
   try {
     const port = TTS_PORTS[cfg.engine] || TTS_PORTS.voicevox;
-    const speakerId = cfg.speakerId ?? 2;
+    const speakerId = cfg.speakerId;
 
     console.log(`[TTS] 音声合成を開始 engine=${cfg.engine} speaker=${speakerId} chars=${text.length}`);
 
@@ -293,10 +261,8 @@ async function speakText(text, cfg) {
     }
 
     const query = JSON.parse(queryRes.body.toString());
-    query.speedScale = cfg.speedScale ?? 1.2;
-    query.pitchScale = cfg.pitchScale ?? 0.0;
-    query.intonationScale = cfg.intonationScale ?? 1.0;
-    query.volumeScale = cfg.volume ?? 1.0;
+    // cfg は normalizeTtsConfig を通してある（既定を付け直さない）。声の設定の入れ方はアプリの読み上げのテストと同じ。
+    applyVoiceSettings(query, cfg);
 
     const synthRes = await ttsHttpPost(
       port,

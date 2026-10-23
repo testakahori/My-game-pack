@@ -3,10 +3,8 @@
 
 const http = require('http');
 
-const ENGINE_PORTS = {
-  voicevox: 50021,
-  aivis: 10101
-};
+// エンジンのポートと声の設定の入れ方は BRIDGE と同じ bridge/tts_settings.cjs（処理のコピー PR9）。
+const { TTS_PORTS: ENGINE_PORTS, applyVoiceSettings } = require('../bridge/tts_settings.cjs');
 
 // Node http モジュールでGETリクエスト
 function httpGet(port, path, timeoutMs = 5000) {
@@ -79,7 +77,9 @@ function flattenSpeakers(speakers) {
   return list;
 }
 
-async function synthesize(engine, text, speakerId, speedScale = 1.0, pitchScale = 0.0, intonationScale = 1.0) {
+// settings は normalizeTtsSettings を通した読み上げの設定（話者・速さ・高さ・抑揚・音量）。
+async function synthesize(engine, text, settings) {
+  const speakerId = settings.speakerId;
   const port = ENGINE_PORTS[engine];
   if (!port) throw new Error(`未対応の読み上げエンジンです: ${engine}`);
 
@@ -94,9 +94,7 @@ async function synthesize(engine, text, speakerId, speedScale = 1.0, pitchScale 
   if (queryRes.status !== 200) throw new Error(`audio_query失敗: ${queryRes.status}`);
 
   const query = JSON.parse(queryRes.body.toString());
-  query.speedScale = speedScale;
-  query.pitchScale = pitchScale;
-  query.intonationScale = intonationScale;
+  applyVoiceSettings(query, settings);
 
   // Step 2: synthesis
   const synthRes = await httpPost(
