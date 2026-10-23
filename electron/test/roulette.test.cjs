@@ -96,3 +96,15 @@ test("ルーレットの止まる音・粒子: 正しくない ID は今どお�
   assert.equal(prepareRoulette({ ...config, stopSound: "a:b:c" }, dir, () => 0).stopSound, "entity.player.levelup");
   assert.equal(prepareRoulette({ ...config, stopSound: "minecraft:block/stone" }, dir, () => 0).stopSound, "minecraft:block/stone");
 });
+
+// ルーレットかどうかの判定は roulette.cjs の isRouletteCommand の1か所。大文字小文字を区別しない（処理のコピー PR7）。
+// 前は BRIDGE が === "roulette" で比べ、Roulette.TXT を割り当てたギフトを Roulette という名前のコマンドとして送っていた。
+test("ルーレットの判定: isRouletteCommand は大文字小文字・前後の空白・.txt の有無を問わない", t => {
+  const { isRouletteCommand } = require("../../bridge/roulette.cjs");
+  for (const name of ["roulette.txt", "Roulette.TXT", "ROULETTE", " roulette "]) assert.equal(isRouletteCommand(name), true, name);
+  for (const name of ["roulette2.txt", "my_roulette.txt", "", null, undefined]) assert.equal(isRouletteCommand(name), false, String(name));
+  const { dir } = fixture(t);
+  fs.writeFileSync(path.join(dir, "Roulette.TXT"), "say roulette\n");
+  const round = prepareRoulette({ items: [{ commandFile: "Roulette.TXT" }, { commandFile: "zombie.txt" }] }, dir, () => 0);
+  assert.deepEqual(round.items.map(item => item.commandFile), ["zombie.txt"], "ルーレット自身は項目に入れない");
+});

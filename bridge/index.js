@@ -34,7 +34,7 @@ const { normalizeTikTokId } = require("./tiktok_id.cjs");
 const { liveOptions, restartRequired } = require("./live_config.cjs");
 const { CONFIG_DEFAULTS, commandsDirSetting, bridgeCommandsDir, bridgeModEndpoint } = require("./config_defaults.cjs");
 const { giftMappingsById } = require("./gift_mappings.cjs");
-const { prepareRoulette, createRouletteRunner, rouletteSpins } = require("./roulette.cjs");
+const { isRouletteCommand, prepareRoulette, createRouletteRunner, rouletteSpins } = require("./roulette.cjs");
 const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require("./mod_event_delivery.cjs");
 const { commandFileProblem, ensureTxt, bridgeCommandKey } = require("./command_files.cjs");
 const { parseCommandText } = require("./command_text.cjs");
@@ -1459,7 +1459,7 @@ async function main() {
   // ctx は本番（liveContext）か、テスト発火の文脈（2026-10-16）。
   function dispatchBridgeEvent(ctx, label, event, opts = {}) {
     const run = ctx.run;
-    if (rouletteCfg?.enabled && commandFileToBridgeKey(event.commandFile) === "roulette") {
+    if (rouletteCfg?.enabled && isRouletteCommand(event.commandFile)) {
       // 条件だけ確認では回さない。回す回数だけ書く。
       if (run?.preview) { previewRoulette(run, rouletteCfg, { ...event, label: "ルーレット", count: rouletteSpins(event.count) }); return; }
       if (runRoulette(() => rouletteCfg, event.listenerName, event.historyType || "roulette", event.count, run)) return;
@@ -2284,12 +2284,12 @@ async function main() {
     const sender = getStableSender(action.data || {});
     switch (action.kind) {
       case "direct": {
-        const key = commandFileToBridgeKey(action.commandFile);
+        const roulette = isRouletteCommand(action.commandFile);
         // ファイルがあるかを見る前に名前を確かめる（../x.txt で commands/minecraft の外を見ない。処理のコピー PR7）。
         const problem = commandFileProblem(action.commandFile);
         if (problem) throw new Error(problem);
-        if (key === "roulette" && !rouletteCfg?.enabled) throw new Error("ルーレットが無効です。イベント設定②で有効にして保存してください。");
-        if (key !== "roulette" && !fs.existsSync(path.join(commandsDirAbs, action.commandFile))) throw new Error(`コマンドが見つかりません: ${action.commandFile}`);
+        if (roulette && !rouletteCfg?.enabled) throw new Error("ルーレットが無効です。イベント設定②で有効にして保存してください。");
+        if (!roulette && !fs.existsSync(path.join(commandsDirAbs, action.commandFile))) throw new Error(`コマンドが見つかりません: ${action.commandFile}`);
         return dispatchBridgeEvent(ctx, "test:direct", { type: "gift", commandFile: action.commandFile, count: action.count,
           listenerName: sender, announce: announceEnabled, label: "選んだコマンド" }, { priority: 10 });
       }

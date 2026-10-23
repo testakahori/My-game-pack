@@ -9,6 +9,12 @@ function cleanText(value, length) {
   return Array.from(String(value ?? "").replace(/[\r\n\t]/g, " ").replace(/[\u0000-\u001f\u007f]/g, "")).slice(0, length).join("");
 }
 
+// ルーレットを回すコマンドの名前か（roulette.txt）。大文字小文字・前後の空白・.txt の有無を問わない（BridgeMOD も区別しない）。
+// BRIDGE の判定と、項目から外す判定はこの1か所（処理のコピー PR7。前は BRIDGE が === "roulette" で比べ、Roulette.TXT を普通のコマンドとして送っていた）。
+function isRouletteCommand(commandFile) {
+  return ensureTxt(commandFile).slice(0, -4).toLowerCase() === "roulette";
+}
+
 function commandPath(commandsDir, commandFile) {
   const name = ensureTxt(path.basename(String(commandFile).replace(/\\/g, "/")));
   // commandsDir は BRIDGE が config_defaults.cjs の bridgeCommandsDir で決めた場所（既定は commands/minecraft。処理のコピー PR4）。
@@ -22,7 +28,7 @@ function prepareRoulette(config, commandsDir, random = Math.random) {
     const file = commandPath(commandsDir, String(item.commandFile).trim());
     if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return [];
     const commandFile = path.basename(file);
-    if (/^roulette\.txt$/i.test(commandFile)) return [];
+    if (isRouletteCommand(commandFile)) return [];
     // 説明文の読み方は command_text.cjs の1か所（アプリの一覧と同じ。2026-10-18）。
     const description = parseCommandText(fs.readFileSync(file, "utf8")).description;
     return [{
@@ -98,4 +104,4 @@ function rouletteSpins(count) {
   return Number.isFinite(spins) && spins >= 1 ? spins : 1;
 }
 
-module.exports = { commandPath, prepareRoulette, createRouletteRunner, rouletteSpins };
+module.exports = { isRouletteCommand, commandPath, prepareRoulette, createRouletteRunner, rouletteSpins };

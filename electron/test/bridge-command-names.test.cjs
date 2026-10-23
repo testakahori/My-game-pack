@@ -22,3 +22,15 @@ test('テスト発火で foo.txt.txt を直接選ぶ: 「見つかりません�
   assert.match(result.error, /終わりに \.txt が2つあります。ファイル名を foo\.txt に直してください/, '前はファイルがあるかを先に見て「コマンドが見つかりません」だった');
   assert.deepEqual(bridge.requests, []);
 });
+
+test('大文字の Roulette.TXT を割り当てたギフトでも、ルーレットが回る（Roulette という名前のコマンドは送らない）', async t => {
+  const bridge = await startBridgeFixture(t, {
+    commands: { qa: 'say qa\n' },
+    config: { mappings: [{ giftId: '1', name: 'くじ', commandFile: 'Roulette.TXT', repeat: 1 }],
+      roulette: { enabled: true, items: [{ commandFile: 'qa.txt', label: 'QA', weight: 1, repeat: 1 }] } } });
+  await bridge.emit('WebcastGiftMessage', { giftId: '1', gift: { name: 'くじ' }, repeatCount: 1, repeatEnd: 1 });
+  // 当たり（qa）が届くまで待つ。演出の途中で終えると、残りの送り直しが片付けたあとの偽 BridgeMOD へ続き、テストが終わらない。
+  await bridge.until(() => bridge.requests.some(x => x.key === 'qa'), 'roulette winner');
+  assert.ok(bridge.requests.some(x => Array.isArray(x.commands)), 'ルーレットの演出を送る');
+  assert.ok(!bridge.requests.some(x => x.key === 'Roulette'), '前は Roulette という名前の要求を送っていた');
+});
