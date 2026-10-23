@@ -38,9 +38,10 @@ function restoredBridgeConfig(snapshot, current) {
 // All paths come from main, never from the renderer or a backup file.
 function createSettingsBackups(deps) {
   function paths() { return deps.paths(); }
-  function capture() {
+  // bridgeOverride は、ギフト設定が読めないときに代わりに入れるギフト設定（戻す前の安全のためのバックアップのため。設定ファイルの PR3）。
+  function capture(bridgeOverride) {
     const p = paths();
-    const config = read(p.config);
+    const config = bridgeOverride || read(p.config);
     const { rcon: _rcon, ...bridge } = config;
     bridge.options = { ...(bridge.options || {}) };
     for (const key of CONNECTION_OPTIONS) delete bridge.options[key];
@@ -102,9 +103,11 @@ function createSettingsBackups(deps) {
     }
     return result.sort((a, b) => b.id.localeCompare(a.id));
   }
-  function create(reason = "manual") {
+  function create(reason = "manual", { bridge } = {}) {
     const p = paths();
-    const payload = capture();
+    // ギフト設定が読めないあいだは、自動のバックアップを作らない（読み上げの設定の保存・TXT の作成などを止めない。PR3 の最後のレビューの軽い 1）。
+    if (reason === "automatic" && !bridge && !peekJsonFile(p.config)) return null;
+    const payload = capture(bridge);
     const value = { schema: 1, scope: path.resolve(p.config), version: deps.version(), createdAt: new Date().toISOString(), reason, payload, sha256: digest(payload) };
     // Initial, unconfigured installs have no useful restore point yet.
     if (reason === "automatic" && !String(payload.bridge.tiktokUsername || "").trim()) return null;
@@ -150,9 +153,12 @@ function createSettingsBackups(deps) {
       ...Object.entries(snapshot.payload.binaryCommands || {}).map(([name, body]) => [path.join(p.commands, name), Buffer.from(body, "base64")]),
     ]);
     const before = new Map([...files.keys()].map(file => [file, fs.existsSync(file) ? fs.readFileSync(file) : null]));
-    // 読めないギフト設定は取れないので、戻す前の安全のためのバックアップは作らない。代わりに壊れたファイルを .broken-… に残す。
-    const safety = current ? create("before-restore") : null;
+    // 戻す前の安全のためのバックアップ。ギフト設定が読めないときは、ギフト設定の部分だけを写し（今のゲームと合うもの）、無ければ空の割り当てで埋めて作り、
+    // 読み上げの設定とコマンド txt を戻す前の状態に戻せるようにする（2026-10-24 ユーザーの決定。PR3 の最後のレビューの重要 3）。壊れたファイルは .broken-… に残す。
+    const safety = create("before-restore", current ? {} : { bridge: safetyBridgeConfig(p, currentGame) });
     if (!current) preserveBrokenCopy(p.config);
+    // 戻したあと次の保存の前に壊れても、戻す前の中身に戻れるように、ギフト設定の写しを戻す前の中身にする（PR3 の最後のレビューの軽い 5）。
+    if (current) atomicWrite(lastGoodPath(p.config), before.get(p.config));
     const written = [];
     try {
       for (const [file, body] of files) { written.push(file); (deps.write || atomicWrite)(file, body); }
@@ -162,9 +168,15 @@ function createSettingsBackups(deps) {
         try { const old = before.get(file); if (old === null) fs.unlinkSync(file); else atomicWrite(file, old); }
         catch { failures.push(path.basename(file)); }
       }
-      throw new Error(failures.length ? `復元を中断しました。一部を戻せませんでした（${failures.join("、")}）。${safety ? `復元前バックアップ: ${safety.id}` : "復元前のギフト設定は壊れていたので、バックアップはありません"}` : "復元に失敗したため、変更前の設定へ戻しました。");
+      throw new Error(failures.length ? `復元を中断しました。一部を戻せませんでした（${failures.join("、")}）。復元前バックアップ: ${safety.id}` : "復元に失敗したため、変更前の設定へ戻しました。");
     }
-    return { ok: true, safetyBackup: safety?.id ?? null, restored: summary(snapshot, id, connection) };
+    return { ok: true, safetyBackup: safety.id, restored: summary(snapshot, id, connection) };
+  }
+  // ギフト設定が読めないときの、戻す前の安全のためのバックアップに入れるギフト設定：写し（今のゲームと合うとき）、無ければ雛形（空の割り当て）。
+  function safetyBridgeConfig(p, game) {
+    const copy = peekJsonFile(lastGoodPath(p.config));
+    if (copy && (copy.gameProfile || 'common') === game) return copy;
+    return { ...newBridgeConfig(), ...(game === 'common' ? {} : { gameProfile: game }) };
   }
   return { list, create, restore };
 }

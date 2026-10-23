@@ -51,3 +51,12 @@ test('暗闇地獄とペット召喚だけを削除し、暗黒と愛犬の割�
  const input={mappings:[{commandFile:'give_blindness.txt'},{commandFile:'petsummon.txt'},{commandFile:'darkness.txt'},{commandFile:'wolf.txt'}],shareEvent:{enabled:true,commandFile:'petsummon.txt'}};
  const next=migrateCommandReferences(input);assert.deepEqual(next.mappings,[{commandFile:'darkness.txt'},{commandFile:'wolf.txt'}]);assert.deepEqual(next.shareEvent,{enabled:false,commandFile:''});assert.equal(input.mappings.length,4);
 });
+
+// ギフト設定が読めないあいだも、初期セットアップのやり直し・アップデートのあとの BRIDGE の更新を止めない（PR3 の最後のレビューの軽い 2）。
+test("コマンド移行: ギフト設定が読めなければ何もしない", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "command-migration-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(root, "config.minecraft.json"), "{壊れた");
+  assert.doesNotThrow(() => migrateRetiredCommands(root));
+  assert.equal(fs.readFileSync(path.join(root, "config.minecraft.json"), "utf8"), "{壊れた");
+});

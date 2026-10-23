@@ -108,8 +108,7 @@ declare global {
       preflightRun: () => Promise<PreflightResult>;
       settingsBackupsList: () => Promise<SettingsBackup[]>;
       settingsBackupCreate: () => Promise<SettingsBackup>;
-      // safetyBackup は戻す前に取ったバックアップの ID。戻す前のギフト設定が壊れていて取れなかったときは null（設定ファイルの PR3）。
-      settingsBackupRestore: (id: string) => Promise<{ ok: true; safetyBackup: string | null; restored: SettingsBackup }>;
+      settingsBackupRestore: (id: string) => Promise<{ ok: true; safetyBackup: string; restored: SettingsBackup }>;
       // --------------------
       // config
       // --------------------

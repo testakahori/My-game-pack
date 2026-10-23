@@ -151,3 +151,11 @@ test('BRIDGE の起動: 起動の準備（同梱 node の確かめ）の間に�
   assert.equal(x.bridgeProcess.child(), x.children[1]);
   await x.invoke('bridge:stop', 'home:stop');
 });
+
+// ギフト設定が読めないときは、配信前チェックと同じ案内で止める（JSON のエラーの文で止めない。PR3 の最後のレビューの軽い 3）。
+test('BRIDGE の起動: ギフト設定が読めなければ、配信前チェックと同じ案内で止める', async t => {
+  const x = setup(t);
+  fs.writeFileSync(path.join(x.bridge, 'config.minecraft.json'), '{壊れた');
+  await assert.rejects(x.invoke('bridge:launch'), /^Error: 設定を読み込めません。初期セットアップと設定バックアップを確認してください。$/);
+  assert.equal(x.spawned.length, 0);
+});

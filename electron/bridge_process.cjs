@@ -5,6 +5,8 @@ const fs = require("fs");
 const { RestartPolicy } = require("./restart_policy.cjs");
 const { bridgeModTokenPath } = require("../bridge/bridge_mod_token.cjs");
 const { assertGameCommands } = require('./game_command_scope.cjs');
+const { peekJsonFile } = require('../bridge/safe_json_file.cjs');
+const { CONFIG_UNREADABLE_MESSAGE } = require('./preflight.cjs');
 
 // MAP の作業中かは map_operations が持つので、呼ばれたときに読む関数（assertMapIdle）で受け取る。
 // getTtsSettingsPath は userData 側の読み上げの設定の場所。BRIDGE 側が壊れていて写しも使えないとき、BRIDGE はそれを読む（設定ファイルの PR2）。
@@ -81,7 +83,10 @@ function createBridgeProcess({ process, spawn, spawnSync, shell, runProc, stopRe
     assertGameProfileIdle();
     // 起動のときの直しが届かなかった古い版の設定（手動インストールのあと・古いフォルダーを使い直したときなど）も、起動する前に直す（PR3 の最終レビュー）。
     migrateSavedConfig?.();
-    assertGameCommands(JSON.parse(fs.readFileSync(getConfigPath(), "utf8")), selectableCommandNames(), gameProfiles.list());
+    // ギフト設定が読めなければ、配信前チェックと同じ案内で止める（JSON のエラーの文で止めない。設定ファイルの PR3）。
+    const giftConfig = peekJsonFile(getConfigPath());
+    if (!giftConfig) throw new Error(CONFIG_UNREADABLE_MESSAGE);
+    assertGameCommands(giftConfig, selectableCommandNames(), gameProfiles.list());
     const dir = getBridgeBatDir();
     const indexJs = getBridgeEntryPoint(dir);
     if (!fs.existsSync(indexJs)) throw new Error(`Bridge entry not found: ${indexJs}`);

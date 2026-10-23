@@ -167,7 +167,9 @@ const RETRY_AFTER_MS = 30000;
 // keepBroken は、戻す元が無いとき、壊れたファイルを元の場所に置いたままにする（消さない・名前を変えない。中身の写しだけ残す）。
 // ギフト設定のため：空の雛形で動くと、配信者からは理由も分からずにギフト設定が消えたように見える（設計書 6.4。設定ファイルの PR3）。
 // acceptSource は、戻す元の値を使ってよいか（ギフト設定と切り替えの記録の「今のゲーム」が合うか。設計書 6.6）。
-function createSafeJsonFile({ file, defaults, problem, record, now = () => new Date(), label, defaultsLabel, restoreSources, keepBroken = false, acceptSource }) {
+// adaptSource は、戻す元の値を直して使う（null なら使わない）。直したときは記録の戻した元の名前を adaptedLabel にする
+// （切り替えの記録の写しは、今のゲームだけをギフト設定に合わせて使う。2026-10-24 ユーザーの決定。PR3 の最後のレビューの重要 2）。
+function createSafeJsonFile({ file, defaults, problem, record, now = () => new Date(), label, defaultsLabel, restoreSources, keepBroken = false, acceptSource, adaptSource, adaptedLabel }) {
   // このプロセスの間に扱った壊れたファイル（中身の印・残した名前・理由）。同じ壊れたファイルを何度も残したり記録したりせず、
   // 写しを書き戻せなかったときは次に読むときにやり直す（最後のレビューの重要 1。アプリの設定は何度も読まれる）。
   const handled = new Map();
@@ -201,7 +203,12 @@ function createSafeJsonFile({ file, defaults, problem, record, now = () => new D
   function findSource(target) {
     for (const source of [...(restoreSources?.() || []), { file: lastGoodPath(target) }]) {
       const found = inspect(source.file, problem);
-      if (!found.missing && !found.reason && (!acceptSource || acceptSource(found.value))) return { ...found, label: source.label };
+      if (found.missing || found.reason || (acceptSource && !acceptSource(found.value))) continue;
+      if (!adaptSource) return { ...found, label: source.label };
+      const adapted = adaptSource(found.value);
+      if (!adapted) continue;
+      if (adapted === found.value) return { ...found, label: source.label };
+      return { value: adapted, bytes: Buffer.from(JSON.stringify(adapted, null, 2)), label: adaptedLabel || source.label };
     }
     return null;
   }
@@ -286,14 +293,15 @@ function createSafeJsonFile({ file, defaults, problem, record, now = () => new D
     // 壊れたファイルを別の名前で残せていないときは書かない（上書きで失わない）。
     // 書く値の型が違えば書かない（書くと次に読むときにファイル全体が壊れている扱いになり、1つ前の写しに戻る。最後のレビューの軽い 2）。
     // エラーの文の名前は label（どちらのフォルダーか分かる。PR2 の最後のレビューの軽い 6）。
-    write(value) {
+    // keepLastGood は写しを変えない（切り替えに失敗して元に戻すとき、写しを切り替えの途中の中身にしない。PR3 の最後のレビューの軽い 4）。
+    write(value, { keepLastGood = false } = {}) {
       const target = file();
       const name = label || path.basename(target);
       const invalid = valueProblem(value, problem);
       if (invalid) throw new Error(`${name} に書く値が正しくありません（${invalid}）`);
       const current = load();
       if (current.state === "unpreserved") throw new Error(`${name} が壊れていて、別の名前で残せません（${current.reason}）`);
-      if (current.state === "ok") writeFileDurable(lastGoodPath(target), current.bytes);
+      if (current.state === "ok" && !keepLastGood) writeFileDurable(lastGoodPath(target), current.bytes);
       writeFileDurable(target, JSON.stringify(value, null, 2));
       handled.delete(target);
     },

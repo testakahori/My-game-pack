@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 // 書く前の中身を前の正しい状態の写しにする（設定ファイルの PR3）。
-const { writeWithLastGood } = require("../bridge/safe_json_file.cjs");
+const { writeWithLastGood, peekJsonFile } = require("../bridge/safe_json_file.cjs");
 const { bridgeCommandKey } = require("../bridge/command_files.cjs");
 const { bridgeCommandsDir } = require("../bridge/config_defaults.cjs");
 
@@ -27,8 +27,10 @@ function migrateCommandReferences(config) {
 function migrateRetiredCommands(bridgeDir) {
   const configPath = path.join(bridgeDir, "config.minecraft.json");
   if (!fs.existsSync(configPath)) return;
+  // ギフト設定が読めなければ何もしない（初期セットアップのやり直し・アップデートのあとの BRIDGE の更新を止めない。設定ファイルの PR3）。
+  const before = peekJsonFile(configPath);
+  if (!before) return;
   const raw = fs.readFileSync(configPath, "utf8");
-  const before = JSON.parse(raw);
   const after = migrateCommandReferences(before);
   if (JSON.stringify(before) === JSON.stringify(after)) return;
   const backup = path.join(bridgeDir, "retired-command-backups", new Date().toISOString().replace(/[:.]/g, "-"));

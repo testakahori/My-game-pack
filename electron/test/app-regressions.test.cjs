@@ -1456,3 +1456,18 @@ test('配線: アプリの設定が壊れていたら写しから戻し、userDa
   assert.equal(lines.length, 1);
   assert.match(lines[0], /app-config\.json が壊れていた（JSON として読めない）ので、前の正しい状態の写しから戻した。壊れたファイル: app-config\.json\.broken-/);
 });
+
+// ギフト設定が壊れていて写しも無いときの、本物の main.cjs の配線（2026-10-23 設計書の 6.4。PR3 の最後のレビューの軽い 7）。
+// 雛形を作らずに置いたまま、アプリの設定の保存・ゲームの一覧は止めず、BRIDGE の起動は配信前チェックと同じ案内で止め、記録に1行書く。
+test('配線: ギフト設定が壊れていて写しも無ければ置いたまま。アプリの設定の保存・ゲームの一覧は動き、BRIDGE の起動は案内で止まる', async t => {
+  const app = loadApp(t);
+  fs.writeFileSync(app.configPath, '{壊れた');
+  app.evaluate('bridgeSettings.migrateSavedConfigOnStartup()');
+  assert.equal(fs.readFileSync(app.configPath, 'utf8'), '{壊れた', '雛形を作らない');
+  assert.deepEqual(await app.invoke('app:config:write', { minecraftPlayerName: 'Steve' }), { ok: true });
+  await app.invoke('games:list');
+  await assert.rejects(app.invoke('bridge:launch'), /設定を読み込めません。初期セットアップと設定バックアップを確認してください。/);
+  const log = fs.readFileSync(path.join(app.root, 'logs', 'settings-recovery.log'), 'utf8').split('\n').filter(Boolean);
+  assert.equal(log.length, 1);
+  assert.match(log[0], /config\.minecraft\.json が壊れていた（JSON として読めない）。前の正しい状態の写しが無い（または使えない）ので、そのまま置いた。壊れたファイルの写し: config\.minecraft\.json\.broken-/);
+});

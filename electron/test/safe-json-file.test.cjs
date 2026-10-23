@@ -424,3 +424,29 @@ test('記録の文: kept・set-aside', () => {
   assert.equal(describeRecovery({ ...entry, action: 'set-aside' }),
     'config.minecraft.json が壊れていた（JSON として読めない）ので、別の名前で残して外した。壊れたファイル: config.minecraft.json.broken-20261023-153012');
 });
+
+// 切り替えの記録の写しは、「今のゲーム」だけをギフト設定に合わせて使う（2026-10-24 ユーザーの決定。PR3 の最後のレビューの重要 2）。
+test('写しを直す: adaptSource が返した値で戻し、記録に直したことを書く', t => {
+  const { file, records, store } = setup(t, {
+    adaptSource: value => value.a === 'ok' ? value : { ...value, a: 'ok', fixed: true }, adaptedLabel: '直した写し',
+  });
+  fs.writeFileSync(lastGoodPath(file), '{"a":"other"}');
+  fs.writeFileSync(file, '{壊れた');
+  assert.deepEqual(store.read(), { a: 'ok', fixed: true });
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { a: 'ok', fixed: true });
+  assert.equal(records[0].sourceLabel, '直した写し');
+  fs.writeFileSync(lastGoodPath(file), '{"a":"ok"}');
+  fs.writeFileSync(file, '{また壊れた');
+  assert.deepEqual(store.read(), { a: 'ok' });
+  assert.equal(records[1].sourceLabel, undefined, '直さなかったときは今までどおり');
+});
+
+// 切り替えに失敗して元に戻すときは、写しを切り替えの途中の中身で上書きしない（PR3 の最後のレビューの軽い 4）。
+test('書く: keepLastGood なら写しを変えない', t => {
+  const { file, store } = setup(t);
+  store.write({ a: '1' });
+  store.write({ a: '2' });
+  store.write({ a: '3' }, { keepLastGood: true });
+  assert.deepEqual(JSON.parse(fs.readFileSync(lastGoodPath(file), 'utf8')), { a: '1' });
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { a: '3' });
+});
