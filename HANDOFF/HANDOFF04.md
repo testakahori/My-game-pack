@@ -389,17 +389,33 @@
        - 計画で私が決めたこと：ゲーム専用の判定は大文字小文字を区別しない（`GAME_RUN_X.TXT` も RUN のもの）、既定のゲームとしての `'common'` の直書きは残す、予約名の `# GAME_MOD:` は BRIDGE も送らない、パックの key の決まりは JavaScript だけ（設計書は「GameEvents.java と合わせる」としていたが、Java に key の決まりがなく、足すと大文字の `GAME_KEY` を断る）、`withoutOtherGameCommands` は文字列の参照も外す、コマンド一覧のチャットの名前はアプリが付ける `chatKey` を使う。BridgeMOD は 1.8.2 に上げる（一覧を1つにし、`GameEvents` に予約名の確かめを足す）。
      - PR6 は CI（3つとも通った。mod-build で BridgeMOD 1.8.2 のビルドと契約テストも）のあと、ユーザーの許可を得てマージした（PR #123、マージコミット 219bd7c）。
      - ユーザーの決定（10-23）：残りを PR7（BRIDGE とアプリの決まり：音・粒子の ID、`foo.txt.txt`・`../x.txt`、ルーレットの判定の大文字小文字、テンプレートの `missing()`、Shift_JIS）と PR8（画面の写し：TikTok ID・コマンドセット・イベント設定②・画像作成・読み上げの数の丸め・画面のルーレットの判定）に分ける。PR5 で残した「無効の割り当てを画面で見分けられない」は、いったん「今は何もしない」と決めたあと、同じ日に変更：PR8 で、ギフト設定の一覧とカタログ・画像作成・ギフト設定の編集の3か所に「無効（動きません）」の印を出す。画面での切り替えは作らない（設定ファイルを手で書き換えた人は、戻すのも設定ファイルでできるため。ユーザーの指示 10-23）。どこからも使われていない `src/components/GiftCommandDialog.tsx` は PR8 で消す。
-     - PR7：ブランチ `fix/logic-copies-7`（main の 219bd7c から切った）。計画は `docs/superpowers/plans/2026-10-23-logic-copies-pr7.md`（10-23 にユーザーが承認、「このセッションで実装」）。DisplayMOD・BridgeMOD の Java の本体は変えない（音・粒子の ID は `DisplayRequest.from` を呼ぶ比べ役で突き合わせる）。進み具合の記録（台帳）は `.superpowers/sdd/2026-10-23-logic-copies-pr7/progress.md`（git に入らない。PR の前に消す）。
-       - Task 1（音・粒子の ID を `bridge/minecraft_ids.cjs` の `isResourceId` の1か所に。契約テスト DisplayIdParity）：済み（commit 238083a）。
-       - Task 2（`foo.txt.txt`・`../x.txt` を BridgeMOD 向けの名前として断る。テスト発火の「コマンド直接」は、ファイルがあるかを見る前に名前を確かめる）：済み（commit 1207394。アプリ 580/580、契約テストも通る）。
-       - Task 3（ルーレットの判定を `roulette.cjs` の `isRouletteCommand` の1か所にし、大文字小文字を区別しない）：**途中で止めた（10-23、PC を切るため）**。テスト（`roulette.test.cjs`・`config-defaults.test.cjs`・`bridge-command-names.test.cjs` に足した）と直し（`bridge/roulette.cjs`・`bridge/index.js`）は書いてあり、**commit していない**（作業コピーに残っている）。直す前に落ち（3件）、直したあと3件とも通ったが、`node --test electron/test/bridge-command-names.test.cjs` が最後のテスト（Roulette.TXT のギフトでルーレットが回る）のあと終わらない（ルーレットの演出のタイマーか送り直しが残っているらしい）。`npm run test:bridge` はまだ通していない。
-       - 私が決めたこと（台帳に書いていないもの）：`isRouletteCommand` はフォルダーを除かずに名前全体を見る（`sub/roulette.txt` はルーレットにせず、Task 2 の名前の確かめで断る。前の BRIDGE はフォルダーを除いてルーレットにしていた）。
+     - PR7：ブランチ `fix/logic-copies-7`（main の 219bd7c から切った）。計画は `docs/superpowers/plans/2026-10-23-logic-copies-pr7.md`（10-23 にユーザーが承認、「このセッションで実装」）。DisplayMOD・BridgeMOD の Java の本体は変えない（音・粒子の ID は `DisplayRequest.from` を呼ぶ比べ役で突き合わせる）。
+       - やったこと：
+         1. 音・粒子の ID の決まりを `bridge/minecraft_ids.cjs` の `isResourceId` の1か所にし、コメントギフト（`event_rules.cjs`）とルーレット（`roulette.cjs`）が使う。DisplayMOD の `DisplayRequest.resource` と同じ決まり。例の一覧 `bridge/test/fixtures/minecraft-ids.json` を契約テスト（DisplayIdParity）で JavaScript と DisplayMOD の両方に通す（commit 238083a）。
+         2. `foo.txt.txt` と、`/`・`\` を含む名前（`../x.txt`・`sub/x.txt`）を BridgeMOD 向けのコマンド名として断る（`isBridgeCommandFile` は名前全体を見る）。`commandFileProblem` はどう直すかを書く。テスト発火の「コマンド直接」は、ファイルがあるかを見る前に名前を確かめる（commit 1207394）。
+         3. ルーレットかどうかの判定を `roulette.cjs` の `isRouletteCommand` の1か所にし、大文字小文字・前後の空白・`.txt` の有無を問わない。BRIDGE のルーレットを回す判定・テスト発火・項目から外す判定が使う（commit a211443）。
+         4. ギフト設定のテンプレートの読み込みで、「このアプリにないコマンド」と題名を `.txt`・大文字小文字を区別せずに探す（commit 23e79c2）。
+         5. `bridge/command_text.cjs` に `isUtf8Text` を置く。設定のバックアップは UTF-8 でない txt（Shift_JIS など）を `payload.binaryCommands` に base64 でバイトのまま取って戻す（全部 UTF-8 なら付けない。前の版のバックアップと同じ形）。配信前チェックは、参照しているコマンドが UTF-8 でなければエラーにし「メモ帳などで UTF-8 で保存し直してください」と知らせる（commit 5bde0cb）。
+       - 計画で決めたこと：
+         1. 音・粒子の ID は受け取る側の DisplayMOD の決まりに合わせる。`a:b:c`・`:x`・`x:`・201 文字以上は断り、`/` のある path（`minecraft:block/stone`）は通す。断ったときの動きは今のまま（JS は既定の音・粒子、DisplayMOD は鳴らさない）。
+         2. `foo.txt.txt` と `/`・`\` を含む名前は、保存済みの設定にあれば警告（BRIDGE は起動し、その1件を送らずに記録する）、新しく足せば保存でエラー（PR3 の決まりのまま）。BridgeMOD の Java は変えない（BRIDGE が送らないので、残るのはチャットの `/bridge foo.txt` だけ）。
+         3. RCON・Telnet の経路は、今も `resolveCommands` がフォルダーの外を読まないので変えない（下の「前からの問題」の前の書き方「外を読む」は言い過ぎだった）。
+         4. UTF-8 でない txt は自動で変換しない（文字コードを推し量れないため）。
+         5. テンプレートの「見つからないコマンド」と題名の探し方は、BRIDGE と BridgeMOD と同じく `.txt` の有無・大文字小文字を区別しない。
+       - 実装で私が決めたこと：
+         - テスト発火の「コマンド直接」の名前の確かめに、計画に無かった試験台のテストを足した（`foo.txt.txt` を直接選ぶと「見つかりません」ではなく直し方を返す）。
+         - `isRouletteCommand` はフォルダーを除かずに名前全体を見る（`sub/roulette.txt` はルーレットにせず、2 の名前の確かめで断る。前の BRIDGE はフォルダーを除いてルーレットにしていた）。
+         - Roulette.TXT の試験台のテストは、当たりが届くまで待つ。10-23 にテストが終わらなかったのは、演出の途中でテストを終えたため、当たりの送り直し（`mod_event_delivery.cjs` のタイマーは試験台が片付けない）が片付けたあとの偽 BridgeMOD へ続いていたから。
+         - `binaryCommands` は UTF-8 でない txt があるときだけ付ける（全部 UTF-8 なら sha256 も前と同じで、更新のあとに同じ内容の自動保存が1つ増えない）。
+       - `npm run verify`：BRIDGE 15/15、アプリ 586/586、型チェック・ビルドが通る。契約テストも通る（コマンド名 21件の結果は変わらず、音・粒子の ID 15件）。
+       - リリースノートに足すこと：
+         - 名前の終わりに .txt が2つあるコマンドファイル（foo.txt.txt）を割り当てたとき、別のファイル（foo.txt）を動かさなくなりました（配信前チェックと保存で知らせます）。
+         - 大文字の Roulette.TXT を割り当てても、ルーレットとして動きます。
+         - メモ帳などで Shift_JIS で保存したコマンドファイルは、配信前チェックで「UTF-8 で保存し直してください」と知らせます。設定のバックアップを戻しても、そのファイルは壊れません。
      - **次にやること**：
-       1. `bridge-command-names.test.cjs` のルーレットのテストが終わらない理由を調べて直す（試験台 `electron/test/helpers/bridge-fixture.cjs` が片付けないタイマーか、ルーレットの演出が続いているか）。そのあと Task 3 のテストと `npm run test:bridge` を通し、commit（「fix: ルーレットの判定を1つにし、大文字の Roulette.TXT も同じに扱う」）して、台帳に Task 3 の完了と上の決めたことを書く。
-       2. PR7 の Task 4（gift_templates の `missing()` とタイトルの引き方を `ensureTxt(...).toLowerCase()` に）・Task 5（Shift_JIS：`bridge/command_text.cjs` の `isUtf8Text`、`settings_backups` の `binaryCommands` を base64 で、配信前チェックのエラー）・Task 6（HANDOFF）を計画どおり進める。
-       3. 最後のレビュー（opus）→ 軽い指摘をユーザーに聞く → PR → CI → 許可をもらってマージ。
-       4. PR8（画面の写し）。上の「ユーザーの決定（10-23）」のとおり、「無効（動きません）」の印を3か所に出す（切り替えは作らない）ことと、`GiftCommandDialog.tsx` を消すことを含める。計画を書いてユーザーの承認をもらってから実装する。
-     - PR1 のレビューで見つけた前からの問題（直していない。PR3・PR4 か別の PR で）：`foo.txt.txt` は BRIDGE が `foo.txt` を送り、MOD がもう一度 `.txt` を除くので `foo.txt` を実行する。設定に `../x.txt` と書くと名前の確かめを通り、RCON の経路と条件だけ確認でコマンドのフォルダーの外を読む。`bridge/index.js:1456` のルーレットの判定 `=== "roulette"` は大文字小文字を区別する（`roulette.cjs` は区別しない）。Shift_JIS の txt は JS が U+FFFD にして読み、MOD は読めない。`gift_templates.cjs:45` の `missing()` は名前を大文字小文字まで比べる。TXT の書き込みのゲームパックの判定は大文字小文字を区別する。electron が読む `../bridge/*.cjs` が `build.files` に全部あるかを確かめるテストがない。`src/` に残る写し（`CommandSetManager.tsx`・`CommandsListPage.tsx`・`EventSettings2Page.tsx`・`ImageEditorPage.tsx`）は、設計書 3 のとおり画面が決まりを持たない形に PR3・PR4 でそろえる。
+       1. PR7 の最後のレビュー（opus）→ 軽い指摘をユーザーに聞く → PR → CI → 許可をもらってマージ。
+       2. PR8（画面の写し）。上の「ユーザーの決定（10-23）」のとおり、「無効（動きません）」の印を3か所に出す（切り替えは作らない）ことと、`GiftCommandDialog.tsx` を消すことを含める。計画を書いてユーザーの承認をもらってから実装する。
+     - PR1 のレビューで見つけた前からの問題：`foo.txt.txt` は BRIDGE が `foo.txt` を送り、MOD がもう一度 `.txt` を除くので `foo.txt` を実行する（PR7 で直した）。設定に `../x.txt` と書くと BridgeMOD 向けの名前の確かめを通った（PR7 で直した。RCON の経路と条件だけ確認でコマンドのフォルダーの外を読む、という前の書き方は言い過ぎで、`resolveCommands` は外を読まない）。`bridge/index.js` のルーレットの判定 `=== "roulette"` は大文字小文字を区別する（PR7 で直した）。Shift_JIS の txt は JS が U+FFFD にして読み、MOD は読めない（PR7 でバックアップを壊さず、配信前チェックで知らせるようにした）。`gift_templates.cjs` の `missing()` は名前を大文字小文字まで比べる（PR7 で直した）。TXT の書き込みのゲームパックの判定は大文字小文字を区別する（PR6 で直した）。electron が読む `../bridge/*.cjs` が `build.files` に全部あるかを確かめるテストがない（PR3 の軽い指摘の直しで足した）。`src/` に残る写し（`CommandSetManager.tsx`・`CommandsListPage.tsx`・`EventSettings2Page.tsx`・`ImageEditorPage.tsx`）は PR8 で、設計書 3 のとおり画面が決まりを持たない形にそろえる。
    - リリース手順が2つ
 
 ---
