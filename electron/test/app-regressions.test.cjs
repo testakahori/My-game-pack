@@ -1435,3 +1435,18 @@ test('ホームのゲーム一覧に、アプリの更新でMODが古いまま�
   fs.writeFileSync(file, JSON.stringify({ ...current, gameModsVersion: 'old', gameModsRefreshFailed: 'previous', gameModsRefreshError: 'x' }));
   assert.equal((await app.invoke('games:list')).modsOutdatedAfterUpdate, false);
 });
+
+// main が記録を本当につないでいるかを、本物の main.cjs で確かめる（2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 5.3。最後のレビューの軽い 3）。
+test('配線: アプリの設定が壊れていたら写しから戻し、userData の logs/settings-recovery.log に1行書く', async t => {
+  const app = loadApp(t);
+  const file = path.join(app.root, 'app-config.json');
+  fs.writeFileSync(file + '.last-good', JSON.stringify({ serverFolder: app.root, setupComplete: true, minecraftPlayerName: 'Steve' }));
+  fs.writeFileSync(file, '{壊れた');
+  const config = await app.invoke('app:config:read');
+  assert.equal(config.minecraftPlayerName, 'Steve');
+  assert.equal(config.setupComplete, true);
+  await app.invoke('app:config:read');
+  const lines = fs.readFileSync(path.join(app.root, 'logs', 'settings-recovery.log'), 'utf8').split('\n').filter(Boolean);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /app-config\.json が壊れていた（JSON として読めない）ので、前の正しい状態の写しから戻した。壊れたファイル: app-config\.json\.broken-/);
+});

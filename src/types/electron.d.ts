@@ -1,5 +1,12 @@
 // src/types/electron.d.ts
 export {};
+// アプリの設定（app-config.json）の既定値と項目の型の表（2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 6.1）。
+// fields の値は型の見本（文字列は ""、真偽は false）。画面が書ける項目・画面に渡さない項目の名前は、表の rendererWritable・private と同じ
+// （JSON の配列からは型の名前を取り出せないので、ここにも並べる。食い違えば electron/test/app-config-module.test.cjs が落ちる）。
+type AppConfigTable = typeof import("../../electron/app_config_fields.json");
+export type AppConfigFields = AppConfigTable["fields"];
+type AppConfigPrivateKey = "authEmail" | "authToken" | "authLoginAt";
+type AppConfigWritableKey = "serverFolder" | "setupComplete" | "setupRequiredByInstall" | "minecraftPlayerName" | "minecraftLauncherPath" | "autoBackupOnServerStart";
 export type GameStatus = {
   saikutuMigrationNeeded?: boolean; active: string; applied: boolean; displayBundled: boolean;
   // アプリの更新に合わせて MOD を入れ替えられず、古いままのとき（2026-10-13）。
@@ -197,24 +204,9 @@ declare global {
       // --------------------
       // App config
       // --------------------
-      appConfigRead: () => Promise<{
-        serverFolder: string;
-        setupComplete: boolean;
-        setupRequiredByInstall?: boolean;
-        setupRequiredAt?: string;
-        minecraftLauncherPath?: string;
-        minecraftPlayerName?: string;
-        autoBackupOnServerStart?: boolean;
-      }>;
-      appConfigWrite: (data: Partial<{
-        serverFolder: string;
-        setupComplete: boolean;
-        setupRequiredByInstall: boolean;
-        setupRequiredAt: string;
-        minecraftLauncherPath: string;
-        minecraftPlayerName: string;
-        autoBackupOnServerStart: boolean;
-      }>) => Promise<{ ok: true }>;
+      // 項目と型は main と同じ表（electron/app_config_fields.json）から取る。読むと既定値の項目は必ずあり、ログインの項目は渡さない。
+      appConfigRead: () => Promise<AppConfigTable["defaults"] & Partial<Omit<AppConfigFields, AppConfigPrivateKey>>>;
+      appConfigWrite: (data: Partial<Pick<AppConfigFields, AppConfigWritableKey>>) => Promise<{ ok: true }>;
 
       // --------------------
       // セットアップ支援

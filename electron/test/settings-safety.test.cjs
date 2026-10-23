@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { createSettingsBackups, atomicWrite } = require("../settings_backups.cjs");
+const { createSafeJsonFile, lastGoodPath } = require("../../bridge/safe_json_file.cjs");
 const { runPreflight } = require("../preflight.cjs");
 const { validateBridgeConfig } = require("../config_schema.cjs");
 const read = file => JSON.parse(fs.readFileSync(file, "utf8"));
@@ -18,7 +19,7 @@ function fixture(t) {
   write(p.config, cfg); write(p.app, { authToken: "private-login", serverFolder: root, setupComplete: true, autoBackupOnServerStart: true });
   write(p.tts, { engine: "voicevox", enabled: true, speakerId: 2 }); write(p.bridgeTts, read(p.tts));
   atomicWrite(path.join(p.commands, "rose.txt"), "say original");
-  const deps = { paths: () => p, version: () => "test", readTts: () => read(p.tts), isRunning: () => false };
+  const deps = { paths: () => p, version: () => "test", readTts: () => read(p.tts), readApp: () => fs.existsSync(p.app) ? read(p.app) : {}, isRunning: () => false };
   return { root, p, cfg, deps, store: createSettingsBackups(deps) };
 }
 
@@ -217,4 +218,22 @@ test("設定バックアップの一覧: TikTok ID は整えた形", t => {
   const { p, cfg, store } = fixture(t);
   write(p.config, { ...cfg, tiktokUsername: " @Foo " });
   assert.equal(store.create().username, "foo");
+});
+
+// アプリの設定は、壊れていたら写しから戻す読み方（main では readAppConfig）で読む。前は直接読んで、壊れているとバックアップを取る・戻すが止まった
+// （2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 3・6.1）。
+test("設定バックアップ: アプリの設定が壊れていても、写しから戻して、バックアップを取れて戻せる。ログインは残る", t => {
+  const { p, deps } = fixture(t);
+  const appFile = createSafeJsonFile({ file: () => p.app, defaults: () => ({}) });
+  const store = createSettingsBackups({ ...deps, readApp: () => appFile.read() });
+  fs.copyFileSync(p.app, lastGoodPath(p.app));
+  fs.writeFileSync(p.app, "{壊れた");
+  const backup = store.create();
+  const snapshot = read(path.join(p.backups, backup.id));
+  assert.equal(snapshot.payload.preferences.autoBackupOnServerStart, true);
+  fs.writeFileSync(p.app, "{壊れた");
+  store.restore(backup.id);
+  assert.equal(read(p.app).authToken, "private-login");
+  assert.equal(read(p.app).autoBackupOnServerStart, true);
+  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, "../settings_backups.cjs"), "utf8"), /read\(p\.app\)/);
 });

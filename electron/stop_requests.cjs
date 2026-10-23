@@ -74,4 +74,5 @@ function createStopRequestLog({ file, now = () => new Date(), maxBytes = 256 * 1
   };
 }
 
-module.exports = { STOP_ORIGINS, stopOriginLabel, isConsoleStop, createStopRequestLog };
+// localTime・trimToRecentHalf は、設定ファイルの記録（settings_recovery_log.cjs）も同じ形で使う。
+module.exports = { STOP_ORIGINS, stopOriginLabel, isConsoleStop, createStopRequestLog, localTime, trimToRecentHalf };

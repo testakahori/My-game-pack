@@ -2,48 +2,56 @@
 // main.cjs から分けた（2026-10-17 設計書 docs/superpowers/specs/2026-10-17-main-split-design.md）。electron は読み込まず、app などは main から受け取る。
 const path = require("path");
 const fs = require("fs");
+const { createSafeJsonFile } = require("../bridge/safe_json_file.cjs");
 
-const RENDERER_APP_CONFIG_FIELDS = new Set([
-  "serverFolder",
-  "setupComplete",
-  "setupRequiredByInstall",
-  "minecraftPlayerName",
-  "minecraftLauncherPath",
-  "autoBackupOnServerStart",
-]);
+// 既定値と項目の型は app_config_fields.json の1か所（2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 6.1）。
+// fields の値は型の見本（文字列は ""、真偽は false）で、既定値ではない。画面の型の宣言（src/types/electron.d.ts）も同じ表から型を取る。
+const APP_CONFIG_FIELDS = require("./app_config_fields.json");
+const RENDERER_APP_CONFIG_FIELDS = new Set(APP_CONFIG_FIELDS.rendererWritable);
+const BOOLEAN_FIELDS = new Set(Object.keys(APP_CONFIG_FIELDS.fields).filter(key => typeof APP_CONFIG_FIELDS.fields[key] === "boolean"));
+const PRIVATE_FIELDS = new Set(APP_CONFIG_FIELDS.private);
+
+// 表の項目の型が1つでも違えば、ファイル全体を壊れていると扱う（項目ごとには直さない）。null も違う型。表に無い項目は確かめない。
+function appConfigProblem(value) {
+  for (const [key, sample] of Object.entries(APP_CONFIG_FIELDS.fields)) {
+    if (value[key] === undefined) continue;
+    if (value[key] === null || typeof value[key] !== typeof sample) return `項目 ${key} の型が違う`;
+  }
+  return "";
+}
 
 // あとで main で作られるもの（設定のバックアップ・サーバーの状態など）は、呼ばれたときに読む関数で受け取る。
-function createAppConfig({ app, assertGameProfileIdle, assertMapIdle, isServerStarting, getConfigPath, getSettingsBackups, refreshGameModsOnStartup, migrateSavedConfig }) {
+// recordRecovery は、壊れていて戻したことの記録（main が logs/settings-recovery.log に書く）。
+function createAppConfig({ app, assertGameProfileIdle, assertMapIdle, isServerStarting, getConfigPath, getSettingsBackups, refreshGameModsOnStartup, migrateSavedConfig, recordRecovery, now }) {
   function getAppConfigPath() {
     return path.join(app.getPath("userData"), "app-config.json");
   }
 
+  // 壊れていたら前の正しい状態の写しから戻し、壊れたファイルは名前を変えて残す（写しも無ければ既定値）。
+  const store = createSafeJsonFile({
+    file: getAppConfigPath, defaults: () => ({ ...APP_CONFIG_FIELDS.defaults }), problem: appConfigProblem, record: recordRecovery, now,
+  });
+
+  // 既定値の上にファイルの中身を重ねる（使う所はどれも、項目が無いのと既定値を同じに扱う）。
   function readAppConfig() {
-    const p = getAppConfigPath();
-    if (!fs.existsSync(p)) return { serverFolder: "", setupComplete: false };
-    try { return JSON.parse(fs.readFileSync(p, "utf-8")); }
-    catch { return { serverFolder: "", setupComplete: false }; }
+    return { ...APP_CONFIG_FIELDS.defaults, ...store.read() };
   }
 
   function writeAppConfig(data) {
-    const p = getAppConfigPath();
-    const current = readAppConfig();
-    const next = { ...current, ...data };
+    const next = { ...readAppConfig(), ...data };
     if (next.serverFolder) next.serverFolder = path.resolve(next.serverFolder);
-    fs.writeFileSync(p, JSON.stringify(next, null, 2), "utf-8");
+    store.write(next);
   }
 
   function readPublicAppConfig() {
-    const config = readAppConfig();
-    const { authEmail: _authEmail, authToken: _authToken, authLoginAt: _authLoginAt, ...publicConfig } = config;
-    return publicConfig;
+    return Object.fromEntries(Object.entries(readAppConfig()).filter(([key]) => !PRIVATE_FIELDS.has(key)));
   }
 
   function sanitizeRendererAppConfigUpdate(data) {
     const next = {};
     for (const [key, value] of Object.entries(data || {})) {
       if (!RENDERER_APP_CONFIG_FIELDS.has(key)) throw new Error(`変更できないアプリ設定です: ${key}`);
-      if (["setupComplete", "setupRequiredByInstall", "autoBackupOnServerStart"].includes(key)) {
+      if (BOOLEAN_FIELDS.has(key)) {
         if (typeof value !== "boolean") throw new Error(`${key} must be a boolean`);
         next[key] = value;
         continue;
@@ -111,4 +119,4 @@ function createAppConfig({ app, assertGameProfileIdle, assertMapIdle, isServerSt
   return { getAppConfigPath, readAppConfig, writeAppConfig, readPublicAppConfig, sanitizeRendererAppConfigUpdate, consumeInstallerSetupReset, register };
 }
 
-module.exports = { createAppConfig };
+module.exports = { createAppConfig, appConfigProblem };

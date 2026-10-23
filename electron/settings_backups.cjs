@@ -18,12 +18,9 @@ const object = value => value && typeof value === "object" && !Array.isArray(val
 const digest = value => crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const validCommand = name => typeof name === "string" && name === path.basename(name) && !/[\\/:\x00-\x1f]/.test(name) && isTxtName(name);
 
-function atomicWrite(file, content) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temp = `${file}.${crypto.randomUUID()}.tmp`;
-  try { fs.writeFileSync(temp, content); fs.renameSync(temp, file); }
-  finally { if (fs.existsSync(temp)) fs.unlinkSync(temp); }
-}
+// 一時ファイルに書き、ディスクに確実に残して（fsync）から差し替える。中身は bridge の共通の関数
+// （2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 5.1）。ほかのモジュールはこの名前で使う。
+const { writeFileDurable: atomicWrite } = require("../bridge/safe_json_file.cjs");
 
 // 戻したときに書く設定：バックアップの設定に今のつなぎ方（options の一部と rcon）を戻し、古い版の値を直したもの
 // （2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 7）。復元と一覧の問題の数が、この1つを使う。
@@ -46,7 +43,8 @@ function createSettingsBackups(deps) {
     const { rcon: _rcon, ...bridge } = config;
     bridge.options = { ...(bridge.options || {}) };
     for (const key of CONNECTION_OPTIONS) delete bridge.options[key];
-    const app = fs.existsSync(p.app) ? read(p.app) : {};
+    // アプリの設定は、壊れていたら写しから戻す読み方で読む（main では readAppConfig。2026-10-23 設計書の 6.1）。
+    const app = deps.readApp();
     const preferences = Object.fromEntries(PREFS.map(key => [key, app[key] !== false]));
     // UTF-8 でない txt（Shift_JIS など）は base64 でバイトのまま取る。前は UTF-8 として読んで U+FFFD に変え、戻すと壊れていた（処理のコピー PR7）。
     // 全部 UTF-8 なら binaryCommands を付けない（前の版のバックアップと同じ形）。
@@ -134,7 +132,8 @@ function createSettingsBackups(deps) {
     const config = restoredBridgeConfig(snapshot, current);
     // 戻す前の確かめ（ゲーム専用のコマンドなど）は名前だけを見る。UTF-8 でない txt の名前も渡す。
     deps.validateRestore?.(config, Object.fromEntries(commandEntries(snapshot.payload)));
-    const currentApp = fs.existsSync(p.app) ? read(p.app) : {};
+    // 書くのは今のまま atomicWrite（書いた順に元へ戻す仕組みのため）。写しは次の保存で更新される。
+    const currentApp = deps.readApp();
     const prefs = Object.fromEntries(PREFS.map(key => [key, snapshot.payload.preferences[key] !== false]));
     const files = new Map([
       [p.config, json(config)], [p.tts, json(snapshot.payload.tts)], [p.bridgeTts, json(snapshot.payload.tts)],

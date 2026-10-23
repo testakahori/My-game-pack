@@ -20,6 +20,7 @@ import StopPanel from "./components/StopPanel";
 import { pauseView, pauseBannerText, setDisruptionPause, type PauseView } from "./lib/disruptionPause";
 import type { GameStatus } from './types/electron';
 import { UnsavedChangesProvider, useUnsavedGuard } from "./UnsavedChanges";
+import { readAuthState } from "./lib/authState";
 
 const PAGE_TITLE: Partial<Record<AppPage, string>> = {
   [AppPage.DASHBOARD]: "配信ホーム",
@@ -114,15 +115,8 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const api = (window as any).mygamepack;
-    (async () => {
-      try {
-        const status = await api?.authStatus?.();
-        setAuthState(status?.authenticated ? "authed" : "unauthed");
-      } catch {
-        // authStatus 非対応ビルド（旧preload等）ではログイン画面でブロックせず通す
-        setAuthState("authed");
-      }
-    })();
+    // 確かめられないとき（失敗・窓口が無い）はログイン画面を出す（2026-10-23 設計書の 7）。
+    (async () => { setAuthState(await readAuthState(api)); })();
   }, []);
 
   useEffect(() => {

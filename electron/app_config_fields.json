@@ -1,0 +1,11 @@
+{
+  "defaults": { "serverFolder": "", "setupComplete": false },
+  "fields": {
+    "serverFolder": "", "setupComplete": false, "setupRequiredByInstall": false, "setupRequiredAt": "",
+    "minecraftPlayerName": "", "minecraftLauncherPath": "", "minecraftGameFolder": "", "autoBackupOnServerStart": false,
+    "bridgeVersion": "", "gameModsVersion": "", "gameModsRefreshFailed": "", "gameModsRefreshError": "",
+    "authEmail": "", "authToken": "", "authLoginAt": ""
+  },
+  "rendererWritable": ["serverFolder", "setupComplete", "setupRequiredByInstall", "minecraftPlayerName", "minecraftLauncherPath", "autoBackupOnServerStart"],
+  "private": ["authEmail", "authToken", "authLoginAt"]
+}
