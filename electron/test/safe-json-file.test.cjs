@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { writeFileDurable, lastGoodPath, describeRecovery, createSafeJsonFile } = require('../../bridge/safe_json_file.cjs');
+const { writeFileDurable, lastGoodPath, describeRecovery, createSafeJsonFile, peekJsonFile } = require('../../bridge/safe_json_file.cjs');
 
 const NOW = () => new Date(2026, 9, 23, 15, 30, 12);
 const problem = value => typeof value.a === 'number' ? '項目 a の型が違う' : '';
@@ -248,4 +248,43 @@ test('書く: 書く値が正しくなければ書かず、今のファイルも
   assert.throws(() => store.write(['a']), /オブジェクトでない/);
   assert.equal(fs.readFileSync(file, 'utf8'), JSON.stringify({ a: '1' }, null, 2));
   assert.equal(fs.existsSync(lastGoodPath(file)), false);
+});
+
+// 読み上げの設定は userData と BRIDGE の2か所で同じ名前なので、記録にどちらのフォルダーかを入れる（PR1 の最後のレビューからの申し送り。設定ファイルの PR2）。
+test('記録の名前: label があれば名前に使う。defaultsLabel があれば「既定値」の代わりに使う', () => {
+  const base = { file: path.join(os.tmpdir(), 'x.json'), reason: 'JSON として読めない', brokenFile: path.join(os.tmpdir(), 'x.json.broken-20261023-153012'),
+    label: 'tts-settings.json（BRIDGE のフォルダー）', defaultsLabel: 'userData の読み上げの設定（無ければ既定値）' };
+  assert.equal(describeRecovery({ ...base, action: 'defaults' }),
+    'tts-settings.json（BRIDGE のフォルダー） が壊れていた（JSON として読めない）。前の正しい状態の写しが無い（または壊れている）ので、userData の読み上げの設定（無ければ既定値）で動く。壊れたファイル: x.json.broken-20261023-153012');
+  assert.equal(describeRecovery({ ...base, action: 'restored' }),
+    'tts-settings.json（BRIDGE のフォルダー） が壊れていた（JSON として読めない）ので、前の正しい状態の写しから戻した。壊れたファイル: x.json.broken-20261023-153012');
+  assert.equal(describeRecovery({ ...base, action: 'defaults', brokenFile: '' }),
+    'tts-settings.json（BRIDGE のフォルダー） が壊れていた（JSON として読めない）。別の名前で残せなかったので、ファイルには触らず、userData の読み上げの設定（無ければ既定値）で動く');
+});
+
+test('読む: label・defaultsLabel を記録に入れる', t => {
+  const { file, records, store } = setup(t, { label: 'L', defaultsLabel: 'D' });
+  fs.writeFileSync(file, '{壊れた');
+  store.read();
+  assert.equal(records.length, 1);
+  assert.equal(records[0].label, 'L');
+  assert.equal(records[0].defaultsLabel, 'D');
+});
+
+// BRIDGE が userData 側の読み上げの設定を使うときは、読むだけで戻したり書いたりしない（userData は main のもの）。
+test('読むだけ: 正しければ値、無い・壊れていれば null。ファイルには触らない', t => {
+  const { dir, file } = setup(t);
+  assert.equal(peekJsonFile(file), null, '無い');
+  fs.writeFileSync(file, '{"a":"x"}');
+  assert.deepEqual(peekJsonFile(file), { a: 'x' });
+  fs.writeFileSync(file, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('{"a":"bom"}')]));
+  assert.deepEqual(peekJsonFile(file), { a: 'bom' });
+  for (const content of ['{壊れた', 'null', '[]']) {
+    fs.writeFileSync(file, content);
+    assert.equal(peekJsonFile(file), null, content);
+  }
+  fs.writeFileSync(file, '{"a":1}');
+  assert.equal(peekJsonFile(file, problem), null, 'problem に合わない');
+  assert.deepEqual(peekJsonFile(file), { a: 1 }, 'problem を渡さなければ型は見ない');
+  assert.deepEqual(fs.readdirSync(dir), ['x.json'], '.broken- も .last-good も作らない');
 });

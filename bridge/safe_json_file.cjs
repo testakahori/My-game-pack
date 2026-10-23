@@ -73,26 +73,36 @@ function valueProblem(value, problem) {
   return problem ? problem(value) : "";
 }
 
-// 記録の1行の文（時刻は書く側が付ける）。
+// 記録の1行の文（時刻は書く側が付ける）。名前は label（どのフォルダーかを入れた名前）、無ければファイル名。
+// 写しが使えないときに動く中身は defaultsLabel（BRIDGE 側の読み上げの設定は userData 側）、無ければ「既定値」。
 function describeRecovery(entry) {
-  const name = path.basename(entry.file);
+  const name = entry.label || path.basename(entry.file);
+  const fallback = entry.defaultsLabel || "既定値";
   const restored = entry.action === "restored";
   if (!entry.brokenFile) {
-    return `${name} が壊れていた（${entry.reason}）。別の名前で残せなかったので、ファイルには触らず、${restored ? "前の正しい状態の写しの中身" : "既定値"}で動く`;
+    return `${name} が壊れていた（${entry.reason}）。別の名前で残せなかったので、ファイルには触らず、${restored ? "前の正しい状態の写しの中身" : fallback}で動く`;
   }
   const broken = path.basename(entry.brokenFile);
   return restored
     ? `${name} が壊れていた（${entry.reason}）ので、前の正しい状態の写しから戻した。壊れたファイル: ${broken}`
-    : `${name} が壊れていた（${entry.reason}）。前の正しい状態の写しが無い（または壊れている）ので、既定値で動く。壊れたファイル: ${broken}`;
+    : `${name} が壊れていた（${entry.reason}）。前の正しい状態の写しが無い（または壊れている）ので、${fallback}で動く。壊れたファイル: ${broken}`;
 }
 
-function createSafeJsonFile({ file, defaults, problem, record, now = () => new Date() }) {
+// 読むだけ（戻さない・書かない・記録しない）。正しければ値、無い・壊れていれば null。
+// BRIDGE が userData 側の読み上げの設定を使うときのため（userData は main のもの。設定ファイルの PR2）。
+function peekJsonFile(file, problem) {
+  const current = inspect(file, problem);
+  return current.missing || current.reason ? null : current.value;
+}
+
+function createSafeJsonFile({ file, defaults, problem, record, now = () => new Date(), label, defaultsLabel }) {
   // このプロセスの間に扱った壊れたファイル（中身の印・残した名前・理由）。同じ壊れたファイルを何度も残したり記録したりせず、
   // 写しを書き戻せなかったときは次に読むときにやり直す（最後のレビューの重要 1。アプリの設定は何度も読まれる）。
   const handled = new Map();
 
   function note(entry) {
-    try { record?.(entry); } catch { /* 記録できなくても読み書きは止めない */ }
+    const labels = { ...(label ? { label } : {}), ...(defaultsLabel ? { defaultsLabel } : {}) };
+    try { record?.({ ...entry, ...labels }); } catch { /* 記録できなくても読み書きは止めない */ }
   }
 
   function markOf(target, current) {
@@ -180,4 +190,4 @@ function createSafeJsonFile({ file, defaults, problem, record, now = () => new D
   };
 }
 
-module.exports = { writeFileDurable, lastGoodPath, describeRecovery, createSafeJsonFile };
+module.exports = { writeFileDurable, lastGoodPath, describeRecovery, createSafeJsonFile, peekJsonFile };
