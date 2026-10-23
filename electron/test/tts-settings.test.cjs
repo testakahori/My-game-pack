@@ -45,7 +45,8 @@ test('読み上げの設定: 声の設定（速さ・高さ・抑揚・音量）
 test('読み上げの設定: 既定値・範囲・ポートの写しを持たない', () => {
   for (const file of ['bridge/index.js', 'electron/tts_ipc.cjs', 'electron/tts.cjs', 'vite.config.ts', 'src/components/TTSSettingsPage.tsx', 'src/lib/devApiMock.ts']) {
     const source = read(file);
-    for (const copy of [/\b50021\b/, /\b10101\b/, /speedScale: 1\.2/, /function clampNumber/, /function ttsNumber/, /cfg\.speedScale \?\? /]) {
+    // ポートは数字で探す（\b を付けると「\ のあとに16進数」を書かない見張りに当たる）。
+    for (const copy of [/50021/, /10101/, /speedScale: 1\.2/, /function clampNumber/, /function ttsNumber/, /cfg\.speedScale \?\? /]) {
       assert.doesNotMatch(source, copy, `${file} に読み上げの決まりの写しがある（${copy}）`);
     }
   }
