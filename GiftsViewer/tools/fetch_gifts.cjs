@@ -4,10 +4,8 @@ const fs = require("fs");
 const path = require("path");
 const { TikTokLiveConnection } = require("tiktok-live-connector");
 const { connectionOptions, redactSecrets } = require('../../bridge/tiktok_connection.cjs');
-
-function normalizeUniqueId(id) {
-  return String(id || "").trim().replace(/^@/, "");
-}
+// TikTok ID の整え方と確かめは本体のアプリ・BRIDGE と同じ bridge/tiktok_id.cjs（束ねるときに一緒に入る。処理のコピー PR9）。
+const { normalizeTikTokId, tiktokIdProblem } = require('../../bridge/tiktok_id.cjs');
 
 function pickArg(flag) {
   const i = process.argv.indexOf(flag);
@@ -81,9 +79,13 @@ async function fetchGiftCatalog(connection) {
 }
 
 async function main() {
-  const uniqueId = normalizeUniqueId(process.argv[2]);
+  const uniqueId = normalizeTikTokId(process.argv[2]);
   if (!uniqueId) {
     console.error("Usage: node tools/fetch_gifts.cjs <tiktokUniqueId> [--out <dir>]");
+    process.exit(1);
+  }
+  if (tiktokIdProblem(process.argv[2])) {
+    console.error(tiktokIdProblem(process.argv[2]));
     process.exit(1);
   }
 
@@ -138,5 +140,5 @@ async function main() {
   }
 }
 
-module.exports = { fetchGiftCatalog, normalizeUniqueId, configureSystemCertificates, formatFetchError };
+module.exports = { fetchGiftCatalog, configureSystemCertificates, formatFetchError };
 if (require.main === module) main();

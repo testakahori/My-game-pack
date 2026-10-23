@@ -4,7 +4,7 @@
 // 配信前チェック・バックアップの一覧）が同じものを使う（2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 7・9）。
 const { usesBridgeModTransport, isKnownTransport, commandFileRefs, invalidCommandFileRefs } = require("./command_files.cjs");
 const { repeatTargets, thresholdTargets } = require("./config_migration.cjs");
-const { isValidTikTokId } = require("./tiktok_id.cjs");
+const { normalizeTikTokId, tiktokIdProblem } = require("./tiktok_id.cjs");
 
 const isInteger = (value, min, max = Infinity) => Number.isInteger(value) && value >= min && value <= max;
 
@@ -17,10 +17,12 @@ function validateBridgeConfig(config, { previous } = {}) {
   if (!config || typeof config !== "object" || Array.isArray(config)) {
     return { ok: false, errors: ["設定全体がJSONオブジェクトではありません"], warnings };
   }
-  if (!String(config.tiktokUsername ?? "").trim()) {
+  // 空かは整えた形で見る（「@」だけ・文字列でない値も未承認）。
+  if (!normalizeTikTokId(config.tiktokUsername)) {
     errors.push("TikTok IDが未承認です（「IDを承認する」ボタンが押されていません）。ダッシュボードでIDを入力して承認してください");
-  } else if (!isValidTikTokId(config.tiktokUsername)) {
-    errors.push(`TikTok ID「${String(config.tiktokUsername).trim()}」の形が正しくありません。半角英数字・_・. の24文字以内で入力してください`);
+  } else if (tiktokIdProblem(config.tiktokUsername)) {
+    // 文は bridge/tiktok_id.cjs の1か所（ギフト一覧の更新・画面も同じ文。処理のコピー PR9）。
+    errors.push(tiktokIdProblem(config.tiktokUsername));
   }
   const options = config.options || {};
   for (const [name, value, min, max] of [

@@ -83,3 +83,26 @@ test('ギフトの更新: 自動更新の最中に、大文字や @ の違う同
   assert.equal(manual.meta.username, 'akahoridouma');
   assert.equal(x.log.filter(call => call.tool === 'fetch_gifts.cjs').length, 1, '取りにいくのは1回');
 });
+
+// ギフト一覧の画面で入力した TikTok ID も、設定の確かめと同じ決まり（bridge/tiktok_id.cjs）で確かめる（処理のコピー PR9）。
+// 前は 25〜64 文字の ID を通して TikTok へ問い合わせ（最大 60 秒待って）失敗し、空のときも「入力してください（英数字…）」だった。
+test('ギフトの更新: TikTok ID の形が正しくなければ、取りにいく前に設定の確かめと同じ文で止める', async t => {
+  const x = setup(t);
+  const long = 'a'.repeat(25);
+  await assert.rejects(x.invoke('gv:gifts:update', long), error => error.message === `TikTok ID「${long}」の形が正しくありません。半角英数字・_・. の24文字以内で入力してください`);
+  await assert.rejects(x.invoke('gifts:update', 'foo-bar'), error => error.message.startsWith('TikTok ID「foo-bar」の形が正しくありません'));
+  for (const empty of ['', '@', '  ', null]) {
+    await assert.rejects(x.invoke('gv:gifts:update', empty), error => error.message === 'TikTok ID を入力してください', String(empty));
+  }
+  assert.equal(x.log.filter(call => call.tool === 'fetch_gifts.cjs').length, 0, '取りにいかない');
+});
+
+test('ギフト一覧の画面の TikTok ID: 確かめてから、整えた形で保存する（空は保存してよい）', async t => {
+  const x = setup(t);
+  await x.invoke('gv:settings:write', { username: ' @Foo ' });
+  assert.deepEqual(await x.invoke('gv:settings:read'), { username: 'foo' });
+  await assert.rejects(x.invoke('gv:settings:write', { username: 'foo-bar' }), error => error.message.startsWith('TikTok ID「foo-bar」の形が正しくありません'));
+  assert.deepEqual(await x.invoke('gv:settings:read'), { username: 'foo' }, '前は確かめる前に保存し、正しくない ID が次に開いたときも残った');
+  await x.invoke('gv:settings:write', { username: { toString: () => 'x' } });
+  assert.deepEqual(await x.invoke('gv:settings:read'), { username: '' }, '文字列でなければ空（前は "[object Object]" を保存した）');
+});

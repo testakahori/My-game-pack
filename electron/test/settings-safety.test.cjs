@@ -211,3 +211,10 @@ test("配信前チェック: 参照しているコマンドが UTF-8 で保存�
   assert.equal(commands.status, "error", "前は ok だった（BRIDGE は U+FFFD にして読み、BridgeMOD は読めない）");
   assert.match(commands.detail, /UTF-8 で保存されていないファイル: sjis\.txt。メモ帳などで UTF-8 で保存し直してください/);
 });
+
+// バックアップの一覧の TikTok ID は整えた形で出す（画面は「@」を付けて出すので、保存済みの「@Foo」が「@@Foo」になっていた。処理のコピー PR9）。
+test("設定バックアップの一覧: TikTok ID は整えた形", t => {
+  const { p, cfg, store } = fixture(t);
+  write(p.config, { ...cfg, tiktokUsername: " @Foo " });
+  assert.equal(store.create().username, "foo");
+});
