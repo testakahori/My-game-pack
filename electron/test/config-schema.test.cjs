@@ -99,8 +99,18 @@ test('配布: electron が読む bridge のモジュールは、その中で読�
 test('配布と git: 設定ファイルの写しと壊れたファイルは、git にも配布物の bridge にも入れない', () => {
   const root = path.resolve(__dirname, '../..');
   const ignore = fs.readFileSync(path.join(root, '.gitignore'), 'utf8').split(/\r?\n/).map(line => line.trim());
-  for (const pattern of ['*.last-good', '*.broken-*']) assert.ok(ignore.includes(pattern), `.gitignore に ${pattern} が無い`);
+  // PC が落ちて残った書きかけの一時ファイル（<名前>.<uuid>.tmp）も入れない（最後のレビューの軽い 6）。
+  const temp = '*.????????-????-????-????-????????????.tmp';
+  for (const pattern of ['*.last-good', '*.broken-*', temp]) assert.ok(ignore.includes(pattern), `.gitignore に ${pattern} が無い`);
   const resources = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).build.extraResources;
   const bridge = resources.find(entry => entry.from === 'bridge');
-  for (const pattern of ['!**/*.last-good', '!**/*.broken-*']) assert.ok(bridge.filter.includes(pattern), `bridge の filter に ${pattern} が無い`);
+  for (const pattern of ['!**/*.last-good', '!**/*.broken-*', '!**/' + temp]) assert.ok(bridge.filter.includes(pattern), `bridge の filter に ${pattern} が無い`);
+});
+
+// git の bridge/tts-settings.json は開発者の読み上げの設定。配布物に入ると、新しく作った BRIDGE のフォルダーにコピーされ、
+// 配信者が読み上げを切っていても開発者の声の設定で読み上げる（最初からの問題。PR2 の最後のレビューの重要 3。2026-10-24 ユーザーの決定：配布物からだけ外す）。
+test('配布: 開発者の読み上げの設定（bridge/tts-settings.json）は配布物に入れない', () => {
+  const root = path.resolve(__dirname, '../..');
+  const resources = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).build.extraResources;
+  assert.ok(resources.find(entry => entry.from === 'bridge').filter.includes('!tts-settings.json'));
 });

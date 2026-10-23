@@ -288,3 +288,65 @@ test('読むだけ: 正しければ値、無い・壊れていれば null。フ�
   assert.deepEqual(peekJsonFile(file), { a: 1 }, 'problem を渡さなければ型は見ない');
   assert.deepEqual(fs.readdirSync(dir), ['x.json'], '.broken- も .last-good も作らない');
 });
+
+// 写しは「1つ前の保存」の中身。同じ値を書いているほかのファイル（BRIDGE 側の読み上げの設定にとっての userData 側）があれば、
+// そちらの今の中身を先に使う（PR2 の最後のレビューの重要 1。2026-10-24 ユーザーの決定）。
+test('読む: restoreSources があれば、写しより先にそこから戻す。記録に戻した元の名前を入れる', t => {
+  const { dir, file, records, store } = setup(t, { restoreSources: () => [{ file: path.join(dir, 'other.json'), label: 'ほかの場所' }] });
+  const other = path.join(dir, 'other.json');
+  fs.writeFileSync(other, '{"a":"latest"}');
+  fs.writeFileSync(lastGoodPath(file), '{"a":"older"}');
+  fs.writeFileSync(file, '{壊れた');
+  assert.deepEqual(store.read(), { a: 'latest' });
+  assert.equal(fs.readFileSync(file, 'utf8'), '{"a":"latest"}');
+  assert.equal(records[0].sourceLabel, 'ほかの場所');
+  assert.equal(describeRecovery(records[0]), 'x.json が壊れていた（JSON として読めない）ので、ほかの場所から戻した。壊れたファイル: x.json.broken-20261023-153012');
+  // ほかの場所が使えなければ、今までどおり写しから。
+  fs.writeFileSync(other, '{壊れた');
+  fs.writeFileSync(file, '{また壊れた');
+  assert.deepEqual(store.read(), { a: 'older' });
+  assert.equal(records[1].sourceLabel, undefined);
+});
+
+// 書き戻せないまま（読み取り専用・ずっとつかまれている）だと、読むたびに書き戻しを試して BRIDGE が止まる（PR2 の最後のレビューの軽い 2）。
+test('読む: 書き戻しに2回続けて失敗したら、しばらく書き戻しを試さない', t => {
+  let clock = new Date(2026, 9, 23, 15, 30, 12).getTime();
+  const { file, store } = setup(t, { now: () => new Date(clock) });
+  fs.writeFileSync(lastGoodPath(file), '{"a":"good"}');
+  fs.writeFileSync(file, '{壊れた');
+  let attempts = 0;
+  const restore = replace(t, 'renameSync', original => (from, to) => { if (to === file) { attempts++; throw eperm(); } return original(from, to); });
+  for (let i = 0; i < 5; i++) assert.deepEqual(store.read(), { a: 'good' });
+  const firstTwo = attempts;
+  assert.ok(firstTwo > 0);
+  clock += 10000;
+  store.read();
+  assert.equal(attempts, firstTwo, '2回続けて失敗したら、しばらく試さない');
+  clock += 30000;
+  store.read();
+  assert.ok(attempts > firstTwo, 'しばらくたてば、もう一度試す');
+  restore();
+});
+
+// アプリと BRIDGE が同じファイルを読む。戻すあいだに別のプロセスが書き換えたら、それを上書きも削除もしない（PR2 の最後のレビューの軽い 4）。
+test('読む: 戻すあいだに別のプロセスが書き換えたら、上書きも削除もしない', t => {
+  for (const copy of ['{"a":"good"}', null]) {
+    let changed = false;
+    const holder = {};
+    const { file, store, brokenFile } = setup(t, { now: () => {
+      if (!changed) { changed = true; fs.writeFileSync(holder.file, '{"a":"other"}'); }
+      return new Date(2026, 9, 23, 15, 30, 12);
+    } });
+    holder.file = file;
+    if (copy) fs.writeFileSync(lastGoodPath(file), copy);
+    fs.writeFileSync(file, '{壊れた');
+    assert.deepEqual(store.read(), { a: 'other' }, String(copy));
+    assert.equal(fs.readFileSync(file, 'utf8'), '{"a":"other"}', String(copy));
+    assert.equal(fs.readFileSync(brokenFile, 'utf8'), '{壊れた');
+  }
+});
+
+test('書く: エラーの文は label を使う（どちらのフォルダーか分かる）', t => {
+  const { store } = setup(t, { label: 'x.json（BRIDGE のフォルダー）' });
+  assert.throws(() => store.write({ a: 1 }), /x\.json（BRIDGE のフォルダー） に書く値が正しくありません（項目 a の型が違う）/);
+});

@@ -24,9 +24,12 @@ function createTtsIpc({ app, process, shell, spawn, getBridgeBatDir, getConfigPa
   const userDataFile = createSafeJsonFile({
     file: getTtsSettingsPath, label: "tts-settings.json（userData）", defaults: () => ({ ...TTS_DEFAULTS }), record: recordRecovery, now,
   });
-  // BRIDGE 側が無い・壊れていて写しも使えないときは userData 側（それも無ければ既定値）。読み上げを切っていた配信者の読み上げが動き出さないように。
+  // BRIDGE 側が壊れていたら、userData 側の今の中身 → BRIDGE 側の写し → userData 側（それも無ければ既定値）の順に使う。
+  // アプリはいつも2か所に同じ値を書くので、userData 側が最新（写しは1つ前の保存。2026-10-24 ユーザーの決定）。
+  // BRIDGE 側が無いときも userData 側。読み上げを切っていた配信者の読み上げが動き出さないように。
   const bridgeFile = createSafeJsonFile({
     file: () => path.join(getBridgeBatDir(), "tts-settings.json"), label: "tts-settings.json（BRIDGE のフォルダー）",
+    restoreSources: () => [{ file: getTtsSettingsPath(), label: "userData の読み上げの設定" }],
     defaults: () => userDataFile.read(), defaultsLabel: "userData の読み上げの設定（無ければ既定値）", record: recordRecovery, now,
   });
 

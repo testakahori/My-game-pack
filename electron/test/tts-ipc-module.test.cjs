@@ -56,20 +56,37 @@ test('読み上げエンジンの起動: 知らないエンジンは起動しな
 });
 
 // 読み上げの設定も、壊れていたら写しから戻し、写しも無ければ userData 側を使う（2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 6.2。設定ファイルの PR2）。
-test('読み上げの設定: BRIDGE 側が壊れていたら写しから戻す。写しも無ければ userData 側を使う', t => {
+// BRIDGE 側が壊れたら、userData 側の今の中身 → BRIDGE 側の写し → userData 側（それも無ければ既定値）の順に使う
+// （2026-10-24 ユーザーの決定。PR2 の最後のレビューの重要 1。アプリはいつも2か所に同じ値を書くので、userData 側が最新）。
+test('読み上げの設定: BRIDGE 側が壊れたら userData 側の今の中身で戻す。それが使えなければ写し、写しも無ければ既定値', t => {
   const x = setup(t);
   x.ttsIpc.writeTtsSettings({ enabled: false, speakerId: 5 });
   x.ttsIpc.writeTtsSettings({ enabled: false, speakerId: 6 });
   fs.writeFileSync(x.bridgeFile, '{壊れた');
-  assert.equal(x.ttsIpc.readTtsSettings().speakerId, 5, '写しは1つ前の保存');
-  assert.deepEqual(x.records.map(r => [r.label, r.action]), [['tts-settings.json（BRIDGE のフォルダー）', 'restored']]);
+  assert.equal(x.ttsIpc.readTtsSettings().speakerId, 6, 'userData 側は最後の保存');
+  assert.deepEqual(x.records.map(r => [r.label, r.action, r.sourceLabel]), [['tts-settings.json（BRIDGE のフォルダー）', 'restored', 'userData の読み上げの設定']]);
+  assert.equal(fs.readFileSync(x.bridgeFile, 'utf8'), fs.readFileSync(x.userFile, 'utf8'));
+  // userData 側も壊れていれば、BRIDGE 側の写し（1つ前の保存）。
   fs.writeFileSync(x.bridgeFile, '{また壊れた');
-  fs.unlinkSync(x.bridgeFile + '.last-good');
-  fs.writeFileSync(x.userFile, JSON.stringify({ enabled: false }));
-  assert.equal(x.ttsIpc.readTtsSettings().enabled, false, '読み上げを切ったまま');
-  assert.equal(x.records.length, 2);
-  assert.equal(x.records[1].action, 'defaults');
-  assert.equal(x.records[1].defaultsLabel, 'userData の読み上げの設定（無ければ既定値）');
+  fs.writeFileSync(x.userFile, '{これも壊れた');
+  assert.equal(x.ttsIpc.readTtsSettings().speakerId, 5, '写しは1つ前の保存');
+  assert.equal(x.records[1].sourceLabel, undefined);
+  // どれも使えなければ既定値。
+  fs.writeFileSync(x.bridgeFile, '{三度目');
+  for (const file of [x.bridgeFile + '.last-good', x.userFile, x.userFile + '.last-good']) fs.rmSync(file, { force: true });
+  assert.deepEqual(x.ttsIpc.readTtsSettings(), x.ttsIpc.normalizeTtsSettings({}));
+  assert.equal(x.records.at(-1).action, 'defaults');
+  assert.equal(x.records.at(-1).defaultsLabel, 'userData の読み上げの設定（無ければ既定値）');
+});
+
+// 写しは「1つ前の保存」なので、「あり→なし」と1回保存しただけだと写しは「あり」のまま（PR2 の最後のレビューの重要 1）。
+test('読み上げの設定: 読み上げを切った直後に BRIDGE 側が壊れても、切ったまま', t => {
+  const x = setup(t);
+  x.ttsIpc.writeTtsSettings({ enabled: true });
+  x.ttsIpc.writeTtsSettings({ enabled: false });
+  assert.equal(JSON.parse(fs.readFileSync(x.bridgeFile + '.last-good', 'utf8')).enabled, true, '写しは「あり」');
+  fs.writeFileSync(x.bridgeFile, '{壊れた');
+  assert.equal(x.ttsIpc.readTtsSettings().enabled, false);
 });
 
 test('読み上げの設定: userData 側が壊れていても写しから戻す', t => {
