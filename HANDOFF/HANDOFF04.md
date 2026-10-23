@@ -449,9 +449,9 @@
          - 設定ファイルで無効（enabled: false）にしたギフトの割り当てに、「無効（動きません）」の印が出ます。
          - 大文字の Roulette.TXT や .txt を書いていない割り当てでも、コマンドの題名が出ます。
          - 画像作成の「設定済みをまとめて追加」は、設定ファイルで無効にしたギフトを入れません。
+     - PR8 は CI（3つとも通った。mod-build で MOD のビルドと契約テストも）のあと、ユーザーの許可を得てマージした（PR #125、マージコミット 0ea5cc0）。
      - **次にやること**：
-       1. PR8 の PR → CI → 許可をもらってマージ。
-       2. PR9（設定の値と TikTok ID）の計画を書く。TikTok ID の写し（src・preload・gifts_viewer の7か所と GiftsViewer の5か所。ギフト一覧の更新が 64 文字まで通す、画面が古い `tiktok.username` も読むので配信ホームは「承認済み」なのに BRIDGE は「未承認」になることがある）、イベント設定②の既定値（値がないときのデスルーレットの回数を 3 と 1 のどちらにそろえるかを先にユーザーに聞く。止まる音・コメントギフトの音の既定・重み）、読み上げの数の丸め（3か所）と、読み上げのテストの音量（100〜200% が同じに鳴る）。
+       1. PR9（設定の値と TikTok ID）の計画を書く。ブランチ `fix/logic-copies-9`（main の 0ea5cc0 から切った）。TikTok ID の写し（src・preload・gifts_viewer の7か所と GiftsViewer の5か所。ギフト一覧の更新が 64 文字まで通す、画面が古い `tiktok.username` も読むので配信ホームは「承認済み」なのに BRIDGE は「未承認」になることがある）、イベント設定②の既定値（値がないときのデスルーレットの回数を 3 と 1 のどちらにそろえるかを先にユーザーに聞く。止まる音・コメントギフトの音の既定・重み）、読み上げの数の丸め（3か所）と、読み上げのテストの音量（100〜200% が同じに鳴る）。
      - PR1 のレビューで見つけた前からの問題：`foo.txt.txt` は BRIDGE が `foo.txt` を送り、MOD がもう一度 `.txt` を除くので `foo.txt` を実行する（PR7 で直した）。設定に `../x.txt` と書くと BridgeMOD 向けの名前の確かめを通った（PR7 で直した。RCON の経路と条件だけ確認でコマンドのフォルダーの外を読む、という前の書き方は言い過ぎで、`resolveCommands` は外を読まない）。`bridge/index.js` のルーレットの判定 `=== "roulette"` は大文字小文字を区別する（PR7 で直した）。Shift_JIS の txt は JS が U+FFFD にして読み、MOD は読めない（PR7 でバックアップを壊さず、配信前チェックで知らせるようにした）。`gift_templates.cjs` の `missing()` は名前を大文字小文字まで比べる（PR7 で直した）。TXT の書き込みのゲームパックの判定は大文字小文字を区別する（PR6 で直した）。electron が読む `../bridge/*.cjs` が `build.files` に全部あるかを確かめるテストがない（PR3 の軽い指摘の直しで足した）。`src/` に残る写し（`CommandSetManager.tsx`・`CommandsListPage.tsx`・`EventSettings2Page.tsx`・`ImageEditorPage.tsx`）は PR8 で、設計書 3 のとおり画面が決まりを持たない形にそろえた（TikTok ID と設定の値の写しは PR9）。
    - リリース手順が2つ
 
