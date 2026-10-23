@@ -18,12 +18,9 @@ const object = value => value && typeof value === "object" && !Array.isArray(val
 const digest = value => crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const validCommand = name => typeof name === "string" && name === path.basename(name) && !/[\\/:\x00-\x1f]/.test(name) && isTxtName(name);
 
-function atomicWrite(file, content) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temp = `${file}.${crypto.randomUUID()}.tmp`;
-  try { fs.writeFileSync(temp, content); fs.renameSync(temp, file); }
-  finally { if (fs.existsSync(temp)) fs.unlinkSync(temp); }
-}
+// 一時ファイルに書き、ディスクに確実に残して（fsync）から差し替える。中身は bridge の共通の関数
+// （2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 5.1）。ほかのモジュールはこの名前で使う。
+const { writeFileDurable: atomicWrite } = require("../bridge/safe_json_file.cjs");
 
 // 戻したときに書く設定：バックアップの設定に今のつなぎ方（options の一部と rcon）を戻し、古い版の値を直したもの
 // （2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 7）。復元と一覧の問題の数が、この1つを使う。
