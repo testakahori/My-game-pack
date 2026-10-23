@@ -30,7 +30,7 @@ type Config = {
   memberEvent?: SimpleEvent;
 };
 
-type CommandFile = { name: string; title: string; invalidName?: boolean };
+type CommandFile = { name: string; title: string; invalidName?: boolean; invalidReason?: string };
 
 type Props = {
   onDirtyChange?: (dirty: boolean) => void;

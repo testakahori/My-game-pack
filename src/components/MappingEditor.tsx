@@ -24,7 +24,7 @@ type Props = {
   defaultCommandsDirHint?: string;
 };
 
-type CmdFile = { name: string; title: string; category?: string; description?: string; invalidName?: boolean };
+type CmdFile = { name: string; title: string; category?: string; description?: string; invalidName?: boolean; invalidReason?: string };
 const commandCategory = (raw = "") => { const key = raw.split("|")[0].trim(); return key === "お助け" ? "お助け系" : key === "妨害" ? "妨害系" : key || "その他"; };
 type SaveMsg = { type: "ok" | "error"; text: string };
 

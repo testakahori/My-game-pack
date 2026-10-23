@@ -35,7 +35,7 @@ type CommentGiftRule = {
   enabled: boolean;
 };
 
-type CommandFile = { name: string; title: string; invalidName?: boolean; roulette?: boolean };
+type CommandFile = { name: string; title: string; invalidName?: boolean; invalidReason?: string; roulette?: boolean };
 
 const api = (window as any).mygamepack;
 

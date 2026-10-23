@@ -190,7 +190,26 @@ test('配信ホーム: アプリの外で起動したサーバーは「■ サ�
 test('コマンド候補: BridgeMOD が拒否する名前だけに印を付け、title は変えない', () => {
   assert.equal(commandOptionLabel({ name: 'cod.txt', title: 'タラ' }), 'タラ');
   assert.equal(commandOptionLabel({ name: 'cod.txt', title: '' }), 'cod.txt');
-  const invalid = { name: 'ネコ.txt', title: 'ネコ', invalidName: true };
-  assert.match(commandOptionLabel(invalid), /^⚠ ネコ（ファイル名を半角英数字に変えると使えます）$/);
+  const invalid = { name: 'ネコ.txt', title: 'ネコ', invalidName: true, invalidReason: 'コマンドファイル名「ネコ.txt」は使えません。…' };
+  // 候補は短く。直し方の全文はコマンド一覧のカードに出す（前は「半角英数字に変えると使えます」と決め打ちで、foo.txt.txt では直らなかった。処理のコピー PR8）。
+  assert.equal(commandOptionLabel(invalid), '⚠ ネコ（名前を直すまで動きません）');
   assert.equal(invalid.title, 'ネコ');
+});
+
+test('使えない名前のカード: main が付けた直し方の文（invalidReason）を出す', () => {
+  const { invalidCommandMessage } = loadTs('commandLabel.ts');
+  const reason = 'コマンドファイル名「foo.txt.txt」は終わりに .txt が2つあります。ファイル名を foo.txt に直してください';
+  assert.equal(invalidCommandMessage({ name: 'foo.txt.txt', invalidName: true, invalidReason: reason }), '⚠ この名前は BridgeMOD で実行できません。' + reason);
+  assert.equal(invalidCommandMessage({ name: 'x.txt', invalidName: true }), '⚠ この名前は BridgeMOD で実行できません。コマンド一覧で名前を確かめてください');
+  assert.match(source('components/CommandsListPage.tsx'), /invalidCommandMessage\(meta\)/);
+  for (const file of ['lib/commandLabel.ts', 'components/CommandsListPage.tsx']) {
+    assert.doesNotMatch(source(file), /INVALID_COMMAND_NAME_HINT|半角英数字に変えると使えます/, file);
+  }
+});
+
+// どこからも使われていなかったダイアログ（2026-10-23 ユーザーの決定で消す）。
+test('使われていない GiftCommandDialog は消してある', () => {
+  assert.equal(fs.existsSync(path.resolve(__dirname, '../../src/components/GiftCommandDialog.tsx')), false);
+  const srcFiles = fs.readdirSync(path.resolve(__dirname, '../../src'), { recursive: true }).filter(name => /\.tsx?$/.test(String(name)));
+  for (const name of srcFiles) assert.doesNotMatch(source(String(name)), /GiftCommandDialog/, String(name));
 });
