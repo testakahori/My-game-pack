@@ -63,6 +63,7 @@ const gamesIpc = createGamesIpc({
   isBridgeActive: () => bridgeProcess.isActive(),
   getServerProcessStatus: () => getServerProcessStatus(),
   getMinecraftProcessStatus: strict => minecraftClient.getMinecraftProcessStatus(strict),
+  recordRecovery: entry => settingsRecovery.record(entry),
 });
 // ゲームの切り替え中かは games_ipc.cjs が持つ。設定の保存・バックアップの復元・ウィンドウを閉じるときに見る。
 const { gameProfiles, isGameProfileBusy, assertGameProfileIdle, gameProfileOperation } = gamesIpc;

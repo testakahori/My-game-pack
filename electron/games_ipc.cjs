@@ -12,6 +12,8 @@ const { switchBlockedMessage } = require('./minecraft_processes.cjs');
 function createGamesIpc({
   app, process, appDir, dialog, readAppConfig, writeAppConfig, getServerRoot, getConfigPath, getServerTemplatePath,
   assertMapIdle, isInitialSetupRunning, isServerStarting, isServerStopping, isBridgeActive, getServerProcessStatus, getMinecraftProcessStatus,
+  // 切り替えの記録が壊れていて戻したことの記録（main が logs/settings-recovery.log に書く。設定ファイルの PR3）。
+  recordRecovery, now,
 }) {
   function minecraftLocationOptions() {
     return { appData: app.getPath('appData'), currentFolder: readAppConfig().minecraftGameFolder, serverRoot: getServerRoot() };
@@ -20,7 +22,7 @@ function createGamesIpc({
   // ゲームの選択の記録の場所。テストが記録を用意するときにも使う。
   const getGameProfilesDir = () => path.join(app.getPath('userData'), 'game-profiles', crypto.createHash('sha256').update(path.resolve(getServerRoot())).digest('hex').slice(0, 16));
   const gameProfiles = createGameProfiles({
-    storage: getGameProfilesDir,
+    storage: getGameProfilesDir, recordRecovery, now,
     serverRoot: () => getServerRoot(),
     clientRoot: () => readAppConfig().minecraftGameFolder || path.join(app.getPath('appData'), '.minecraft'),
     configPath: () => getConfigPath(),

@@ -347,3 +347,85 @@ test('保存先・設定のゲームが変わったら未保存として扱う',
   const config = JSON.parse(fs.readFileSync(x.config)); config.gameProfile = 'run'; fs.writeFileSync(x.config, JSON.stringify(config));
   assert.equal(x.api.list().applied, false);
 });
+
+// ゲームの切り替えの記録（profiles.json・pending-switch.json）も、壊れていたら写しから戻し、ギフト設定が壊れていても一覧を止めない
+// （2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 6.4〜6.6。設定ファイルの PR3）。
+function withRecords(t) {
+  const records = [];
+  const x = fixture(t, { recordRecovery: entry => records.push(entry), now: () => new Date(2026, 9, 24, 10, 0, 0) });
+  return { ...x, records, state: path.join(x.storage, 'profiles.json'), journal: path.join(x.storage, 'pending-switch.json') };
+}
+
+test('切り替えの記録: 壊れていたら写しから戻す', async t => {
+  const x = withRecords(t);
+  await x.api.install(x.pack('umetate'));
+  await x.api.activate('umetate');
+  await x.api.activate('umetate');
+  fs.writeFileSync(x.state, '{壊れた');
+  const list = x.api.list();
+  assert.equal(list.active, 'umetate');
+  assert.equal(list.games.find(g => g.id === 'umetate').installed, true, '登録したゲームパックも戻る');
+  assert.deepEqual(x.records.map(r => r.action), ['restored']);
+});
+
+// 切り替えは、ギフト設定を書いてから記録を書く。写しは書く前の中身なので、切り替えた直後に記録が壊れると、写しは前のゲームのまま。
+// それを戻してゲームを選び直すと、今の割り当てを前のゲームの保存済みの設定として上書きする（設計書 6.6）。
+test('切り替えの記録: 写しのゲームがギフト設定と合わなければ使わず、ギフト設定のゲームで動く。選び直して保存しても、ほかのゲームの保存済みの設定を上書きしない', async t => {
+  const x = withRecords(t);
+  await x.api.install(x.pack('umetate')); await x.api.install(x.pack('run'));
+  await x.api.activate('umetate');
+  await x.api.activate('run');
+  const config = JSON.parse(fs.readFileSync(x.config, 'utf8'));
+  config.mappings = [{ giftId: 'rose', commandFile: 'game_run_fill.txt', repeat: 2 }];
+  fs.writeFileSync(x.config, JSON.stringify(config));
+  assert.equal(JSON.parse(fs.readFileSync(x.state + '.last-good', 'utf8')).active, 'umetate', '写しは前のゲーム');
+  fs.writeFileSync(x.state, '{壊れた');
+  assert.equal(x.api.list().active, 'run', 'ギフト設定のゲームで動く');
+  assert.deepEqual(x.records.map(r => r.action), ['defaults']);
+  await x.api.activate('common');
+  const saved = JSON.parse(fs.readFileSync(x.state, 'utf8'));
+  assert.equal(saved.profiles.umetate, undefined, 'RUN の割り当てを埋め立ての保存済みの設定にしない');
+  assert.equal(saved.profiles.run.mappings[0].commandFile, 'game_run_fill.txt');
+});
+
+test('切り替えの記録: 形の違う記録（active が数）は壊れていると扱う', t => {
+  const x = withRecords(t);
+  fs.mkdirSync(x.storage, { recursive: true });
+  fs.writeFileSync(x.state, JSON.stringify({ format: 1, active: 3, packages: {}, profiles: {} }));
+  assert.equal(x.api.list().active, 'common');
+  assert.deepEqual(x.records.map(r => r.reason), ['項目 active の型が違う']);
+});
+
+test('一覧: ギフト設定が壊れていても投げない', t => {
+  const x = withRecords(t);
+  fs.writeFileSync(x.config, '{壊れた');
+  const list = x.api.list();
+  assert.equal(list.applied, false);
+  assert.equal(list.recoveryRequired, false);
+  assert.equal(x.api.peekActive(), null, '記録が無いときは null');
+});
+
+// 切り替えの途中の記録は切り替えの間だけあるので写しを作らない。壊れていたら、ホームの「復旧」で外す（PR3 の計画の決めたこと 5）。
+test('復旧: 壊れた途中の記録は外して記録し、そのあと切り替えられる', async t => {
+  const x = withRecords(t);
+  fs.mkdirSync(x.storage, { recursive: true });
+  fs.writeFileSync(x.journal, '{壊れた');
+  assert.equal(x.api.list().recoveryRequired, true);
+  const after = await x.api.recover();
+  assert.equal(after.recoveryRequired, false);
+  assert.ok(fs.readdirSync(x.storage).some(name => name.startsWith('pending-switch.json.broken-')));
+  assert.deepEqual(x.records.map(r => [r.action, r.reason]), [['set-aside', 'JSON として読めない']]);
+  await x.api.activate('common');
+  assert.equal(x.api.peekActive(), 'common');
+});
+
+test('本文: 切り替えの記録を readJson・writeJson で読み書きせず、ギフト設定は writeWithLastGood で書く', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../game_profiles.cjs'), 'utf8');
+  for (const old of ['readJson(stateFile()', 'writeJson(stateFile()', 'readJson(configPath()', 'atomicWrite(configPath()']) assert.ok(!source.includes(old), old);
+  assert.match(source, /writeWithLastGood\(configPath\(\)/);
+  const ipc = fs.readFileSync(path.join(__dirname, '../games_ipc.cjs'), 'utf8');
+  assert.match(ipc, /recordRecovery/);
+  const main = fs.readFileSync(path.join(__dirname, '../main.cjs'), 'utf8');
+  const start = main.indexOf('createGamesIpc({');
+  assert.match(main.slice(start, main.indexOf('});', start)), /recordRecovery:/);
+});
