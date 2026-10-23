@@ -321,10 +321,12 @@ const MappingEditor: React.FC<Props> = (props) => {
                     {mappingImage ? <img src={mappingImage} alt="" /> : null}
                   </span>
                   <div>
-                    <b>{mapping.name}{isDisabledMapping(mapping) ? <DisabledMappingMark /> : null}</b>
+                    <b>{mapping.name}</b>
                     <small>{resolvedTitle}</small>
                     <em>× {mapping.repeat ?? 1}回</em>
                   </div>
+                  {/* 名前の欄は狭く、はみ出すと「…」になるので、印はカードの横幅いっぱいの行に置く（PR8 の最後のレビュー）。 */}
+                  {isDisabledMapping(mapping) ? <div className="gift-route-disabled"><DisabledMappingMark /></div> : null}
                   <footer>💎 {giftDiamondMap[String(mapping.giftId)] ?? "?"}</footer>
                 </article>
               );

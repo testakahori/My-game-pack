@@ -5383,6 +5383,16 @@ button.tts-status-card:hover {
   cursor: help;
 }
 
+/* 登録済みのカードの無効の印の行（カードの横幅いっぱい。名前の欄に入れると「…」で隠れる）。 */
+.gift-route-disabled {
+  grid-column: 1 / -1;
+  text-align: center;
+}
+
+.gift-route-disabled .gift-disabled-mark {
+  margin-left: 0;
+}
+
 .gift-disabled-mark.is-compact {
   margin-left: 0;
   padding: 1px 4px;

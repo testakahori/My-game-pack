@@ -35,6 +35,11 @@ test('ギフト設定の一覧と編集: 無効の割り当てのカードと、
   const html = render({ mappings, defaultGiftId: '5655', defaultGiftName: 'バラ' });
   assert.equal(count(html, '無効（動きません）'), 2, '登録済みのカード（無効の1つ）と、編集中のギフト');
   assert.match(html, /保存しても無効のままです/);
+  // 登録済みのカードの名前（<b>）は狭く、はみ出すと「…」になるので、印は名前の中に置かず、カードの横幅いっぱいの行に置く（PR8 の最後のレビュー）。
+  // 前は名前の後ろに置き、ふつうのウィンドウ幅では印が「…」に置き換わって見えなかった。
+  assert.doesNotMatch(html, /<b>[^<]*<span class="gift-disabled-mark/, '印が名前の中にある');
+  assert.match(html, /<div class="gift-route-disabled"><span class="gift-disabled-mark/);
+  assert.match(read('src/index.css'), /\.gift-route-disabled \{[^}]*grid-column: 1 \/ -1;/);
   const enabledOnly = render({ mappings: [row('1')], defaultGiftId: '1' });
   assert.equal(count(enabledOnly, '無効（動きません）'), 0);
   assert.doesNotMatch(enabledOnly, /保存しても無効のままです/);
