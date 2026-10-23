@@ -11,3 +11,8 @@ test('共有判定: コメント複数一致と死亡の境界', () => {
   assert.equal(deathRouletteMatches({enabled:true,everyDeaths:3},6),true);
   assert.equal(likeRuleProgress({threshold:100},1000,undefined).triggersToRun,0);
 });
+
+// 「何回死ぬごと」が設定に無いときは 3（画面の表示に合わせる。2026-10-23 ユーザーの決定。処理のコピー PR9）。前は BRIDGE が 1（毎回）として回していた。
+test('死亡: everyDeaths が無ければ3回死ぬごと', () => {
+  assert.deepEqual([1, 2, 3, 6].map(n => deathRouletteMatches({ enabled: true }, n)), [false, false, true, true]);
+});

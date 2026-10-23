@@ -43,7 +43,8 @@ test('Bridge のルーレットは来た順にまとめて回し、当たりは�
   // 行頭の ${tag} はテスト発火のルーレットのときだけ「[Test] 」になる（2026-10-16）。
   assert.match(run, /if \(request\.done > 0\) console\.warn\(`\$\{tag\}\[Roulette\] ルーレットが無効になったため、残り\$\{request\.spins - request\.done\}回を取りやめました`\);/,
     '途中で無効にしたら残りは回さず、取りやめた回数をログに出す（PR #79 再レビュー）');
-  assert.match(run, /round = prepareRoulette\(rl, commandsDirAbs\);/);
+  // 止まる音・粒子の既定は依頼の種類（デスルーレットか）で選ぶ（処理のコピー PR9）。当たりを回す直前に決めるのは前と同じ。
+  assert.match(run, /round = prepareRoulette\(rl, commandsDirAbs, Math\.random, rouletteDefaults\(request\.historyType\)\);/);
   assert.match(run, /request\.done\+\+;\s*if \(request\.done < request\.spins\) nextRouletteSpin\(\); else finish\(\);/, '同じ依頼を全部回してから次の依頼');
   assert.match(run, /Promise\.resolve\(\)\.then\(nextRouletteSpin\)/, '取りやめが続いても呼び出しを深く重ねない');
   assert.match(source, /runRoulette\(\(\) => rouletteCfg, event\.listenerName, event\.historyType \|\| "roulette", event\.count, run\)/);

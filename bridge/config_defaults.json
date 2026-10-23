@@ -16,6 +16,8 @@
     "bridgeModHost": "127.0.0.1",
     "bridgeModPort": 25576
   },
+  "roulette": { "stopSound": "entity.player.levelup", "particle": "minecraft:totem_of_undying" },
+  "deathRoulette": { "everyDeaths": 3, "stopSound": "entity.wither.spawn", "particle": "minecraft:soul_fire_flame" },
   "rcon": { "host": "127.0.0.1", "port": 25575 },
   "telnet": { "host": "127.0.0.1", "port": 8081 }
 }

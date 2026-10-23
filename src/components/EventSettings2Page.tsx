@@ -4,7 +4,9 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 import { commandOptionLabel } from "../lib/commandLabel";
-import { toRepeat } from "../lib/integerInput";
+import { toEveryDeaths, toRepeat, toWeight } from "../lib/integerInput";
+// ルーレット・デスルーレットの既定（止まる音・粒子・何回死ぬごと）は BRIDGE と同じ表（処理のコピー PR9）。
+import CONFIG_DEFAULTS from "../../bridge/config_defaults.json";
 import { commandFileStem, findCommandFile } from "../lib/commandFiles";
 import { ToggleSlider } from "./ToggleSlider";
 
@@ -59,6 +61,11 @@ const PARTICLE_PRESETS = [
   { value: "minecraft:soul_fire_flame", label: "👻 青い炎" },
 ];
 
+// コメントギフトのルールは音・粒子を「なし」にできる（BRIDGE は空なら鳴らさない・出さない。2026-10-23 ユーザーの決定。処理のコピー PR9）。
+// 前は空の値を一覧の先頭（レベルアップ・トーテム）と出していた。
+const COMMENT_SOUND_PRESETS = [{ value: "", label: "なし（鳴らさない）" }, ...SOUND_PRESETS];
+const COMMENT_PARTICLE_PRESETS = [{ value: "", label: "なし（出さない）" }, ...PARTICLE_PRESETS];
+
 const newId = () => crypto.randomUUID();
 
 function normItems(raw: any): RouletteItem[] {
@@ -66,7 +73,7 @@ function normItems(raw: any): RouletteItem[] {
     id: item?.id ?? newId(),
     commandFile: String(item?.commandFile ?? ""),
     label: String(item?.label ?? ""),
-    weight: Math.max(1, Number(item?.weight ?? 1)),
+    weight: toWeight(item?.weight),
     repeat: toRepeat(item?.repeat ?? 1),
   }));
 }
@@ -200,10 +207,9 @@ function RouletteItemsEditor({
           <input
             type="number"
             min={1}
-            max={100}
             aria-label={`項目${index + 1}の重み`}
             value={item.weight}
-            onChange={(e) => update(item.id, { weight: Math.max(1, Math.min(100, Number(e.target.value) || 1)) })}
+            onChange={(e) => update(item.id, { weight: toWeight(e.target.value) })}
             className="bg-gray-900 border border-gray-600 rounded-xl px-2 py-2.5 text-sm text-center text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
           />
           <span className="text-xs font-bold text-cyan-300 text-center">{Math.round((Math.max(1, item.weight) / totalWeight) * 100)}%</span>
@@ -291,10 +297,10 @@ const EventSettings2Page: React.FC = () => {
   const [msg, setMsg] = useState<{ type: "ok" | "error"; text: string } | null>(null);
 
   const [roulette, setRoulette] = useState<RouletteConfig>({
-    enabled: false, items: [], stopSound: "entity.player.levelup", particle: "minecraft:totem_of_undying",
+    enabled: false, items: [], ...CONFIG_DEFAULTS.roulette,
   });
   const [deathRoulette, setDeathRoulette] = useState<DeathRouletteConfig>({
-    enabled: false, everyDeaths: 3, items: [], stopSound: "entity.wither.spawn", particle: "minecraft:soul_fire_flame",
+    enabled: false, items: [], ...CONFIG_DEFAULTS.deathRoulette,
   });
   const [commentRules, setCommentRules] = useState<CommentGiftRule[]>([]);
   const [commentEnabled, setCommentEnabled] = useState(false);
@@ -315,19 +321,20 @@ const EventSettings2Page: React.FC = () => {
       setCommandFiles((files as CommandFile[]).filter((f) => !f.roulette));
       const r = cfg?.roulette || {};
       const loadedRoulette = {
-        enabled: r.enabled === true,
+        // BRIDGE と同じく真の値なら有効（手で書いた 1 や "true" も。前の画面は true だけを有効と出していた）。
+        enabled: Boolean(r.enabled),
         items: normItems(r.items),
-        stopSound: String(r.stopSound || "entity.player.levelup"),
-        particle: String(r.particle || "minecraft:totem_of_undying"),
+        stopSound: String(r.stopSound || CONFIG_DEFAULTS.roulette.stopSound),
+        particle: String(r.particle || CONFIG_DEFAULTS.roulette.particle),
       };
       setRoulette(loadedRoulette);
       const d = cfg?.deathRoulette || {};
       const loadedDeathRoulette = {
         enabled: d.enabled === true,
-        everyDeaths: Math.max(1, Math.min(1000, Number(d.everyDeaths ?? 3))),
+        everyDeaths: toEveryDeaths(d.everyDeaths, CONFIG_DEFAULTS.deathRoulette.everyDeaths),
         items: normItems(d.items),
-        stopSound: String(d.stopSound || "entity.wither.spawn"),
-        particle: String(d.particle || "minecraft:soul_fire_flame"),
+        stopSound: String(d.stopSound || CONFIG_DEFAULTS.deathRoulette.stopSound),
+        particle: String(d.particle || CONFIG_DEFAULTS.deathRoulette.particle),
       };
       setDeathRoulette(loadedDeathRoulette);
       const c = cfg?.commentGifts || {};
@@ -511,7 +518,7 @@ const EventSettings2Page: React.FC = () => {
             max={1000}
             aria-label="発動する死亡回数"
             value={deathRoulette.everyDeaths}
-            onChange={(e) => setDeathRoulette({ ...deathRoulette, everyDeaths: Math.max(1, Math.min(1000, Number(e.target.value) || 1)) })}
+            onChange={(e) => setDeathRoulette({ ...deathRoulette, everyDeaths: toEveryDeaths(e.target.value, 1) })}
             className="w-20 bg-gray-900 border border-gray-600 rounded-xl px-2 py-2 text-sm text-center text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
           />
           <span className="text-xs text-gray-400">回ごと（例: 3 → 3回・6回・9回…死ぬたびに回る）</span>
@@ -605,16 +612,16 @@ const EventSettings2Page: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <IdPicker
                   label="効果音（任意）"
-                  value={rule.sound || SOUND_PRESETS[0].value}
+                  value={rule.sound || ""}
                   onChange={(v) => updateCommentRule(rule.id, { sound: v })}
-                  presets={SOUND_PRESETS}
+                  presets={COMMENT_SOUND_PRESETS}
                   placeholder="例: block.bell.use"
                 />
                 <IdPicker
                   label="パーティクル（任意）"
-                  value={rule.particle || PARTICLE_PRESETS[0].value}
+                  value={rule.particle || ""}
                   onChange={(v) => updateCommentRule(rule.id, { particle: v })}
-                  presets={PARTICLE_PRESETS}
+                  presets={COMMENT_PARTICLE_PRESETS}
                   placeholder="例: minecraft:heart"
                 />
               </div>

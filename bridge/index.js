@@ -40,7 +40,7 @@ const { commandFileProblem, ensureTxt, bridgeCommandKey } = require("./command_f
 const { parseCommandText } = require("./command_text.cjs");
 const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("./bridge_mod_token.cjs");
 const { FeatureEngine, parseWeightedList, chooseWeighted, weightOf } = require("./feature_engine");
-const { COMMAND_COOLDOWN_MAX_MS, boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes } = require("./event_rules.cjs");
+const { COMMAND_COOLDOWN_MAX_MS, boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, deathRouletteEvery, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes } = require("./event_rules.cjs");
 const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter, createMuteMatcher } = require("./tiktok_events.cjs");
 const { testEventActions, createTestRun, noMatchNote } = require("./test_fire.cjs");
 let runtimeProtection = { enabled: false };
@@ -1434,7 +1434,7 @@ async function main() {
     }
     let round;
     try {
-      round = prepareRoulette(rl, commandsDirAbs);
+      round = prepareRoulette(rl, commandsDirAbs, Math.random, rouletteDefaults(request.historyType));
     } catch (error) {
       console.error(`${tag}[Roulette]`, error.message + (left > 1 ? `（残り${left}回を取りやめました）` : ""));
       request.run?.failStep(request.step, error.message, left);
@@ -1467,10 +1467,14 @@ async function main() {
     if (run?.preview) { previewEvent(run, event); return; }
     enqueueMod(run ? run.mark(event) : event);
   }
+  // 止まる音・粒子の既定（デスルーレットはウィザーの音と魂の炎。config_defaults.json。処理のコピー PR9）。
+  function rouletteDefaults(historyType) {
+    return historyType === "death_roulette" ? CONFIG_DEFAULTS.deathRoulette : CONFIG_DEFAULTS.roulette;
+  }
   // 条件だけ確認のルーレット：回さずに回数だけ書く。回すときと同じ確かめ（有効な項目があるか）を通し、通らなければ理由を書く。
   function previewRoulette(run, config, event) {
     const step = run.step(event, { roulette: true });
-    try { prepareRoulette(config, commandsDirAbs); }
+    try { prepareRoulette(config, commandsDirAbs, Math.random, rouletteDefaults(event.historyType)); }
     catch (error) { run.notice(`${run.steps[step].label}: ${error?.message || error}`); }
   }
   // 条件だけ確認：送る前の確かめ（名前・コマンドファイル・GAME_MOD）を送るときと同じく通し、通らなければ理由を書く。
@@ -1522,7 +1526,7 @@ async function main() {
     const rl = deathRouletteCfg;
     if (!rl || rl.enabled !== true) return;
     const deaths = Number(status.deaths || 0);
-    const every = boundedInt(rl.everyDeaths ?? 1, 1, 1000, 1);
+    const every = deathRouletteEvery(rl);
     if (deathRouletteMatches(rl, deaths)) {
       ctx.log(`[DeathRoulette] deaths=${deaths}（${every}回ごと）→ ルーレット始動`);
       if (ctx.run?.preview) previewRoulette(ctx.run, rl, { commandFile: "roulette.txt", count: 1, historyType: "death_roulette" });
