@@ -5,13 +5,22 @@ const path = require("path");
 const fs = require("fs");
 const { fetchGiftImage } = require("./gift_image.cjs");
 const { normalizeTikTokId, tiktokIdProblem, tiktokIdInputProblem } = require("../bridge/tiktok_id.cjs");
+const { createSafeJsonFile } = require("../bridge/safe_json_file.cjs");
 
 // 同梱 node の準備（BRIDGE の配布）は、あとで main で定義されるので、呼ばれたときに読む関数で受け取る。
 function createGiftsViewer({
   BrowserWindow, shell, net, clipboard, nativeImage, runProc, eulerCredentials,
   getConfigPath, getGiftsDir, getGiftsMinPath, getGiftsMetaPath, getGiftsHtmlPath, ensureDir,
-  getGvDataDir, getGvSettingsPath, getGvToolPath, getNodeCommand, ensureNodeRuntimeAvailable,
+  getGvDataDir, getGvSettingsPath, getGvToolPath, getNodeCommand, ensureNodeRuntimeAvailable, recordRecovery, now,
 }) {
+  // ギフト一覧の画面の設定（TikTok ID）。壊れていたら前の正しい状態の写しから戻し、写しも無ければ TikTok ID が空
+  // （2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 6.3）。どの版も username は文字列で書いていた。
+  // recordRecovery は、壊れていて戻したことの記録（main が logs/settings-recovery.log に書く）。
+  const gvSettingsFile = createSafeJsonFile({
+    file: getGvSettingsPath, defaults: () => ({ username: "" }), record: recordRecovery, now,
+    problem: value => value.username !== undefined && typeof value.username !== "string" ? "項目 username の型が違う" : "",
+  });
+
   // ====================
   // GiftsViewer 統合 (gv:* プレフィックス)
   // ====================
@@ -210,19 +219,13 @@ function createGiftsViewer({
     // --------------------
     // gv:settings:read / write
     // --------------------
-    ipcMain.handle("gv:settings:read", async () => {
-      const p = getGvSettingsPath();
-      if (!fs.existsSync(p)) return { username: "" };
-      return JSON.parse(fs.readFileSync(p, "utf-8"));
-    });
+    ipcMain.handle("gv:settings:read", async () => gvSettingsFile.read());
 
     ipcMain.handle("gv:settings:write", async (_event, v) => {
-      const p = getGvSettingsPath();
       // 確かめてから、整えた形で保存する（前は確かめる前に保存し、正しくない ID が次に開いたときも残った。処理のコピー PR9）。空は保存してよい。
       const problem = tiktokIdProblem(v?.username);
       if (problem) throw new Error(problem);
-      const next = { username: normalizeTikTokId(v?.username) };
-      fs.writeFileSync(p, JSON.stringify(next, null, 2), "utf-8");
+      gvSettingsFile.write({ username: normalizeTikTokId(v?.username) });
       return { ok: true };
     });
   }

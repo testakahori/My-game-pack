@@ -93,3 +93,24 @@ test('配布: electron が読む bridge のモジュールは、その中で読�
   assert.ok(required.has('bridge/tiktok_events.cjs'), 'audience_stats.cjs が中で読む tiktok_events.cjs までたどる: ' + [...required].join(', '));
   for (const file of required) assert.ok(files.has(file), `${file} が build.files にない`);
 });
+
+// 開発版では BRIDGE のフォルダーがリポジトリの bridge/ なので、そこに設定ファイルの写し（.last-good）や壊れたファイル（.broken-…）ができる。
+// 配布物に入ると、配信者の PC に開発者の写しが届き、壊れたときに開発者の設定に戻る（設定ファイルの PR2）。
+test('配布と git: 設定ファイルの写しと壊れたファイルは、git にも配布物の bridge にも入れない', () => {
+  const root = path.resolve(__dirname, '../..');
+  const ignore = fs.readFileSync(path.join(root, '.gitignore'), 'utf8').split(/\r?\n/).map(line => line.trim());
+  // PC が落ちて残った書きかけの一時ファイル（<名前>.<uuid>.tmp）も入れない（最後のレビューの軽い 6）。
+  const temp = '*.????????-????-????-????-????????????.tmp';
+  for (const pattern of ['*.last-good', '*.broken-*', temp]) assert.ok(ignore.includes(pattern), `.gitignore に ${pattern} が無い`);
+  const resources = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).build.extraResources;
+  const bridge = resources.find(entry => entry.from === 'bridge');
+  for (const pattern of ['!**/*.last-good', '!**/*.broken-*', '!**/' + temp]) assert.ok(bridge.filter.includes(pattern), `bridge の filter に ${pattern} が無い`);
+});
+
+// git の bridge/tts-settings.json は開発者の読み上げの設定。配布物に入ると、新しく作った BRIDGE のフォルダーにコピーされ、
+// 配信者が読み上げを切っていても開発者の声の設定で読み上げる（最初からの問題。PR2 の最後のレビューの重要 3。2026-10-24 ユーザーの決定：配布物からだけ外す）。
+test('配布: 開発者の読み上げの設定（bridge/tts-settings.json）は配布物に入れない', () => {
+  const root = path.resolve(__dirname, '../..');
+  const resources = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).build.extraResources;
+  assert.ok(resources.find(entry => entry.from === 'bridge').filter.includes('!tts-settings.json'));
+});

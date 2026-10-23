@@ -7,8 +7,9 @@ const { bridgeModTokenPath } = require("../bridge/bridge_mod_token.cjs");
 const { assertGameCommands } = require('./game_command_scope.cjs');
 
 // MAP の作業中かは map_operations が持つので、呼ばれたときに読む関数（assertMapIdle）で受け取る。
+// getTtsSettingsPath は userData 側の読み上げの設定の場所。BRIDGE 側が壊れていて写しも使えないとき、BRIDGE はそれを読む（設定ファイルの PR2）。
 function createBridgeProcess({ process, spawn, spawnSync, shell, runProc, stopRequests, eulerCredentials, getBridgeBatDir, getServerRoot, getConfigPath, getNodeCommand, getGvToolPath,
-  getBridgeEntryPoint, ensureNodeRuntimeAvailable, assertGameProfileIdle, selectableCommandNames, gameProfiles, waitChildExit, assertMapIdle, migrateSavedConfig }) {
+  getBridgeEntryPoint, ensureNodeRuntimeAvailable, assertGameProfileIdle, selectableCommandNames, gameProfiles, waitChildExit, assertMapIdle, migrateSavedConfig, getTtsSettingsPath }) {
   let bridgeEulerRevision = null;
   // BRIDGE を起動した時刻。runtime-status.json がこれより前に書かれていれば、前の BRIDGE が残したもの（2026-10-18）。
   let bridgeStartedAt = 0;
@@ -104,7 +105,7 @@ function createBridgeProcess({ process, spawn, spawnSync, shell, runProc, stopRe
       // BridgeMOD の認証トークンはサーバーフォルダーにある。開発時は bridge とサーバーの場所が離れているので明示する。
       const child = spawn(nodeCmd, [indexJs, "--config", path.join(dir, "config.minecraft.json")], {
         cwd: dir, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"],
-        env: { ...env, BRIDGE_MOD_TOKEN_FILE: bridgeModTokenPath(getServerRoot()) },
+        env: { ...env, BRIDGE_MOD_TOKEN_FILE: bridgeModTokenPath(getServerRoot()), TTS_SETTINGS_FALLBACK_FILE: getTtsSettingsPath() },
       });
       bridgeEulerRevision = revision;
       attach(child);

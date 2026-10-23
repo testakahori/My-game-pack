@@ -14,7 +14,7 @@ function setup(t, { username = 'akahoridouma' } = {}) {
   for (const file of ['fetch_gifts.cjs', 'gifts_to_html.cjs']) fs.writeFileSync(path.join(tools, file), '');
   const configPath = path.join(root, 'config.minecraft.json');
   fs.writeFileSync(configPath, JSON.stringify({ tiktokUsername: username }));
-  const log = [], calls = [], sent = [], handlers = new Map();
+  const log = [], calls = [], sent = [], handlers = new Map(), records = [];
   // 取得の道具の代わり。--out のフォルダーに、取得したギフトと HTML を書く。
   const runProc = async (cmd, args, _cwd, options = {}) => {
     log.push({ cmd, tool: path.basename(args[0]), env: options.env });
@@ -36,9 +36,10 @@ function setup(t, { username = 'akahoridouma' } = {}) {
     getGiftsMetaPath: () => path.join(gv, 'gifts.meta.json'), getGiftsHtmlPath: () => path.join(gv, 'gifts.html'), ensureDir: dir => fs.mkdirSync(dir, { recursive: true }),
     getGvDataDir: () => gv, getGvSettingsPath: () => path.join(gv, 'settings.json'), getGvToolPath: name => path.join(tools, name),
     getNodeCommand: () => 'node-fixture', ensureNodeRuntimeAvailable: async () => calls.push('node-ready'),
+    recordRecovery: entry => records.push(entry), now: () => new Date(2026, 9, 23, 15, 30, 12),
   });
   viewer.register({ handle: (name, fn) => handlers.set(name, fn) });
-  return { gv, configPath, log, calls, sent, viewer, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
+  return { gv, configPath, log, calls, sent, records, viewer, settingsFile: path.join(gv, 'settings.json'), invoke: (name, ...args) => handlers.get(name)({}, ...args) };
 }
 
 test('ギフトの更新: main から受け取った node・runProc・Euler の鍵で取得して画面へ知らせる。作ったものごとに更新中の状態を持つ', async t => {
@@ -105,4 +106,37 @@ test('ギフト一覧の画面の TikTok ID: 確かめてから、整えた形�
   assert.deepEqual(await x.invoke('gv:settings:read'), { username: 'foo' }, '前は確かめる前に保存し、正しくない ID が次に開いたときも残った');
   await x.invoke('gv:settings:write', { username: { toString: () => 'x' } });
   assert.deepEqual(await x.invoke('gv:settings:read'), { username: '' }, '文字列でなければ空（前は "[object Object]" を保存した）');
+});
+
+// ギフト一覧の画面の設定も、壊れていたら写しから戻す（2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 6.3。設定ファイルの PR2）。
+// 前は壊れていると読む所でエラーになり、次の保存で上書きした。
+test('ギフト一覧の画面の設定: 壊れていたら写しから戻す。写しも無ければ TikTok ID が空', async t => {
+  const x = setup(t);
+  await x.invoke('gv:settings:write', { username: 'first' });
+  await x.invoke('gv:settings:write', { username: 'second' });
+  fs.writeFileSync(x.settingsFile, '{壊れた');
+  assert.deepEqual(await x.invoke('gv:settings:read'), { username: 'first' });
+  assert.deepEqual(x.records.map(r => [r.reason, r.action]), [['JSON として読めない', 'restored']]);
+  fs.unlinkSync(x.settingsFile + '.last-good');
+  fs.writeFileSync(x.settingsFile, '{"username":3}');
+  assert.deepEqual(await x.invoke('gv:settings:read'), { username: '' });
+  assert.deepEqual(x.records.map(r => r.reason), ['JSON として読めない', '項目 username の型が違う']);
+});
+
+test('ギフト一覧の画面の設定: 書くと写しを残す', async t => {
+  const x = setup(t);
+  await x.invoke('gv:settings:write', { username: 'first' });
+  await x.invoke('gv:settings:write', { username: 'second' });
+  assert.deepEqual(JSON.parse(fs.readFileSync(x.settingsFile + '.last-good', 'utf8')), { username: 'first' });
+});
+
+test('本文: ギフト一覧の画面の設定を fs で直接読み書きしない。main は記録をつなぐ', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../gifts_viewer.cjs'), 'utf8');
+  const block = source.slice(source.indexOf('"gv:settings:read"'), source.indexOf('return { autoUpdateGiftsIfStale'));
+  assert.ok(block.length > 0);
+  assert.doesNotMatch(block, /writeFileSync|readFileSync/);
+  assert.match(source, /createSafeJsonFile\(/);
+  const main = fs.readFileSync(path.join(__dirname, '../main.cjs'), 'utf8');
+  const start = main.indexOf('createGiftsViewer({');
+  assert.match(main.slice(start, main.indexOf('});', start)), /recordRecovery:/);
 });

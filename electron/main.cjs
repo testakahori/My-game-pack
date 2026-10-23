@@ -83,7 +83,7 @@ const settingsBackups = createSettingsBackups({
   isRunning: () => Boolean(bridgeProcess.isActive() || mapOperations.isBusy() || serverProcess.isStarting() || isGameProfileBusy() || gameProfiles.list().recoveryRequired),
 });
 const { createTtsIpc } = require('./tts_ipc.cjs');
-const ttsIpc = createTtsIpc({ app, process, shell, spawn, getBridgeBatDir, getConfigPath, settingsBackups });
+const ttsIpc = createTtsIpc({ app, process, shell, spawn, getBridgeBatDir, getConfigPath, settingsBackups, recordRecovery: entry => settingsRecovery.record(entry) });
 const { getTtsSettingsPath, readTtsSettings } = ttsIpc;
 ttsIpc.register(ipcMain);
 const { createBridgeSettings } = require('./bridge_settings.cjs');
@@ -101,6 +101,7 @@ const giftsViewer = createGiftsViewer({
   getConfigPath, getGiftsDir, getGiftsMinPath, getGiftsMetaPath, getGiftsHtmlPath, ensureDir,
   getGvDataDir, getGvSettingsPath, getGvToolPath, getNodeCommand,
   ensureNodeRuntimeAvailable: () => ensureNodeRuntimeAvailable(),
+  recordRecovery: entry => settingsRecovery.record(entry),
 });
 const { autoUpdateGiftsIfStale } = giftsViewer;
 giftsViewer.register(ipcMain);
@@ -174,6 +175,7 @@ const bridgeProcess = createBridgeProcess({
   getBridgeEntryPoint, ensureNodeRuntimeAvailable, assertGameProfileIdle, selectableCommandNames, gameProfiles, waitChildExit,
   assertMapIdle: () => mapOperations.assertIdle(),
   migrateSavedConfig: () => bridgeSettings.ensureSavedConfigMigrated(),
+  getTtsSettingsPath,
 });
 // BRIDGE の子プロセス・再起動の待ちは bridge_process.cjs が持つ。main とほかのモジュールは、それを読む関数（child・isActive）を
 // 呼ばれたときに bridgeProcess.xxx() で読み、分割代入では受けない（テストが差し替えて配線を確かめるため）。下の操作の関数は受けてよい。

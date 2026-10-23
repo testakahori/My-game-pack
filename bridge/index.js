@@ -137,6 +137,8 @@ function scheduleRconDisconnect() {
 // --------------------
 // ファイルログ（起動ごとにタイムスタンプ付きログを自動保存）
 // --------------------
+// ログファイルにだけ書く（標準出力には出さないので、アプリの画面の BRIDGE ログ欄にも出ない）。設定ファイルが壊れていた記録に使う（設定ファイルの PR2）。
+let logToFileOnly = () => {};
 (function setupFileLogging() {
   const logsDir = path.join(__dirname, "logs");
   if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
@@ -164,6 +166,7 @@ function scheduleRconDisconnect() {
   };
 
   const safeArgs = args => args.map(value => redactSecrets(typeof value === 'string' ? value : require('node:util').inspect(value)));
+  logToFileOnly = (...a) => writeLine(" [WARN]", safeArgs(a));
   console.log   = (...a) => { const safe = safeArgs(a); origLog(...safe);   writeLine("", safe); };
   console.error = (...a) => { const safe = safeArgs(a); origError(...safe); writeLine(" [ERROR]", safe); };
   console.warn  = (...a) => { const safe = safeArgs(a); origWarn(...safe);  writeLine(" [WARN]", safe); };
@@ -184,14 +187,25 @@ function scheduleRconDisconnect() {
 const { TTS_SETTINGS, TTS_PORTS, normalizeTtsSettings: normalizeTtsConfig, applyVoiceSettings } = require("./tts_settings.cjs");
 const TTS_DEFAULTS = TTS_SETTINGS.defaults;
 
+// 壊れていたら、アプリが起動のときに渡す userData 側の読み上げの設定の今の中身 → BRIDGE 側の写し の順に戻し、壊れたファイルは
+// 名前を変えて残す。どれも使えない（または BRIDGE 側が無い）ときは userData 側（今の中身、無ければその写し）を読むだけで使い、
+// それも無いときだけ既定値。アプリはいつも2か所に同じ値を書くので userData 側が最新（写しは1つ前の保存。2026-10-24 ユーザーの決定）。
+// 読み上げを切っていた配信者の読み上げが、壊れたせいで動き出さないように（2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 6.2）。
+// 古い版は画面の値をそのまま書いていたので、項目の型では壊れていると決めない（値は normalizeTtsConfig で整える）。
+// 記録は BRIDGE のログファイルにだけ書く（画面の BRIDGE ログ欄には出さない。ユーザーの決定）。
+const { createSafeJsonFile, peekJsonFile, describeRecovery, lastGoodPath } = require("./safe_json_file.cjs");
+const TTS_FALLBACK_FILE = process.env.TTS_SETTINGS_FALLBACK_FILE || "";
+const ttsSettingsFile = createSafeJsonFile({
+  file: () => path.join(__dirname, "tts-settings.json"),
+  label: "tts-settings.json（BRIDGE のフォルダー）",
+  restoreSources: TTS_FALLBACK_FILE ? () => [{ file: TTS_FALLBACK_FILE, label: "userData の読み上げの設定" }] : undefined,
+  defaults: () => (TTS_FALLBACK_FILE && (peekJsonFile(TTS_FALLBACK_FILE) || peekJsonFile(lastGoodPath(TTS_FALLBACK_FILE)))) || { ...TTS_DEFAULTS },
+  defaultsLabel: TTS_FALLBACK_FILE ? "userData の読み上げの設定（無ければ既定値）" : undefined,
+  record: entry => logToFileOnly(`[設定] ${describeRecovery(entry)}`),
+});
+
 function loadTtsConfig() {
-  const p = path.join(__dirname, "tts-settings.json");
-  if (!fs.existsSync(p)) return normalizeTtsConfig(TTS_DEFAULTS);
-  try {
-    return normalizeTtsConfig(JSON.parse(fs.readFileSync(p, "utf-8")));
-  } catch {
-    return normalizeTtsConfig(TTS_DEFAULTS);
-  }
+  return normalizeTtsConfig(ttsSettingsFile.read());
 }
 
 function ttsHttpPost(port, reqPath, body, timeoutMs = 15000) {

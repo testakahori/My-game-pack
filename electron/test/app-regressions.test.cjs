@@ -1067,8 +1067,14 @@ test("設定バックアップIPC: game_ で始まる共通のコマンドを使
 test("読み上げ: Bridgeに保存できなければ成功として返さない", async (t) => {
   const app = loadApp(t);
   const destination = path.join(app.root, "bridge", "tts-settings.json");
-  fs.mkdirSync(destination);
-  assert.throws(() => app.invoke("tts:settings:write", { engine: "voicevox", enabled: true }));
+  // 前はここをフォルダーにして書けなくしていた。今はフォルダーも壊れたファイルとして別の名前に残してから書くので、
+  // 差し替えを失敗させて確かめる（設定ファイルの PR2）。
+  const rename = fs.renameSync;
+  const restore = () => { fs.renameSync = rename; };
+  t.after(restore);
+  fs.renameSync = (from, to) => { if (to === destination) throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" }); return rename(from, to); };
+  assert.throws(() => app.invoke("tts:settings:write", { engine: "voicevox", enabled: true }), /EACCES/);
+  restore();
   assert.equal(fs.existsSync(path.join(app.root, "tts-settings.json")), false);
 });
 
