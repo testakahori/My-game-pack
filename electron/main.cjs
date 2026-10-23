@@ -8,6 +8,9 @@ const { runProc } = require("./process_runner.cjs");
 // サーバー・BRIDGE の停止を、出どころ（どのボタン・操作から来たか）付きで logs/stop-requests.log に残す。
 const { createStopRequestLog } = require("./stop_requests.cjs");
 const stopRequests = createStopRequestLog({ file: () => path.join(app.getPath("userData"), "logs", "stop-requests.log") });
+// 設定ファイルが壊れていて戻したことを logs/settings-recovery.log に残す（画面には出さない。2026-10-23 設計書の 5.3）。
+const { createSettingsRecoveryLog } = require("./settings_recovery_log.cjs");
+const settingsRecovery = createSettingsRecoveryLog({ file: () => path.join(app.getPath("userData"), "logs", "settings-recovery.log") });
 const { createSettingsBackups } = require("./settings_backups.cjs");
 const { assertGameCommands } = require('./game_command_scope.cjs');
 const { bridgeCommandsDir } = require("../bridge/config_defaults.cjs");
@@ -24,6 +27,7 @@ const appConfig = createAppConfig({
   getSettingsBackups: () => settingsBackups,
   migrateSavedConfig: () => bridgeSettings.ensureSavedConfigMigrated(),
   refreshGameModsOnStartup: () => refreshGameModsOnStartup(),
+  recordRecovery: entry => settingsRecovery.record(entry),
 });
 const { getAppConfigPath, readAppConfig, writeAppConfig, consumeInstallerSetupReset } = appConfig;
 appConfig.register(ipcMain);

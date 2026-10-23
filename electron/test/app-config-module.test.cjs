@@ -5,14 +5,18 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createAppConfig } = require('../app_config.cjs');
+const { createOperatorAuth } = require('../operator_auth.cjs');
+const { lastGoodPath } = require('../../bridge/safe_json_file.cjs');
 
-function setup(t, { packaged = false, serverStarting = false } = {}) {
+function setup(t, { packaged = false, serverStarting = false, recordRecovery } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'app-config-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  const calls = [], handlers = new Map();
+  const calls = [], handlers = new Map(), records = [];
   const app = { isPackaged: packaged, getPath: () => dir, getVersion: () => '9.9.9' };
   const appConfig = createAppConfig({
     app,
+    recordRecovery: recordRecovery || (entry => records.push(entry)),
+    now: () => new Date(2026, 9, 23, 15, 30, 12),
     assertGameProfileIdle: () => calls.push('gameProfileIdle'),
     assertMapIdle: () => calls.push('mapIdle'),
     isServerStarting: () => serverStarting,
@@ -22,7 +26,8 @@ function setup(t, { packaged = false, serverStarting = false } = {}) {
     migrateSavedConfig: () => calls.push('migrateConfig'),
   });
   appConfig.register({ handle: (name, fn) => handlers.set(name, fn) });
-  return { dir, app, appConfig, calls, invoke: (name, ...args) => handlers.get(name)({}, ...args), handlers };
+  const file = path.join(dir, 'app-config.json');
+  return { dir, app, appConfig, calls, records, file, brokenFile: file + '.broken-20261023-153012', invoke: (name, ...args) => handlers.get(name)({}, ...args), handlers };
 }
 
 // 手動インストール（更新も含む）のあとは、初期セットアップを終えるまで設定の場所が userData/bridge の予備を指す。
@@ -39,18 +44,110 @@ test('保存済みの設定の直し: 初期セットアップを終えたとき
   assert.equal(x.calls.filter(c => c === 'migrateConfig').length, 2, '保存先を変えたとき');
 });
 
-test('読み込み: ファイルがない・壊れているときは既定値、書き込みは今の値に足し、保存先は絶対パスにする', t => {
-  const { dir, appConfig } = setup(t);
+// 壊れたファイルは名前を変えて残し、そのあと保存しても上書きしない（2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 5・9。
+// 前は壊れたファイルを既定値で読み、次の保存で上書きしていた）。
+test('読み込み: ファイルがない・壊れていて写しも無いときは既定値。壊れたファイルは残し、保存しても上書きしない。書き込みは今の値に足し、保存先は絶対パスにする', t => {
+  const { appConfig, file, brokenFile, records } = setup(t);
   assert.deepEqual(appConfig.readAppConfig(), { serverFolder: '', setupComplete: false });
-  fs.writeFileSync(path.join(dir, 'app-config.json'), '{壊れた');
+  fs.writeFileSync(file, '{壊れた');
   assert.deepEqual(appConfig.readAppConfig(), { serverFolder: '', setupComplete: false });
+  assert.equal(fs.readFileSync(brokenFile, 'utf8'), '{壊れた');
+  assert.deepEqual(records.map(entry => [entry.reason, entry.action]), [['JSON として読めない', 'defaults']]);
   appConfig.writeAppConfig({ serverFolder: 'server', authEmail: 'a@b.cd', authToken: 't', authLoginAt: 'x' });
   appConfig.writeAppConfig({ minecraftPlayerName: 'Steve' });
+  assert.equal(fs.readFileSync(brokenFile, 'utf8'), '{壊れた', '保存しても壊れたファイルは残る');
   const saved = appConfig.readAppConfig();
   assert.equal(path.isAbsolute(saved.serverFolder), true);
   assert.equal(saved.minecraftPlayerName, 'Steve');
-  assert.equal(appConfig.getAppConfigPath(), path.join(dir, 'app-config.json'));
+  assert.equal(appConfig.getAppConfigPath(), file);
   assert.deepEqual(Object.keys(appConfig.readPublicAppConfig()).sort(), ['minecraftPlayerName', 'serverFolder', 'setupComplete'], '画面にはログインの情報を渡さない');
+});
+
+test('壊れていたら、前の正しい状態の写しから戻す。ログインも戻る', t => {
+  const { dir, appConfig, file, brokenFile, records } = setup(t);
+  appConfig.writeAppConfig({ serverFolder: dir, setupComplete: true, authEmail: 'op@example.com', authToken: 'token', authLoginAt: '2026-10-23T06:00:00.000Z' });
+  appConfig.writeAppConfig({ minecraftPlayerName: 'Steve' });
+  fs.writeFileSync(file, Buffer.alloc(16));
+  const config = appConfig.readAppConfig();
+  assert.equal(config.serverFolder, dir);
+  assert.equal(config.setupComplete, true);
+  assert.deepEqual([config.authEmail, config.authToken, config.authLoginAt], ['op@example.com', 'token', '2026-10-23T06:00:00.000Z']);
+  assert.equal(config.minecraftPlayerName, undefined, '写しは最後の保存の1つ前の状態');
+  assert.deepEqual(fs.readFileSync(brokenFile), Buffer.alloc(16));
+  assert.deepEqual(records, [{ file, reason: 'JSON として読めない', action: 'restored', brokenFile }]);
+});
+
+test('壊れている: 中身が null・配列、表の項目の型の違い。表に無い項目は確かめない', t => {
+  const broken = [
+    ['null', 'オブジェクトでない'], ['[]', 'オブジェクトでない'],
+    ['{"serverFolder":3}', '項目 serverFolder の型が違う'], ['{"setupComplete":"yes"}', '項目 setupComplete の型が違う'],
+    ['{"authToken":1}', '項目 authToken の型が違う'], ['{"minecraftPlayerName":null}', '項目 minecraftPlayerName の型が違う'],
+  ];
+  for (const [content, reason] of broken) {
+    const { appConfig, file, records } = setup(t);
+    fs.writeFileSync(file, content);
+    assert.deepEqual(appConfig.readAppConfig(), { serverFolder: '', setupComplete: false }, content);
+    assert.deepEqual(records.map(entry => entry.reason), [reason], content);
+  }
+  const { appConfig, file, records } = setup(t);
+  fs.writeFileSync(file, '{"serverFolder":"x","somethingElse":3}');
+  assert.deepEqual(appConfig.readAppConfig(), { serverFolder: 'x', setupComplete: false, somethingElse: 3 });
+  assert.deepEqual(records, []);
+});
+
+// 更新した直後の配信者の PC にある設定を、壊れていると扱わない（過去の版で書いた項目と値の型は git の履歴で確かめた）。
+test('今まで書いたことのある形のファイルは、壊れていると扱わない', t => {
+  const { dir, appConfig, file, records } = setup(t);
+  const saved = {
+    serverFolder: dir, setupComplete: true, setupRequiredByInstall: false, setupRequiredAt: '2026-10-01T09:00:00.000Z',
+    minecraftPlayerName: 'Steve', minecraftLauncherPath: 'C:/XboxGames/Minecraft Launcher/Content/Minecraft.exe',
+    minecraftGameFolder: path.join(dir, '.minecraft'), autoBackupOnServerStart: true,
+    bridgeVersion: '1.0.50', gameModsVersion: '1.0.50', gameModsRefreshFailed: '', gameModsRefreshError: '',
+    authEmail: 'op@example.com', authToken: 'a'.repeat(64), authLoginAt: '2026-10-01T09:00:00.000Z',
+  };
+  fs.writeFileSync(file, JSON.stringify(saved, null, 2));
+  assert.deepEqual(appConfig.readAppConfig(), saved);
+  assert.deepEqual(records, []);
+  assert.deepEqual(fs.readdirSync(dir).filter(name => name.startsWith('app-config.json.')), []);
+});
+
+// アプリは getServerRoot などから何度もアプリの設定を読む。戻したあとは正しいファイルなので、もう戻さない。
+test('一度戻したら、次に読むときは戻さず、記録しない', t => {
+  const { dir, appConfig, file, records } = setup(t);
+  appConfig.writeAppConfig({ serverFolder: dir });
+  appConfig.writeAppConfig({ setupComplete: true });
+  fs.writeFileSync(file, '{壊れた');
+  for (let i = 0; i < 3; i++) assert.equal(appConfig.readAppConfig().serverFolder, dir);
+  assert.equal(records.length, 1);
+});
+
+test('中身が null でも、ログインの確かめは「ログインしていない」', async t => {
+  const { appConfig, file } = setup(t);
+  fs.writeFileSync(file, 'null');
+  const handlers = new Map();
+  createOperatorAuth({ readAppConfig: appConfig.readAppConfig, writeAppConfig: appConfig.writeAppConfig }).register({ handle: (name, fn) => handlers.set(name, fn) });
+  assert.deepEqual(await handlers.get('auth:status')({}), { authenticated: false, email: '' });
+});
+
+test('記録のファイルを書けなくても、アプリの設定は読める', t => {
+  const { dir, appConfig, file } = setup(t, { recordRecovery: () => { throw new Error('記録できない'); } });
+  appConfig.writeAppConfig({ serverFolder: dir });
+  appConfig.writeAppConfig({ setupComplete: true });
+  fs.writeFileSync(file, '{壊れた');
+  assert.equal(appConfig.readAppConfig().serverFolder, dir);
+  assert.equal(fs.existsSync(lastGoodPath(file)), true);
+});
+
+test('本文: アプリの設定を fs で直接読み書きせず、既定値は表の1か所。main は記録をつなぐ', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../app_config.cjs'), 'utf8');
+  assert.doesNotMatch(source, /writeFileSync|readFileSync/);
+  assert.doesNotMatch(source, /serverFolder: ""/);
+  assert.match(source, /require\("\.\/app_config_fields\.json"\)/);
+  assert.match(source, /createSafeJsonFile\(/);
+  const main = fs.readFileSync(path.join(__dirname, '../main.cjs'), 'utf8');
+  assert.match(main, /createSettingsRecoveryLog\(/);
+  assert.match(main, /"settings-recovery\.log"/);
+  assert.match(main, /recordRecovery:/);
 });
 
 test('画面からの書き込みは決まった項目・型だけ', () => {
