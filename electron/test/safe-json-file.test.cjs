@@ -217,3 +217,35 @@ test('記録の文', () => {
   assert.equal(describeRecovery({ ...entry, action: 'defaults', brokenFile: '' }),
     'app-config.json が壊れていた（JSON として読めない）。別の名前で残せなかったので、ファイルには触らず、既定値で動く');
 });
+
+// Windows では、ウイルス対策などが一瞬ファイルを開いていると差し替えが EPERM・EBUSY で失敗することがある。短く数回やり直す（最後のレビューの軽い 1）。
+test('書く: 差し替えが一時的に失敗したら、短く数回やり直す。ずっと失敗するなら投げる', t => {
+  const { file } = setup(t);
+  let calls = 0;
+  const restore = replace(t, 'renameSync', original => (from, to) => {
+    calls++;
+    if (calls <= 2) throw Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' });
+    return original(from, to);
+  });
+  writeFileDurable(file, 'after');
+  restore();
+  assert.equal(calls, 3);
+  assert.equal(fs.readFileSync(file, 'utf8'), 'after');
+  let attempts = 0;
+  const restoreAlways = replace(t, 'renameSync', () => () => { attempts++; throw eperm(); });
+  assert.throws(() => writeFileDurable(file, 'never'), /EPERM/);
+  restoreAlways();
+  assert.ok(attempts > 1 && attempts <= 5, String(attempts));
+  assert.equal(fs.readFileSync(file, 'utf8'), 'after');
+});
+
+// 書く値の型が違えば書かない。書いてしまうと、次に読むときにファイル全体（ログインも）が壊れている扱いになり、1つ前の写しに戻る（最後のレビューの軽い 2）。
+test('書く: 書く値が正しくなければ書かず、今のファイルも写しもそのまま', t => {
+  const { file, store } = setup(t);
+  store.write({ a: '1' });
+  assert.throws(() => store.write({ a: 1 }), /x\.json に書く値が正しくありません（項目 a の型が違う）/);
+  assert.throws(() => store.write(null), /x\.json に書く値が正しくありません（オブジェクトでない）/);
+  assert.throws(() => store.write(['a']), /オブジェクトでない/);
+  assert.equal(fs.readFileSync(file, 'utf8'), JSON.stringify({ a: '1' }, null, 2));
+  assert.equal(fs.existsSync(lastGoodPath(file)), false);
+});

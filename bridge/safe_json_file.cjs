@@ -8,6 +8,22 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 
+// Windows では、ウイルス対策などが一瞬ファイルを開いていると差し替えが失敗することがある。短く数回やり直す（合わせて 160ms ほど。最後のレビューの軽い 1）。
+const RETRY_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
+const RENAME_TRIES = 5;
+const RETRY_WAIT_MS = 40;
+const waitSync = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+function renameWithRetry(from, to) {
+  for (let attempt = 1; ; attempt++) {
+    try { fs.renameSync(from, to); return; }
+    catch (error) {
+      if (attempt >= RENAME_TRIES || !RETRY_CODES.has(error?.code)) throw error;
+      waitSync(RETRY_WAIT_MS);
+    }
+  }
+}
+
 // fs の関数は fs.xxx の形で呼ぶ（テストで差し替えるため。分割代入しない）。
 function writeFileDurable(file, content) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -16,7 +32,7 @@ function writeFileDurable(file, content) {
     const fd = fs.openSync(temp, "w");
     try { fs.writeFileSync(fd, content); fs.fsyncSync(fd); }
     finally { fs.closeSync(fd); }
-    fs.renameSync(temp, file);
+    renameWithRetry(temp, file);
   } finally {
     try { if (fs.existsSync(temp)) fs.unlinkSync(temp); } catch { /* 一時ファイルが残るだけ */ }
   }
@@ -47,9 +63,14 @@ function inspect(file, problem) {
   let value;
   try { value = JSON.parse(text); }
   catch { return { bytes, reason: "JSON として読めない" }; }
-  if (!value || typeof value !== "object" || Array.isArray(value)) return { bytes, reason: "オブジェクトでない" };
-  const reason = problem ? problem(value) : "";
+  const reason = valueProblem(value, problem);
   return reason ? { bytes, reason } : { bytes, value };
+}
+
+// 値そのものの理由（オブジェクトでない・ファイルごとの項目の型）。読むときと書くときの両方で使う。
+function valueProblem(value, problem) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "オブジェクトでない";
+  return problem ? problem(value) : "";
 }
 
 // 記録の1行の文（時刻は書く側が付ける）。
@@ -145,8 +166,11 @@ function createSafeJsonFile({ file, defaults, problem, record, now = () => new D
     read() { return load().value; },
     // 今のファイルが初めから正しかったときだけ、その中身を写しにしてから書く（壊れた中身で写しを上書きしない）。
     // 壊れたファイルを別の名前で残せていないときは書かない（上書きで失わない）。
+    // 書く値の型が違えば書かない（書くと次に読むときにファイル全体が壊れている扱いになり、1つ前の写しに戻る。最後のレビューの軽い 2）。
     write(value) {
       const target = file();
+      const invalid = valueProblem(value, problem);
+      if (invalid) throw new Error(`${path.basename(target)} に書く値が正しくありません（${invalid}）`);
       const current = load();
       if (current.state === "unpreserved") throw new Error(`${path.basename(target)} が壊れていて、別の名前で残せません（${current.reason}）`);
       if (current.state === "ok") writeFileDurable(lastGoodPath(target), current.bytes);

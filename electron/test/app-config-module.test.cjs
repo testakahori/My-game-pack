@@ -237,3 +237,11 @@ test('型の宣言は表を使い、画面が書ける項目・画面に渡さ�
   assert.ok(start >= 0 && block.length > 0);
   assert.doesNotMatch(block, /serverFolder: string;|setupRequiredAt: string;/, '項目を手で書かない');
 });
+
+test('書く: 表の型と違う値は書かず、今のアプリの設定はそのまま', t => {
+  const { dir, appConfig, file } = setup(t);
+  appConfig.writeAppConfig({ serverFolder: dir });
+  const before = fs.readFileSync(file, 'utf8');
+  assert.throws(() => appConfig.writeAppConfig({ minecraftGameFolder: null }), /項目 minecraftGameFolder の型が違う/);
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+});
