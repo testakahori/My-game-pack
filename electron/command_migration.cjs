@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { atomicWrite } = require("./settings_backups.cjs");
+// 書く前の中身を前の正しい状態の写しにする（設定ファイルの PR3）。
+const { writeWithLastGood } = require("../bridge/safe_json_file.cjs");
 const { bridgeCommandKey } = require("../bridge/command_files.cjs");
 const { bridgeCommandsDir } = require("../bridge/config_defaults.cjs");
 
@@ -37,6 +38,6 @@ function migrateRetiredCommands(bridgeDir) {
     const source = path.join(bridgeCommandsDir(bridgeDir), file);
     if (fs.existsSync(source)) fs.copyFileSync(source, path.join(backup, file));
   }
-  atomicWrite(configPath, JSON.stringify(after, null, 2));
+  writeWithLastGood(configPath, JSON.stringify(after, null, 2));
 }
 module.exports = { migrateCommandReferences, migrateRetiredCommands };

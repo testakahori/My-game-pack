@@ -18,14 +18,15 @@ function setup(t) {
   const configPath = path.join(bridge, 'config.minecraft.json');
   const config = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../bridge/config.minecraft.json'), 'utf8'));
   fs.writeFileSync(configPath, JSON.stringify({ ...config, tiktokUsername: 'akahoridouma', mappings: [] }));
-  const calls = [], state = { bridgeRunning: false }, handlers = new Map(), dialogs = [], backedUp = [];
+  const calls = [], state = { bridgeRunning: false, active: null }, handlers = new Map(), dialogs = [], backedUp = [], records = [];
   const deps = {
     app: { getVersion: () => '9.9.9' }, shell: { openPath: async () => '' },
     dialog: { showMessageBox: async options => { dialogs.push(options); return { response: 0 }; } },
     getConfigPath: () => configPath, ensureConfigExists: () => {}, getBridgeBatDir: () => bridge, getServerRoot: () => root,
     getGiftsMinPath: () => path.join(root, 'gifts.min.json'), getGiftsMetaPath: () => path.join(root, 'gifts.meta.json'),
     getInstalledBridgeRoot: () => root, getBridgeDir: () => bridge,
-    gameProfiles: { list: () => ({ applied: true, recoveryRequired: false, active: 'common' }) },
+    gameProfiles: { list: () => ({ applied: true, recoveryRequired: false, active: 'common' }), peekActive: () => state.active },
+    recordRecovery: entry => records.push(entry), now: () => new Date(2026, 9, 24, 10, 0, 0),
     assertGameProfileIdle: () => calls.push('gameProfileIdle'),
     settingsBackups: { create: kind => { calls.push('backup:' + kind); backedUp.push(fs.readFileSync(configPath, 'utf8')); }, list: () => [], restore: id => calls.push('restore:' + id) },
     readTtsSettings: () => ({ enabled: false, engine: 'voicevox' }),
@@ -34,7 +35,7 @@ function setup(t) {
   };
   const settings = createBridgeSettings(deps);
   settings.register({ handle: (name, fn) => handlers.set(name, fn) });
-  return { bridge, configPath, calls, state, settings, deps, dialogs, backedUp, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
+  return { bridge, configPath, calls, state, settings, deps, dialogs, backedUp, records, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
 }
 
 // 保存済みの設定は、アプリの更新のときに1回だけ直す（2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 7）。
@@ -107,9 +108,14 @@ test('保存済みの設定を直す: 直すものがなければバックアッ
   assert.deepEqual(x.settings.migrateSavedConfigOnStartup().changes, []);
   assert.deepEqual(x.calls, []);
   assert.equal(JSON.parse(fs.readFileSync(x.configPath, 'utf8')).configVersion, 2);
+  // 読めないときは、前の正しい状態の写し（上で版を書いたときにできた）から戻す。写しが無ければ置いたまま（前は何もしなかった。設定ファイルの PR3）。
   fs.writeFileSync(x.configPath, '{broken');
   assert.deepEqual(x.settings.migrateSavedConfigOnStartup().changes, []);
-  assert.equal(fs.readFileSync(x.configPath, 'utf8'), '{broken');
+  assert.equal(JSON.parse(fs.readFileSync(x.configPath, 'utf8')).configVersion, 2, '写しから戻して版を書く');
+  fs.rmSync(x.configPath + '.last-good');
+  fs.writeFileSync(x.configPath, '{broken2');
+  assert.deepEqual(x.settings.migrateSavedConfigOnStartup().changes, []);
+  assert.equal(fs.readFileSync(x.configPath, 'utf8'), '{broken2', '写しが無ければ置いたまま');
   fs.rmSync(x.configPath);
   assert.deepEqual(x.settings.migrateSavedConfigOnStartup().changes, []);
   assert.equal(fs.existsSync(x.configPath), false, '設定のファイルを作らない');
@@ -193,4 +199,74 @@ test('配信前チェック: BRIDGE の稼働・BridgeMOD の応答・読み上�
   x.state.bridgeRunning = true;
   fs.writeFileSync(path.join(x.bridge, 'runtime-status.json'), JSON.stringify({ tiktok: { state: 'connected', username: 'akahoridouma' } }));
   assert.equal(check(await x.invoke('preflight:run'), 'bridge').status, 'ok');
+});
+
+// ギフト設定が壊れていたら、起動のとき・BRIDGE を起動する前・画面が読むときに写しから戻す。写しが使えなければ雛形を作らず、
+// 壊れたファイルを置いたままにする（2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 6.4・6.6。設定ファイルの PR3）。
+const brokenCopies = x => fs.readdirSync(x.bridge).filter(name => name.startsWith('config.minecraft.json.broken-'));
+
+test('ギフト設定: 壊れていたら起動のときに写しから戻す', async t => {
+  const x = setup(t);
+  const saved = JSON.parse(fs.readFileSync(x.configPath, 'utf8'));
+  await x.invoke('config:write', { ...saved, options: { ...saved.options, giftCooldownMs: 301 } });
+  await x.invoke('config:write', { ...saved, options: { ...saved.options, giftCooldownMs: 302 } });
+  fs.writeFileSync(x.configPath, '{壊れた');
+  x.settings.migrateSavedConfigOnStartup();
+  assert.equal(JSON.parse(fs.readFileSync(x.configPath, 'utf8')).options.giftCooldownMs, 301, '写しは1つ前の保存');
+  assert.deepEqual(x.records.map(r => r.action), ['restored']);
+  assert.equal(brokenCopies(x).length, 1);
+});
+
+test('ギフト設定: 写しが無ければ、雛形を作らずに壊れたファイルを置いたまま', async t => {
+  const x = setup(t);
+  fs.writeFileSync(x.configPath, '{壊れた');
+  assert.doesNotThrow(() => x.settings.migrateSavedConfigOnStartup());
+  await assert.rejects(x.invoke('config:read'), '画面は今までどおり読めない');
+  assert.equal(fs.readFileSync(x.configPath, 'utf8'), '{壊れた', '置いたまま');
+  assert.equal(brokenCopies(x).length, 1);
+  assert.deepEqual(x.records.map(r => r.action), ['kept'], '何度呼んでも記録は1回');
+});
+
+test('ギフト設定: 写しのゲームが今のゲームと合わなければ戻さない（設計書 6.6）', t => {
+  for (const [game, restored] of [['saikutu', false], ['run', true]]) {
+    const x = setup(t);
+    x.state.active = 'run';
+    const saved = JSON.parse(fs.readFileSync(x.configPath, 'utf8'));
+    fs.writeFileSync(x.configPath + '.last-good', JSON.stringify({ ...saved, gameProfile: game }));
+    fs.writeFileSync(x.configPath, '{壊れた');
+    x.settings.migrateSavedConfigOnStartup();
+    assert.equal(fs.readFileSync(x.configPath, 'utf8') === '{壊れた', !restored, game);
+    assert.equal(x.records[0].action, restored ? 'restored' : 'kept', game);
+  }
+});
+
+test('ギフト設定: 確かめのエラーがあっても壊れているとは扱わない', t => {
+  const x = setup(t);
+  fs.writeFileSync(x.configPath, JSON.stringify({ tiktokUsername: 'foo-bar', mappings: [] }));
+  x.settings.migrateSavedConfigOnStartup();
+  assert.deepEqual(x.records, []);
+  assert.deepEqual(brokenCopies(x), []);
+});
+
+test('ギフト設定: 書くと写しを残す', async t => {
+  const x = setup(t);
+  const saved = JSON.parse(fs.readFileSync(x.configPath, 'utf8'));
+  await x.invoke('config:write', { ...saved, options: { ...saved.options, giftCooldownMs: 311 } });
+  const first = fs.readFileSync(x.configPath, 'utf8');
+  await x.invoke('config:write', { ...saved, options: { ...saved.options, giftCooldownMs: 312 } });
+  assert.equal(fs.readFileSync(x.configPath + '.last-good', 'utf8'), first);
+});
+
+test('本文: ギフト設定を書く所は writeWithLastGood、新しいファイルを作る所は atomicWrite・writeFileDurable', () => {
+  const read = name => fs.readFileSync(path.join(__dirname, '..', name), 'utf8');
+  for (const name of ['bridge_settings.cjs', 'command_migration.cjs']) {
+    const source = read(name);
+    assert.ok(!source.includes('atomicWrite(configPath') && !source.includes('atomicWrite(getConfigPath()'), name);
+    assert.match(source, /writeWithLastGood\(/, name);
+  }
+  assert.ok(!read('paths.cjs').includes('fs.writeFileSync(configPath'));
+  assert.ok(!read('bridge_sync.cjs').includes('fs.writeFileSync(dstConfigPath'));
+  const main = read('main.cjs');
+  const start = main.indexOf('createBridgeSettings({');
+  assert.match(main.slice(start, main.indexOf('});', start)), /recordRecovery:/);
 });

@@ -14,12 +14,29 @@ const { bridgeCommandsDir } = require("../bridge/config_defaults.cjs");
 const { gameOfCommand } = require("../bridge/game_commands.cjs");
 const { availableGameCommands, assertGameCommands } = require("./game_command_scope.cjs");
 const { checkEngine } = require("./tts.cjs");
+const { createSafeJsonFile, writeWithLastGood } = require("../bridge/safe_json_file.cjs");
 
 // BRIDGE の子プロセスと BridgeMOD との通信は、あとで main で作られるので、呼ばれたときに読む関数で受け取る。
+// recordRecovery は、ギフト設定が壊れていて戻したことの記録（main が logs/settings-recovery.log に書く。設定ファイルの PR3）。
 function createBridgeSettings({
   app, dialog, shell, getConfigPath, ensureConfigExists, getBridgeBatDir, getServerRoot, getGiftsMinPath, getGiftsMetaPath,
   getInstalledBridgeRoot, getBridgeDir, gameProfiles, assertGameProfileIdle, settingsBackups, readTtsSettings, requestBridgeMod, isBridgeRunning,
+  recordRecovery, now,
 }) {
+  // ギフト設定が壊れていたら、前の正しい状態の写しから戻す。写しが無い・切り替えの記録の「今のゲーム」と合わない（設計書 6.6）ときは、
+  // 空の雛形で動かさず、壊れたファイルを置いたままにする（中身の写しは .broken-… に残す）。配信前チェックが「設定バックアップを確認してください」と
+  // 案内し、読めないままでも設定のバックアップから戻せる（2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 6.4）。
+  // 確かめのエラー（スキーマ・TikTok ID など）は壊れているとは扱わない。古い版の設定は形がいろいろあるので、項目の型でも決めない。
+  const giftConfigFile = createSafeJsonFile({
+    file: getConfigPath, keepBroken: true, defaults: () => ({}), record: recordRecovery, now,
+    acceptSource: value => { const active = gameProfiles.peekActive(); return !active || (value.gameProfile || "common") === active; },
+  });
+  // 起動のとき・BRIDGE を起動する前・初期セットアップを終えたとき（どれも migrateSavedConfigOnStartup を通る）と、画面が読むときに呼ぶ。
+  // BRIDGE は自分では戻さない（設計書 6.4「BRIDGE を起動する前に、アプリが戻しておく」）。
+  function recoverGiftConfig() {
+    return giftConfigFile.check();
+  }
+
   // 保存済みの設定（読めなければ null）。前からある割り当てを、新しい問題と区別するために使う。
   function readSavedBridgeConfig() {
     try { return JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch { return null; }
@@ -45,7 +62,8 @@ function createBridgeSettings({
     if (json.length > 2_000_000) throw new Error("Config too large.");
 
     if (fs.readFileSync(configPath, "utf8") !== json) settingsBackups.create("automatic");
-    atomicWrite(configPath, json);
+    // 書く前の中身を前の正しい状態の写しにする（壊れていれば壊れたファイルとして残す。設定ファイルの PR3）。
+    writeWithLastGood(configPath, json, { now });
     return { ok: true };
   }
 
@@ -53,12 +71,13 @@ function createBridgeSettings({
   // （2026-10-18 設計書 docs/superpowers/specs/2026-10-18-logic-copies-design.md の 7）。画面が設定を読む前に呼ぶ。
   // 設定が無い・読めない、または版が今の決まり以上なら何もしない。直すものがあれば、直す前にバックアップを取る。
   function migrateSavedConfigOnStartup() {
+    recoverGiftConfig();
     const saved = readSavedBridgeConfig();
     if (!saved || typeof saved !== "object" || Array.isArray(saved)) return { changes: [] };
     if (Number(saved.configVersion) >= CONFIG_VERSION) return { changes: [] };
     const { config, changes } = migrateBridgeConfig(saved);
     if (changes.length) settingsBackups.create("migration");
-    atomicWrite(getConfigPath(), JSON.stringify(config, null, 2));
+    writeWithLastGood(getConfigPath(), JSON.stringify(config, null, 2), { now });
     if (changes.length) console.log(`[Config] 保存済みの設定を直しました: ${changes.join("、")}`);
     return { changes };
   }
@@ -124,6 +143,8 @@ function createBridgeSettings({
     // --------------------
     ipcMain.handle("config:read", async () => {
       const configPath = getConfigPath();
+      // 壊れていれば写しから戻す（戻せなければ置いたまま。今までどおり読めないエラーになる）。置いたままなら、雛形も作らない（ファイルがある）。
+      recoverGiftConfig();
       ensureConfigExists(configPath);
 
       const raw = fs.readFileSync(configPath, "utf-8");
@@ -229,7 +250,7 @@ function createBridgeSettings({
     });
   }
 
-  return { readSavedBridgeConfig, writeBridgeConfig, migrateSavedConfigOnStartup, ensureSavedConfigMigrated, notifyConfigMigration, selectableCommandNames, readCommandMetadata, register };
+  return { readSavedBridgeConfig, writeBridgeConfig, migrateSavedConfigOnStartup, ensureSavedConfigMigrated, notifyConfigMigration, selectableCommandNames, readCommandMetadata, recoverGiftConfig, register };
 }
 
 module.exports = { createBridgeSettings };

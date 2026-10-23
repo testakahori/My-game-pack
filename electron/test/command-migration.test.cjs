@@ -31,6 +31,8 @@ test("コマンド移行: 元の割り当てを保存してから更新し、再
   assert.equal(backups.length, 1);
   assert.equal(fs.readFileSync(path.join(root, "retired-command-backups", backups[0], "config.minecraft.json"), "utf8"), raw);
   assert.equal(JSON.parse(fs.readFileSync(path.join(root, "config.minecraft.json"))).mappings[0].commandFile, "fall_sand.txt");
+  // 直す前の中身は、前の正しい状態の写しにも残す（設定ファイルの PR3）。
+  assert.equal(fs.readFileSync(path.join(root, "config.minecraft.json.last-good"), "utf8"), raw);
   migrateRetiredCommands(root);
   assert.deepEqual(fs.readdirSync(path.join(root, "retired-command-backups")), backups);
 });

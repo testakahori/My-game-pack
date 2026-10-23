@@ -93,6 +93,7 @@ const bridgeSettings = createBridgeSettings({
   getInstalledBridgeRoot, getBridgeDir, gameProfiles, assertGameProfileIdle, settingsBackups, readTtsSettings,
   requestBridgeMod: (...args) => requestBridgeMod(...args),
   isBridgeRunning: () => Boolean(bridgeProcess.child()),
+  recordRecovery: entry => settingsRecovery.record(entry),
 });
 const { readSavedBridgeConfig, writeBridgeConfig, selectableCommandNames } = bridgeSettings;
 bridgeSettings.register(ipcMain);

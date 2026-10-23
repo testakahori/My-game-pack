@@ -4,6 +4,8 @@
 const path = require("path");
 const fs = require("fs");
 const { newBridgeConfig } = require("../bridge/config_defaults.cjs");
+// 一時ファイルに書いてディスクに確実に残してから差し替える（設定ファイルの PR1・PR3）。
+const { writeFileDurable } = require("../bridge/safe_json_file.cjs");
 
 function createPaths({ app, process, appDir, readAppConfig }) {
   // ✅ 重要：dev/prod ではなく「パッケージ済みか」で分岐する
@@ -74,7 +76,7 @@ function createPaths({ app, process, appDir, readAppConfig }) {
     // options/likeEvents/各種イベントを欠いた最小configだと、config:write の commandsDir矯正
     // （options が無いと発火しない）や各イベントの既定動作が効かなくなるため、完全な形で書き出す。
     // 雛形は bridge/config_defaults.cjs の1か所（配布の準備 scripts/prepare-bridge-runtime.cjs と同じ。処理のコピー PR4）。
-    fs.writeFileSync(configPath, JSON.stringify(newBridgeConfig(), null, 2), "utf-8");
+    writeFileDurable(configPath, JSON.stringify(newBridgeConfig(), null, 2));
   }
 
   // テンプレートパス（常にバンドル版を返す）
