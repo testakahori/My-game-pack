@@ -82,6 +82,8 @@ const settingsBackups = createSettingsBackups({
   }),
   version: () => app.getVersion(), readTts: () => readTtsSettings(), readApp: () => readAppConfig(),
   isRunning: () => Boolean(bridgeProcess.isActive() || mapOperations.isBusy() || serverProcess.isStarting() || isGameProfileBusy() || gameProfiles.list().recoveryRequired),
+  // ギフト設定が読めないときに、バックアップのゲームと比べる今のゲーム（設定ファイルの PR3）。
+  activeGame: () => gameProfiles.peekActive(),
 });
 const { createTtsIpc } = require('./tts_ipc.cjs');
 const ttsIpc = createTtsIpc({ app, process, shell, spawn, getBridgeBatDir, getConfigPath, settingsBackups, recordRecovery: entry => settingsRecovery.record(entry) });
