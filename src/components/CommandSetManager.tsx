@@ -2,24 +2,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useUnsavedChanges } from "../UnsavedChanges";
 import { ipcErrorMessage } from "../lib/ipcError";
+import { saveCommandDraft, type DraftCheck } from "../lib/commandDraft";
 
 const CATEGORIES = ["お助け系", "妨害系", "その他"] as const;
 
 // 名前・コマンドの行・見出しの確かめと、同じ名前のファイルがあるかは main（bridge/command_rows.cjs の checkCommandDraft）が持つ。
-// 画面は結果を出すだけで、名前を書き換えず、自分で数えない（処理のコピー PR8）。
-type DraftCheck = { filename: string; commands: string[]; problems: string[]; exists: boolean };
-
-function downloadText(filename: string, text: string, mime = "text/plain;charset=utf-8") {
-  const blob = new Blob([text], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
+// 画面は結果を出すだけで、名前を書き換えず、自分で数えない。保存の決め方は src/lib/commandDraft.ts（処理のコピー PR8）。
 
 const CommandSetManager: React.FC = () => {
   const [title, setTitle]           = useState("ハスク！");
@@ -63,18 +51,24 @@ const CommandSetManager: React.FC = () => {
   const content = buildContent();
 
   // 中身と名前が変わるたびに main で確かめる。古い返事は捨てる。確かめを待つ間は保存できない。
+  // 待つ間も前の結果を出したままにする（前は入力のたびに消し、問題の枠・保存先・保存ボタンがちらついた。PR8 の最後のレビュー）。
   const [check, setCheck] = useState<DraftCheck | null>(null);
   const [checkError, setCheckError] = useState("");
+  const [checking, setChecking] = useState(true);
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const api: any = (window as any).mygamepack;
     let current = true;
-    setCheck(null);
-    setCheckError("");
-    if (!api?.bridgeCommandsCheck) return;
+    if (!api?.bridgeCommandsCheck) {
+      setCheckError("この画面では TXT を確かめられません。アプリの中で開いてください");
+      setChecking(false);
+      return;
+    }
+    setChecking(true);
     Promise.resolve(api.bridgeCommandsCheck({ filename, content }))
-      .then((result: DraftCheck) => { if (current) setCheck(result); })
-      .catch((error: unknown) => { if (current) setCheckError(ipcErrorMessage(error)); });
+      .then((result: DraftCheck) => { if (current) { setCheck(result); setCheckError(""); } })
+      .catch((error: unknown) => { if (current) setCheckError(ipcErrorMessage(error)); })
+      .finally(() => { if (current) setChecking(false); });
     return () => { current = false; };
   }, [filename, content]);
 
@@ -90,27 +84,26 @@ const CommandSetManager: React.FC = () => {
     return problems;
   }, [check, checkError]);
 
-  const canSave = title.trim().length > 0 && Boolean(check) && healthProblems.length === 0;
+  const canSave = title.trim().length > 0 && Boolean(check) && !checking && healthProblems.length === 0;
 
   const handleSave = async () => {
     if (!canSave || !check) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const api: any = (window as any).mygamepack;
-    if (check.exists && !window.confirm(`${check.filename} はもうあります。上書きしますか？`)) return;
     setSaving(true);
     setSaveMsg(null);
     try {
-      if (api?.bridgeCommandsWrite) {
-        await api.bridgeCommandsWrite({ filename: check.filename, content });
+      const result = await saveCommandDraft({
+        check, content,
+        confirm: (message: string) => window.confirm(message),
+        write: api?.bridgeCommandsWrite ? (request) => api.bridgeCommandsWrite(request) : undefined,
+      });
+      if (result.type === "canceled") return;
+      if (result.type === "ok") {
         setSavedSnapshot(currentSnapshot);
-        setSaveMsg({ type: "ok", text: `保存しました: bridge/commands/minecraft/${check.filename}` });
-      } else {
-        downloadText(check.filename, content);
-        setSaveMsg({ type: "ok", text: `ダウンロードしました: ${check.filename}（bridge/commands/minecraft に配置してください）` });
+        setCheck(result.check);
       }
-    } catch (e: unknown) {
-      // main の理由をそのまま出す（使えない名前・ゲームパックの名前・ゲームの切り替え中など）。ダウンロードして手で移させない。
-      setSaveMsg({ type: "error", text: `保存できませんでした: ${ipcErrorMessage(e)}` });
+      setSaveMsg({ type: result.type, text: result.text });
     } finally {
       setSaving(false);
     }

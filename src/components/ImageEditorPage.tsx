@@ -5,7 +5,7 @@ import { useUnsavedChanges, useUnsavedGuard } from '../UnsavedChanges';
 import { applyPanelTemplate, cardColors, clamp, createPanel, normalizePanel, panelFilename, panelId, panelLayout, readPanelLibrary, PANEL_STORAGE_KEY, TEMPLATES, TONES, toneForCategory, type PanelCard, type PanelDesign, type PanelLibrary } from '../lib/giftPanel';
 import { drawGiftPanel, type PanelImages } from '../lib/giftPanelCanvas';
 import { commandFileStem, findCommandFile } from '../lib/commandFiles';
-import { disabledGiftIds, fromConfigMappings } from '../lib/giftMappingRows';
+import { disabledGiftIds, fromConfigMappings, mappingGiftName } from '../lib/giftMappingRows';
 import DisabledMappingMark from './DisabledMappingMark';
 
 type Gift = { id: number; name: string; diamond_count: number; image?: string | null };
@@ -98,7 +98,7 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
     const gift = gifts.find(g => String(g.id) === String(m.giftId));
     // 同じコマンドかは .txt の有無・大文字小文字を問わない（src/lib/commandFiles.ts。処理のコピー PR8）。
     const meta = findCommandFile(metadata, m.commandFile);
-    return { id: 'mapped-' + i, giftId: String(m.giftId), giftName: m.name || gift?.name || String(m.giftId),
+    return { id: 'mapped-' + i, giftId: String(m.giftId), giftName: mappingGiftName(m, gift?.name),
       image: gift?.image || null, title: meta?.title || commandFileStem(m.commandFile),
       repeat: m.repeat || 1, category: meta?.category || '', tone: toneForCategory(meta?.category || '') };
   }), [savedMappings, gifts, metadata]);
@@ -176,7 +176,8 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
     finally { setExporting(false); }
   };
   const retryImages = () => { failed.forEach(url => cache.current.delete(url)); setImageTick(t => t + 1); };
-  const addMapped = () => addCards(mappedCards.filter(c => !design.cards.some(d => d.giftId === c.giftId)));
+  // 無効のギフトは入れない（パネルの絵は視聴者に見せるもの。動かないギフトを載せない。2026-10-23 ユーザーの決定）。一つずつなら印を見て選べる。
+  const addMapped = () => addCards(mappedCards.filter(c => !disabledIds.has(c.giftId) && !design.cards.some(d => d.giftId === c.giftId)));
   const switchDocument = (id: string) => {
     if (storageError && !confirmDiscard()) return;
     const next = libraryRef.current.designs.find(d => d.id === id); if (!next) return;

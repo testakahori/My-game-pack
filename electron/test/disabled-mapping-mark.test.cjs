@@ -56,6 +56,15 @@ test('カタログ・プレビュー・画像作成: 無効の割り当てに印
   for (const file of ['src/lib/giftPanel.ts', 'src/lib/giftPanelCanvas.ts']) {
     assert.doesNotMatch(read(file), /DisabledMappingMark|DISABLED_MAPPING_MARK|無効（動きません）/, file + '（パネルの絵）に印を描かない');
   }
+  // 画像作成（PR8 の最後のレビュー）：カードのギフト名は mappingGiftName。「設定済みをまとめて追加」は無効のギフトを入れない（ユーザーの決定 10-23。パネルの絵は視聴者に見せる）。
+  const image = read('src/components/ImageEditorPage.tsx');
+  assert.match(image, /mappingGiftName\(/);
+  const addMapped = image.split(/\r?\n/).find(line => line.includes('const addMapped'));
+  assert.ok(addMapped && addMapped.includes('!disabledIds.has('), '設定済みをまとめて追加で無効のギフトを入れている');
+  // 画像作成の一覧の項目は狭いので、印は項目の幅に収める（折り返してよい）。
+  assert.match(read('src/studio.css'), /\.panel-gift-entry \.gift-disabled-mark \{[^}]*max-width: 100%;[^}]*white-space: normal;/);
+  // プレビューの印は「設定済み」の札（<em>）の中に入れない。
+  assert.doesNotMatch(read('src/components/GiftSettingsPage.tsx'), /<em>[^\n]*<DisabledMappingMark/);
   const mark = read('src/components/DisabledMappingMark.tsx');
   assert.match(mark, /DISABLED_MAPPING_HINT/, 'マウスを載せると、設定ファイルで直す方法が出る');
   assert.match(read('src/lib/giftMappingRows.ts'), /enabled: false を消してください/);

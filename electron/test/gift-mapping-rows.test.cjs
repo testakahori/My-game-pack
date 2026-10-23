@@ -14,7 +14,16 @@ function loadLib(relative) {
   compiled._compile(outputFiles[0].text, file);
   return compiled.exports;
 }
-const { fromConfigMappings, toConfigMappings, isDisabledMapping, disabledGiftIds, DISABLED_MAPPING_MARK } = loadLib('giftMappingRows.ts');
+const { fromConfigMappings, toConfigMappings, isDisabledMapping, disabledGiftIds, DISABLED_MAPPING_MARK, mappingGiftName } = loadLib('giftMappingRows.ts');
+
+// 画像作成のカードのギフト名（PR8 の最後のレビュー）。名前が空か giftId と同じ（名前を書かずに保存した割り当て）なら、カタログのギフト名を使う。
+// 前は fromConfigMappings が空の名前を giftId で埋めるので、手で書いた名前の無い割り当てのカードに「Rose」でなく「5655」と出た。
+test('画像作成のカードのギフト名: 名前が無ければカタログの名前', () => {
+  assert.equal(mappingGiftName({ giftId: '5655', name: '5655' }, 'Rose'), 'Rose');
+  assert.equal(mappingGiftName({ giftId: '5655', name: '' }, 'Rose'), 'Rose');
+  assert.equal(mappingGiftName({ giftId: '5655', name: 'バラ' }, 'Rose'), 'バラ');
+  assert.equal(mappingGiftName({ giftId: '5655', name: '' }, undefined), '5655');
+});
 
 // 無効の割り当て（手で書いた enabled: false）は、画面に「無効（動きません）」の印を出す（2026-10-23 ユーザーの決定。処理のコピー PR8）。
 test('無効の割り当て: 印の文と、無効のギフトの見分け方', () => {

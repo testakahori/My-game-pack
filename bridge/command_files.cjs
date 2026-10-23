@@ -63,7 +63,8 @@ function isBridgeCommandFile(commandFile) {
   return !/[\\/]/.test(stem) && BRIDGE_COMMAND_KEY.test(stem) && !isTxtName(stem);
 }
 
-function commandFileProblem(commandFile) {
+// explorerHint: false は、アプリの欄に名前を打つ所（TXT 作成）向け。エクスプローラーの話を付けない（処理のコピー PR8 の最後のレビュー）。
+function commandFileProblem(commandFile, { explorerHint = true } = {}) {
   if (isBridgeCommandFile(commandFile)) return "";
   const name = String(commandFile ?? "").trim();
   const stem = bridgeCommandStem(commandFile);
@@ -73,7 +74,8 @@ function commandFileProblem(commandFile) {
     // foo.txt.txt が「foo.txt」と見えるので、そのときは名前を foo にすればよいことも書く（PR7 の最後のレビュー）。
     const base = name.replace(/(\.txt)+$/i, "");
     const count = (name.length - base.length) / 4;
-    return `コマンドファイル名「${name}」は終わりに .txt が${count}つあります。ファイル名を ${base}.txt に直してください（エクスプローラーで拡張子を表示していないときは、名前を ${base} にしてください）`;
+    const hint = explorerHint ? `（エクスプローラーで拡張子を表示していないときは、名前を ${base} にしてください）` : "";
+    return `コマンドファイル名「${name}」は終わりに .txt が${count}つあります。ファイル名を ${base}.txt に直してください${hint}`;
   }
   return `コマンドファイル名「${name}」は使えません。半角英数字と _ . - だけの名前にしてください（例: neko.txt）`;
 }
@@ -123,4 +125,4 @@ function invalidCommandFileRefs(config) {
     .map(ref => ({ ...ref, message: `${ref.where}: ${commandFileProblem(ref.commandFile)}` }));
 }
 
-module.exports = { BRIDGE_COMMAND_KEY, isBridgeModTransport, isKnownTransport, usesBridgeModTransport, isTxtName, ensureTxt, sameCommandFile, bridgeCommandKey, isBridgeCommandFile, commandFileProblem, commandFileRefs, invalidCommandFileRefs };
+module.exports = { BRIDGE_COMMAND_KEY, isBridgeModTransport, isKnownTransport, usesBridgeModTransport, isTxtName, ensureTxt, sameCommandFile, bridgeCommandKey, bridgeCommandStem, isBridgeCommandFile, commandFileProblem, commandFileRefs, invalidCommandFileRefs };

@@ -39,6 +39,14 @@ export function disabledGiftIds(mappings: ReadonlyArray<{ giftId?: unknown; enab
   return new Set(mappings.filter(isDisabledMapping).map((m) => String(m.giftId ?? "").trim()).filter(Boolean));
 }
 
+// 画像作成のカードのギフト名（PR8 の最後のレビュー）。割り当ての名前が空か giftId と同じ（名前を書かずに保存した割り当て。
+// fromConfigMappings と toConfigMappings は空の名前を giftId で埋める）なら、カタログのギフト名を使う。無ければ giftId。
+export function mappingGiftName(mapping: { giftId?: unknown; name?: unknown }, catalogName?: string | null): string {
+  const giftId = String(mapping.giftId ?? "").trim();
+  const name = String(mapping.name ?? "").trim();
+  return (name && name !== giftId ? name : "") || catalogName || giftId;
+}
+
 // 画面の行を設定の mappings へ（保存する4項目と、無効のときだけ enabled: false）。
 export function toConfigMappings(list: GiftMapping[]): object[] {
   return list.map((m) => ({

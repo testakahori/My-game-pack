@@ -48,7 +48,10 @@ test('TXT 作成の確かめ: 名前の問題', () => {
   assert.deepEqual(draft('', 'say hi').problems, ['ファイル名を入力してください']);
   assert.deepEqual(draft('game_saikutu_dig', 'say hi').problems, ['ゲームパックのコマンドはパックを再登録して更新してください']);
   assert.match(draft('ネコ', 'say hi').problems[0], /ネコ\.txt.*半角英数字/);
-  assert.match(draft('foo.txt.txt', 'say hi').problems[0], /\.txt が2つあります/);
+  assert.match(draft('foo.txt.txt', 'say hi').problems[0], /\.txt が2つあります。ファイル名を foo\.txt に直してください/);
+  // TXT 作成ではアプリの欄に名前を打つので、エクスプローラーの話は出さない（PR8 の最後のレビュー）。ほかの所（一覧の印など）では出す。
+  assert.doesNotMatch(draft('foo.txt.txt', 'say hi').problems[0], /エクスプローラー/);
+  assert.match(require('../../bridge/command_files.cjs').commandFileProblem('foo.txt.txt'), /エクスプローラー/);
 });
 
 test('TXT 作成の確かめ: コマンドの行と見出しの問題（BRIDGE と BridgeMOD が使う決まり）', () => {

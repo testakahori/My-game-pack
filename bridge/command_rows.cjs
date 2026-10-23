@@ -38,7 +38,8 @@ function checkCommandDraft({ filename, content, existingNames = [] } = {}) {
   const problems = [];
   if (!name) problems.push("ファイル名を入力してください");
   else if (gameOfCommand(name)) problems.push("ゲームパックのコマンドはパックを再登録して更新してください");
-  else if (commandFileProblem(name)) problems.push(commandFileProblem(name));
+  // アプリの欄に名前を打つ所なので、エクスプローラーの話は付けない（PR8 の最後のレビュー）。
+  else if (commandFileProblem(name)) problems.push(commandFileProblem(name, { explorerHint: false }));
   if (!parsed.commands.length) problems.push("コマンドの行がありません（# と // で始まる行はコマンドになりません）");
   const { COOLDOWN, WEIGHT, SOUND, PARTICLE } = parsed.meta;
   if (COOLDOWN !== undefined && !(/^\d+$/.test(COOLDOWN) && Number(COOLDOWN) <= COMMAND_COOLDOWN_MAX_MS)) {

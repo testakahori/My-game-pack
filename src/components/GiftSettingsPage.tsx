@@ -192,7 +192,9 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
               </div>
               <div className="gift-preview-heading">
                 <h2>{pickedGiftName || "ギフトを選択"}</h2>
-                <em>{!pickedGiftId ? "未選択" : pickedMapping ? "設定済み" : "未設定"}{isDisabledMapping(pickedMapping) ? <DisabledMappingMark /> : null}</em>
+                <em>{!pickedGiftId ? "未選択" : pickedMapping ? "設定済み" : "未設定"}</em>
+                {/* 「設定済み」の札の中に入れず、横に並べる（PR8 の最後のレビュー）。 */}
+                {isDisabledMapping(pickedMapping) ? <DisabledMappingMark /> : null}
               </div>
               <p>コスト: <strong>{pickedGiftId && pickedGiftDiamonds !== undefined ? `💎 ${pickedGiftDiamonds}` : "—"}</strong></p>
               <div className="gift-preview-route">

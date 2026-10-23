@@ -419,8 +419,10 @@ if (import.meta.env.DEV && !win.mygamepack) {
     // 確かめはアプリと同じ bridge/command_rows.cjs（vite.config.ts の /__dev/commands/check。処理のコピー PR8）。
     bridgeCommandsCheck: async (request: { filename: string; content: string }) => {
       const response = await fetch("/__dev/commands/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) });
-      if (!response.ok) throw new Error("TXT の確かめに失敗しました（開発用）");
-      return response.json();
+      const body = await response.json().catch(() => null);
+      // 失敗の理由（vite.config.ts の返す message）を捨てない（PR8 の最後のレビュー）。
+      if (!response.ok) throw new Error(body?.message || "TXT の確かめに失敗しました（開発用）");
+      return body;
     },
     bridgeCommandsOpenFolder: ok,
     giftsRead: readDevGifts,

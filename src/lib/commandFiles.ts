@@ -1,5 +1,5 @@
 // 画面のコマンドの探し方（処理のコピー PR8）。.txt の有無・大文字小文字・前後の空白を問わない（Windows のファイル名も BridgeMOD も区別しない）。
-// 画面（TypeScript）からは bridge の CJS を読まないので、bridge/command_files.cjs の ensureTxt・bridgeCommandKey・sameCommandFile の写しになる。
+// 画面（TypeScript）からは bridge の CJS を読まないので、bridge/command_files.cjs の ensureTxt・bridgeCommandStem・sameCommandFile の写しになる。
 // electron/test/ui-command-files.test.cjs が同じ例で同じ結果になることを見張る。ルーレットか・使えない名前かは main が一覧の行に付ける印を見る。
 
 const TXT = /\.txt$/i;
@@ -12,7 +12,7 @@ export function ensureTxt(name: unknown): string {
   return TXT.test(value) ? value : `${value}.txt`;
 }
 
-/** .txt を1つ除いた名前（題名がないときに出す名前）。フォルダーは除かない。 */
+/** .txt を1つ除いた名前（題名がないときに出す名前）。bridge の bridgeCommandStem と同じく、フォルダーは除かない。 */
 export function commandFileStem(name: unknown): string {
   const value = String(name ?? "").trim();
   return TXT.test(value) ? value.slice(0, -4) : value;

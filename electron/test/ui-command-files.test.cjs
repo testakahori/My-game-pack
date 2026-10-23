@@ -14,12 +14,13 @@ const compiled = new Module(file, module);
 compiled._compile(transformSync(fs.readFileSync(file, 'utf8'), { loader: 'ts', format: 'cjs', target: 'node20' }).code, file);
 const ui = compiled.exports;
 
-const values = ['a', ' A.TXT ', 'tnt.v2', '', 0, null, undefined, 'foo.txt.txt', 'Neko.TXT', 'neko', 'neko.txt', 'ネコ.txt', '.txt', 'roulette'];
+// フォルダー付きの名前も入れる（commandFileStem は bridge の bridgeCommandStem と同じくフォルダーを除かない。PR8 の最後のレビュー）。
+const values = ['a', ' A.TXT ', 'tnt.v2', '', 0, null, undefined, 'foo.txt.txt', 'Neko.TXT', 'neko', 'neko.txt', 'ネコ.txt', '.txt', 'roulette', 'a/b.txt', 'a\\b.txt', '　neko　'];
 
 test('画面のコマンドの探し方: bridge/command_files.cjs と同じ例で同じ結果', () => {
   for (const value of values) {
     assert.equal(ui.ensureTxt(value), bridge.ensureTxt(value), JSON.stringify(value));
-    assert.equal(ui.commandFileStem(ui.ensureTxt(value)), bridge.bridgeCommandKey(bridge.ensureTxt(value)), JSON.stringify(value));
+    assert.equal(ui.commandFileStem(ui.ensureTxt(value)), bridge.bridgeCommandStem(bridge.ensureTxt(value)), JSON.stringify(value));
     for (const other of values) assert.equal(ui.sameCommandFile(value, other), bridge.sameCommandFile(value, other), JSON.stringify([value, other]));
   }
 });
