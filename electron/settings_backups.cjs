@@ -43,7 +43,8 @@ function createSettingsBackups(deps) {
     const { rcon: _rcon, ...bridge } = config;
     bridge.options = { ...(bridge.options || {}) };
     for (const key of CONNECTION_OPTIONS) delete bridge.options[key];
-    const app = fs.existsSync(p.app) ? read(p.app) : {};
+    // アプリの設定は、壊れていたら写しから戻す読み方で読む（main では readAppConfig。2026-10-23 設計書の 6.1）。
+    const app = deps.readApp();
     const preferences = Object.fromEntries(PREFS.map(key => [key, app[key] !== false]));
     // UTF-8 でない txt（Shift_JIS など）は base64 でバイトのまま取る。前は UTF-8 として読んで U+FFFD に変え、戻すと壊れていた（処理のコピー PR7）。
     // 全部 UTF-8 なら binaryCommands を付けない（前の版のバックアップと同じ形）。
@@ -131,7 +132,8 @@ function createSettingsBackups(deps) {
     const config = restoredBridgeConfig(snapshot, current);
     // 戻す前の確かめ（ゲーム専用のコマンドなど）は名前だけを見る。UTF-8 でない txt の名前も渡す。
     deps.validateRestore?.(config, Object.fromEntries(commandEntries(snapshot.payload)));
-    const currentApp = fs.existsSync(p.app) ? read(p.app) : {};
+    // 書くのは今のまま atomicWrite（書いた順に元へ戻す仕組みのため）。写しは次の保存で更新される。
+    const currentApp = deps.readApp();
     const prefs = Object.fromEntries(PREFS.map(key => [key, snapshot.payload.preferences[key] !== false]));
     const files = new Map([
       [p.config, json(config)], [p.tts, json(snapshot.payload.tts)], [p.bridgeTts, json(snapshot.payload.tts)],

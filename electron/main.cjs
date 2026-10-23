@@ -79,7 +79,7 @@ const settingsBackups = createSettingsBackups({
     commands: bridgeCommandsDir(getBridgeBatDir()),
     backups: path.join(app.getPath("userData"), "settings-backups", crypto.createHash("sha256").update(path.resolve(getConfigPath())).digest("hex").slice(0, 16)),
   }),
-  version: () => app.getVersion(), readTts: () => readTtsSettings(),
+  version: () => app.getVersion(), readTts: () => readTtsSettings(), readApp: () => readAppConfig(),
   isRunning: () => Boolean(bridgeProcess.isActive() || mapOperations.isBusy() || serverProcess.isStarting() || isGameProfileBusy() || gameProfiles.list().recoveryRequired),
 });
 const { createTtsIpc } = require('./tts_ipc.cjs');
