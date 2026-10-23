@@ -83,7 +83,7 @@ const settingsBackups = createSettingsBackups({
   isRunning: () => Boolean(bridgeProcess.isActive() || mapOperations.isBusy() || serverProcess.isStarting() || isGameProfileBusy() || gameProfiles.list().recoveryRequired),
 });
 const { createTtsIpc } = require('./tts_ipc.cjs');
-const ttsIpc = createTtsIpc({ app, process, shell, spawn, getBridgeBatDir, getConfigPath, settingsBackups });
+const ttsIpc = createTtsIpc({ app, process, shell, spawn, getBridgeBatDir, getConfigPath, settingsBackups, recordRecovery: entry => settingsRecovery.record(entry) });
 const { getTtsSettingsPath, readTtsSettings } = ttsIpc;
 ttsIpc.register(ipcMain);
 const { createBridgeSettings } = require('./bridge_settings.cjs');

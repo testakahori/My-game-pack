@@ -13,15 +13,17 @@ function setup(t) {
   fs.mkdirSync(userData, { recursive: true });
   fs.mkdirSync(bridge, { recursive: true });
   fs.writeFileSync(path.join(bridge, 'config.minecraft.json'), '{}');
-  const backups = [], handlers = new Map();
+  const backups = [], handlers = new Map(), records = [];
   const ttsIpc = createTtsIpc({
     app: { getPath: () => userData }, process: { env: {} },
     shell: { openPath: async () => '' }, spawn: () => { throw new Error('起動しない'); },
     getBridgeBatDir: () => bridge, getConfigPath: () => path.join(bridge, 'config.minecraft.json'),
     settingsBackups: { create: kind => backups.push(kind) },
+    recordRecovery: entry => records.push(entry), now: () => new Date(2026, 9, 23, 15, 30, 12),
   });
   ttsIpc.register({ handle: (name, fn) => handlers.set(name, fn) });
-  return { userData, bridge, backups, ttsIpc, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
+  return { userData, bridge, backups, records, ttsIpc, bridgeFile: path.join(bridge, 'tts-settings.json'), userFile: path.join(userData, 'tts-settings.json'),
+    invoke: (name, ...args) => handlers.get(name)({}, ...args) };
 }
 
 test('読み上げの設定: BRIDGE と userData の両方へ整えた値で書き、変わったときだけ自動バックアップを作る', t => {
@@ -51,4 +53,56 @@ test('読み上げの設定: BRIDGE の設定を正とし、なければ userDat
 test('読み上げエンジンの起動: 知らないエンジンは起動しない', async t => {
   const x = setup(t);
   assert.deepEqual(await x.invoke('tts:launchEngine', 'unknown'), { ok: false, message: '未対応の読み上げエンジンです: unknown' });
+});
+
+// 読み上げの設定も、壊れていたら写しから戻し、写しも無ければ userData 側を使う（2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 6.2。設定ファイルの PR2）。
+test('読み上げの設定: BRIDGE 側が壊れていたら写しから戻す。写しも無ければ userData 側を使う', t => {
+  const x = setup(t);
+  x.ttsIpc.writeTtsSettings({ enabled: false, speakerId: 5 });
+  x.ttsIpc.writeTtsSettings({ enabled: false, speakerId: 6 });
+  fs.writeFileSync(x.bridgeFile, '{壊れた');
+  assert.equal(x.ttsIpc.readTtsSettings().speakerId, 5, '写しは1つ前の保存');
+  assert.deepEqual(x.records.map(r => [r.label, r.action]), [['tts-settings.json（BRIDGE のフォルダー）', 'restored']]);
+  fs.writeFileSync(x.bridgeFile, '{また壊れた');
+  fs.unlinkSync(x.bridgeFile + '.last-good');
+  fs.writeFileSync(x.userFile, JSON.stringify({ enabled: false }));
+  assert.equal(x.ttsIpc.readTtsSettings().enabled, false, '読み上げを切ったまま');
+  assert.equal(x.records.length, 2);
+  assert.equal(x.records[1].action, 'defaults');
+  assert.equal(x.records[1].defaultsLabel, 'userData の読み上げの設定（無ければ既定値）');
+});
+
+test('読み上げの設定: userData 側が壊れていても写しから戻す', t => {
+  const x = setup(t);
+  x.ttsIpc.writeTtsSettings({ speakerId: 8 });
+  x.ttsIpc.writeTtsSettings({ speakerId: 9 });
+  fs.unlinkSync(x.bridgeFile);
+  fs.writeFileSync(x.userFile, 'null');
+  assert.equal(x.ttsIpc.readTtsSettings().speakerId, 8);
+  assert.deepEqual(x.records.map(r => [r.label, r.reason, r.action]), [['tts-settings.json（userData）', 'オブジェクトでない', 'restored']]);
+});
+
+// 古い版は画面の値をそのまま書いていた（処理のコピー PR9 で整えるようになった）。値の型では壊れていると決めない（PR2 の計画の決めたこと 1）。
+test('読み上げの設定: 古い版の、画面の値をそのまま書いたファイルは壊れていると扱わない', t => {
+  const x = setup(t);
+  fs.writeFileSync(x.bridgeFile, JSON.stringify({ speakerId: '3', speedScale: '1.5', enabled: false }));
+  const settings = x.ttsIpc.readTtsSettings();
+  assert.deepEqual([settings.speakerId, settings.speedScale, settings.enabled], [3, 1.5, false]);
+  assert.deepEqual(x.records, []);
+  assert.deepEqual(fs.readdirSync(x.bridge).filter(name => name.includes('.broken-')), []);
+});
+
+test('読み上げの設定: 書くと2か所とも写しを残す', t => {
+  const x = setup(t);
+  const first = x.ttsIpc.writeTtsSettings({ speakerId: 1 });
+  x.ttsIpc.writeTtsSettings({ speakerId: 2 });
+  for (const file of [x.bridgeFile, x.userFile]) assert.deepEqual(JSON.parse(fs.readFileSync(file + '.last-good', 'utf8')), first, file);
+});
+
+test('本文: 読み上げの設定を fs で直接読み書きしない。main は記録をつなぐ', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../tts_ipc.cjs'), 'utf8');
+  assert.doesNotMatch(source, /writeFileSync|readFileSync/);
+  assert.match(source, /createSafeJsonFile\(/);
+  const main = fs.readFileSync(path.join(__dirname, '../main.cjs'), 'utf8');
+  assert.match(main.slice(main.indexOf('createTtsIpc({'), main.indexOf('});', main.indexOf('createTtsIpc({'))), /recordRecovery:/);
 });

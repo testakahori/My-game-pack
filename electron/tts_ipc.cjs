@@ -6,8 +6,10 @@ const { ENGINE_PORTS, checkEngine, getSpeakers, flattenSpeakers, synthesize } = 
 // 既定値・範囲と整え方は BRIDGE と同じ bridge/tts_settings.cjs（処理のコピー PR9）。
 const { TTS_SETTINGS, normalizeTtsSettings } = require("../bridge/tts_settings.cjs");
 const TTS_DEFAULTS = TTS_SETTINGS.defaults;
+const { createSafeJsonFile } = require("../bridge/safe_json_file.cjs");
 
-function createTtsIpc({ app, process, shell, spawn, getBridgeBatDir, getConfigPath, settingsBackups }) {
+// recordRecovery は、壊れていて戻したことの記録（main が logs/settings-recovery.log に書く）。
+function createTtsIpc({ app, process, shell, spawn, getBridgeBatDir, getConfigPath, settingsBackups, recordRecovery, now }) {
   // --------------------
   // TTS (読み上げ)
   // --------------------
@@ -15,32 +17,31 @@ function createTtsIpc({ app, process, shell, spawn, getBridgeBatDir, getConfigPa
     return path.join(app.getPath("userData"), "tts-settings.json");
   }
 
-  function readTtsSettingsFile(filePath) {
-    if (!filePath || !fs.existsSync(filePath)) return null;
-    try {
-      return normalizeTtsSettings(JSON.parse(fs.readFileSync(filePath, "utf-8")));
-    } catch {
-      return null;
-    }
-  }
+  // 2か所とも、壊れていたら前の正しい状態の写しから戻し、壊れたファイルは名前を変えて残す
+  // （2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 6.2）。
+  // 古い版は画面の値をそのまま書いていたので、項目の型では壊れていると決めない（値は normalizeTtsSettings で整える）。
+  // 記録の名前には、どちらのフォルダーかを入れる（同じ名前のファイルが2か所にある）。
+  const userDataFile = createSafeJsonFile({
+    file: getTtsSettingsPath, label: "tts-settings.json（userData）", defaults: () => ({ ...TTS_DEFAULTS }), record: recordRecovery, now,
+  });
+  // BRIDGE 側が無い・壊れていて写しも使えないときは userData 側（それも無ければ既定値）。読み上げを切っていた配信者の読み上げが動き出さないように。
+  const bridgeFile = createSafeJsonFile({
+    file: () => path.join(getBridgeBatDir(), "tts-settings.json"), label: "tts-settings.json（BRIDGE のフォルダー）",
+    defaults: () => userDataFile.read(), defaultsLabel: "userData の読み上げの設定（無ければ既定値）", record: recordRecovery, now,
+  });
 
   function readTtsSettings() {
     // ライブコメントを処理する bridge/index.js は bridge/tts-settings.json を読む。
     // ここで userData 側を先に読むと、UIが起動するエンジンとBridgeが使用する
     // エンジンが食い違い、正常に保存済みでも無音になるためBridge側を正とする。
-    const bridgeSettings = readTtsSettingsFile(path.join(getBridgeBatDir(), "tts-settings.json"));
-    if (bridgeSettings) return bridgeSettings;
-    return readTtsSettingsFile(getTtsSettingsPath()) || { ...TTS_DEFAULTS };
+    return normalizeTtsSettings(bridgeFile.read());
   }
 
   function writeTtsSettings(settings) {
     const normalized = normalizeTtsSettings(settings);
-    const p = getTtsSettingsPath();
     // bridge フォルダにも同期（bridge/index.js が読む）
-    const bridgeTtsPath = path.join(getBridgeBatDir(), "tts-settings.json");
-    fs.mkdirSync(path.dirname(bridgeTtsPath), { recursive: true });
-    fs.writeFileSync(bridgeTtsPath, JSON.stringify(normalized, null, 2), "utf-8");
-    fs.writeFileSync(p, JSON.stringify(normalized, null, 2), "utf-8");
+    bridgeFile.write(normalized);
+    userDataFile.write(normalized);
     return normalized;
   }
 
