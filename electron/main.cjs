@@ -101,6 +101,7 @@ const giftsViewer = createGiftsViewer({
   getConfigPath, getGiftsDir, getGiftsMinPath, getGiftsMetaPath, getGiftsHtmlPath, ensureDir,
   getGvDataDir, getGvSettingsPath, getGvToolPath, getNodeCommand,
   ensureNodeRuntimeAvailable: () => ensureNodeRuntimeAvailable(),
+  recordRecovery: entry => settingsRecovery.record(entry),
 });
 const { autoUpdateGiftsIfStale } = giftsViewer;
 giftsViewer.register(ipcMain);
