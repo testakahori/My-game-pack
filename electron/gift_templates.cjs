@@ -3,7 +3,7 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { isDeepStrictEqual } = require('node:util');
 const { atomicWrite } = require('./settings_backups.cjs');
-const { isTxtName, ensureTxt } = require('../bridge/command_files.cjs');
+const { isTxtName, sameCommandFile } = require('../bridge/command_files.cjs');
 const { migrateBridgeConfig } = require('../bridge/config_migration.cjs');
 const { giftMappingOf } = require('../bridge/gift_mappings.cjs');
 
@@ -47,8 +47,8 @@ function parseTemplate(raw) {
 function createGiftTemplates({ dialog, context, writeConfig, appVersion, now = () => Date.now() }) {
   let pending = null;
   const read = file => JSON.parse(fs.readFileSync(file, 'utf8'));
-  // 同じコマンドかは .txt の有無・大文字小文字を問わずに比べる（Windows のファイル名も BridgeMOD も区別しない。処理のコピー PR7）。
-  const commandOf = (commands, commandFile) => commands.find(command => ensureTxt(command.name).toLowerCase() === ensureTxt(commandFile).toLowerCase());
+  // 同じコマンドかは .txt の有無・大文字小文字を問わずに比べる（command_files.cjs の sameCommandFile。処理のコピー PR7・PR8）。
+  const commandOf = (commands, commandFile) => commands.find(command => sameCommandFile(command.name, commandFile));
   const missing = (rows, commands) => [...new Set(rows.filter(row => !commandOf(commands, row.commandFile)).map(row => row.commandFile))];
   return {
     async save() {

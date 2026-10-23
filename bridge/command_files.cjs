@@ -38,6 +38,13 @@ function ensureTxt(name) {
   return isTxtName(value) ? value : `${value}.txt`;
 }
 
+// 同じコマンドファイルか。.txt の有無・大文字小文字・前後の空白を問わない（Windows のファイル名も BridgeMOD も区別しない）。
+// どちらかが空なら false。アプリ・開発用の一覧・テンプレートはこの1つを使い、画面の src/lib/commandFiles.ts は同じ結果になる写し（処理のコピー PR8）。
+function sameCommandFile(a, b) {
+  const left = ensureTxt(a), right = ensureTxt(b);
+  return Boolean(left) && left.toLowerCase() === right.toLowerCase();
+}
+
 function bridgeCommandKey(commandFile) {
   const name = String(commandFile ?? "").trim().replace(/\\/g, "/").split("/").pop();
   return isTxtName(name) ? name.slice(0, -4) : name;
@@ -116,4 +123,4 @@ function invalidCommandFileRefs(config) {
     .map(ref => ({ ...ref, message: `${ref.where}: ${commandFileProblem(ref.commandFile)}` }));
 }
 
-module.exports = { BRIDGE_COMMAND_KEY, isBridgeModTransport, isKnownTransport, usesBridgeModTransport, isTxtName, ensureTxt, bridgeCommandKey, isBridgeCommandFile, commandFileProblem, commandFileRefs, invalidCommandFileRefs };
+module.exports = { BRIDGE_COMMAND_KEY, isBridgeModTransport, isKnownTransport, usesBridgeModTransport, isTxtName, ensureTxt, sameCommandFile, bridgeCommandKey, isBridgeCommandFile, commandFileProblem, commandFileRefs, invalidCommandFileRefs };

@@ -109,3 +109,16 @@ test('画面: 運用センター・配信ホームは既定値を config_default
   assert.doesNotMatch(read('src/components/DashboardPage.tsx'), /commandsDir:/, '保存のたびに main が上書きするので書かない');
   assert.doesNotMatch(read('src/lib/devApiMock.ts'), /likeBatchMs|likeCatchupLimit/);
 });
+
+// コマンドの一覧の1行は bridge/command_rows.cjs の commandListRow の1か所。同じコマンドかは command_files.cjs の sameCommandFile（処理のコピー PR8）。
+test('写し: アプリと開発用の一覧は commandListRow で1行を作り、テンプレートは sameCommandFile で比べる', () => {
+  const read = file => fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
+  for (const file of ['electron/bridge_settings.cjs', 'vite.config.ts']) {
+    const source = read(file);
+    assert.match(source, /commandListRow\(/, file + ' が commandListRow を使っていない');
+    assert.doesNotMatch(source, /chatKey: publicCommandKey\(/, file + ' に一覧の1行の作り方の写しがある');
+  }
+  const templates = read('electron/gift_templates.cjs');
+  assert.match(templates, /sameCommandFile\(/);
+  assert.doesNotMatch(templates, /ensureTxt\([^)]*\)\.toLowerCase\(\)/, 'gift_templates.cjs に同じコマンドかの比べ方の写しがある');
+});
