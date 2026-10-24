@@ -196,7 +196,7 @@ declare global {
       // --------------------
       // App config
       // --------------------
-      // 項目と型は main と同じ表（electron/app_config_fields.json）から取る。読むと既定値の項目は必ずあり、ログインの項目は渡さない。
+      // 項目と型は main と同じ表（electron/app_config_fields.json）から取る。読むと既定値の項目は必ずあり、使わなくなった項目（retired）は渡さない。
       appConfigRead: () => Promise<AppConfigTable["defaults"] & Partial<AppConfigFields>>;
       appConfigWrite: (data: Partial<Pick<AppConfigFields, AppConfigWritableKey>>) => Promise<{ ok: true }>;
 

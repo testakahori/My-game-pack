@@ -247,3 +247,10 @@ test('書く: 表の型と違う値は書かず、今のアプリの設定はそ
   assert.throws(() => appConfig.writeAppConfig({ minecraftGameFolder: null }), /項目 minecraftGameFolder の型が違う/);
   assert.equal(fs.readFileSync(file, 'utf8'), before);
 });
+
+// 書く値に古いログインの項目が入っていても書かない（最後のレビューの軽い 6）。
+test('古いログインの項目: 書く値に入っていても書かない', t => {
+  const { dir, appConfig, file } = setup(t);
+  appConfig.writeAppConfig({ serverFolder: dir, authEmail: 'op@example.com', authToken: 't', authLoginAt: 'x' });
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file, 'utf8'))).sort(), ['serverFolder', 'setupComplete']);
+});

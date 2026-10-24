@@ -20,3 +20,26 @@ test('運営ログイン: 画面・preload・型・開発用の偽物・main に
     assert.doesNotMatch(read(name), /LoginPage|readAuthState|authStatus|authLogin|authLogout|auth:status|auth:login|auth:logout|operatorAuth|isOperatorAuthed/, name);
   }
 });
+
+// 見張る範囲は画面と main のファイル全部と、作業の決まり・設定の安全の文書（最後のレビューの軽い 5。前は6つのファイルだけで、画面の「ログイン情報」の文言を見逃した）。
+// app_config.cjs は、使わなくなった項目（retired）を外す所なので、そこの説明に「運営ログイン」と書いてよい。
+test('運営ログイン: 画面と main のどのファイルにも、ログインの窓口・文言が残っていない', () => {
+  const files = [];
+  const walk = dir => {
+    for (const entry of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
+      const name = path.posix.join(dir, entry.name);
+      if (entry.isDirectory()) walk(name);
+      else if (/\.(ts|tsx)$/.test(entry.name)) files.push(name);
+    }
+  };
+  walk('src');
+  for (const name of fs.readdirSync(path.join(root, 'electron')).filter(name => name.endsWith('.cjs'))) files.push('electron/' + name);
+  assert.ok(files.length > 50, String(files.length));
+  for (const name of files) {
+    const text = read(name);
+    assert.doesNotMatch(text, /LoginPage|readAuthState|authStatus|authLogin|authLogout|auth:status|auth:login|auth:logout|operatorAuth|isOperatorAuthed|ログイン情報/, name);
+    if (name !== 'electron/app_config.cjs') assert.doesNotMatch(text, /運営ログイン/, name);
+  }
+  assert.doesNotMatch(read('AGENTS.md'), /operator_auth\.cjs|運営ログインのパスワード/);
+  assert.doesNotMatch(read('SETTINGS_SAFETY.md'), /ログイン情報/);
+});

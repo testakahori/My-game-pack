@@ -10,7 +10,8 @@ const APP_CONFIG_FIELDS = require("./app_config_fields.json");
 const RENDERER_APP_CONFIG_FIELDS = new Set(APP_CONFIG_FIELDS.rendererWritable);
 const BOOLEAN_FIELDS = new Set(Object.keys(APP_CONFIG_FIELDS.fields).filter(key => typeof APP_CONFIG_FIELDS.fields[key] === "boolean"));
 // 使わなくなった項目（運営ログインのメールアドレス・トークン・ログインした時刻）。運営ログインはなくした（誰が使えるかは公式 HP の購入者ログインで決める。
-// 2026-10-24 ユーザーの決定）。配信者の PC に残っていても読まず、次に保存したときに消える。
+// 2026-10-24 ユーザーの決定）。配信者の PC に残っていても読まず、書かない。app-config.json からは次に保存したときに消え、前の正しい状態の写し（.last-good）からは
+// その次の保存で消える。壊れたファイルの写し（.broken-…）には残るが、画面にも記録にも出ず、もう使い道もない。
 const RETIRED_FIELDS = new Set(APP_CONFIG_FIELDS.retired);
 
 // 表の項目の型が1つでも違えば、ファイル全体を壊れていると扱う（項目ごとには直さない）。null も違う型。表に無い項目は確かめない。
@@ -41,7 +42,7 @@ function createAppConfig({ app, assertGameProfileIdle, assertMapIdle, isServerSt
   }
 
   function writeAppConfig(data) {
-    const next = { ...readAppConfig(), ...data };
+    const next = { ...readAppConfig(), ...Object.fromEntries(Object.entries(data || {}).filter(([key]) => !RETIRED_FIELDS.has(key))) };
     if (next.serverFolder) next.serverFolder = path.resolve(next.serverFolder);
     store.write(next);
   }

@@ -16,7 +16,7 @@ function fixture(t) {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const p = { config: path.join(root, "bridge/config.json"), app: path.join(root, "app.json"), tts: path.join(root, "tts.json"), bridgeTts: path.join(root, "bridge/tts.json"), commands: path.join(root, "bridge/commands"), backups: path.join(root, "backups") };
   const cfg = { tiktokUsername: "akahoridouma", mappings: [{ giftId: "5655", commandFile: "rose.txt", repeat: 1 }], rcon: { password: "live-secret", port: 25575 }, options: { commandTransport: "bridge_mod", commandsDir: p.commands, bridgeModPort: 25576, giftCooldownMs: 300 } };
-  write(p.config, cfg); write(p.app, { authToken: "private-login", serverFolder: root, setupComplete: true, autoBackupOnServerStart: true });
+  write(p.config, cfg); write(p.app, { minecraftPlayerName: "private-player", serverFolder: root, setupComplete: true, autoBackupOnServerStart: true });
   write(p.tts, { engine: "voicevox", enabled: true, speakerId: 2 }); write(p.bridgeTts, read(p.tts));
   atomicWrite(path.join(p.commands, "rose.txt"), "say original");
   const deps = { paths: () => p, version: () => "test", readTts: () => read(p.tts), readApp: () => fs.existsSync(p.app) ? read(p.app) : {}, isRunning: () => false };
@@ -27,15 +27,15 @@ test("設定バックアップ: 復元・復元の取消と接続情報の保持
   const { p, cfg, store } = fixture(t);
   const original = store.create();
   const snapshotText = fs.readFileSync(path.join(p.backups, original.id), "utf8");
-  assert.doesNotMatch(snapshotText, /live-secret|private-login/);
+  assert.doesNotMatch(snapshotText, /live-secret|private-player/);
   write(p.config, { ...cfg, mappings: [], rcon: { password: "new-secret", port: 12345 } });
   atomicWrite(path.join(p.commands, "rose.txt"), "say changed");
   write(p.tts, { engine: "aivis", enabled: false, speakerId: 1 });
-  write(p.app, { ...read(p.app), authToken: "current-login", autoBackupOnServerStart: false });
+  write(p.app, { ...read(p.app), minecraftPlayerName: "current-player", autoBackupOnServerStart: false });
   const result = store.restore(original.id);
   assert.equal(read(p.config).mappings.length, 1);
   assert.equal(read(p.config).rcon.password, "new-secret");
-  assert.equal(read(p.app).authToken, "current-login");
+  assert.equal(read(p.app).minecraftPlayerName, "current-player");
   assert.equal(read(p.app).autoBackupOnServerStart, true);
   assert.equal(fs.readFileSync(path.join(p.commands, "rose.txt"), "utf8"), "say original");
   assert.deepEqual(read(p.tts), read(p.bridgeTts));
@@ -144,7 +144,7 @@ test("配信前チェック: 接続・一覧の新鮮さ・コマンド・音声
   const bad = await runPreflight({ ...deps, modStatus: async () => { throw new Error("offline"); }, bridgeStatus: () => ({ running: false, tiktok: { state: "connected" } }), ttsStatus: async () => ({ enabled: false }) });
   const status = id => bad.checks.find(row => row.id === id).status;
   assert.equal(status("commands"), "error"); assert.equal(status("gifts"), "warn"); assert.equal(status("bridge"), "warn"); assert.equal(status("mod"), "warn"); assert.equal(status("tts"), "skip");
-  assert.doesNotMatch(JSON.stringify(bad), /live-secret|private-login/);
+  assert.doesNotMatch(JSON.stringify(bad), /live-secret|private-player/);
   assert.equal(validateBridgeConfig({ ...cfg, mappings: {} }).ok, false);
   // TikTok ID は tiktok_id.cjs で整えた形（BRIDGE が接続する形）で確かめて出す（2026-10-18 設計書の 9）。
   write(p.config, { ...cfg, tiktokUsername: " @AkahoriDouma " });
@@ -222,7 +222,7 @@ test("設定バックアップの一覧: TikTok ID は整えた形", t => {
 
 // アプリの設定は、壊れていたら写しから戻す読み方（main では readAppConfig）で読む。前は直接読んで、壊れているとバックアップを取る・戻すが止まった
 // （2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 3・6.1）。
-test("設定バックアップ: アプリの設定が壊れていても、写しから戻して、バックアップを取れて戻せる。ログインは残る", t => {
+test("設定バックアップ: アプリの設定が壊れていても、写しから戻して、バックアップを取れて戻せる。バックアップに入らないアプリの設定は残る", t => {
   const { p, deps } = fixture(t);
   const appFile = createSafeJsonFile({ file: () => p.app, defaults: () => ({}) });
   const store = createSettingsBackups({ ...deps, readApp: () => appFile.read() });
@@ -233,7 +233,7 @@ test("設定バックアップ: アプリの設定が壊れていても、写し
   assert.equal(snapshot.payload.preferences.autoBackupOnServerStart, true);
   fs.writeFileSync(p.app, "{壊れた");
   store.restore(backup.id);
-  assert.equal(read(p.app).authToken, "private-login");
+  assert.equal(read(p.app).minecraftPlayerName, "private-player");
   assert.equal(read(p.app).autoBackupOnServerStart, true);
   assert.doesNotMatch(fs.readFileSync(path.join(__dirname, "../settings_backups.cjs"), "utf8"), /read\(p\.app\)/);
 });
