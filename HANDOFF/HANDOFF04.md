@@ -1,3 +1,51 @@
+### 2026-10-24：そうてんもんさんの OBSMOD と埋め立ての MOD を取り込む（ブランチ `feat/obsmod-import`）
+
+#### ユーザーと決めたこと
+
+- そうてんもんさんのソース一式（`docs/soutenmon/StreamToEarn_code/`）とつなぐ。リポジトリは本格配布まで公開にした。そうてんもんさんは、ソースを公開の場に置くことに同意済み（ユーザー）。
+- OBSMOD を DisplayMod と同じ階層（`ObsMod/`）に置いて開発する。DisplayMOD と同じく、アプリに同梱する（標準装備）。OBS ツールへの送信は、既定では送らない（設定でオンにする）。
+- `UmetateMod/` を作り、StackingGame-Events v2.6.16 を移す（埋め立てゲームの MOD）。
+- soutenmon のフォルダーは、OBSMOD と UmetateMod の実装が終わったらアーカイブのフォルダーに移す。重いので、要らなければ消す（元のデータはユーザーの手元にある）。
+- フォルダーの構成は変えてよい。中身はできるだけ軽くする。
+- 進め方：PR1（取り込みとビルド）→ PR2（OBSMOD を標準装備として同梱。送信は既定でオフ）→ 埋め立ての MOD をつなぐ（計画はこれから）。
+
+#### 届いたものの中身（調べた結果）
+
+- StackingGame-Events（MOD ID `stackinggame_events`）：埋め立てゲームの妨害イベントの MOD。
+  - 遊び方：黒曜石の枠の中（X -6〜6・Y 49〜56・Z -6〜6）に金・ダイヤのブロックを積む。
+  - イベント：13種類。プレイヤーの近くで起きる6種類と、アリーナで起きる7種類。
+  - つなぎ方：BridgeMOD の `GameEvents`（1.4.0 の API）で要求を受ける。requestId で二重実行を防ぎ、gameSessionId で前のゲームの要求を捨てる。
+- OBSMOD（MOD ID `minecraft_obs_bridge`）：ダメージなどの出来事を見つけ、ゲームのイベントの始まり・終わりを JSON で OBS 用のツール（既定 `http://127.0.0.1:3000/event`）へ送る。BridgeMOD は使わない。StackingGame は、OBSMOD が入っていれば使う。
+- 食い違い：StackingGame は DisplayMOD を MOD ID `giftsdisplay` で探すが、こちらの DisplayMOD は `displaymod`。今のままでは DisplayMOD を見つけられない（埋め立ての MOD をつなぐときに直す）。
+
+#### やったこと（PR1）
+
+- 2つのコミットに分けた。
+  - 1つ目：届いたときのまま写した。届いたフォルダーの SHA-256 の一覧と照らした。`AquaTowerEvent.java` だけは一覧と違うが、V3 でコンパイルの誤り（ループの外の `continue;`）を直した版で、届いたものの説明（README_FIX_V3）と合う。
+  - 2つ目：ビルドの設定をほかの MOD にそろえた（下の「ビルドの設定」）。
+- 写したのは、作るのに要るもの（`src/main` とビルドの設定）と README・AI_CONTEXT だけ（ObsMod 129KB・UmetateMod 422KB）。
+- 写さなかったもの：経緯の文書・静的検査の JSON・Excel の仕様書・イベント一覧の写し・同期の道具・BUILD.bat・PowerShell の道具・ビルドの出力・API だけの jar。
+- ビルドの設定：
+  - ForgeGradle 6.0.47・Forge 47.4.16 にした（ほかの MOD と同じ）。
+  - 自分で足していた Maven Central を外した。外さないと、オフラインのビルドが `typetools` を見つけられず止まった。
+  - jar の横に印（`.inputs.json`）を書く。
+  - UmetateMod は、届いた BridgeMOD 1.4.0 の API の写しではなく、採掘MOD と同じくこのリポジトリの BridgeMod のクラスを使って作る（印にも BridgeMod の分を入れる）。
+- CI の mod-build で、BridgeMod のあとに2つとも作る。`.gitignore` に作った物の置き場を足した。`AGENTS.md` に作り方を書いた。
+- テスト：`electron/test/soutenmon-mods.test.cjs`（6件。直す前に6件とも落ちることを確かめた）。
+- 確かめ：2つともオフラインで作れた（`minecraft_obs_bridge-2.4.7.jar`・`stackinggame_events-2.6.16.jar`）。UmetateMod は今の BridgeMOD 1.8.2 のクラスでもコンパイルが通った。Gradle が書いた印のハッシュは JS 側と一致した。`npm run verify`：型チェック・BRIDGE 15/15・アプリ 763/763・ビルドが通る。
+
+#### 次にやること
+
+1. PR1 の最後のレビュー → PR → CI → ユーザーの許可を得てマージ。
+2. 届いたフォルダーから、写した OBSMOD・StackingGame-Events を外す（ユーザーの指示「soutenmon フォルダーから出して移して」）。残りはアーカイブに回す。
+3. PR2：OBSMOD を標準装備として同梱する。
+   - サーバーの雛形・release:win・ゲームの切り替え・アプリの更新で、DisplayMOD と同じように入れ替える。
+   - 「ゲーム MOD ではない」一覧に `minecraft_obs_bridge` を足す。一覧は BridgeMOD と BRIDGE の両方にある。BridgeMOD は 1.8.3 に上げる。
+   - OBS ツールへの送信を既定でオフにする（設定でオン）。
+4. 埋め立ての MOD をつなぐ計画を立てる。`game-packs/umetate/game.json`・コマンド・同梱・`giftsdisplay` の食い違い・実機での確かめ。
+
+---
+
 ### 2026-10-17：UIレビュー前のデザインへ全画面を復元（PR #109）
 
 #### 利用者の最終指定

@@ -43,6 +43,10 @@ jobs:
         working-directory: DisplayMod
       - run: bash ../BridgeMod/gradlew build --no-daemon --max-workers=2
         working-directory: SaikutuMod
+      - run: bash ../BridgeMod/gradlew build --no-daemon --max-workers=2
+        working-directory: ObsMod
+      - run: bash ../BridgeMod/gradlew build --no-daemon --max-workers=2
+        working-directory: UmetateMod
       # The jar source hashes written by Gradle (scripts/jar_inputs.gradle) must match the JS side (scripts/jar_inputs.cjs).
       - run: node scripts/check-jar-inputs.cjs
       - run: node scripts/prepare-game-packs.cjs

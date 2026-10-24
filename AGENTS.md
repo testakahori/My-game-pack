@@ -24,11 +24,13 @@
 ## 変更したら確認すること
 
 - 必ず `npm run verify` を実行します（型チェック、Bridge のシミュレーション、アプリのテスト、ビルド）。
-- MOD（BridgeMod・DisplayMod・SaikutuMod）を変えたとき
+- MOD（BridgeMod・DisplayMod・SaikutuMod・ObsMod・UmetateMod）を変えたとき
   - 契約テスト：`.github/workflows/verify.yml` の mod-build ジョブにある `node scripts/test-*.cjs` をすべて実行します（javac が必要）。
   - ビルド：プロキシ環境では証明書の確認に失敗するので、オフラインで行います。
     - BridgeMod：`BridgeMod/` で `gradlew build --offline "-Dnet.minecraftforge.gradle.check.certs=false"`
-    - SaikutuMod・DisplayMod：`BridgeMod/gradlew -p <MODのフォルダー> build` に同じ引数を付けます。
+    - SaikutuMod・DisplayMod・ObsMod・UmetateMod：`BridgeMod/gradlew -p <MODのフォルダー> build` に同じ引数を付けます。SaikutuMod と UmetateMod は BridgeMod のクラスを使うので、BridgeMod を先に作ります。
+  - ObsMod は、そうてんもんさんの OBSMOD（MOD ID `minecraft_obs_bridge`）を v2.4.7 から取り込んだものです（2026-10-24。ご本人の同意あり）。ゲームのイベントの始まり・終わりなどを OBS 用のツールへ HTTP で送ります。MOD ID と jar の名前は、埋め立てゲームの MOD（UmetateMod）が探すので変えません。
+  - UmetateMod は、埋め立てゲームの妨害イベントの MOD（そうてんもんさんの StackingGame-Events、MOD ID `stackinggame_events`）を v2.6.16 から取り込んだものです（2026-10-24）。BridgeMOD のイベント API（`GameEvents`）で要求を受けます。
   - jar の中身を変えたらバージョンを上げ、`game-packs/*/game.json` などの参照も合わせます。
 - 配信者に配るインストーラーは `npm run release:win` の1本で作ります（`docs/手動配布とアプリ更新.md`）。ビルドと準備を必ず通し、MOD の jar は作っておいたものを同梱します。jar の元と今のソースが違うと止まるので、先に jar を作り直します（採掘MOD は BridgeMOD を使って作るので、BridgeMOD を直したら採掘MOD も）。MOD を作ると jar の横に元の中身のハッシュ（`<jar>.inputs.json`、`scripts/jar_inputs.gradle`）が書かれ、これで比べます。jar の場所の決まりは `scripts/mod_jars.cjs` の1か所です。`scripts/package-windows.cjs` は直接動かせません。
 - テスト発火は BRIDGE に渡し、本番と同じ処理（`bridge/index.js` の `handleGift` などに ctx を渡す形）を通します（2026-10-16）。本番の処理を直せば、テスト発火にも同じ直しが効きます。テストのときだけの分かれ道（`ctx.run` があるとき）を足すときは、本番の要求が変わらないことを `electron/test/test-fire-parity.test.cjs` で確かめます。

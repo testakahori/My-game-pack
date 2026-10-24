@@ -2,7 +2,7 @@ plugins {
     id 'eclipse'
     id 'idea'
     id 'maven-publish'
-    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+    id 'net.minecraftforge.gradle' version '6.0.47'
 }
 
 version = mod_version
@@ -31,7 +31,7 @@ minecraft {
     }
 }
 
-repositories { mavenCentral() }
+// ForgeGradle adds the Forge maven and Maven Central (same as the other MODs, so offline builds find the cache).
 dependencies { minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}" }
 
 def replaceProperties = [
@@ -71,3 +71,6 @@ jar {
     }
     finalizedBy 'reobfJar'
 }
+
+// Write the jar's source hash next to it for npm run release:win (scripts/jar_inputs.gradle).
+apply from: '../scripts/jar_inputs.gradle'

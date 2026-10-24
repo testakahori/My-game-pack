@@ -2,7 +2,7 @@ plugins {
     id 'eclipse'
     id 'idea'
     id 'maven-publish'
-    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+    id 'net.minecraftforge.gradle' version '6.0.47'
 }
 
 version = mod_version
@@ -31,17 +31,13 @@ minecraft {
     }
 }
 
-repositories { mavenCentral() }
-
-def bridgeApiJar = file("libs/bridgemod-api-${bridge_api_version}.jar")
-if (!bridgeApiJar.exists()) {
-    throw new GradleException("Required BridgeMOD API compile jar not found: ${bridgeApiJar}.")
-}
+// ForgeGradle adds the Forge maven and Maven Central (same as the other MODs, so offline builds find the cache).
 
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
-    // Compile-only API snapshot. Runtime classes are provided by mandatory BridgeMOD 1.4.x.
-    compileOnly files(bridgeApiJar)
+    // Compile against this repository's BridgeMod classes (build BridgeMod first), same as SaikutuMod,
+    // so an API change in BridgeMOD shows up at build time. Runtime classes come from the BridgeMOD jar (mods.toml requires it).
+    compileOnly files('../BridgeMod/build/classes/java/main')
 }
 
 def replaceProperties = [
@@ -82,3 +78,8 @@ jar {
     }
     finalizedBy 'reobfJar'
 }
+
+// Write the jar's source hash next to it for npm run release:win (scripts/jar_inputs.gradle).
+// UmetateMod compiles against BridgeMod classes, so BridgeMod's sources count too.
+ext.jarInputsAlso = ['BridgeMod']
+apply from: '../scripts/jar_inputs.gradle'
