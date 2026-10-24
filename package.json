@@ -18,7 +18,7 @@
     "electron:prod": "electron .",
     "prepare:bridge-runtime": "node scripts/prepare-bridge-runtime.cjs",
     "prepare:server-template": "node scripts/prepare-server-template.cjs",
-    "pack:win": "npm run build && npm run prepare:bridge-runtime && npm run prepare:server-template && npm run prepare:game-packs && electron-builder --win --x64",
+    "release:win": "node scripts/release-windows.cjs",
     "prepare:game-packs": "node scripts/prepare-game-packs.cjs"
   },
   "dependencies": {
@@ -35,7 +35,7 @@
     "autoprefixer": "^10.4.24",
     "cross-env": "^7.0.3",
     "electron": "43.2.0",
-    "electron-builder": "^26.15.3",
+    "electron-builder": "26.15.3",
     "esbuild": "^0.28.1",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
