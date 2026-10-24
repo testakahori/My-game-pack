@@ -38,7 +38,7 @@ export default function SettingsBackupsPanel({ onRestored }: { onRestored: () =>
   return <section className="safety-panel" aria-labelledby="backups-title">
     <div className="safety-panel-heading"><div><h2 id="backups-title">設定のバックアップと復元</h2><p>ギフト・イベント・読み上げ・運用設定とコマンドを、このPCに保存します。</p></div>
       <button type="button" className="safety-primary" onClick={create} disabled={busy || loading}>{busy ? "処理中…" : "現在の設定を保存"}</button></div>
-    <p className="safety-footnote">設定変更前の自動保存は直近30件を保持。手動保存・復元前の保存は残ります。ワールド、接続先、ログイン情報は復元対象に含まれません。後から追加したコマンドは残ります。</p>
+    <p className="safety-footnote">設定変更前の自動保存は直近30件を保持。手動保存・復元前の保存は残ります。ワールド、接続先は復元対象に含まれません。後から追加したコマンドは残ります。</p>
     {hasChanges && !busy && <p className="safety-warning">未保存の編集はバックアップに含まれません。残す場合は先に設定を保存してください。</p>}
     <div className="backup-controls">
       <label>復元するバックアップ<select value={selected} disabled={busy || loading || !rows.length} onChange={e => setSelected(e.target.value)}>

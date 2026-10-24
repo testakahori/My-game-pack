@@ -18,7 +18,6 @@
   - サーバーフォルダーの `config/bridgemod-token.txt`
   - Euler Stream の API キー
   - TikTok のアカウント情報
-  - 運営ログインのパスワード（リポジトリに置くのはハッシュだけ）
 - 実行時に作られるファイル（`bridge/runtime-status.json`、`bridge/operations-history.json`、ログ）。gitignore 済みです。
 - `Bridgeやりとり/`。私用のメモ置き場で、攻撃手順を含むレビュー文書もあります。`.git/info/exclude` で管理外にしてあります。
 
@@ -49,7 +48,6 @@
   - 分けたファイル（`electron/`）：
     - `paths.cjs`：配置の場所
     - `app_config.cjs`：アプリ設定と更新
-    - `operator_auth.cjs`：運営ログイン
     - `window.cjs`：画面のウィンドウと CSP
     - `setup_ipc.cjs`：初期セットアップ・Forge・環境の実測・フォルダー選択
     - `games_ipc.cjs`：ゲームの選択・切り替え・Minecraft の保存先

@@ -23,7 +23,7 @@ function setup(t) {
     // MAP の保存の後始末の代わり。release() するまで返さない（その間は起動の準備中）。
     recoverMapSaves: () => new Promise(resolve => { release = resolve; }),
     requestBridgeMod: async () => { throw new Error('使わない'); },
-    authFailedMessage: () => 'auth failed', isOperatorAuthed: () => true,
+    authFailedMessage: () => 'auth failed',
     stopRequests: { record: (kind, origin) => { calls.push(`record:${kind}:${origin}`); return '出どころ'; } },
   });
   serverProcess.register({ handle: (name, fn) => handlers.set(name, fn) });

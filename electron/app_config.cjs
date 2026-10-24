@@ -9,7 +9,10 @@ const { createSafeJsonFile } = require("../bridge/safe_json_file.cjs");
 const APP_CONFIG_FIELDS = require("./app_config_fields.json");
 const RENDERER_APP_CONFIG_FIELDS = new Set(APP_CONFIG_FIELDS.rendererWritable);
 const BOOLEAN_FIELDS = new Set(Object.keys(APP_CONFIG_FIELDS.fields).filter(key => typeof APP_CONFIG_FIELDS.fields[key] === "boolean"));
-const PRIVATE_FIELDS = new Set(APP_CONFIG_FIELDS.private);
+// 使わなくなった項目（運営ログインのメールアドレス・トークン・ログインした時刻）。運営ログインはなくした（誰が使えるかは公式 HP の購入者ログインで決める。
+// 2026-10-24 ユーザーの決定）。配信者の PC に残っていても読まず、書かない。app-config.json からは次に保存したときに消え、前の正しい状態の写し（.last-good）からは
+// その次の保存で消える。壊れたファイルの写し（.broken-…）には残るが、画面にも記録にも出ず、もう使い道もない。
+const RETIRED_FIELDS = new Set(APP_CONFIG_FIELDS.retired);
 
 // 表の項目の型が1つでも違えば、ファイル全体を壊れていると扱う（項目ごとには直さない）。null も違う型。表に無い項目は確かめない。
 function appConfigProblem(value) {
@@ -32,19 +35,21 @@ function createAppConfig({ app, assertGameProfileIdle, assertMapIdle, isServerSt
     file: getAppConfigPath, defaults: () => ({ ...APP_CONFIG_FIELDS.defaults }), problem: appConfigProblem, record: recordRecovery, now,
   });
 
-  // 既定値の上にファイルの中身を重ねる（使う所はどれも、項目が無いのと既定値を同じに扱う）。
+  // 既定値の上にファイルの中身を重ねる（使う所はどれも、項目が無いのと既定値を同じに扱う）。使わなくなった項目は外す。
   function readAppConfig() {
-    return { ...APP_CONFIG_FIELDS.defaults, ...store.read() };
+    const saved = Object.fromEntries(Object.entries(store.read()).filter(([key]) => !RETIRED_FIELDS.has(key)));
+    return { ...APP_CONFIG_FIELDS.defaults, ...saved };
   }
 
   function writeAppConfig(data) {
-    const next = { ...readAppConfig(), ...data };
+    const next = { ...readAppConfig(), ...Object.fromEntries(Object.entries(data || {}).filter(([key]) => !RETIRED_FIELDS.has(key))) };
     if (next.serverFolder) next.serverFolder = path.resolve(next.serverFolder);
     store.write(next);
   }
 
+  // 画面に渡すアプリの設定（前は運営ログインの項目を外していた。今は使わなくなった項目を readAppConfig が外す）。
   function readPublicAppConfig() {
-    return Object.fromEntries(Object.entries(readAppConfig()).filter(([key]) => !PRIVATE_FIELDS.has(key)));
+    return readAppConfig();
   }
 
   function sanitizeRendererAppConfigUpdate(data) {

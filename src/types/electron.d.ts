@@ -1,11 +1,10 @@
 // src/types/electron.d.ts
 export {};
 // アプリの設定（app-config.json）の既定値と項目の型の表（2026-10-23 設計書 docs/superpowers/specs/2026-10-23-settings-file-safety-design.md の 6.1）。
-// fields の値は型の見本（文字列は ""、真偽は false）。画面が書ける項目・画面に渡さない項目の名前は、表の rendererWritable・private と同じ
+// fields の値は型の見本（文字列は ""、真偽は false）。画面が書ける項目の名前は、表の rendererWritable と同じ
 // （JSON の配列からは型の名前を取り出せないので、ここにも並べる。食い違えば electron/test/app-config-module.test.cjs が落ちる）。
 type AppConfigTable = typeof import("../../electron/app_config_fields.json");
 export type AppConfigFields = AppConfigTable["fields"];
-type AppConfigPrivateKey = "authEmail" | "authToken" | "authLoginAt";
 type AppConfigWritableKey = "serverFolder" | "setupComplete" | "setupRequiredByInstall" | "minecraftPlayerName" | "minecraftLauncherPath" | "autoBackupOnServerStart";
 export type GameStatus = {
   saikutuMigrationNeeded?: boolean; active: string; applied: boolean; displayBundled: boolean;
@@ -195,17 +194,10 @@ declare global {
       gvSettingsWrite: (v: { username: string }) => Promise<{ ok: true }>;
 
       // --------------------
-      // 運営ログイン認証
-      // --------------------
-      authStatus: () => Promise<{ authenticated: boolean; email: string }>;
-      authLogin: (payload: { email: string; password: string }) => Promise<{ ok: boolean; email?: string; message?: string }>;
-      authLogout: () => Promise<{ ok: true }>;
-
-      // --------------------
       // App config
       // --------------------
-      // 項目と型は main と同じ表（electron/app_config_fields.json）から取る。読むと既定値の項目は必ずあり、ログインの項目は渡さない。
-      appConfigRead: () => Promise<AppConfigTable["defaults"] & Partial<Omit<AppConfigFields, AppConfigPrivateKey>>>;
+      // 項目と型は main と同じ表（electron/app_config_fields.json）から取る。読むと既定値の項目は必ずあり、使わなくなった項目（retired）は渡さない。
+      appConfigRead: () => Promise<AppConfigTable["defaults"] & Partial<AppConfigFields>>;
       appConfigWrite: (data: Partial<Pick<AppConfigFields, AppConfigWritableKey>>) => Promise<{ ok: true }>;
 
       // --------------------

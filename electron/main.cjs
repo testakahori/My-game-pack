@@ -39,11 +39,6 @@ const {
   ensureDir, ensureConfigExists, getServerTemplatePath, getServerRoot, getBridgeBatDir,
   getNodeCommand, getGvDataDir, getGvSettingsPath, getGvToolPath,
 } = paths;
-const { createOperatorAuth } = require('./operator_auth.cjs');
-const operatorAuth = createOperatorAuth({ readAppConfig, writeAppConfig });
-// コンソール送信（server:command）などの強い操作は、main 側でもログイン済みかを確かめる。
-const { isOperatorAuthed } = operatorAuth;
-operatorAuth.register(ipcMain);
 const { createSetupIpc } = require('./setup_ipc.cjs');
 const setupIpc = createSetupIpc({
   app, dialog, shell, spawnSync, getServerRoot, getGvDataDir,
@@ -124,7 +119,7 @@ const minecraftClient = createMinecraftClient({ process, spawn, readAppConfig, a
 minecraftClient.register(ipcMain);
 const { createServerProcess } = require('./server_process.cjs');
 const serverProcess = createServerProcess({
-  app, process, spawn, getServerRoot, getBridgeBatDir, getConfigPath, assertGameProfileIdle, isOperatorAuthed, stopRequests,
+  app, process, spawn, getServerRoot, getBridgeBatDir, getConfigPath, assertGameProfileIdle, stopRequests,
   assertMapIdle: () => mapOperations.assertIdle(),
   isInitialSetupRunning: () => isInitialSetupRunning(),
   recoverMapSaves: () => mapOperations.mapSaves.recover(),
