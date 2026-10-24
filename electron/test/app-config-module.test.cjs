@@ -5,7 +5,6 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createAppConfig } = require('../app_config.cjs');
-const { createOperatorAuth } = require('../operator_auth.cjs');
 const { lastGoodPath } = require('../../bridge/safe_json_file.cjs');
 
 function setup(t, { packaged = false, serverStarting = false, recordRecovery } = {}) {
@@ -63,15 +62,14 @@ test('読み込み: ファイルがない・壊れていて写しも無いとき
   assert.deepEqual(Object.keys(appConfig.readPublicAppConfig()).sort(), ['minecraftPlayerName', 'serverFolder', 'setupComplete'], '画面にはログインの情報を渡さない');
 });
 
-test('壊れていたら、前の正しい状態の写しから戻す。ログインも戻る', t => {
+test('壊れていたら、前の正しい状態の写しから戻す', t => {
   const { dir, appConfig, file, brokenFile, records } = setup(t);
-  appConfig.writeAppConfig({ serverFolder: dir, setupComplete: true, authEmail: 'op@example.com', authToken: 'token', authLoginAt: '2026-10-23T06:00:00.000Z' });
+  appConfig.writeAppConfig({ serverFolder: dir, setupComplete: true });
   appConfig.writeAppConfig({ minecraftPlayerName: 'Steve' });
   fs.writeFileSync(file, Buffer.alloc(16));
   const config = appConfig.readAppConfig();
   assert.equal(config.serverFolder, dir);
   assert.equal(config.setupComplete, true);
-  assert.deepEqual([config.authEmail, config.authToken, config.authLoginAt], ['op@example.com', 'token', '2026-10-23T06:00:00.000Z']);
   assert.equal(config.minecraftPlayerName, undefined, '写しは最後の保存の1つ前の状態');
   assert.deepEqual(fs.readFileSync(brokenFile), Buffer.alloc(16));
   assert.deepEqual(records, [{ file, reason: 'JSON として読めない', action: 'restored', brokenFile }]);
@@ -81,7 +79,7 @@ test('壊れている: 中身が null・配列、表の項目の型の違い。�
   const broken = [
     ['null', 'オブジェクトでない'], ['[]', 'オブジェクトでない'],
     ['{"serverFolder":3}', '項目 serverFolder の型が違う'], ['{"setupComplete":"yes"}', '項目 setupComplete の型が違う'],
-    ['{"authToken":1}', '項目 authToken の型が違う'], ['{"minecraftPlayerName":null}', '項目 minecraftPlayerName の型が違う'],
+    ['{"minecraftPlayerName":null}', '項目 minecraftPlayerName の型が違う'],
   ];
   for (const [content, reason] of broken) {
     const { appConfig, file, records } = setup(t);
@@ -106,7 +104,9 @@ test('今まで書いたことのある形のファイルは、壊れている�
     authEmail: 'op@example.com', authToken: 'a'.repeat(64), authLoginAt: '2026-10-01T09:00:00.000Z',
   };
   fs.writeFileSync(file, JSON.stringify(saved, null, 2));
-  assert.deepEqual(appConfig.readAppConfig(), saved);
+  // 古いログインの項目は読まない（運営ログインはなくした）。ほかの項目はそのまま。
+  const { authEmail: _email, authToken: _token, authLoginAt: _at, ...withoutLogin } = saved;
+  assert.deepEqual(appConfig.readAppConfig(), withoutLogin);
   assert.deepEqual(records, []);
   assert.deepEqual(fs.readdirSync(dir).filter(name => name.startsWith('app-config.json.')), []);
 });
@@ -121,12 +121,13 @@ test('一度戻したら、次に読むときは戻さず、記録しない', t 
   assert.equal(records.length, 1);
 });
 
-test('中身が null でも、ログインの確かめは「ログインしていない」', async t => {
-  const { appConfig, file } = setup(t);
-  fs.writeFileSync(file, 'null');
-  const handlers = new Map();
-  createOperatorAuth({ readAppConfig: appConfig.readAppConfig, writeAppConfig: appConfig.writeAppConfig }).register({ handle: (name, fn) => handlers.set(name, fn) });
-  assert.deepEqual(await handlers.get('auth:status')({}), { authenticated: false, email: '' });
+// 運営ログインはなくした（2026-10-24 ユーザーの決定）。配信者の PC に残っている古いログインの3項目は、読んでも返さず、次に保存したときに消える。
+test('古いログインの項目: 読んでも返さず、次に保存すると消える', t => {
+  const { dir, appConfig, file } = setup(t);
+  fs.writeFileSync(file, JSON.stringify({ serverFolder: dir, setupComplete: true, authEmail: 'op@example.com', authToken: 'a'.repeat(64), authLoginAt: '2026-10-01T09:00:00.000Z' }));
+  assert.deepEqual(appConfig.readAppConfig(), { serverFolder: dir, setupComplete: true });
+  appConfig.writeAppConfig({ minecraftPlayerName: 'Steve' });
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { serverFolder: dir, setupComplete: true, minecraftPlayerName: 'Steve' });
 });
 
 test('記録のファイルを書けなくても、アプリの設定は読める', t => {
@@ -220,7 +221,7 @@ test('インストーラーの印は配布版でだけ受け取り、初期セ�
 
 // 画面の型の宣言は、main と同じ表（app_config_fields.json）から型を取る（2026-10-23 設計書の 6.1）。
 // 前は手で書いていて、画面が書けない setupRequiredAt を書けるとし、main が返す minecraftGameFolder などが抜けていた。
-test('型の宣言は表を使い、画面が書ける項目・画面に渡さない項目が main と同じ', () => {
+test('型の宣言は表を使い、画面が書ける項目が main と同じ。ログインの項目は無い', () => {
   const dts = fs.readFileSync(path.join(__dirname, '../../src/types/electron.d.ts'), 'utf8');
   const table = require('../app_config_fields.json');
   assert.match(dts, /typeof import\("\.\.\/\.\.\/electron\/app_config_fields\.json"\)/);
@@ -231,7 +232,8 @@ test('型の宣言は表を使い、画面が書ける項目・画面に渡さ�
     return [...match[1].matchAll(/"([^"]+)"/g)].map(m => m[1]).sort();
   };
   assert.deepEqual(keys('AppConfigWritableKey'), [...table.rendererWritable].sort());
-  assert.deepEqual(keys('AppConfigPrivateKey'), [...table.private].sort());
+  assert.doesNotMatch(dts, /AppConfigPrivateKey|authEmail|authToken|authLoginAt/, '運営ログインの項目は型にも無い');
+  assert.deepEqual([...table.retired].sort(), ['authEmail', 'authLoginAt', 'authToken']);
   const start = dts.indexOf('appConfigRead:');
   const block = dts.slice(start, dts.indexOf('Promise<{ ok: true }>', dts.indexOf('appConfigWrite:')));
   assert.ok(start >= 0 && block.length > 0);

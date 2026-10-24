@@ -8,7 +8,7 @@ const { bridgeCommandsDir, bridgeModEndpoint } = require("../bridge/config_defau
 // MAP の保存・BridgeMOD との通信は、あとで main で作られるので、呼ばれたときに読む関数で受け取る。
 function createServerProcess({
   app, process, spawn, getServerRoot, getBridgeBatDir, getConfigPath, assertGameProfileIdle, assertMapIdle,
-  isInitialSetupRunning, recoverMapSaves, requestBridgeMod, authFailedMessage, isOperatorAuthed, stopRequests,
+  isInitialSetupRunning, recoverMapSaves, requestBridgeMod, authFailedMessage, stopRequests,
 }) {
   // サーバーの状態（子プロセス・ログ・起動中・停止中・停止の待ち）。使う関数より先に置く（main.cjs の分割 PR4 の最終レビュー）。
   let serverPid  = null;
@@ -212,7 +212,6 @@ function createServerProcess({
     // 先頭の "/" は付けても付けなくてもよい（コンソールでは不要なので取り除く）。
     ipcMain.handle("server:command", async (_event, command) => {
       assertMapIdle();
-      if (!isOperatorAuthed()) throw new Error("運営ログインが必要です。ログインし直してからコンソールコマンドを送信してください。");
       const cmd = String(command || "").trim().replace(/^\//, "");
       if (!cmd) throw new Error("コマンドが空です");
       if (/[\r\n]/.test(cmd)) throw new Error("コマンドは1行で入力してください");

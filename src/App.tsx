@@ -14,13 +14,11 @@ import TTSSettingsPage from "./components/TTSSettingsPage";
 import OperationsPage from "./components/OperationsPage";
 import StatsDashboardPage from "./components/StatsDashboardPage";
 import MinecraftBlockIcon from "./components/MinecraftBlockIcon";
-import LoginPage from "./components/LoginPage";
 import GameSelector from './components/GameSelector';
 import StopPanel from "./components/StopPanel";
 import { pauseView, pauseBannerText, setDisruptionPause, type PauseView } from "./lib/disruptionPause";
 import type { GameStatus } from './types/electron';
 import { UnsavedChangesProvider, useUnsavedGuard } from "./UnsavedChanges";
-import { readAuthState } from "./lib/authState";
 
 const PAGE_TITLE: Partial<Record<AppPage, string>> = {
   [AppPage.DASHBOARD]: "配信ホーム",
@@ -40,8 +38,6 @@ const App: React.FC = () => {
   const [activePage, setActivePage] = useState<AppPage>(AppPage.SETUP);
   const [setupComplete, setSetupComplete] = useState(false);
   const [configLoaded, setConfigLoaded] = useState(false);
-  // 認証状態: checking=起動時確認中 / authed=ログイン済み / unauthed=ログイン画面を表示
-  const [authState, setAuthState] = useState<"checking" | "authed" | "unauthed">("checking");
   const [appVersion, setAppVersion] = useState("");
   const [clock, setClock] = useState(new Date());
   const [headerStatus, setHeaderStatus] = useState({ bridgeRunning: false, modOnline: false, modAuthFailed: false });
@@ -114,12 +110,6 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const api = (window as any).mygamepack;
-    // 確かめられないとき（失敗・窓口が無い）はログイン画面を出す（2026-10-23 設計書の 7）。
-    (async () => { setAuthState(await readAuthState(api)); })();
-  }, []);
-
-  useEffect(() => {
     const timer = window.setInterval(() => setClock(new Date()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
@@ -172,16 +162,12 @@ const App: React.FC = () => {
     setActivePage(AppPage.SETUP);
   };
 
-  if (!configLoaded || authState === "checking") {
+  if (!configLoaded) {
     return (
       <div className="flex h-screen bg-gray-900 items-center justify-center text-gray-400 text-sm">
         読み込み中…
       </div>
     );
-  }
-
-  if (authState === "unauthed") {
-    return <LoginPage onLoginSuccess={() => setAuthState("authed")} />;
   }
 
   return (
