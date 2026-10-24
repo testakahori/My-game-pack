@@ -14,7 +14,8 @@ const jarInputs = require('../../scripts/jar_inputs.cjs');
 const { checkJarInputs } = require('../../scripts/check-jar-inputs.cjs');
 const { assertReleaseVersion, RELEASE_PIPELINE_ENV } = require('../../scripts/release_version.cjs');
 
-const T = new Date(2026, 9, 24, 12, 0, 0);
+// jar を作った時刻。どの時間帯でも今より前にする（ソースを消すとフォルダーの時刻は「今」になるので、T が未来だと消したことに気づけない。CI の UTC で落ちた）。
+const T = new Date(2020, 0, 1, 12, 0, 0);
 const later = new Date(T.getTime() + 60000);
 // 偽のリポジトリ：3つの MOD のソースと jar、ゲームパックの説明。
 function fakeRepo(t) {

@@ -557,7 +557,7 @@
        - 8：mod_version が読めないときは「`BridgeMod/gradle.properties` に mod_version がありません」と止める。
        - 9：BridgeMOD の `src/generated`（jar に入る資材）も見る。
        - ついで：package-windows.cjs の失敗の返し方を見張るテストの照らし方を、書き方の違いで落ちにくくした。
-     - 確かめ（10-24、この作業コピー）：コードを1か所ずつ壊す11とおりで、どれもテストが落ちた。3つの MOD を本物の Gradle で作り、Gradle が書いた印のハッシュが JS 側と3つとも一致した（`node scripts/check-jar-inputs.cjs`）。ソースの時刻だけを新しくしても止まらなかった。
+     - 確かめ（10-24、この作業コピー）：コードを1か所ずつ壊す11とおりで、どれもテストが落ちた。3つの MOD を本物の Gradle で作り、Gradle が書いた印のハッシュが JS 側と3つとも一致した（`node scripts/check-jar-inputs.cjs`）。ソースの時刻だけを新しくしても止まらなかった。PR の最初の CI では、テストの基準の時刻（その場所の 2026-10-24 12:00）が UTC では未来になり、ソースを消したテストが落ちた（手元の日本時間では過去なので通っていた）。基準を 2020-01-01 にした。
      - テスト：`electron/test/release-command.test.cjs`（29件）。`npm run verify`：型チェック・BRIDGE 15/15・アプリ 757/757・ビルドが通る。
      - **次にやること**：
        1. PR → CI（mod-build で印の照らし合わせも）→ ユーザーの許可を得てマージ。
