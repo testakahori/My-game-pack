@@ -37,7 +37,7 @@
 #### 次にやること
 
 1. PR1 の最後のレビュー → PR → CI → ユーザーの許可を得てマージ。
-2. 届いたフォルダーから、写した OBSMOD・StackingGame-Events を外す（ユーザーの指示「soutenmon フォルダーから出して移して」）。残りはアーカイブに回す。
+2. ~~届いたフォルダーから、写した OBSMOD・StackingGame-Events を外す~~（10-24 外した。取り込みのコミットの中身と同じファイルだけを消した：OBSMOD 28・StackingGame 74）。届いたフォルダー（`docs/soutenmon/StreamToEarn_code/`、git の外）に残っているのは、ビルドの出力・経緯の文書・イベント一覧の写し・同期の道具・BUILD.bat・API だけの jar（約 50MB）。こちらのビルドには使わないので、アーカイブに回すか消してよい。
 3. PR2：OBSMOD を標準装備として同梱する。
    - サーバーの雛形・release:win・ゲームの切り替え・アプリの更新で、DisplayMOD と同じように入れ替える。
    - 「ゲーム MOD ではない」一覧に `minecraft_obs_bridge` を足す。一覧は BridgeMOD と BRIDGE の両方にある。BridgeMOD は 1.8.3 に上げる。
