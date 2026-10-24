@@ -8,7 +8,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const cp = require("node:child_process");
-const { assertReleaseVersion } = require("./release_version.cjs");
+const { assertReleaseVersion, RELEASE_PIPELINE_ENV } = require("./release_version.cjs");
 
 const RELEASE_STEPS = ["build", "prepare:bridge-runtime", "prepare:server-template", "prepare:game-packs"];
 // 準備の道具が「もうある」と止まる、作った物の置き場（git で管理していない）。build/ には git で管理するファイル（installer.nsh）もあるので、これだけを空にする。
@@ -24,7 +24,8 @@ function modJars(root) {
   return [
     { name: "BridgeMOD", dir: "BridgeMod", jar: path.join(root, "BridgeMod/build/libs", `bridgemod-${modVersion(root, "BridgeMod")}.jar`) },
     { name: "DisplayMOD", dir: "DisplayMod", jar: path.join(root, "DisplayMod/build/libs", `displaymod-${modVersion(root, "DisplayMod")}.jar`) },
-    { name: "採掘MOD", dir: "SaikutuMod", jar: path.join(root, "SaikutuMod/build/libs", saikutu.serverJar) },
+    // 採掘MOD は BridgeMOD のクラスを使って作る（SaikutuMod/build.gradle の compileOnly）。
+    { name: "採掘MOD", dir: "SaikutuMod", jar: path.join(root, "SaikutuMod/build/libs", saikutu.serverJar), uses: { name: "BridgeMOD", dir: "BridgeMod" } },
   ];
 }
 
@@ -33,8 +34,9 @@ function newestSourceTime(root, dir) {
   const visit = file => {
     let stat;
     try { stat = fs.statSync(file); } catch { return; }
+    // フォルダーの時刻も見る。ファイルを足す・消す・名前を変えると、そのフォルダーの時刻が新しくなる（消しただけのときも見逃さない）。
+    newest = Math.max(newest, stat.mtimeMs);
     if (stat.isDirectory()) for (const name of fs.readdirSync(file)) visit(path.join(file, name));
-    else newest = Math.max(newest, stat.mtimeMs);
   };
   visit(path.join(root, dir, "src", "main"));
   for (const name of SOURCE_FILES) visit(path.join(root, dir, name));
@@ -47,7 +49,12 @@ function newestSourceTime(root, dir) {
 function staleMods(root) {
   return modJars(root).flatMap(mod => {
     if (!fs.existsSync(mod.jar)) return [{ ...mod, reason: "jar が無い" }];
-    return newestSourceTime(root, mod.dir) > fs.statSync(mod.jar).mtimeMs ? [{ ...mod, reason: "ソースが jar より新しい" }] : [];
+    const jarTime = fs.statSync(mod.jar).mtimeMs;
+    if (newestSourceTime(root, mod.dir) > jarTime) return [{ ...mod, reason: "ソースが jar より新しい" }];
+    if (mod.uses && newestSourceTime(root, mod.uses.dir) > jarTime) {
+      return [{ ...mod, reason: `${mod.uses.name} のソースが jar より新しい（${mod.name} は ${mod.uses.name} を使って作る）` }];
+    }
+    return [];
   });
 }
 
@@ -94,7 +101,7 @@ async function main(argv = process.argv.slice(2)) {
   const local = argv.includes("--local");
   const outDir = path.resolve(argv.find(arg => arg !== "--local") || path.join(root, local ? "release-local" : "release"));
   const cli = npmCli();
-  const exec = args => cp.execFileSync(process.execPath, args, { cwd: root, stdio: "inherit", windowsHide: true, env: { ...process.env, npm_execpath: cli } });
+  const exec = args => cp.execFileSync(process.execPath, args, { cwd: root, stdio: "inherit", windowsHide: true, env: { ...process.env, npm_execpath: cli, [RELEASE_PIPELINE_ENV]: "1" } });
   return runRelease({
     root, local, outDir,
     run: step => exec([cli, "run", step]),

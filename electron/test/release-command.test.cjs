@@ -32,6 +32,12 @@ function fakeRepo(t) {
   put('SaikutuMod/src/main/java/B.java', 'class B {}', new Date(T.getTime() - 60000));
   put('SaikutuMod/build/libs/saikutumod-2.0.0.jar', 'jar');
   put('game-packs/saikutu/game.json', JSON.stringify({ serverJar: 'saikutumod-2.0.0.jar' }));
+  // フォルダーの時刻も jar より前にそろえる（ファイルを足す・消すとフォルダーの時刻が新しくなるので、それも見る）。
+  const settle = folder => {
+    for (const name of fs.readdirSync(folder)) if (fs.statSync(path.join(folder, name)).isDirectory()) settle(path.join(folder, name));
+    fs.utimesSync(folder, new Date(T.getTime() - 60000), new Date(T.getTime() - 60000));
+  };
+  for (const mod of ['BridgeMod', 'DisplayMod', 'SaikutuMod']) settle(path.join(dir, mod, 'src'));
   return { dir, put };
 }
 
@@ -79,7 +85,7 @@ test('リリース: jar に入らないテストのソースが新しくても�
   put('SaikutuMod/src/test/java/Q.java', 'class Q {}', later);
   assert.deepEqual(release.staleMods(dir), []);
   put('BridgeMod/src/main/resources/META-INF/mods.toml', 'x', later);
-  assert.deepEqual(release.staleMods(dir).map(row => row.name), ['BridgeMOD'], 'src/main の下はリソースも見る');
+  assert.deepEqual(release.staleMods(dir).map(row => row.name), ['BridgeMOD', '採掘MOD'], 'src/main の下はリソースも見る（採掘MOD は BridgeMOD を使って作るので一緒に止まる）');
 });
 
 test('リリース: 作った物の置き場を空にしてから、ビルドと準備を決まった順に通し、最後にインストーラーを作る', async t => {
@@ -110,6 +116,40 @@ test('リリース: MOD の作り直し忘れがあれば、何も作らずに�
   await assert.rejects(release.runRelease({ root: dir, local: false, outDir: path.join(dir, 'release'), run: step => calls.push(step), packageInstaller: () => calls.push('package'), log: () => {} }),
     /BridgeMOD.*ソースが jar より新しい.*作り直してから/s);
   assert.deepEqual(calls, []);
+});
+
+// ソースを消しただけ（ブランチで足したファイルが、main に戻ると消える など）でも、jar の中身とずれる（最後のレビュー 重要1）。
+test('リリース: jar を作ったあとに MOD のソースを消したときも、作り直し忘れとして止める', t => {
+  const { dir } = fakeRepo(t);
+  fs.rmSync(path.join(dir, 'DisplayMod/src/main/java/A.java'));
+  assert.deepEqual(release.staleMods(dir).map(row => [row.name, row.reason]), [['DisplayMOD', 'ソースが jar より新しい']]);
+});
+
+// 採掘MOD は BridgeMOD のクラスを使って作る（SaikutuMod/build.gradle の compileOnly）。BridgeMOD を直したら採掘MOD も作り直す（最後のレビュー 重要2）。
+test('リリース: BridgeMOD のソースが採掘MOD の jar より新しければ、採掘MOD も作り直し忘れとして止める', t => {
+  const { dir, put } = fakeRepo(t);
+  put('BridgeMod/src/main/java/A.java', 'class A { int api; }', new Date(T.getTime() + 60000));
+  put('BridgeMod/build/libs/bridgemod-1.8.0.jar', 'jar', new Date(T.getTime() + 120000));
+  assert.deepEqual(release.staleMods(dir).map(row => [row.name, row.reason]), [['採掘MOD', 'BridgeMOD のソースが jar より新しい（採掘MOD は BridgeMOD を使って作る）']]);
+  put('SaikutuMod/build/libs/saikutumod-2.0.0.jar', 'jar', new Date(T.getTime() + 180000));
+  assert.deepEqual(release.staleMods(dir), []);
+});
+
+// package-windows.cjs を直接動かすと、ビルドと準備をせずに前に作ったものが入る（前の一番の問題。最後のレビュー 重要3）。
+test('インストーラー: package-windows.cjs は release:win（試し用は package-local.cjs）からしか動かない', () => {
+  const cp = require('node:child_process');
+  const { RELEASE_PIPELINE_ENV } = require('../../scripts/release_version.cjs');
+  // 存在しない npm を渡す。止める仕掛けが壊れても、本物のインストーラー作りは始まらずにすぐ止まる。
+  const env = { ...process.env, npm_execpath: path.join(root, 'no-such-npm-cli.js') };
+  delete env[RELEASE_PIPELINE_ENV];
+  const direct = cp.spawnSync(process.execPath, [path.join(root, 'scripts/package-windows.cjs')], { cwd: root, env, encoding: 'utf8' });
+  assert.equal(direct.status, 1);
+  assert.match(direct.stderr, /npm run release:win/);
+  // 合図があれば先へ進む（ここでは版が試し用でないので、作る前に止まる）。
+  const piped = cp.spawnSync(process.execPath, [path.join(root, 'scripts/package-windows.cjs'), '--local'], { cwd: root, env: { ...env, [RELEASE_PIPELINE_ENV]: '1' }, encoding: 'utf8' });
+  assert.notEqual(piped.status, 0);
+  assert.match(piped.stderr, /Use a -local\. version for a local package/);
+  assert.match(fs.readFileSync(path.join(root, 'scripts/release-windows.cjs'), 'utf8'), /\[RELEASE_PIPELINE_ENV\]: "1"/, 'release:win が合図を渡す');
 });
 
 // 実機で、electron-builder が失敗しても終了コードが 0 のまま返り、「.exe が見つからない」と出して成功で終わった（10-24）。

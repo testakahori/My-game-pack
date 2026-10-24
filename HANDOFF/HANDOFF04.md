@@ -532,7 +532,7 @@
      - PR1 のレビューで見つけた前からの問題：`foo.txt.txt` は BRIDGE が `foo.txt` を送り、MOD がもう一度 `.txt` を除くので `foo.txt` を実行する（PR7 で直した）。設定に `../x.txt` と書くと BridgeMOD 向けの名前の確かめを通った（PR7 で直した。RCON の経路と条件だけ確認でコマンドのフォルダーの外を読む、という前の書き方は言い過ぎで、`resolveCommands` は外を読まない）。`bridge/index.js` のルーレットの判定 `=== "roulette"` は大文字小文字を区別する（PR7 で直した）。Shift_JIS の txt は JS が U+FFFD にして読み、MOD は読めない（PR7 でバックアップを壊さず、配信前チェックで知らせるようにした）。`gift_templates.cjs` の `missing()` は名前を大文字小文字まで比べる（PR7 で直した）。TXT の書き込みのゲームパックの判定は大文字小文字を区別する（PR6 で直した）。electron が読む `../bridge/*.cjs` が `build.files` に全部あるかを確かめるテストがない（PR3 の軽い指摘の直しで足した）。`src/` に残る写し（`CommandSetManager.tsx`・`CommandsListPage.tsx`・`EventSettings2Page.tsx`・`ImageEditorPage.tsx`）は PR8 で、設計書 3 のとおり画面が決まりを持たない形にそろえた（TikTok ID と設定の値の写しは PR9）。
    - ~~リリース手順が2つ~~（10-24 直した。ブランチ `fix/single-release-command`）
      - 前は、配る前に動かす道具が2つあった。`scripts/package-windows.cjs` はインストーラーを作るだけで、画面のビルドや BRIDGE・サーバーの雛形・ゲームパックの準備をしないので、前に作ったものがそのまま入った。`npm run pack:win` は準備までしたが、最後に electron-builder をそのまま呼び（版の確かめも、npm を Node から呼ぶ直しも通らない）、2回目からはサーバーの雛形の置き場が残っていて止まった。electron-builder の版は `^26.15.3` で、`package-windows.cjs` が差し替える中の作りが版の更新で変わるおそれがあった。
-     - ユーザーの決定（10-24）：`npm run pack:win` は開発用で、配るのは `scripts/package-windows.cjs` で作ったもの。`npm run release:win` の1本にまとめる。MOD は MOD を変えたときだけ作り直す（release:win では作り直さず、作っておいた jar を同梱する）。HP へのアップロード・MOD のビルド・CI でのインストーラー作りは自動にしない。
+     - ユーザーの決定（10-24）：前は、`npm run pack:win` は開発用で、配るのは `scripts/package-windows.cjs` で作ったものだった。`npm run release:win` の1本にまとめる。MOD は MOD を変えたときだけ作り直す（release:win では作り直さず、作っておいた jar を同梱する）。HP へのアップロード・MOD のビルド・CI でのインストーラー作りは自動にしない。
      - やったこと：`scripts/release-windows.cjs`（`npm run release:win`）を足した。版を確かめる → MOD の作り直し忘れ（`src/main` かビルドの設定が jar より新しい・jar が無い）を確かめ、あれば何も作らずに止める → `build/server-template`・`build/game-packs` を空にする → `build`・`prepare:bridge-runtime`・`prepare:server-template`・`prepare:game-packs` → `scripts/package-windows.cjs` → 今回できたインストーラーと同梱した jar を表示する。版の決まりは `scripts/release_version.cjs` の1か所にした。`scripts/package-local.cjs`（試し用の版）も同じ流れを通す。`pack:win` は消した。electron-builder は 26.15.3 に固定した（`package-lock.json` も）。
      - 実機で動かして見つけたこと（3つとも直した）：
        - electron-builder が失敗しても、`package-windows.cjs` は終了コード 0 で終わっていた（前から）。electron-builder の一時フォルダーの片付け（temp-file の async-exit-hook）が、終わる直前に `process.exit(0)` を呼び、`process.exitCode = 1` を消すため。失敗したら `process.exit(1)` で返すようにした。release:win も、今回の .exe ができていなければ（前の回の .exe が残っていても）成功にしない。
@@ -541,8 +541,12 @@
      - 残る弱さ：ファイルの時刻で比べるので、git でブランチを切り替えて MOD のソースが書き直されると、中身が同じでも止まる（この作業コピーの採掘MOD がそうだった）。作り直せば同じ版の jar になって通る。止まったときの案内にもそう書いた。
      - 実機の確かめ（10-24、この作業コピー）：採掘MOD を作り直し、`npm run release:win` を続けて2回動かした。2回目に `release/MyGamePack-Bridge-UI-Setup-1.0.46.exe`（約 465MB）ができ、BridgeMOD 1.8.2・DisplayMOD 1.1.0 がサーバーの雛形の mods に、採掘MOD 1.1.5 がゲームパックに入った。この .exe は確かめ用で、配っていない。
      - 文書：`docs/手動配布とアプリ更新.md` を公式 HP から配る形に直した（GitHub Release の話を消した）。`docs/ローカル更新.md`・`docs/採掘MODと統一コマンド.md`・`AGENTS.md` も合わせた。
-     - テスト：`electron/test/release-command.test.cjs`（12件）。`npm run verify`：型チェック・BRIDGE 15/15・アプリ 740/740・ビルドが通る。
      - リリースノートに足すこと：なし（配る人の手順だけの変更で、アプリの動きは変わらない）。
+     - 最後のレビュー（opus）：重大 0・重要 3・軽い 9。重要の3件は直した：
+       - MOD のソースを消しただけのとき（ブランチで足したファイルが main に戻ると消える など）を見逃していた。フォルダーの時刻も見る（ファイルを足す・消す・名前を変えるとフォルダーの時刻が新しくなる）。
+       - 採掘MOD は BridgeMOD のクラスを使って作る（`SaikutuMod/build.gradle` の compileOnly）のに、BridgeMOD を直しても採掘MOD を止めなかった。BridgeMOD のソースが採掘MOD の jar より新しければ、採掘MOD も止める。
+       - `scripts/package-windows.cjs` を直接動かすと、今も準備なしでインストーラーができた（「1本」の抜け道）。release:win からの合図（環境変数 `MYGAMEPACK_RELEASE_PIPELINE`）が無ければ止める。
+     - テスト：`electron/test/release-command.test.cjs`（15件）。`npm run verify`：型チェック・BRIDGE 15/15・アプリ 743/743・ビルドが通る。
      - **次にやること**：
        1. 最後のレビュー（opus）→ 軽い指摘をユーザーが決める → PR → CI → ユーザーの許可を得てマージ。
        2. 次に配るときは `npm run release:win` で作り、できた .exe を公式 HP にアップロードする（`docs/手動配布とアプリ更新.md`）。たまっているリリースノート（この節より上の各節の「リリースノートに足すこと」）をまとめる。

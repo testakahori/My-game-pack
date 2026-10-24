@@ -1,12 +1,17 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
+// The version rule lives in release_version.cjs. Build installers with npm run release:win,
+// which runs the build and prepare steps first (scripts/release-windows.cjs). Run directly,
+// this script would package whatever an earlier build left behind, so it refuses.
+const { assertReleaseVersion, RELEASE_PIPELINE_ENV } = require('./release_version.cjs');
+if (process.env[RELEASE_PIPELINE_ENV] !== '1') {
+  console.error('Build installers with npm run release:win (local builds: scripts/package-local.cjs)');
+  process.exit(1);
+}
 const { build, Platform, Arch } = require('electron-builder');
 const { stripSensitiveEnvVars } = require('builder-util');
 const { NpmNodeModulesCollector } = require('app-builder-lib/out/node-module-collector/npmNodeModulesCollector.js');
-// The version rule lives in release_version.cjs. Build installers with npm run release:win,
-// which runs the build and prepare steps first (scripts/release-windows.cjs).
-const { assertReleaseVersion } = require('./release_version.cjs');
 
 // Windows electron-builder 26.15 wraps npm in an encoded PowerShell command.
 // For Windows builds, invoke the same npm CLI directly with Node and literal argv.

@@ -8,4 +8,7 @@ function assertReleaseVersion(version, local) {
   }
 }
 
-module.exports = { assertReleaseVersion };
+// release-windows.cjs が package-windows.cjs に渡す合図。package-windows.cjs を直接動かすと、ビルドと準備をせずに前に作ったものが入るので、合図が無ければ止める。
+const RELEASE_PIPELINE_ENV = "MYGAMEPACK_RELEASE_PIPELINE";
+
+module.exports = { assertReleaseVersion, RELEASE_PIPELINE_ENV };
