@@ -8,10 +8,7 @@ plugins {
 version = mod_version
 group = mod_group_id
 base { archivesName = mod_id }
-java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
-}
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 
 minecraft {
     mappings channel: mapping_channel, version: mapping_version
@@ -38,6 +35,13 @@ dependencies {
     // Compile against this repository's BridgeMod classes (build BridgeMod first), same as SaikutuMod,
     // so an API change in BridgeMOD shows up at build time. Runtime classes come from the BridgeMOD jar (mods.toml requires it).
     compileOnly files('../BridgeMod/build/classes/java/main')
+}
+tasks.named('compileJava') {
+    doFirst {
+        if (!file('../BridgeMod/build/classes/java/main/jp/douma/bridgemod/api/GameEvents.class').exists()) {
+            throw new GradleException('Build BridgeMod first: ../BridgeMod/build/classes/java/main is missing (run the BridgeMod build, then build UmetateMod)')
+        }
+    }
 }
 
 def replaceProperties = [

@@ -6,7 +6,7 @@ import jp.streamtorearn.stackinggame.event.EventTargetMode;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** GENERATED metadata from event-master/events.master.json by tools/sync_event_master.py. */
+/** GENERATED metadata from event-master/events.master.json by scripts/sync-event-master.cjs. */
 public final class StackingEventCatalog {
     public record Meta(String eventKey, String encounterKey, String displayName, String tier, EventTargetMode targetMode, BlockInteractionMode blockMode, String encounterKind, String attackKind, int attackPriority) {}
     private static final Map<String, Meta> BY_KEY = new LinkedHashMap<>();

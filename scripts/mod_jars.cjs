@@ -23,4 +23,20 @@ function modJars(root) {
 
 const modJar = (root, dir) => modJars(root).find(mod => mod.dir === dir).jar;
 
-module.exports = { modJars, modJar, modVersion };
+function modProperty(root, dir, key) {
+  const value = fs.readFileSync(path.join(root, dir, "gradle.properties"), "utf8").match(new RegExp(`^${key}=(.+)$`, "m"))?.[1]?.trim();
+  if (!value) throw new Error(`${dir}/gradle.properties に ${key} がありません`);
+  return value;
+}
+
+// 作るが、まだ同梱しない MOD（そうてんもんさんの OBSMOD・埋め立ての MOD。2026-10-24 取り込み）。CI の印の照らし合わせ（check-jar-inputs.cjs）だけが見る。
+// jar の名前は <mod_id>-<mod_version>.jar（build.gradle の archivesName = mod_id）。同梱するときは modJars へ移す。
+function buildOnlyModJars(root) {
+  const jar = dir => path.join(root, dir, "build", "libs", `${modProperty(root, dir, "mod_id")}-${modVersion(root, dir)}.jar`);
+  return [
+    { name: "OBSMOD", dir: "ObsMod", jar: jar("ObsMod") },
+    { name: "埋め立てMOD", dir: "UmetateMod", jar: jar("UmetateMod"), uses: { name: "BridgeMOD", dir: "BridgeMod" } },
+  ];
+}
+
+module.exports = { modJars, modJar, modVersion, buildOnlyModJars };

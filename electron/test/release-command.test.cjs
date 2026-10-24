@@ -9,7 +9,7 @@ const os = require('node:os');
 const path = require('node:path');
 const root = path.resolve(__dirname, '../..');
 const release = require('../../scripts/release-windows.cjs');
-const { modJars } = require('../../scripts/mod_jars.cjs');
+const { modJars, buildOnlyModJars } = require('../../scripts/mod_jars.cjs');
 const jarInputs = require('../../scripts/jar_inputs.cjs');
 const { checkJarInputs } = require('../../scripts/check-jar-inputs.cjs');
 const { assertReleaseVersion, RELEASE_PIPELINE_ENV } = require('../../scripts/release_version.cjs');
@@ -38,23 +38,29 @@ function fakeRepo(t) {
   put('SaikutuMod/src/main/java/B.java', 'class B {}', new Date(T.getTime() - 60000));
   put('SaikutuMod/build/libs/saikutumod-2.0.0.jar', 'jar SaikutuMod');
   put('game-packs/saikutu/game.json', JSON.stringify({ serverJar: 'saikutumod-2.0.0.jar' }));
+  // 作るが、まだ同梱しない MOD（そうてんもんさんの OBSMOD・埋め立ての MOD）。
+  for (const [mod, id, version] of [['ObsMod', 'minecraft_obs_bridge', '2.4.7'], ['UmetateMod', 'stackinggame_events', '2.6.16']]) {
+    put(`${mod}/gradle.properties`, `mod_id=${id}\nmod_version=${version}\n`, new Date(T.getTime() - 60000));
+    put(`${mod}/src/main/java/C.java`, 'class C {}', new Date(T.getTime() - 60000));
+    put(`${mod}/build/libs/${id}-${version}.jar`, `jar ${mod}`);
+  }
   // フォルダーの時刻も jar より前にそろえる（ファイルを足す・消すとフォルダーの時刻が新しくなるので、それも見る）。
   const settle = folder => {
     for (const name of fs.readdirSync(folder)) if (fs.statSync(path.join(folder, name)).isDirectory()) settle(path.join(folder, name));
     fs.utimesSync(folder, new Date(T.getTime() - 60000), new Date(T.getTime() - 60000));
   };
-  for (const mod of ['BridgeMod', 'DisplayMod', 'SaikutuMod']) settle(path.join(dir, mod, 'src'));
+  for (const mod of ['BridgeMod', 'DisplayMod', 'SaikutuMod', 'ObsMod', 'UmetateMod']) settle(path.join(dir, mod, 'src'));
   return { dir, put };
 }
 
 // Gradle（scripts/jar_inputs.gradle）が jar の横に書くものと同じ形の印を書く。
 function writeStamp(dir, modDir, inputs) {
-  const mod = modJars(dir).find(row => row.dir === modDir);
+  const mod = [...modJars(dir), ...buildOnlyModJars(dir)].find(row => row.dir === modDir);
   const dirs = [mod.dir, ...(mod.uses ? [mod.uses.dir] : [])];
   const recorded = inputs || Object.fromEntries(dirs.map(name => [name, jarInputs.jarInputsHash(dir, name)]));
   fs.writeFileSync(jarInputs.stampPath(mod.jar), JSON.stringify({ inputs: recorded, jar: jarInputs.sha256File(mod.jar) }));
 }
-const stampAll = dir => { for (const modDir of ['BridgeMod', 'DisplayMod', 'SaikutuMod']) writeStamp(dir, modDir); };
+const stampAll = dir => { for (const modDir of ['BridgeMod', 'DisplayMod', 'SaikutuMod', 'ObsMod', 'UmetateMod']) writeStamp(dir, modDir); };
 const reasons = dir => release.staleMods(dir).map(row => [row.name, row.reason]);
 const quiet = { local: false, log: () => {} };
 const freshExe = (put, version = '1.2.3') => () => { put(`release/MyGamePack-Setup-${version}.exe`, 'exe', new Date()); };
@@ -202,9 +208,17 @@ test('MOD の印: Gradle 側は3つの MOD のビルドで同じ決まりを使�
   assert.ok(ci.indexOf('node scripts/check-jar-inputs.cjs') > ci.lastIndexOf('gradlew build'), 'MOD を作ったあとに照らす');
 });
 
-test('MOD の印: check-jar-inputs は、印が無い・合わない MOD を知らせる', t => {
+// 同梱しない MOD も CI で照らす（ObsMod・UmetateMod の取り込みの最後のレビュー 重要1）。
+test('MOD の印: check-jar-inputs は、印が無い・合わない MOD を知らせる（作るが同梱しない MOD も）', t => {
   const { dir } = fakeRepo(t);
-  assert.deepEqual(checkJarInputs(dir).map(row => row.name), ['BridgeMOD', 'DisplayMOD', '採掘MOD']);
+  assert.deepEqual(checkJarInputs(dir).map(row => row.name), ['BridgeMOD', 'DisplayMOD', '採掘MOD', 'OBSMOD', '埋め立てMOD']);
+  stampAll(dir);
+  writeStamp(dir, 'UmetateMod', { UmetateMod: jarInputs.jarInputsHash(dir, 'UmetateMod'), BridgeMod: 'x' });
+  assert.deepEqual(checkJarInputs(dir).map(row => row.name), ['埋め立てMOD'], '埋め立ての MOD は BridgeMod の分も照らす');
+});
+
+test('MOD の印: check-jar-inputs は、印が合えば何も知らせない', t => {
+  const { dir } = fakeRepo(t);
   stampAll(dir);
   assert.deepEqual(checkJarInputs(dir), []);
   writeStamp(dir, 'SaikutuMod', { SaikutuMod: jarInputs.jarInputsHash(dir, 'SaikutuMod'), BridgeMod: 'x' });

@@ -3,7 +3,7 @@ package jp.streamtorearn.obsmodule.catalog;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** GENERATED from event-master/events.master.json by tools/sync_event_master.py. */
+/** GENERATED from event-master/events.master.json by scripts/sync-event-master.cjs. */
 public final class EventMaster {
     public static final String CATALOG_VERSION = "2026.10.10-1";
     public record Start(String key, String displayName, String tier, String encounterKey, boolean encounterEnabledByDefault) {}

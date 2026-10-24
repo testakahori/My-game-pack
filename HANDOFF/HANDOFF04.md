@@ -23,7 +23,7 @@
 - 2つのコミットに分けた。
   - 1つ目：届いたときのまま写した。届いたフォルダーの SHA-256 の一覧と照らした。`AquaTowerEvent.java` だけは一覧と違うが、V3 でコンパイルの誤り（ループの外の `continue;`）を直した版で、届いたものの説明（README_FIX_V3）と合う。
   - 2つ目：ビルドの設定をほかの MOD にそろえた（下の「ビルドの設定」）。
-- 写したのは、作るのに要るもの（`src/main` とビルドの設定）と README・AI_CONTEXT だけ（ObsMod 129KB・UmetateMod 422KB）。
+- 写したのは、作るのに要るもの（`src/main` とビルドの設定）と README・AI_CONTEXT だけ（git に入る中身で ObsMod 約 73KB・UmetateMod 約 261KB）。
 - 写さなかったもの：経緯の文書・静的検査の JSON・Excel の仕様書・イベント一覧の写し・同期の道具・BUILD.bat・PowerShell の道具・ビルドの出力・API だけの jar。
 - ビルドの設定：
   - ForgeGradle 6.0.47・Forge 47.4.16 にした（ほかの MOD と同じ）。
@@ -33,10 +33,37 @@
 - CI の mod-build で、BridgeMod のあとに2つとも作る。`.gitignore` に作った物の置き場を足した。`AGENTS.md` に作り方を書いた。
 - テスト：`electron/test/soutenmon-mods.test.cjs`（6件。直す前に6件とも落ちることを確かめた）。
 - 確かめ：2つともオフラインで作れた（`minecraft_obs_bridge-2.4.7.jar`・`stackinggame_events-2.6.16.jar`）。UmetateMod は今の BridgeMOD 1.8.2 のクラスでもコンパイルが通った。Gradle が書いた印のハッシュは JS 側と一致した。`npm run verify`：型チェック・BRIDGE 15/15・アプリ 763/763・ビルドが通る。
+- 最後のレビュー（opus）：重大 0・重要 1・軽い 11。
+  - レビューでも次のことを確かめた。
+    - コミットの 102 ファイルのうち 101 件は、届いたものとハッシュが一致した（AquaTowerEvent は V3 の直し）。
+    - 届いた jar と作り直した jar で、クラスの中身がほぼ一致した（違いは、コンパイラーの書き方の差の1件）。
+    - BridgeMOD 1.4.0 と 1.8.2 で、使う API は同じ。
+  - 重要の1件は直した：CI の印の照らし合わせ（`scripts/check-jar-inputs.cjs`）が、ObsMod・UmetateMod を見ていなかった。`scripts/mod_jars.cjs` に「作るが同梱しない MOD」（`buildOnlyModJars`）を足し、照らし合わせはそれも見る（5つ）。PR2 で OBSMOD を同梱するときは、`modJars` へ移す。
+  - 軽い 11 件は、ユーザーの決定（10-24「11件とも直す」）で全部直した：
+    - 1：Java 17 のツールチェーンにそろえた（ほかの MOD と同じ。届いた `sourceCompatibility` はツールチェーンと一緒に使えないので外した）。
+    - 2：届いたイベント一覧の道具（Python）を `scripts/sync-event-master.cjs` に移した。
+      - 一覧の元は `UmetateMod/src/main/resources/event-master/events.master.json`。ObsMod の写しと3つの Java を作る。
+      - テストがずれを止める。生成した Java の変更は、先頭のコメントの道具の名前だけ。
+    - 3：UmetateMod が OBSMOD を探す名前（MOD ID・`ObsApi` のクラス名・`publishLifecycle`・`publishEncounter`）が OBSMOD の宣言と合うことをテストで見張り、AGENTS.md の文を正しくした。
+    - 4：UmetateMod が使う BridgeMOD の API は `GameEvents` だけであることを見張り、新しい API を使うなら `bridge_api_version` を上げると AGENTS.md に書いた。
+    - 5：届いたフォルダーを `.gitignore` に入れた（約 50MB を公開のリポジトリに入れないように）。中にあった、こちらの道具の状態のファイルも消した。
+    - 6：Tailwind は画面のソース（`src`・`index.html`）だけを読む（`src/index.css` の `source(none)`）。
+      - 前と後の CSS を比べた。減ったのは 22 クラスで、どれも画面のクラス名としては使っていなかった。CSS の値（`position: fixed` など）や、JS の変数名・タグ名として出てくるだけ。
+      - 増えたクラスは無い。
+    - 7：`settings.gradle` からも Maven Central を外した（DisplayMod と同じ）。
+    - 8：取り込んだ README が指す docs・tools は取り込んでいないと AGENTS.md に書いた。
+    - 9：届いたものの selftest（RequestLedger の二重実行の防止 5件・遭遇の重複の抑え 5件）を `src/contractTest` に取り込み、`scripts/test-soutenmon-contracts.cjs` で CI の mod-build から動かす。この2つは届いたものの SHA-256 の一覧には無い（あとから足された確かめ）。
+    - 10：BridgeMod を作り忘れたら「Build BridgeMod first」と止める（コンパイルのときだけ確かめる）。BridgeMod のクラスを一時的に隠して、この言葉で止まることを確かめた。
+    - 11：IDE が作るファイルを `.gitignore` に入れた。この節の大きさを git の値に直した。AGENTS.md のテストを具体的にした。
+  - 確かめ：
+    - 2つの MOD をもう一度オフラインで作れた。
+    - `node scripts/check-jar-inputs.cjs`：5つとも合う。
+    - `node scripts/test-soutenmon-contracts.cjs`：10件通る。
+    - テスト：`soutenmon-mods.test.cjs` 16件・`release-command.test.cjs` 30件。`npm run verify`：型チェック・BRIDGE 15/15・アプリ 774/774・ビルドが通る。
 
 #### 次にやること
 
-1. PR1 の最後のレビュー → PR → CI → ユーザーの許可を得てマージ。
+1. PR1 → CI → ユーザーの許可を得てマージ。
 2. ~~届いたフォルダーから、写した OBSMOD・StackingGame-Events を外す~~（10-24 外した。取り込みのコミットの中身と同じファイルだけを消した：OBSMOD 28・StackingGame 74）。届いたフォルダー（`docs/soutenmon/StreamToEarn_code/`、git の外）に残っているのは、ビルドの出力・経緯の文書・イベント一覧の写し・同期の道具・BUILD.bat・API だけの jar（約 50MB）。こちらのビルドには使わないので、アーカイブに回すか消してよい。
 3. PR2：OBSMOD を標準装備として同梱する。
    - サーバーの雛形・release:win・ゲームの切り替え・アプリの更新で、DisplayMOD と同じように入れ替える。

@@ -2,6 +2,7 @@
 // どこかに「\ のあとに 16進数」（Windows の場所など）があると CSS の文字コードとして読まれ、
 // Unicode の範囲（0x10FFFF）を超えるとビルドが止まる（2026-10-17、計画書に書いた scratchpad の場所で起きた）。
 // 読む範囲を絞る（src/index.css の source()）までは、追跡しているテキストファイル全体をここで確かめる（PR1 の最終レビュー M1）。
+// 2026-10-24 に src/index.css で src と index.html だけを読むようにした（そうてんもんさんの MOD の取り込みの最後のレビュー 軽い6）。念のため、この確かめは残す。
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
