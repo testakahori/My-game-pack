@@ -124,7 +124,7 @@ APIで受け取るゲームパックには `"bridgeEventApi": 1` を指定する
 
 ## ビルドと配布準備
 
-BridgeModを先にビルドし、DisplayMod、SaikutuModをビルドする。その後 `npm run prepare:game-packs` で `build/game-packs/saikutu` にjarとgame.jsonを用意する。`pack:win` に同梱準備を追加済み。UmetateMOD・RunMODは本物のjarが完成後に別途登録する。
+BridgeModを先にビルドし、DisplayMod、SaikutuModをビルドする。その後 `npm run prepare:game-packs` で `build/game-packs/saikutu` にjarとgame.jsonを用意する。`npm run release:win` が同梱の準備も通す。UmetateMOD・RunMODは本物のjarが完成後に別途登録する。
 
 検証：
 - `npm run verify`

@@ -30,6 +30,7 @@
     - BridgeMod：`BridgeMod/` で `gradlew build --offline "-Dnet.minecraftforge.gradle.check.certs=false"`
     - SaikutuMod・DisplayMod：`BridgeMod/gradlew -p <MODのフォルダー> build` に同じ引数を付けます。
   - jar の中身を変えたらバージョンを上げ、`game-packs/*/game.json` などの参照も合わせます。
+- 配信者に配るインストーラーは `npm run release:win` の1本で作ります（`docs/手動配布とアプリ更新.md`）。ビルドと準備を必ず通し、MOD の jar は作っておいたものを同梱します。MOD のソースが jar より新しいと止まるので、先に jar を作り直します。
 - テスト発火は BRIDGE に渡し、本番と同じ処理（`bridge/index.js` の `handleGift` などに ctx を渡す形）を通します（2026-10-16）。本番の処理を直せば、テスト発火にも同じ直しが効きます。テストのときだけの分かれ道（`ctx.run` があるとき）を足すときは、本番の要求が変わらないことを `electron/test/test-fire-parity.test.cjs` で確かめます。
 - 新しいテストは、修正前のコードで落ちることを確かめます。確かめるときは `git archive` で取り出した一時コピーを使い、共有の作業ツリーで `git stash` は使いません。古い退避を誤って戻す事故が起きかけました。
 
