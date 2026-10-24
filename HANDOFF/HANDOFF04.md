@@ -538,7 +538,7 @@
        - electron-builder が失敗しても、`package-windows.cjs` は終了コード 0 で終わっていた（前から）。electron-builder の一時フォルダーの片付け（temp-file の async-exit-hook）が、終わる直前に `process.exit(0)` を呼び、`process.exitCode = 1` を消すため。失敗したら `process.exit(1)` で返すようにした。release:win も、今回の .exe ができていなければ（前の回の .exe が残っていても）成功にしない。
        - 作業コピーの `node_modules` に、1.0.46 で外した `electron-updater` などが残っていると、electron-builder が「Incomplete production dependencies」で止まる。`npm ci` で直すと、エラーと文書で案内する（この作業コピーは `npm prune` で外した）。
        - MOD の作り直し忘れの確かめが、jar に入らない契約テスト（`src/contractTest`）まで見ていて、DisplayMOD を誤って止めた。`src/main` とビルドの設定だけを見るようにした。
-     - 残る弱さ：ファイルの時刻で比べるので、git でブランチを切り替えて MOD のソースが書き直されると、中身が同じでも止まる（この作業コピーの採掘MOD がそうだった）。作り直せば同じ版の jar になって通る。止まったときの案内にもそう書いた。
+     - 前に残っていた弱さ：ファイルの時刻で比べるので、git でブランチを切り替えて MOD のソースが書き直されると、中身が同じでも止まった（この作業コピーの採掘MOD がそうだった）。最後のレビューの軽い3で、印（元の中身のハッシュ）で比べる形にした（下）。印の無い古い jar だけは、今も時刻で比べる。
      - 実機の確かめ（10-24、この作業コピー）：採掘MOD を作り直し、`npm run release:win` を続けて2回動かした。2回目に `release/MyGamePack-Bridge-UI-Setup-1.0.46.exe`（約 465MB）ができ、BridgeMOD 1.8.2・DisplayMOD 1.1.0 がサーバーの雛形の mods に、採掘MOD 1.1.5 がゲームパックに入った。この .exe は確かめ用で、配っていない。
      - 文書：`docs/手動配布とアプリ更新.md` を公式 HP から配る形に直した（GitHub Release の話を消した）。`docs/ローカル更新.md`・`docs/採掘MODと統一コマンド.md`・`AGENTS.md` も合わせた。
      - リリースノートに足すこと：なし（配る人の手順だけの変更で、アプリの動きは変わらない）。
@@ -546,9 +546,21 @@
        - MOD のソースを消しただけのとき（ブランチで足したファイルが main に戻ると消える など）を見逃していた。フォルダーの時刻も見る（ファイルを足す・消す・名前を変えるとフォルダーの時刻が新しくなる）。
        - 採掘MOD は BridgeMOD のクラスを使って作る（`SaikutuMod/build.gradle` の compileOnly）のに、BridgeMOD を直しても採掘MOD を止めなかった。BridgeMOD のソースが採掘MOD の jar より新しければ、採掘MOD も止める。
        - `scripts/package-windows.cjs` を直接動かすと、今も準備なしでインストーラーができた（「1本」の抜け道）。release:win からの合図（環境変数 `MYGAMEPACK_RELEASE_PIPELINE`）が無ければ止める。
-     - テスト：`electron/test/release-command.test.cjs`（15件）。`npm run verify`：型チェック・BRIDGE 15/15・アプリ 743/743・ビルドが通る。
+     - 軽い 9 件は、ユーザーの決定（10-24「9件とも直す」）で全部直した：
+       - 1：jar の場所の決まりを `scripts/mod_jars.cjs` の1か所にし、`prepare-server-template.cjs`・`prepare-game-packs.cjs`・release:win が同じものを使う。
+       - 2：テストの穴を埋めた（package-local が `--local` を渡すか、gradle.properties だけが新しいとき、版の違う .exe、`main()` の引数と、npm・package-windows.cjs の呼び方）。
+       - 3：MOD を作ると、Gradle（`scripts/jar_inputs.gradle`。3つの MOD の build.gradle から使う）が jar の横に `<jar>.inputs.json`（`src/main`・`src/generated`・ビルドの設定の中身のハッシュ。採掘MOD は BridgeMOD の分も）を書く。コンパイルの前と jar を作ったあとに取り、違えば「作っている間に変わった」と書く。release:win はこれと今のソースを比べる（`scripts/jar_inputs.cjs`）。git でブランチを切り替えて時刻だけ新しくなっても止まらない。CI の mod-build で、Gradle 側と JS 側のハッシュが同じかを `scripts/check-jar-inputs.cjs` が照らす。jar の中身は変わらないので、MOD の版は上げていない。
+       - 4：`npm ci` の案内を `npm ci --ignore-scripts`（CI・`docs/ローカル更新.md` と同じ）にそろえ、`node_modules` がジャンクションやリンクなら先に外すと書いた。
+       - 5：置き場を消すときは何度か試し直し、消せなければ「開いているものを閉じて」と案内して止める。
+       - 6：最後の表示に、どのコミットから作ったか（ブランチと、コミットしていない変更の数）を出す（止めはしない）。
+       - 7：`GiftsViewer/tools-bundled` も空にする置き場に足した。
+       - 8：mod_version が読めないときは「`BridgeMod/gradle.properties` に mod_version がありません」と止める。
+       - 9：BridgeMOD の `src/generated`（jar に入る資材）も見る。
+       - ついで：package-windows.cjs の失敗の返し方を見張るテストの照らし方を、書き方の違いで落ちにくくした。
+     - 確かめ（10-24、この作業コピー）：コードを1か所ずつ壊す11とおりで、どれもテストが落ちた。3つの MOD を本物の Gradle で作り、Gradle が書いた印のハッシュが JS 側と3つとも一致した（`node scripts/check-jar-inputs.cjs`）。ソースの時刻だけを新しくしても止まらなかった。
+     - テスト：`electron/test/release-command.test.cjs`（29件）。`npm run verify`：型チェック・BRIDGE 15/15・アプリ 757/757・ビルドが通る。
      - **次にやること**：
-       1. 最後のレビュー（opus）→ 軽い指摘をユーザーが決める → PR → CI → ユーザーの許可を得てマージ。
+       1. PR → CI（mod-build で印の照らし合わせも）→ ユーザーの許可を得てマージ。
        2. 次に配るときは `npm run release:win` で作り、できた .exe を公式 HP にアップロードする（`docs/手動配布とアプリ更新.md`）。たまっているリリースノート（この節より上の各節の「リリースノートに足すこと」）をまとめる。
        3. 見送った小さいこと（上の各節）。
 

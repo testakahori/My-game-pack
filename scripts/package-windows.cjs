@@ -36,7 +36,7 @@ NpmNodeModulesCollector.prototype.streamCollectorCommandToFile = async function 
   }
   const tree = JSON.parse(stdout);
   if (Array.isArray(tree.problems) && tree.problems.length) {
-    throw new Error(`Incomplete production dependencies: ${tree.problems.join("; ")}. Run npm ci to rebuild node_modules from package-lock.json`);
+    throw new Error(`Incomplete production dependencies: ${tree.problems.join("; ")}. Run npm ci --ignore-scripts to rebuild node_modules from package-lock.json (unlink node_modules first if it is a junction or link)`);
   }
   fs.writeFileSync(output, stdout);
 };

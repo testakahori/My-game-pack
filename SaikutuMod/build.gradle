@@ -21,3 +21,8 @@ tasks.named('processResources', ProcessResources).configure {
 }
 tasks.named('jar', Jar).configure { finalizedBy 'reobfJar' }
 tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+
+// Write the jar's source hash next to it for npm run release:win (scripts/jar_inputs.gradle).
+// SaikutuMod compiles against BridgeMod classes, so BridgeMod's sources count too.
+ext.jarInputsAlso = ['BridgeMod']
+apply from: '../scripts/jar_inputs.gradle'

@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { FORGE_VERSION } = require("../electron/forge_version.cjs");
+const { modJar } = require("./mod_jars.cjs");
 
 // 実行済みサーバーを丸ごと配布しない。初回構築に必要な資材だけを許可する。
 function prepareServerTemplate(source, destination, modJar, displayJar) {
@@ -33,13 +34,9 @@ function prepareServerTemplate(source, destination, modJar, displayJar) {
 
 if (require.main === module) {
   const root = path.resolve(__dirname, "..");
-  const version = fs.readFileSync(path.join(root, "BridgeMod", "gradle.properties"), "utf8").match(/^mod_version=(.+)$/m)?.[1]?.trim();
-  if (!version) throw new Error("BridgeMod version is missing");
-  const displayVersion = fs.readFileSync(path.join(root, "DisplayMod", "gradle.properties"), "utf8").match(/^mod_version=(.+)$/m)?.[1]?.trim();
-  if (!displayVersion) throw new Error("DisplayMod version is missing");
+  // The jar locations are decided in one place (scripts/mod_jars.cjs), shared with npm run release:win.
   prepareServerTemplate(path.join(root, "server", "Douma_Craft"), path.join(root, "build", "server-template"),
-    path.join(root, "BridgeMod", "build", "libs", `bridgemod-${version}.jar`),
-    path.join(root, "DisplayMod", "build", "libs", `displaymod-${displayVersion}.jar`));
+    modJar(root, "BridgeMod"), modJar(root, "DisplayMod"));
   console.log("Server template prepared (no worlds, player data, passwords or runtime settings).");
 }
 module.exports = { prepareServerTemplate };

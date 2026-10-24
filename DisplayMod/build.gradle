@@ -35,3 +35,6 @@ tasks.register('integrationProbeJar', Jar) {
     finalizedBy 'reobfIntegrationProbeJar'
 }
 reobf { integrationProbeJar {} }
+
+// Write the jar's source hash next to it for npm run release:win (scripts/jar_inputs.gradle).
+apply from: '../scripts/jar_inputs.gradle'

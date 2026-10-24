@@ -1,0 +1,53 @@
+// jar を作ったときの元の中身のハッシュ（印）を、jar の横（build/libs/<jar>.inputs.json）に書く。
+// npm run release:win（scripts/release-windows.cjs）が今のソースと比べ、MOD の作り直し忘れを中身で見分ける。
+// ハッシュの決まりは scripts/jar_inputs.cjs と同じにする（CI の mod-build で scripts/check-jar-inputs.cjs が照らす）。
+//   - 見る元：<MOD>/src/main・<MOD>/src/generated の下の全部と、<MOD> の build.gradle・gradle.properties・settings.gradle。
+//   - ファイルごとに「リポジトリの直下からの場所（/ 区切り）」「改行」「中身の SHA-256（16進の小文字）」「改行」を、場所の順に並べ、全体の SHA-256 を取る。
+// 別の MOD のクラスを使って作る MOD（採掘MOD）は、apply の前に ext.jarInputsAlso = ['BridgeMod'] と書く。
+// 元の中身はコンパイルの前と jar を作ったあとの2回取り、違えば changed-during-build と書く（ビルドの途中で保存した変更を見逃さない）。
+// jar の中身は変えない。
+import groovy.io.FileType
+import groovy.json.JsonOutput
+import java.security.MessageDigest
+
+def repoRoot = projectDir.parentFile
+def inputMods = [projectDir.name] + (project.findProperty('jarInputsAlso') ?: [])
+def sha256 = { byte[] bytes -> MessageDigest.getInstance('SHA-256').digest(bytes).encodeHex().toString() }
+def inputsHash = { String mod ->
+    def dir = new File(repoRoot, mod)
+    def files = []
+    ['src/main', 'src/generated'].each { sub ->
+        def base = new File(dir, sub)
+        if (base.isDirectory()) base.eachFileRecurse(FileType.FILES) { files << it }
+    }
+    ['build.gradle', 'gradle.properties', 'settings.gradle'].each { name ->
+        def file = new File(dir, name)
+        if (file.isFile()) files << file
+    }
+    def rows = files.collect { [repoRoot.toPath().relativize(it.toPath()).toString().replace(File.separatorChar, '/' as char), it] }
+    rows.sort { a, b -> a[0] <=> b[0] }
+    def text = new StringBuilder()
+    rows.each { row -> text.append(row[0]).append('\n').append(sha256(row[1].bytes)).append('\n') }
+    sha256(text.toString().getBytes('UTF-8'))
+}
+def allInputs = { inputMods.collectEntries { [(it): inputsHash(it)] } }
+
+def recorded = [:]
+def recordJarInputs = tasks.register('recordJarInputs') {
+    outputs.upToDateWhen { false }
+    doLast { recorded = allInputs() }
+}
+tasks.named('compileJava') { dependsOn recordJarInputs }
+tasks.named('processResources') { dependsOn recordJarInputs }
+
+def jarFile = tasks.named('jar', Jar).flatMap { it.archiveFile }
+def writeJarInputs = tasks.register('writeJarInputs') {
+    outputs.upToDateWhen { false }
+    doLast {
+        def jar = jarFile.get().asFile
+        def inputs = allInputs().collectEntries { mod, hash -> [(mod): hash == recorded[mod] ? hash : 'changed-during-build'] }
+        new File(jar.path + '.inputs.json').text = JsonOutput.toJson([inputs: inputs, jar: sha256(jar.bytes)])
+    }
+}
+// reobfJar が jar を書き直したあとに印を書く。
+tasks.matching { it.name == 'reobfJar' }.configureEach { finalizedBy writeJarInputs }
