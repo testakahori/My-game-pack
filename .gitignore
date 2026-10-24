@@ -41,6 +41,24 @@ BridgeMod/bin/
 DisplayMod/build/
 DisplayMod/.gradle/
 DisplayMod/bin/
+ObsMod/build/
+ObsMod/.gradle/
+ObsMod/bin/
+ObsMod/run-client/
+ObsMod/run-server/
+UmetateMod/build/
+UmetateMod/.gradle/
+UmetateMod/bin/
+UmetateMod/run-client/
+UmetateMod/run-server/
+# IDE files created by the eclipse / idea Gradle plugins
+.idea/
+*.iml
+.project
+.classpath
+.settings/
+# Delivered source bundle from soutenmon (about 50MB; the MODs now live in ObsMod/ and UmetateMod/)
+docs/soutenmon/StreamToEarn_code/
 
 # Gift data (runtime data, not source)
 tiktok_gifts/data/

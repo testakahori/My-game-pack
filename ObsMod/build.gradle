@@ -1,0 +1,73 @@
+plugins {
+    id 'eclipse'
+    id 'idea'
+    id 'maven-publish'
+    id 'net.minecraftforge.gradle' version '6.0.47'
+}
+
+version = mod_version
+group = mod_group_id
+base { archivesName = mod_id }
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+minecraft {
+    mappings channel: mapping_channel, version: mapping_version
+    copyIdeResources = true
+    runs {
+        client {
+            workingDirectory project.file('run-client')
+            property 'forge.logging.console.level', 'info'
+            mods { "${mod_id}" { source sourceSets.main } }
+        }
+        server {
+            workingDirectory project.file('run-server')
+            property 'forge.logging.console.level', 'info'
+            args '--nogui'
+            mods { "${mod_id}" { source sourceSets.main } }
+        }
+    }
+}
+
+// ForgeGradle adds the Forge maven and Maven Central (same as the other MODs, so offline builds find the cache).
+dependencies { minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}" }
+
+def replaceProperties = [
+    minecraft_version: minecraft_version,
+    minecraft_version_range: minecraft_version_range,
+    forge_version: forge_version,
+    forge_version_range: forge_version_range,
+    loader_version_range: loader_version_range,
+    mod_id: mod_id,
+    mod_name: mod_name,
+    mod_license: mod_license,
+    mod_version: mod_version,
+    mod_authors: mod_authors,
+    mod_description: mod_description,
+]
+
+processResources {
+    inputs.properties replaceProperties
+    filesMatching('META-INF/mods.toml') { expand replaceProperties }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 17
+}
+
+jar {
+    manifest {
+        attributes([
+            'Specification-Title': mod_id,
+            'Specification-Vendor': mod_authors,
+            'Specification-Version': '1',
+            'Implementation-Title': project.name,
+            'Implementation-Version': project.jar.archiveVersion,
+            'Implementation-Vendor': mod_authors,
+        ])
+    }
+    finalizedBy 'reobfJar'
+}
+
+// Write the jar's source hash next to it for npm run release:win (scripts/jar_inputs.gradle).
+apply from: '../scripts/jar_inputs.gradle'
