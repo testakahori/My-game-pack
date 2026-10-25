@@ -173,7 +173,15 @@
    - 10-25 PR #142 をマージした（マージコミット 78cc978。CI の verify（Ubuntu・Windows）と mod-build が通った。ユーザーの決定「今すぐマージする」）。
      - ユーザーの確かめ（10-25）：直したあと、ブラウザーの開発用の画面で `http:/192.168.0.5:3000/event` を保存すると「送り先は http:// か https:// で始まる URL にしてください（ブラウザーの確認用の簡単な確かめ）」と出た。
      - ユーザーの確かめ（10-25）：ブラウザーの開発用の画面で、欄は「安定運用・荒らし対策」の下に出ていて、文字も小さくない。
-     - まだ確かめていないこと：本物のアプリ（Electron）では、まだ一度も開いていない（この環境では electron.exe がすぐ終わり、画面を撮れない）。保存してサーバーの `obs-send.properties` が書かれることも、本物のアプリではまだ見ていない。配る前に、ユーザーに本物のアプリで一度見てもらう。
+     - 本物のアプリ（Electron・開発版）での確かめ（10-25）：
+       - ユーザーが試した：`http:/192.168.0.5:3000/event` は本物の確かめで断られた（文の最後に「ブラウザーの確認用」が付かない）。`http://192.168.0.5:3000/event` でオンにして保存すると「保存しました」と出た。
+       - こちらで見た：サーバーの `config/minecraft_obs_bridge/obs-send.properties` は `enabled=true`・`endpoint=http://192.168.0.5:3000/event` の2行（LF・BOM なし。一時ファイルは残らない）。アプリの設定に `obsSendEnabled`・`obsSendEndpoint` が入った。
+       - ふだんの設定と本物の配信サーバーには触っていない。やり方：
+         - 入り口を包む小さな台本で `app.setPath('userData', <一時フォルダー>)` をしてから `electron/main.cjs` を読む（ふだんの `%APPDATA%\tiktok-bridge-ui` を使わない）。
+         - サーバーのフォルダーは、アプリの「セットアップ済みか」の確かめ（`electron/initial_setup.cjs` の `inspectSetup`）が見るファイルだけを置いた一時フォルダー（中身は空。`run.bat` は文字を出すだけ）。
+         - Claude Code から起動するときは `ELECTRON_RUN_AS_NODE` を外す（付いたままだと electron.exe がすぐ終わる。前にここで「画面を撮れない」と書いたのは、たぶんこれ）。
+         - 開発版はリポジトリの `bridge/config.minecraft.json` に `configVersion` を足すので、終わったら `git restore bridge/config.minecraft.json`。
+       - サーバーの起動の直前に書くこと・OBSMOD が読むことは、テスト（`server-process-module.test.cjs`・ObsSendParity）と PR2 の実機の確かめで見た。本物の Forge サーバーを、アプリから起動しての確かめはしていない。
    - 次にやること：PR2（#140）と PR3（#142）をまとめて配る。リリースノートは、上の PR2・PR3 の「リリースノートに足すこと」を合わせる。`npm run release:win`。
 5. 埋め立ての MOD をつなぐ計画を立てる。`game-packs/umetate/game.json`・コマンド・同梱・`giftsdisplay` の食い違い・実機での確かめ。
 
