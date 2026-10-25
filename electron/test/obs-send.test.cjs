@@ -33,6 +33,24 @@ test('OBS 連携: 送り先は http・https の URL だけ。空なら既定の�
   for (const [value, message] of bad) assert.throws(() => obs.normalizeEndpoint(value), message, value);
 });
 
+// JS の URL は寛容に直して読むが、OBSMOD（Java の URI）はそのまま読み、ホストが無い・構文の誤りなら既定の送り先に置き換える。
+// OBSMOD でそのまま使えない送り先は、アプリでも断る（PR3 の最後のレビュー 重要1。ObsSendParity が Java で照らす）。
+test('OBS 連携: OBSMOD でそのまま使えない送り先は断る（打ち間違い・ホスト名・IP の書き方・% の書き方）', () => {
+  const mismatched = [
+    'http:/192.168.0.5:3000/event', 'http:192.168.0.5:3000/event', 'http:///192.168.0.5:3000/event',
+    'http://my_host:3000/event', 'http://a..b/event', 'http://a-.example/event', 'http://-a.example/event', 'http://foo.1abc/event',
+    'http://./event', 'http://../event', 'http://*.example/event', 'http://a!b/event', 'http://a~b/event',
+    'http://127.1:3000/event', 'http://0x7f.0.0.1/event', 'http://127.0.0.1.:3000/event', 'http://%31%32%37.0.0.1/event', 'http://ex%41mple.com/event',
+    'http://@127.0.0.1:3000/event', 'http://:@127.0.0.1:3000/event',
+    'http://127.0.0.1:3000/100%', 'http://127.0.0.1:3000/%zz', 'http://127.0.0.1:3000/a[0]', 'http://127.0.0.1:3000/#a#b',
+    'http://256.1.1.1/event', 'http://127.0.0.1:65536/event', 'http://[fe80::1%25eth0]/event',
+  ];
+  for (const value of mismatched) assert.throws(() => obs.normalizeEndpoint(value), Error, value);
+  for (const ok of ['HtTp://127.0.0.1:3000/event', 'http://[::ffff:127.0.0.1]:3000/event', 'http://localhost.:3000/event', 'http://127.0.0.1:/event', 'http://obs-tool.local:3000/event', 'http://192.168.0.5:3000/%E3%82%A2?x=1#top']) {
+    assert.equal(obs.normalizeEndpoint(ok), ok, ok);
+  }
+});
+
 test('OBS 連携: OBSMOD に渡すファイルは UTF-8・BOM なしの2行（送り先が空なら既定を書く）', t => {
   assert.equal(obs.propertiesText({ enabled: true, endpoint: '' }), 'enabled=true\nendpoint=http://127.0.0.1:3000/event\n');
   assert.equal(obs.propertiesText({ enabled: false, endpoint: 'http://192.168.0.5:3000/event' }), 'enabled=false\nendpoint=http://192.168.0.5:3000/event\n');
@@ -49,7 +67,7 @@ test('OBS 連携: OBSMOD に渡すファイルは UTF-8・BOM なしの2行（�
   assert.deepEqual(fs.readdirSync(path.dirname(file)), ['obs-send.properties'], '書きかけのファイルを残さない');
 });
 
-function ipc(t, { serverRunning = false, serverFolder = true } = {}) {
+function ipc(t, { serverRunning = false, serverFolder = true, runningFails = false } = {}) {
   const server = tempDir(t);
   let config = {};
   const handlers = new Map();
@@ -57,7 +75,7 @@ function ipc(t, { serverRunning = false, serverFolder = true } = {}) {
     readAppConfig: () => ({ ...config }),
     writeAppConfig: next => { config = { ...config, ...next }; },
     getServerRoot: () => (serverFolder ? server : path.join(server, 'missing')),
-    isServerRunning: async () => serverRunning,
+    isServerRunning: async () => { if (runningFails) throw new Error('connect EHOSTUNREACH'); return serverRunning; },
   });
   api.register({ handle: (name, fn) => handlers.set(name, fn) });
   return { server, config: () => config, invoke: (name, ...args) => handlers.get(name)({}, ...args), file: path.join(server, 'config', 'minecraft_obs_bridge', 'obs-send.properties') };
@@ -98,4 +116,12 @@ test('OBS 連携: アプリの設定の項目（画面から直接は書かせ�
   assert.equal(fields.fields.obsSendEnabled, false);
   assert.equal(fields.fields.obsSendEndpoint, '');
   assert.ok(!fields.rendererWritable.includes('obsSendEnabled') && !fields.rendererWritable.includes('obsSendEndpoint'));
+});
+
+// サーバーが動いているかは知らせのための情報。確かめられない（ポートの確かめが失敗した）ときも、読む・保存するは失敗させない（PR3 の最後のレビュー 重要4）。
+test('OBS 連携の窓口: サーバーが動いているかを確かめられなくても、読めて、保存もできる（null で知らせる）', async t => {
+  const x = ipc(t, { runningFails: true });
+  assert.deepEqual(await x.invoke('obs:get'), { enabled: false, endpoint: '', defaultEndpoint: 'http://127.0.0.1:3000/event', serverRunning: null });
+  assert.deepEqual(await x.invoke('obs:set', { enabled: true, endpoint: '' }), { ok: true, serverRunning: null, wroteServer: true });
+  assert.equal(fs.readFileSync(x.file, 'utf8'), 'enabled=true\nendpoint=http://127.0.0.1:3000/event\n');
 });

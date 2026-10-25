@@ -5,7 +5,7 @@ import SettingsBackupsPanel from "./SettingsBackupsPanel";
 import ListInput from "./ListInput";
 import ObsIntegrationSettings from "./ObsIntegrationSettings";
 import { COMMA_ONLY, hasJapaneseComma } from "../lib/listInput";
-import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
+import { useUnsavedChanges } from "../UnsavedChanges";
 // 既定値は BRIDGE と同じ表（bridge/config_defaults.json。処理のコピー PR4）。
 import CONFIG_DEFAULTS from "../../bridge/config_defaults.json";
 
@@ -138,7 +138,6 @@ function CreeperSignal() {
 }
 
 export default function OperationsPage({ onRestored }: { onRestored: () => void }) {
-  const { hasChanges } = useUnsavedGuard();
   const api = (window as any).mygamepack;
   const [status, setStatus] = useState<ModStatus>(defaultStatus);
   const [history, setHistory] = useState<HistoryRow[]>([]);
@@ -158,7 +157,9 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
   const [saving, setSaving] = useState(false);
   const [savedSnapshot, setSavedSnapshot] = useState("");
   const currentSnapshot = JSON.stringify({ options: cfg.options || {}, gameplayText });
-  useUnsavedChanges(Boolean(savedSnapshot) && currentSnapshot !== savedSnapshot, saving);
+  // このページの動作設定だけの未保存。帯の「変更を保存」はこれを保存するので、OBS 連携の欄（自分の保存ボタンを持つ）の未保存では出さない（PR3 の最後のレビュー 重要2）。
+  const opsDirty = Boolean(savedSnapshot) && currentSnapshot !== savedSnapshot;
+  useUnsavedChanges(opsDirty, saving);
 
   useEffect(() => {
     api.appVersion?.().then((v: string) => setAppVersion(v)).catch(() => {});
@@ -381,7 +382,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
         <CreeperSignal />
       </OpsPanel>
 
-      <nav className="studio-ops-tabs" aria-label="運用センターのメニュー">{[["map", "MAPセーブ・ロード"], ["test", "イベントテスト"], ["safety", "動作設定"], ["maintenance", "設定復元・更新"], ["advanced", "詳細設定"]].map(([id, label]) => <button key={id} aria-pressed={opsTab === id} onClick={() => setOpsTab(id)}>{label}</button>)}{hasChanges && <button className="studio-ops-save" disabled={saving} onClick={save}>変更を保存</button>}</nav>
+      <nav className="studio-ops-tabs" aria-label="運用センターのメニュー">{[["map", "MAPセーブ・ロード"], ["test", "イベントテスト"], ["safety", "動作設定"], ["maintenance", "設定復元・更新"], ["advanced", "詳細設定"]].map(([id, label]) => <button key={id} aria-pressed={opsTab === id} onClick={() => setOpsTab(id)}>{label}</button>)}{opsDirty && <button className="studio-ops-save" disabled={saving} onClick={save}>変更を保存</button>}</nav>
       <div hidden={opsTab !== "map"}><WorldSavesPanel active={opsTab === "map"} /></div>
       <div hidden={opsTab !== "test"}><EventTestPanel onTested={refresh} bridgeRunning={bridgeProcess.running === true} /></div>
       <div className="ops-main-grid" hidden={opsTab !== "safety"}>

@@ -34,3 +34,20 @@ test('OBS 連携の画面: 運用センターの「動作設定」に欄を置�
   assert.ok(panel.includes('次にサーバーを起動したときに効きます'));
   assert.ok(panel.includes('OBS ツールへイベントを送る'));
 });
+
+// 帯の「変更を保存」は、このページの動作設定の保存。OBS の欄だけが未保存のときは出さない（OBS の欄は自分の保存ボタンを持つ。PR3 の最後のレビュー 重要2）。
+test('OBS 連携の画面: 帯の「変更を保存」は、動作設定が未保存のときだけ出す（OBS の欄の未保存では出さない）', () => {
+  const page = read('src/components/OperationsPage.tsx');
+  assert.match(page, /const opsDirty = Boolean\(savedSnapshot\) && currentSnapshot !== savedSnapshot;/);
+  assert.match(page, /useUnsavedChanges\(opsDirty, saving\);/);
+  assert.match(page, /\{opsDirty && <button className="studio-ops-save"/);
+  assert.doesNotMatch(page, /\{hasChanges && <button className="studio-ops-save"/);
+});
+
+// 運用センターの CSS は input を横いっぱいにするので、チェックボックスは既にある ops-check-row で小さく描く。見出しの下も今の欄と同じだけ空ける（重要3）。
+test('OBS 連携の画面: チェックボックスは ops-check-row で描き、見出しの下を空ける', () => {
+  const panel = read('src/components/ObsIntegrationSettings.tsx');
+  assert.match(panel, /<label className="ops-check-row">\s*<input type="checkbox"/);
+  assert.match(panel, /<div className="ops-stability-fields mt-3\.5">/);
+  assert.ok(panel.includes('サーバーが動いているかは確かめられませんでした'), 'serverRunning が null のときの文');
+});

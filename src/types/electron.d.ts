@@ -20,9 +20,9 @@ export type MinecraftLocationCandidate = {
 export type MinecraftLocationDiscovery = { candidates: MinecraftLocationCandidate[]; warnings: string[] };
 
 export type EulerSettingsStatus = { configured: boolean; storageAvailable: boolean; restartRequired: boolean; error?: string };
-// OBS 連携（標準装備の OBSMOD が OBS ツールへ送るか。electron/obs_ipc.cjs）。endpoint が空なら defaultEndpoint へ送る。
-export type ObsSendStatus = { enabled: boolean; endpoint: string; defaultEndpoint: string; serverRunning: boolean };
-export type ObsSendSaveResult = { ok: true; serverRunning: boolean; wroteServer: boolean };
+// OBS 連携（標準装備の OBSMOD が OBS ツールへ送るか。electron/obs_ipc.cjs）。endpoint が空なら defaultEndpoint へ送る。serverRunning は確かめられないとき null。
+export type ObsSendStatus = { enabled: boolean; endpoint: string; defaultEndpoint: string; serverRunning: boolean | null };
+export type ObsSendSaveResult = { ok: true; serverRunning: boolean | null; wroteServer: boolean };
 export type MapSave = { id: string; name: string; createdAt: string; level: string; reason: string; bytes: number; files: number };
 export type MapOperationResult = { ok: boolean; saved?: MapSave; loaded?: MapSave; restarted?: boolean; restartError?: string };
 export type StreamSession = { id: string; title: string; startedAt: string; endedAt: string | null };

@@ -36,7 +36,9 @@ export default function ObsIntegrationSettings() {
     try {
       const result = await api.obsSet({ enabled, endpoint });
       show(await api.obsGet());
-      setMessage(result.serverRunning ? "保存しました。サーバーが動いているので、次にサーバーを起動したときに効きます。" : "保存しました。次にサーバーを起動したときから効きます。");
+      setMessage(result.serverRunning === null
+        ? "保存しました。サーバーが動いているかは確かめられませんでした。動いているなら、次にサーバーを起動したときに効きます。"
+        : result.serverRunning ? "保存しました。サーバーが動いているので、次にサーバーを起動したときに効きます。" : "保存しました。次にサーバーを起動したときから効きます。");
     } catch (caught) {
       setError(ipcErrorMessage(caught));
     } finally {
@@ -47,8 +49,10 @@ export default function ObsIntegrationSettings() {
 
   const defaultEndpoint = saved?.defaultEndpoint ?? "http://127.0.0.1:3000/event";
   return (
-    <div className="ops-stability-fields">
-      <label className="flex items-center gap-2 text-xs text-slate-200">
+    // 見出しの下は「安定運用・荒らし対策」と同じだけ空ける。チェックボックスは ops-check-row で小さく描く
+    // （運用センターの CSS は input を横いっぱいにするため。PR3 の最後のレビュー 重要3）。
+    <div className="ops-stability-fields mt-3.5">
+      <label className="ops-check-row">
         <input type="checkbox" checked={enabled} disabled={busy || saved === null} onChange={event => setEnabled(event.target.checked)} />
         OBS ツールへイベントを送る
       </label>

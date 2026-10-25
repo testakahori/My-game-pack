@@ -6,9 +6,13 @@ const fs = require("node:fs");
 const obs = require("./obs_send.cjs");
 
 function createObsIpc({ readAppConfig, writeAppConfig, getServerRoot, isServerRunning }) {
+  // サーバーが動いているかは知らせのための情報。確かめられない（ポートの確かめが失敗した）ときは null にし、読む・保存するは失敗させない
+  // （PR3 の最後のレビュー 重要4）。
+  const serverRunning = async () => { try { return Boolean(await isServerRunning()); } catch { return null; } };
+
   async function get() {
     const { enabled, endpoint } = obs.settingsFromConfig(readAppConfig());
-    return { enabled, endpoint, defaultEndpoint: obs.DEFAULT_ENDPOINT, serverRunning: Boolean(await isServerRunning()) };
+    return { enabled, endpoint, defaultEndpoint: obs.DEFAULT_ENDPOINT, serverRunning: await serverRunning() };
   }
 
   async function set(_event, settings) {
@@ -19,7 +23,7 @@ function createObsIpc({ readAppConfig, writeAppConfig, getServerRoot, isServerRu
     const root = getServerRoot();
     const wroteServer = Boolean(root) && fs.existsSync(root);
     if (wroteServer) obs.writeObsSend(root, next);
-    return { ok: true, serverRunning: Boolean(await isServerRunning()), wroteServer };
+    return { ok: true, serverRunning: await serverRunning(), wroteServer };
   }
 
   function register(ipcMain) {
