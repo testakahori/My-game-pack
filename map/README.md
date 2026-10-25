@@ -10,13 +10,15 @@
 
 ## 使い方
 
-- Forge 1.20.1、BridgeMOD 1.4.0以上（2未満）、UmetateMod 2.6.18を使います。
-- `UmetateMod/build/libs/stackinggame_events-2.6.18.jar` を、サーバーと参加者のMinecraft両方の `mods` に入れます。旧版の同じMODは入れ替えてください。
+- Forge 1.20.1、BridgeMOD 1.4.0以上（2未満）、UmetateMod 2.6.19を使います。
+- `UmetateMod/build/libs/stackinggame_events-2.6.19.jar` を、サーバーと参加者のMinecraft両方の `mods` に入れます。旧版の同じMODは入れ替えてください。
 - サーバーではこのフォルダーをワールドとして読み込みます。シングルプレイでは `.minecraft/saves` にコピーして開けます。
-- OP権限またはチートを有効にして `/umetate reset`、`/umetate zigoku` を入力します。サーバーコンソールでは先頭の `/` は不要です。
+- OP権限またはチートを有効にして `/umetate otasuke`、`/umetate reset`、`/umetate zigoku` を入力します。サーバーコンソールでは先頭の `/` は不要です。
 - 2026-10-25に、指定された `server/Douma_Craft` とMinecraft本体へ導入しました。サーバーは完成MAPのコピーを読み込みます。アプリのゲーム一覧への登録は別作業です。
 
 ## コマンド
+
+`/umetate otasuke` は、オーバーワールドで `fill -6 49 -6 6 56 6 minecraft:gold_block` を実行します。3階の中央枠の内側、13×13×8＝1352ブロックを金で埋めます。実行者が別の階・ディメンションにいても対象は同じです。対象範囲にある別のブロックも金に置き換わります。
 
 `/umetate reset` は、現在の2階を原本として3階を復元します。床下の石・岩盤、内装、空気、収納の中身、コマンドブロックを複製します。3階に追加したブロックは、2階にないものなら消えます。Mobの一掃はしません。既存の妨害イベントと待機列はリセットします。
 

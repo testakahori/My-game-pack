@@ -108,6 +108,17 @@ public final class LabIntegrationProbe {
         level.setBlock(barrel, Blocks.BARREL.defaultBlockState(), 18);
         ((BarrelBlockEntity) level.getBlockEntity(barrel)).setItem(0, new ItemStack(Items.DIAMOND, 23));
         Snapshot master = snapshot(level, 0);
+        Snapshot beforeHelp = snapshot(level, 42);
+        // ネザーを実行元にしても3階だけを埋め、枠・上半分・原本・地獄は変更しない。
+        check(server.getCommands().getDispatcher().execute("umetate otasuke",
+                server.createCommandSourceStack().withLevel(server.getLevel(net.minecraft.world.level.Level.NETHER))) > 0, "otasuke受付");
+        Snapshot afterHelp = snapshot(level, 42);
+        for (int i = 0; i < LabLayout.VOLUME; i++) {
+            int x = LabLayout.x(i), y = 42 + LabLayout.y(i), z = LabLayout.z(i);
+            boolean filled = x >= -6 && x <= 6 && y >= 49 && y <= 56 && z >= -6 && z <= 6;
+            check(afterHelp.states().get(i).equals(filled ? Blocks.GOLD_BLOCK.defaultBlockState() : beforeHelp.states().get(i)), "otasukeの範囲と金ブロック");
+        }
+        check(snapshot(level, 0).equals(master) && snapshot(level, -42).equals(hellBefore), "otasukeは1階・2階を変更しない");
         level.setBlock(new BlockPos(0, 70, 0), Blocks.DIAMOND_BLOCK.defaultBlockState(), 18);
         level.setBlock(new BlockPos(0, 48, -12), Blocks.AIR.defaultBlockState(), 18);
         check(server.getCommands().getDispatcher().execute("umetate reset", server.createCommandSourceStack()) == 1, "reset受付");
