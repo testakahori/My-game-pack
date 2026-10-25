@@ -26,6 +26,8 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 public final class StackingRuntime {
+    public final jp.streamtorearn.stackinggame.lab.LabStageService lab = new jp.streamtorearn.stackinggame.lab.LabStageService(this);
+    public final jp.streamtorearn.stackinggame.world.StampService stamps = new jp.streamtorearn.stackinggame.world.StampService(lab);
     public final ProtectedBlockPolicy protectedBlocks = new ProtectedBlockPolicy();
     public final ArenaService arena = new ArenaService();
     public final BlockSafetyService blockSafety = new BlockSafetyService(protectedBlocks, arena);
@@ -50,6 +52,7 @@ public final class StackingRuntime {
     public final BridgeGameApiIntegration bridgeApi = new BridgeGameApiIntegration();
 
     public StackingRuntime() {
+        blockSafety.setReservedRegion(lab::isMaster);
         EventRegistryConsistency.validate(registry);
     }
 
@@ -77,10 +80,12 @@ public final class StackingRuntime {
 
     /** Entity/FallingBlockが着地処理する前の安全監視。 */
     public void beforeEntityTick() {
+        stamps.tick();
         stackBlocks.beforeEntityTick();
     }
 
     public void tick(MinecraftServer server, long tick) {
+        lab.tick(server);
         events.tick(server, tick);
         fluid.tick(tick);
         mobLifetime.tick(server, tick);
@@ -89,6 +94,7 @@ public final class StackingRuntime {
 
     public void started(MinecraftServer server) {
         tempBlocks.loadAndRestore(server);
+        lab.started(server);
         bridgeApi.start(server, this);
     }
 
@@ -97,6 +103,7 @@ public final class StackingRuntime {
      * 現在イベントと待機列を破棄し、BridgeのgameSessionIdも新しい番号へ切り替える。
      */
     public void reset(MinecraftServer server) {
+        stamps.clear();
         // RESETはイベント由来の一時流体だけ復元し、Mob/FallingBlock/積み上げ/地形は残す。
         events.resetRound(server);
         // BridgeMOD 1.4.0 reference flow clears the game-owned request ledger at a round boundary.
@@ -107,6 +114,8 @@ public final class StackingRuntime {
     }
 
     public void stopping(MinecraftServer server) {
+        stamps.clear();
+        lab.stopping();
         bridgeApi.stop();
         events.cancelAll(server, CancelReason.SERVER_STOP);
         events.clearLedger();

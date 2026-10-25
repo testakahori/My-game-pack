@@ -70,6 +70,7 @@ public final class EventManager {
                     "request previously failed after acceptance: " + requestLedger.failureReason(request.externalRequestId()));
         }
 
+        if (runtime.lab.blocksEvents()) return new Result(SubmitStatus.WAIT, "研究室MAPの復元・転送中");
         ServerPlayer player = server.getPlayerList().getPlayer(request.playerId());
         if (player == null) {
             // 一時的にプレイヤーが不在なら、Bridge側に要求を保持してもらう。
@@ -127,6 +128,7 @@ public final class EventManager {
     }
 
     public synchronized void tick(MinecraftServer server, long tick) {
+        if (runtime.lab.blocksEvents()) return;
         // 1. まず現在イベントを進める。
         if (activeEvent != null) {
             try {

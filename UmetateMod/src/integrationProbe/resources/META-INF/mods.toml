@@ -1,0 +1,13 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="All Rights Reserved"
+[[mods]]
+modId="umetate_lab_probe"
+version="1.0"
+displayName="Umetate Lab Integration Probe"
+[[dependencies.umetate_lab_probe]]
+modId="stackinggame_events"
+mandatory=true
+versionRange="[2.6.17,)"
+ordering="AFTER"
+side="SERVER"

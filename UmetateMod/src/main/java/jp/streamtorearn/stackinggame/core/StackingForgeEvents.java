@@ -21,6 +21,7 @@ public final class StackingForgeEvents {
     @SubscribeEvent
     public void onCommands(RegisterCommandsEvent event) {
         StackGameCommand.register(event.getDispatcher(), runtime);
+        jp.streamtorearn.stackinggame.command.UmetateCommand.register(event.getDispatcher(), runtime);
     }
 
     @SubscribeEvent
@@ -43,12 +44,35 @@ public final class StackingForgeEvents {
         }
     }
 
+    @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.LOWEST)
+    public void onLabEnvironment(TickEvent.ServerTickEvent event) {
+        // BridgeMODの固定環境より後に適用し、次のワールド更新では自然湧きを止めておく。
+        if (event.phase == TickEvent.Phase.END) runtime.lab.keepNaturalSpawningOff(event.getServer());
+    }
+
+    @SubscribeEvent
+    public void onEntityJoin(net.minecraftforge.event.entity.EntityJoinLevelEvent event) {
+        runtime.lab.entityJoined(event.getEntity());
+    }
+
     @SubscribeEvent
     public void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
+            runtime.lab.logout(player);
             // ログアウト中はイベントを継続できないため、実行中とそのプレイヤーの待機分を破棄する。
             runtime.events.cancelPlayer(event.getEntity().getServer(), player.getUUID(), CancelReason.PLAYER_LOGOUT, true);
         }
+    }
+
+    @SubscribeEvent
+    public void onDamage(net.minecraftforge.event.entity.living.LivingAttackEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player && runtime.lab.protects(player)) event.setCanceled(true);
+    }
+
+    @SubscribeEvent
+    public void onExplosion(net.minecraftforge.event.level.ExplosionEvent.Detonate event) {
+        if (event.getLevel() instanceof net.minecraft.server.level.ServerLevel level)
+            event.getAffectedBlocks().removeIf(pos -> runtime.lab.isMaster(level, pos));
     }
 
     @SubscribeEvent
