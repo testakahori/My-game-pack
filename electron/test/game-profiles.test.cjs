@@ -521,3 +521,11 @@ test('ゲームの切り替え: OBSMOD の jar の中身が OBSMOD でなけれ�
   await assert.rejects(x.api.activate('umetate'), /OBSMOD/);
   for (const dir of [x.server, x.client]) assert.deepEqual(mods(dir), ['doumacmd-old.jar', 'other.jar']);
 });
+
+// 開発版で ObsMod を作っていない（OBSMOD の jar が無い）ときは入れない。サーバーにあった OBSMOD も、切り替えで外れる（配布版の雛形にはいつも入っている。最後のレビュー 軽い6）。
+test('ゲームの切り替え: OBSMOD の jar が無いときは入れず、サーバーにあった OBSMOD も外れる', async t => {
+  const x = withObs(t);
+  fs.writeFileSync(path.join(x.server, 'mods', 'minecraft_obs_bridge-2.4.7.jar'), jar('minecraft_obs_bridge'));
+  await x.api.activate('common');
+  assert.deepEqual(mods(x.server), ['bridgemod-1.3.4.jar', 'displaymod-1.0.0.jar']);
+});

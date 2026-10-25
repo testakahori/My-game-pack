@@ -139,7 +139,7 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     const current = state();
     // ギフト設定が壊れていても投げない（アプリの設定の保存・ゲームの一覧・設定のバックアップから戻す操作を止めない。設計書 6.4）。
     const config = peekJsonFile(configPath()) || {};
-    return { active: current.active, saikutuMigrationNeeded: saikutu.hasLegacy(config), displayBundled: Boolean(displayJar()), applied: (config.gameProfile || 'common') === current.active && current.appliedFormat === 3 && JSON.stringify(current.appliedRoots) === JSON.stringify([path.resolve(serverRoot()), path.resolve(clientRoot())]), serverMods: path.join(serverRoot(), 'mods'), clientMods: path.join(clientRoot(), 'mods'), recoveryRequired: fs.existsSync(journalFile()),
+    return { active: current.active, saikutuMigrationNeeded: saikutu.hasLegacy(config), displayBundled: Boolean(displayJar()), obsBundled: Boolean(obsJar()), applied: (config.gameProfile || 'common') === current.active && current.appliedFormat === 3 && JSON.stringify(current.appliedRoots) === JSON.stringify([path.resolve(serverRoot()), path.resolve(clientRoot())]), serverMods: path.join(serverRoot(), 'mods'), clientMods: path.join(clientRoot(), 'mods'), recoveryRequired: fs.existsSync(journalFile()),
       games: GAMES.map(g => ({ ...g, installed: g.id === 'common' || Boolean(current.packages[g.id]) || bundledPackages().some(p => p.id === g.id), selected: current.active === g.id })) };
   }
   async function install(folder) {
@@ -212,7 +212,8 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     const bytes = plainFile(displayPath), name = path.basename(displayPath);
     if (!safeName(name) || !name.endsWith('.jar') || name.toLowerCase() === commonName.toLowerCase() || !jarModIds(bytes).includes('displaymod')) throw new Error('DisplayMODのjarを確認してください');
     commonFiles[name] = bytes;
-    // 標準装備の OBSMOD は、サーバーにだけ入れる（Minecraft 本体には入れない。2026-10-25 ユーザーの決定）。無ければ入れない。
+    // 標準装備の OBSMOD は、サーバーにだけ入れる（Minecraft 本体には入れない。2026-10-25 ユーザーの決定）。
+    // jar が無ければ入れない。そのときサーバーにあった OBSMOD も、切り替え・更新の入れ替えで外れる（開発版で ObsMod を作っていないときだけ。配布版の雛形にはいつも入っている）。
     const serverOnly = {}, obsPath = obsJar();
     if (obsPath) {
       const obsBytes = plainFile(obsPath), obsName = path.basename(obsPath);

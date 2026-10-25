@@ -34,7 +34,9 @@ function replaceCommonMod(source, serverRoot, modId = 'bridgemod') {
   const moved = [];
   try {
     const pattern = modId === 'bridgemod' ? /^(doumacmd|bridgemod)-.*\.jar$/i : modId === 'displaymod' ? /^displaymod-.*\.jar$/i : /^minecraft_obs_bridge-.*\.jar$/i;
-    for (const dir of [serverRoot, mods]) for (const old of fs.readdirSync(dir).filter(n => pattern.test(n))) {
+    // mods の中は、名前が違っても jar の中の MOD ID が同じものを退避する（手で入れた OBSMOD-handmade.jar など。残すと同じ MOD が2つ並び、Forge が起動しない。2026-10-25）。
+    const sameMod = name => { if (!/\.jar$/i.test(name)) return false; try { return jarModIds(fs.readFileSync(path.join(mods, name))).includes(modId); } catch { return false; } };
+    for (const dir of [serverRoot, mods]) for (const old of fs.readdirSync(dir).filter(n => pattern.test(n) || (dir === mods && sameMod(n)))) {
       const file = path.join(dir, old);
       if (path.resolve(file) === path.resolve(source)) continue;
       const slot = path.join(backup, dir === mods ? 'mods' : 'root'); fs.mkdirSync(slot, { recursive: true });

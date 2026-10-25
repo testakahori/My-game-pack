@@ -26,6 +26,8 @@ public final class ObsApi {
     private ObsApi() {}
 
     public static boolean publishLifecycle(Object serverObject, Map<String, ?> payload) {
+        // OBS ツールへの送信がオフなら、何もせずに受け付けたことにする（MyGamePack に同梱した OBSMOD。2026-10-25）。
+        if (!ObsBridgeMod.RUNTIME.http.enabled()) return true;
         if (!(serverObject instanceof MinecraftServer)) {
             ObsBridgeMod.LOGGER.warn("ObsApi rejected: server is not MinecraftServer");
             return false;
@@ -128,6 +130,7 @@ public final class ObsApi {
      * The encounter key must be enabled in encounterEvents.
      */
     public static boolean publishEncounter(Object serverObject, Map<String, ?> payload) {
+        if (!ObsBridgeMod.RUNTIME.http.enabled()) return true;
         if (!(serverObject instanceof MinecraftServer)) {
             ObsBridgeMod.LOGGER.warn("ObsApi encounter rejected: server is not MinecraftServer");
             return false;

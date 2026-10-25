@@ -9,13 +9,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '../..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 
-function jar(id) {
-  const name = Buffer.from('META-INF/mods.toml'), text = Buffer.from(`modLoader="javafml"\n[[mods]]\nmodId="${id}"\nversion="1.0"\n`);
-  const local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50); local.writeUInt32LE(text.length, 18); local.writeUInt32LE(text.length, 22); local.writeUInt16LE(name.length, 26);
-  const central = Buffer.alloc(46); central.writeUInt32LE(0x02014b50); central.writeUInt32LE(text.length, 20); central.writeUInt32LE(text.length, 24); central.writeUInt16LE(name.length, 28);
-  const end = Buffer.alloc(22); end.writeUInt32LE(0x06054b50); end.writeUInt16LE(1, 8); end.writeUInt16LE(1, 10); end.writeUInt32LE(central.length + name.length, 12); end.writeUInt32LE(local.length + name.length + text.length, 16);
-  return Buffer.concat([local, name, text, central, name, end]);
-}
+const { fakeModJar: jar } = require('./fake-mod-jar.cjs');
 
 test('OBSMOD: 同梱する MOD の一覧に入り、サーバーにだけ入れる印を持つ（release:win も確かめて同梱する）', () => {
   const { modJars, buildOnlyModJars } = require('../../scripts/mod_jars.cjs');
@@ -91,6 +85,14 @@ test('OBSMOD 2.4.8: obs-send.properties でオンのときだけ OBS ツール�
   assert.match(read('scripts/test-soutenmon-contracts.cjs'), /ObsSendSettingsTest/, '送らないことは Forge なしの確かめで動かして確かめる');
 });
 
+// サーバーにだけある MOD は、本体に無くても「MOD が合わない」と言わせない（無いと、本体のサーバー一覧で赤い×が付く。最後のレビュー 重要1）。
+test('OBSMOD: 本体に無くても、サーバー一覧で MOD が合わないと出さない（DisplayMOD・採掘MOD と同じ）', () => {
+  const block = name => read(name).split(/\[\[mods\]\]/)[1].split(/\[\[dependencies/)[0];
+  for (const name of ['ObsMod/src/main/resources/META-INF/mods.toml', 'DisplayMod/src/main/resources/META-INF/mods.toml', 'SaikutuMod/src/main/resources/META-INF/mods.toml']) {
+    assert.match(block(name), /^displayTest="IGNORE_SERVER_VERSION"\r?$/m, name);
+  }
+});
+
 test('OBSMOD: 開発用の作り直し（npm run dev:refresh）でも作る', () => {
   const { steps } = require('../../scripts/refresh-dev.cjs');
   assert.ok(steps({ windows: true }).some(step => step.title === 'ObsMod の jar'));
@@ -100,4 +102,48 @@ test('OBSMOD: 標準装備でサーバーにだけ入ること、送信は既定
   const agents = read('AGENTS.md');
   assert.ok(agents.includes('obs-send.properties'));
   assert.ok(read('docs/BridgeMODとゲーム切替.md').includes('OBSMOD'));
+});
+
+// 手で入れた名前の違う OBSMOD（OBSMOD-handmade.jar など）も、jar の中の MOD ID で見つけて退避する。残すと同じ MOD が2つ並び、Forge が起動しない（最後のレビュー 軽い5）。
+test('OBSMOD: 名前の違う OBSMOD も、jar の中の MOD ID で見つけて退避する（ほかの MOD は残す）', t => {
+  const { replaceCommonMod } = require('../bridge_mod_migration.cjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'obs-handmade-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const server = path.join(dir, 'server');
+  fs.mkdirSync(path.join(server, 'mods'), { recursive: true });
+  fs.writeFileSync(path.join(server, 'mods', 'OBSMOD-handmade.jar'), jar('minecraft_obs_bridge'));
+  fs.writeFileSync(path.join(server, 'mods', 'other.jar'), jar('othermod'));
+  fs.writeFileSync(path.join(server, 'mods', 'notes.txt'), 'keep');
+  const next = path.join(dir, 'minecraft_obs_bridge-2.4.8.jar');
+  fs.writeFileSync(next, jar('minecraft_obs_bridge'));
+  replaceCommonMod(next, server, 'minecraft_obs_bridge');
+  assert.deepEqual(fs.readdirSync(path.join(server, 'mods')).sort(), ['minecraft_obs_bridge-2.4.8.jar', 'notes.txt', 'other.jar']);
+});
+
+// OBSMOD が読む場所は、PR3 でアプリが書く場所との決まり（最後のレビュー 軽い8）。
+test('OBSMOD: 設定を読む場所は config/minecraft_obs_bridge/obs-send.properties', () => {
+  assert.match(read('ObsMod/src/main/java/jp/streamtorearn/obsmodule/core/ObsRuntime.java'), /FMLPaths\.CONFIGDIR\.get\(\)\.resolve\("minecraft_obs_bridge"\)\.resolve\(ObsSendSettings\.FILE_NAME\)/);
+  assert.match(read('ObsMod/src/main/java/jp/streamtorearn/obsmodule/config/ObsSendSettings.java'), /FILE_NAME = "obs-send\.properties"/);
+});
+
+// オフなら、OBSMOD の窓口（ゲーム MOD から呼ぶ ObsApi）と遭遇の知らせは、何もせずに戻る（オフでもイベントごとに警告を出していた。最後のレビュー 軽い10）。
+// 通信の仕組み（HttpClient）は、はじめて送るときに作る（オフなら作らない。軽い11）。
+test('OBSMOD: オフなら、窓口と遭遇の知らせは何もせずに戻り、通信の仕組みも作らない', () => {
+  const api = read('ObsMod/src/main/java/jp/streamtorearn/obsmodule/api/ObsApi.java');
+  for (const method of ['publishLifecycle', 'publishEncounter']) {
+    const body = api.slice(api.indexOf(`public static boolean ${method}(`));
+    assert.match(body.slice(0, body.indexOf('\n', body.indexOf('{') + 1) + 200), /if \(!ObsBridgeMod\.RUNTIME\.http\.enabled\(\)\) return true;/, method);
+  }
+  assert.match(read('ObsMod/src/main/java/jp/streamtorearn/obsmodule/core/EventPublisher.java'), /if\(!http\.enabled\(\)\)return;/);
+  assert.doesNotMatch(read('ObsMod/src/main/java/jp/streamtorearn/obsmodule/http/ObsControllerClient.java'), /private final HttpClient client=HttpClient\.newBuilder/);
+});
+
+test('OBSMOD: 文書と画面の言葉を、サーバーにだけ入れる・既定でオフに合わせる', () => {
+  const switching = read('docs/BridgeMODとゲーム切替.md');
+  assert.ok(switching.includes('bridgemod・doumacmd・displaymod・minecraft_obs_bridge・ゲームMOD'), 'アプリが置く MOD を見分ける MOD ID');
+  assert.ok(switching.includes('BridgeMOD・DisplayMOD・OBSMOD（サーバーだけ）・ゲームMODの構成'));
+  assert.ok(read('src/components/GameSelector.tsx').includes('OBSMOD'), '画面の標準装備の説明');
+  assert.match(read('ObsMod/README.md'), /^# OBSMOD v2\.4\.8/m);
+  assert.doesNotMatch(read('scripts/check-jar-inputs.cjs'), /ObsMod・UmetateMod/);
+  assert.match(read('scripts/mod_jars.cjs'), /serverOnly は目印/);
 });

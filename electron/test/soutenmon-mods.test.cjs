@@ -1,5 +1,5 @@
 // そうてんもんさんの MOD を、ほかの MOD と同じ階層に取り込んで作る（2026-10-24 ユーザーの決定。HANDOFF04）。
-// ObsMod/：OBSMOD v2.4.7（MOD ID minecraft_obs_bridge）。UmetateMod/：埋め立てゲームの StackingGame-Events v2.6.16（MOD ID stackinggame_events）。
+// ObsMod/：OBSMOD（v2.4.7 から取り込み、2.4.8 で MyGamePack の標準装備にした。MOD ID minecraft_obs_bridge）。UmetateMod/：埋め立てゲームの StackingGame-Events v2.6.16（MOD ID stackinggame_events）。
 // 取り込みでは中身を変えず、ビルドの設定だけをほかの MOD にそろえる（オフラインで BridgeMod/gradlew から作れるように）。
 const test = require('node:test');
 const assert = require('node:assert/strict');

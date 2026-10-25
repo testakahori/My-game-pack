@@ -6,7 +6,7 @@ const path = require("node:path");
 const { modJars, buildOnlyModJars } = require("./mod_jars.cjs");
 const { jarInputsHash, readStamp, stampPath } = require("./jar_inputs.cjs");
 
-// 同梱する MOD と、作るが同梱しない MOD（ObsMod・UmetateMod）の両方を照らす。
+// 同梱する MOD（OBSMOD を含む）と、作るが同梱しない MOD（UmetateMod）の両方を照らす。
 const allModJars = root => [...modJars(root), ...buildOnlyModJars(root)];
 
 function checkJarInputs(root) {

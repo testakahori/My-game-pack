@@ -98,7 +98,7 @@ export default function GameSelector({ onChanged, onStatus }: { onChanged: () =>
     <details><summary>Minecraftの保存先を探す・MODの保存先を確認</summary>
       <p>サーバー：{status?.serverMods || '未確認'}<br />Minecraft：{status?.clientMods || '未確認'}</p>
       <p>Minecraftを起動せずに、標準の保存先と公式ランチャーの起動構成から探せます。別のランチャーを使う場合や候補にない場合は、手動で指定してください。</p>
-      <p>BridgeMODとDisplayMODはすべてのゲームに標準装備されます。サバイバルでは、この2つだけを配置します。</p>
+      <p>BridgeMODとDisplayMODはすべてのゲームに標準装備されます。サバイバルでは、この2つだけを配置します。サーバーには、OBS 連携の OBSMOD も配置します（Minecraft 本体には配置しません）。</p>
       <div className="game-selector-tools">
         <button type="button" disabled={busy || scanning || !status || status.recoveryRequired} onClick={() => run(() => api.gamesInstall())}>ゲームパックを登録</button>
         <button type="button" disabled={busy || scanning || !status || status.recoveryRequired} onClick={scanFolders}>{scanning ? '候補を確認中…' : locations ? '候補を再検索' : 'Minecraftの保存先を自動検出'}</button>

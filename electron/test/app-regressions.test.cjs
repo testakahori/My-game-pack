@@ -482,6 +482,22 @@ test('配布: サーバーテンプレートのコピーは、今あるファイ
   assert.deepEqual(plainJson(await app.invoke('server:copyTemplateStatus')), { state: 'done', copied: total, total, error: '' });
 });
 
+// 標準装備の OBSMOD は、BRIDGE の同期のときに雛形からサーバーの mods へ入れ替える（2026-10-25。最後のレビュー 軽い8）。
+test('配布: BRIDGE の同期は、雛形の BridgeMOD・DisplayMOD・OBSMOD をサーバーの mods に入れ替え、古い OBSMOD を退避する', async t => {
+  const { fakeModJar } = require('./fake-mod-jar.cjs');
+  const app = loadApp(t);
+  app.usePackagedPaths();
+  packagedBridgeResources(app);
+  const templateMods = path.join(app.root, 'resources', 'server', 'Douma_Craft', 'mods');
+  fs.mkdirSync(templateMods, { recursive: true });
+  for (const [name, id] of [['bridgemod-9.9.9.jar', 'bridgemod'], ['displaymod-9.9.9.jar', 'displaymod'], ['minecraft_obs_bridge-9.9.9.jar', 'minecraft_obs_bridge']]) fs.writeFileSync(path.join(templateMods, name), fakeModJar(id));
+  const target = path.join(app.root, 'target');
+  fs.mkdirSync(path.join(target, 'mods'), { recursive: true });
+  fs.writeFileSync(path.join(target, 'mods', 'minecraft_obs_bridge-2.4.7.jar'), fakeModJar('minecraft_obs_bridge'));
+  await app.invoke('bridge:extractTo', target);
+  assert.deepEqual(fs.readdirSync(path.join(target, 'mods')).sort(), ['bridgemod-9.9.9.jar', 'displaymod-9.9.9.jar', 'minecraft_obs_bridge-9.9.9.jar']);
+});
+
 // BridgeMOD の jar の入れ替えは、サーバーの子プロセスとポートの稼働を見て止める（PR4 でこの2つの持ち主が変わる）。
 test('配線: BridgeMOD の jar の入れ替えは、サーバーが動いている間（子プロセス・ポートのどちらでも）は止める', async t => {
   const app = loadApp(t);

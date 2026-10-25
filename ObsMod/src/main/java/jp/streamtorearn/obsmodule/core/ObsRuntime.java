@@ -21,7 +21,7 @@ public final class ObsRuntime {
         encounterDedupe.configure(c.encounterPolicy.exactDedupeMs, c.encounterPolicy.crossSourceDedupeMs, c.encounterPolicy.dedupeMaxEntries);
         tiers.reset(c.tierPolicy.startupDefaultTier);
         // OBS ツールへ送るかは、MyGamePack が書く obs-send.properties で決める。無ければ送らない（2026-10-25）。
-        ObsSendSettings send=ObsSendSettings.read(FMLPaths.CONFIGDIR.get().resolve("minecraft_obs_bridge").resolve(ObsSendSettings.FILE_NAME), c.controller.endpoint);
+        ObsSendSettings send=ObsSendSettings.read(FMLPaths.CONFIGDIR.get().resolve("minecraft_obs_bridge").resolve(ObsSendSettings.FILE_NAME), c.controller.endpoint, ObsBridgeMod.LOGGER::warn);
         http.setEndpoint(send.endpoint());
         http.setEnabled(send.enabled());
         if(send.enabled()){ObsBridgeMod.LOGGER.info("OBSMOD sends events to the OBS tool: {}", send.endpoint());http.healthAsync();}

@@ -1,3 +1,9 @@
+# OBSMOD v2.4.8
+
+- MyGamePack に標準装備として同梱する版（2026-10-25）。サーバーにだけ入れる（`displayTest="IGNORE_SERVER_VERSION"` を付け、Minecraft 本体に無くてもサーバー一覧で MOD が合わないと出さない）。
+- OBS ツールへ送るのは、サーバーの `config/minecraft_obs_bridge/obs-send.properties` に `enabled=true` と書いたときだけ。無ければ送らず、`/health` の確かめもしない。送り先は `endpoint=`（http・https）で、無ければ `events.generated.json` の `controller.endpoint`。
+- MyGamePack のアプリの画面（運用センター）から、オン・オフと送り先を変えられるようにする予定。
+
 # OBSMOD v2.4.6
 
 - Central attack classification and event mapping.

@@ -38,19 +38,48 @@ public class ObsSendSettingsTest {
             expect(read(dir, "enabled=true\nendpoint=ftp://192.168.0.5/event\n"), new ObsSendSettings(true, FALLBACK), "http・https でない送り先は使わない");
             expect(read(dir, "enabled=true\nendpoint=\n"), new ObsSendSettings(true, FALLBACK), "送り先が空なら OBSMOD の設定の送り先");
             expect(read(dir, "enabled=true\nendpoint=https://obs.example/event\n").endpoint(), "https://obs.example/event", "https も使う");
+            // 大文字の HTTP:// も使う（Java の HttpClient も受け付ける）。ユーザー名・パスワード入りの送り先は、ログに出るので使わない（最後のレビュー 軽い1・3）。
+            expect(read(dir, "enabled=true\nendpoint=HTTP://192.168.0.5:3000/event\n").endpoint(), "HTTP://192.168.0.5:3000/event", "大文字の HTTP も使う");
+            expect(read(dir, "enabled=true\nendpoint=http://user:pw@127.0.0.1:3000/event\n").endpoint(), FALLBACK, "ユーザー名・パスワード入りの送り先は使わない");
             Files.createDirectories(dir.resolve("broken")); Files.writeString(dir.resolve("broken").resolve("x"), "x");
             expect(ObsSendSettings.read(dir.resolve("broken"), FALLBACK), new ObsSendSettings(false, FALLBACK), "読めなければ送らない");
+            // メモ帳などで BOM 付きで保存しても読む（最後のレビュー 重要2）。
+            expect(read(dir, "﻿enabled=true\nendpoint=http://192.168.0.5:3000/event\n"), new ObsSendSettings(true, "http://192.168.0.5:3000/event"), "BOM 付きでも読む");
 
-            try (var server = new ServerSocket(0)) {
-                var client = new ObsControllerClient();
-                client.setEndpoint("http://127.0.0.1:" + server.getLocalPort() + "/event");
-                expect(client.enabled(), false, "はじめはオフ");
-                client.postAsync("{}");
-                client.healthAsync();
-                expect(connects(server, 800), false, "オフなら送らず、確かめもしない");
+            // ファイルはあるのにオンにならない・送り先を使わないときは、理由を警告に出す（ファイルが無いだけなら出さない）。
+            var warnings = new java.util.ArrayList<String>();
+            Path file = dir.resolve(ObsSendSettings.FILE_NAME);
+            Files.deleteIfExists(file);
+            ObsSendSettings.read(file, FALLBACK, warnings::add);
+            expect(warnings.size(), 0, "ファイルが無いだけなら警告しない");
+            Files.writeString(file, "enabled=yes\nendpoint=ftp://x/event\n", StandardCharsets.UTF_8);
+            ObsSendSettings.read(file, FALLBACK, warnings::add);
+            expect(warnings.size(), 2, "enabled と送り先の誤りを警告する");
+            expect(warnings.get(0).contains("enabled") && warnings.get(1).contains("endpoint"), true, "どの項目かを書く");
+            warnings.clear();
+            ObsSendSettings.read(dir.resolve("broken"), FALLBACK, warnings::add);
+            expect(warnings.size(), 1, "読めないときも警告する");
+            warnings.clear();
+            Files.writeString(file, "enabled=true\nendpoint=http://user:secret-pw@127.0.0.1:3000/event\n", StandardCharsets.UTF_8);
+            ObsSendSettings.read(file, FALLBACK, warnings::add);
+            expect(warnings.size() == 1 && !warnings.get(0).contains("secret-pw"), true, "警告にパスワードを書かない");
+
+            // 先にオンで送れることを確かめて通信の仕組みを温め、そのあと別のポートで「オフなら、つないでこない」を確かめる
+            // （同じポートだと、遅い PC ではオフのときの接続をオンの確かめが受け取り、間違って通りうる。最後のレビュー 軽い4）。
+            var client = new ObsControllerClient();
+            expect(client.enabled(), false, "はじめはオフ");
+            try (var on = new ServerSocket(0)) {
+                client.setEndpoint("http://127.0.0.1:" + on.getLocalPort() + "/event");
                 client.setEnabled(true);
                 client.postAsync("{}");
-                expect(connects(server, 5000), true, "オンなら送る");
+                expect(connects(on, 5000), true, "オンなら送る");
+            }
+            try (var off = new ServerSocket(0)) {
+                client.setEnabled(false);
+                client.setEndpoint("http://127.0.0.1:" + off.getLocalPort() + "/event");
+                client.postAsync("{}");
+                client.healthAsync();
+                expect(connects(off, 1500), false, "オフなら送らず、確かめもしない");
             }
         } finally {
             try (var walk = Files.walk(dir)) { walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> p.toFile().delete()); }

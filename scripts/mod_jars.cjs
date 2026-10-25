@@ -19,6 +19,7 @@ function modJars(root) {
     { name: "DisplayMOD", dir: "DisplayMod", jar: path.join(libs("DisplayMod"), `displaymod-${modVersion(root, "DisplayMod")}.jar`) },
     { name: "採掘MOD", dir: "SaikutuMod", jar: path.join(libs("SaikutuMod"), saikutu.serverJar), uses: { name: "BridgeMOD", dir: "BridgeMod" } },
     // 標準装備の OBSMOD（そうてんもんさんの minecraft_obs_bridge）。サーバーにだけ入れる（Minecraft 本体には入れない。2026-10-25 ユーザーの決定）。
+    // serverOnly は目印。サーバーにだけ入れる決まりは、electron/game_profiles.cjs（本体の側に入れない）・electron/bridge_sync.cjs・scripts/prepare-server-template.cjs にある。
     { name: "OBSMOD", dir: "ObsMod", jar: propertyJar(root, "ObsMod"), serverOnly: true },
   ];
 }

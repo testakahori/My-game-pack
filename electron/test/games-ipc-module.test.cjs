@@ -90,3 +90,16 @@ test('同梱のゲームと DisplayMOD の場所: 開発版はリポジトリ、
   assert.equal(saikutu(status), true);
   assert.equal(status.displayBundled, true);
 });
+
+// 標準装備の OBSMOD の場所：開発版はリポジトリの ObsMod/build/libs、配布版は雛形の mods（2026-10-25。最後のレビュー 軽い8）。
+test('同梱の OBSMOD の場所: 開発版はリポジトリ、配布版は雛形の mods', async t => {
+  const put = file => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, '{}'); };
+  const dev = setup(t);
+  assert.equal((await dev.invoke('games:list')).obsBundled, false);
+  put(path.resolve(dev.appDir, '..', 'ObsMod', 'build', 'libs', 'minecraft_obs_bridge-2.4.8.jar'));
+  assert.equal((await dev.invoke('games:list')).obsBundled, true);
+  const packaged = setup(t, { packaged: true });
+  assert.equal((await packaged.invoke('games:list')).obsBundled, false);
+  put(path.join(packaged.resources, 'server-template', 'mods', 'minecraft_obs_bridge-2.4.8.jar'));
+  assert.equal((await packaged.invoke('games:list')).obsBundled, true);
+});

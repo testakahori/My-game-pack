@@ -9,5 +9,6 @@ import java.util.Map;
 public final class EventPublisher {
     private static final Gson GSON=new GsonBuilder().create(); private final ObsControllerClient http;
     public EventPublisher(ObsControllerClient http){this.http=http;}
-    public void publish(String eventType,String eventKey,Map<String,Object> extra){ Map<String,Object> p=new LinkedHashMap<>();p.put("eventType",eventType);p.put("eventKey",eventKey);p.put("timestamp",System.currentTimeMillis());if(extra!=null)p.putAll(extra);http.postAsync(GSON.toJson(p)); }
+    // オフなら送る中身も作らない（MyGamePack に同梱した OBSMOD。2026-10-25）。
+    public void publish(String eventType,String eventKey,Map<String,Object> extra){ if(!http.enabled())return; Map<String,Object> p=new LinkedHashMap<>();p.put("eventType",eventType);p.put("eventKey",eventKey);p.put("timestamp",System.currentTimeMillis());if(extra!=null)p.putAll(extra);http.postAsync(GSON.toJson(p)); }
 }
