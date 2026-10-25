@@ -31,6 +31,7 @@ public final class LabStageService {
     private final StackingRuntime runtime;
     private final java.util.function.LongSupplier clock;
     private final LabPresentation presentation;
+    private final LabWardens wardens = new LabWardens();
     private final Set<UUID> visitors = new LinkedHashSet<>();
     private final Map<UUID, LabSavedData.Home> resetPlayers = new LinkedHashMap<>();
     private final Map<UUID, Integer> recoveryFlash = new HashMap<>();
@@ -57,6 +58,7 @@ public final class LabStageService {
                 || visitors.contains(player.getUUID()) && phase != Phase.HELL;
     }
     public void started(MinecraftServer server) {
+        wardens.recover(server);
         phase = Phase.IDLE; failure = null; restore = null; tickets = false;
         visitors.clear(); resetPlayers.clear(); recoveryFlash.clear(); timer.removeAllPlayers();
         level = null; saved = null;
@@ -112,6 +114,7 @@ public final class LabStageService {
         }
         try {
             holdChunks(); runtime.reset(source.getServer());
+            wardens.validate(level);
             for (ServerPlayer p : players) {
                 // 地獄での到着場所を先に確かめる。見つからなければ崩壊を開始しない。
                 landing(p.getX(), p.getZ(), LabLayout.HELL_FLOOR, LabLayout.HELL_FLOOR);
@@ -126,6 +129,7 @@ public final class LabStageService {
     private LabSavedData.Home home(ServerPlayer p) { return new LabSavedData.Home(p.getX(), p.getZ(), p.getYRot(), p.getXRot()); }
     private boolean onTop(ServerPlayer p) { return p.level() == level && LabLayout.onTop(p.getX(), p.getY(), p.getZ()); }
     public void tick(MinecraftServer server) {
+        wardens.tick();
         if (level == null || saved == null || failure != null) return;
         try {
             if (restore != null && restore.tick()) {
@@ -141,6 +145,7 @@ public final class LabStageService {
             } else if (phase == Phase.DOWN_FLASH) {
                 if (++phaseTicks >= 20) {
                     forOnline(server, p -> { move(p, saved.homes.get(p.getUUID()), true); presentation.send(p, 3, LabLayout.FLASH_TICKS); });
+                    wardens.spawn(level);
                     deadline = clock.getAsLong() + LabLayout.VISIT_MILLIS;
                     phase = Phase.HELL; phaseTicks = 0;
                 }
@@ -151,6 +156,7 @@ public final class LabStageService {
                 forOnline(server, timer::addPlayer);
                 if (now >= deadline) { runtime.reset(server); startFlash(Phase.UP_FLASH, server); }
             } else if (phase == Phase.UP_FLASH && ++phaseTicks >= 20) {
+                wardens.finish();
                 // 帰還では復元しない。床下の岩盤まで含めて安全な足場を探す。
                 forOnline(server, p -> { move(p, saved.homes.get(p.getUUID()), false); saved.homes.remove(p.getUUID()); presentation.send(p, 3, LabLayout.FLASH_TICKS); });
                 saved.flush(level); visitors.clear(); timer.removeAllPlayers(); phase = Phase.IDLE;
@@ -251,13 +257,16 @@ public final class LabStageService {
         tickets = false;
     }
     private void fail(Exception e) {
+        wardens.finish();
         failure = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
         StackingGameMod.LOGGER.error("研究室MAPの処理を停止しました。帰還情報は保存されています。", e);
         timer.removeAllPlayers(); releaseChunks();
     }
     public void stopping() {
+        wardens.finish();
         if (saved != null) saved.flush(level);
         timer.removeAllPlayers(); releaseChunks();
     }
     public void logout(ServerPlayer p) { timer.removePlayer(p); recoveryFlash.remove(p.getUUID()); }
+    public void entityJoined(net.minecraft.world.entity.Entity entity) { wardens.joined(entity); }
 }

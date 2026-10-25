@@ -41,7 +41,7 @@ test('そうてんもんさんの MOD: jar の横に印を書き、MOD ID と ja
   assert.match(read('ObsMod/gradle.properties'), /^mod_id=minecraft_obs_bridge\r?$/m, 'StackingGame は minecraft_obs_bridge で OBSMOD を探す');
   assert.match(read('ObsMod/gradle.properties'), /^mod_version=2\.4\.8\r?$/m);
   assert.match(read('UmetateMod/gradle.properties'), /^mod_id=stackinggame_events\r?$/m, 'GameEvents に登録するゲーム ID');
-  assert.match(read('UmetateMod/gradle.properties'), /^mod_version=2\.6\.21\r?$/m);
+  assert.match(read('UmetateMod/gradle.properties'), /^mod_version=2\.6\.22\r?$/m);
 });
 
 // 届いたのは BridgeMOD 1.4.0 の API だけの写し（libs/）。採掘MOD と同じく、このリポジトリの BridgeMod のクラスを使って作り、API が変われば作るときに気づく。
@@ -68,7 +68,7 @@ test('そうてんもんさんの MOD: CI の mod-build で、BridgeMod のあ�
 test('そうてんもんさんの MOD: 作るが同梱しない MOD として、jar の場所を1か所で決める', () => {
   const { buildOnlyModJars } = require('../../scripts/mod_jars.cjs');
   assert.deepEqual(buildOnlyModJars(root).map(mod => [mod.dir, path.basename(mod.jar), mod.uses?.dir]), [
-    ['UmetateMod', 'stackinggame_events-2.6.21.jar', 'BridgeMod'],
+    ['UmetateMod', 'stackinggame_events-2.6.22.jar', 'BridgeMod'],
   ]);
   assert.match(read('scripts/check-jar-inputs.cjs'), /buildOnlyModJars/);
 });

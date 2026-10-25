@@ -18,6 +18,8 @@ import net.minecraft.server.level.ServerBossEvent;
 import net.minecraft.server.players.PlayerList;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.monster.warden.Warden;
 import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BarrelBlockEntity;
@@ -75,7 +77,7 @@ public final class LabIntegrationProbe {
     @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.LOWEST)
     public void started(ServerStartedEvent event) {
         MinecraftServer server = event.getServer();
-        try { run(server); Files.writeString(Path.of("lab-probe-result.txt"), "PASS: clone, air, block entities, 2F/1F preservation, quake, flashes, 5-minute timer, no automatic restore, reconnect, restart recovery\n"); }
+        try { run(server); Files.writeString(Path.of("lab-probe-result.txt"), "PASS: clone, air, block entities, 2F/1F preservation, quake, flashes, 3 wardens and cleanup, 5-minute timer, no automatic restore, reconnect, restart recovery\n"); }
         catch (Throwable e) {
             StackingGameMod.LOGGER.error("LAB_PROBE_FAILED", e);
             try { Files.writeString(Path.of("lab-probe-result.txt"), "FAIL: " + e); } catch (Exception ignored) {}
@@ -164,12 +166,25 @@ public final class LabIntegrationProbe {
         first.setPos(.5, 49, -12.5); second.setPos(12.5, 49, .5);
         connect(server, first, true); connect(server, second, true);
         check(server.getPlayerList().getPlayer(first.getUUID()) == first, "オンライン登録");
+        Warden unrelated = EntityType.WARDEN.create(level);
+        unrelated.setPos(-24.5, -35, -24.5); unrelated.setNoAi(true); level.addFreshEntity(unrelated);
         check(server.getCommands().getDispatcher().execute("umetate zigoku", server.createCommandSourceStack()) == 2, "2人が参加");
         check(lab.zigoku(server.createCommandSourceStack()) == 0, "二重地獄は拒否");
         for (int i = 0; i < 119; i++) lab.tick(server);
         check(first.getY() > 0 && effects.contains(2), "白い光が始まってから転送する");
+        check(eventWardens(level).isEmpty(), "転送前には召喚しない");
         lab.tick(server);
         check(first.getY() < 0 && second.getY() < 0, "1階への転送");
+        List<Warden> wave = eventWardens(level);
+        check(wave.size() == 3, "複数人でも1階にウォーデンを合計3体召喚");
+        for (Warden w : wave) {
+            check(w.getY() == -35 && level.noCollision(w, w.getBoundingBox()), "1階の足場上で壁に埋まらず召喚");
+            check(w.isPersistenceRequired(), "距離による自然消滅を防ぐ");
+            for (int tick = 0; tick < 1300; tick++) w.getBrain().tick(level, w);
+            check(w.isAlive() && w.getPose() != net.minecraft.world.entity.Pose.DIGGING, "静かな時間にも地中へ帰らない");
+        }
+        wave.get(0).kill();
+        check(!wave.get(0).isAlive(), "途中で倒せる");
         Snapshot collapsed = snapshot(level, 42);
         check(!collapsed.states().equals(master.states()), "外壁が実際に崩れる");
         lab.tick(server);
@@ -179,6 +194,7 @@ public final class LabIntegrationProbe {
         connect(server, second, false); lab.logout(second);
         now.addAndGet(299999); lab.tick(server);
         check(first.getY() < 0 && timer.getName().getString().contains("0:01"), "5分前に帰還しない");
+        check(wave.stream().filter(Warden::isAlive).count() == 2, "途中で倒した1体を補充せず、生存分を期限まで保持");
         check(snapshot(level, 42).equals(collapsed), "滞在中は3階を復元しない");
         // 帰還地点の床を岩盤まで抜き、穴があっても着地できるか確かめる。
         for (BlockPos pos : BlockPos.betweenClosed(-2, 43, -15, 2, 48, -10)) level.setBlock(pos, Blocks.AIR.defaultBlockState(), 18);
@@ -187,6 +203,8 @@ public final class LabIntegrationProbe {
         check(first.getY() < 0 && timer.getName().getString().contains("0:00"), "0秒で帰還の光");
         for (int i = 0; i < 20; i++) lab.tick(server);
         check(first.getY() >= 43 && first.getY() < 44, "床下の岩盤に帰還");
+        check(wave.stream().noneMatch(Warden::isAlive), "3階への帰還時に召喚分の生存ウォーデンをキル");
+        check(unrelated.isAlive(), "無関係のウォーデンはキルしない");
         check(snapshot(level, 42).equals(damaged), "帰還時も修復しない");
         check(timer.getPlayers().isEmpty(), "タイマーを片付ける");
         connect(server, second, true);
@@ -196,16 +214,33 @@ public final class LabIntegrationProbe {
         // 次のイベント途中でサービスを再起動。復元せず帰還だけを回復する。
         check(lab.zigoku(server.createCommandSourceStack()) == 2, "2回目開始");
         for (int i = 0; i < 120; i++) lab.tick(server);
+        List<Warden> nextWave = eventWardens(level);
+        check(nextWave.size() == 3, "次の地獄イベントでも新しく3体だけ召喚");
+        // チャンクに保存された個体が停止後に遅れて読み込まれる場合も再現する。
+        CompoundTag unloaded = nextWave.get(0).saveWithoutId(new CompoundTag());
+        nextWave.get(0).discard();
         Snapshot beforeRestart = snapshot(level, 42);
         lab.stopping();
+        check(nextWave.stream().noneMatch(w -> !w.isRemoved() && w.isAlive()), "サーバー停止時も生存分を片付ける");
         LabStageService recovered = new LabStageService(runtime, now::get, presentation); recovered.started(server);
+        runtimeLab.set(runtime, recovered);
+        Warden reloaded = EntityType.WARDEN.create(level); reloaded.load(unloaded); level.addFreshEntity(reloaded);
         for (int i = 0; i < 21; i++) recovered.tick(server);
+        check(!reloaded.isAlive() && unrelated.isAlive(), "再起動後の遅い読み込みでも召喚分だけ片付ける");
         check(first.getY() >= 43 && second.getY() >= 43, "再起動後の帰還");
         check(snapshot(level, 42).equals(beforeRestart), "再起動でも自動復元しない");
         check(snapshot(level, 0).equals(master) && snapshot(level, -42).equals(hellBefore), "全演出で原本と1階を維持");
         check(effects.containsAll(List.of(1, 2, 3)), "揺れ・白の保持・フェードアウト");
         recovered.stopping(); connect(server, first, false); connect(server, second, false);
+        unrelated.discard();
         StackingGameMod.LOGGER.info("LAB_PROBE_PASS");
+    }
+
+    private List<Warden> eventWardens(ServerLevel level) {
+        List<Warden> wardens = new ArrayList<>();
+        for (var entity : level.getAllEntities()) if (entity instanceof Warden w && w.isAlive()
+                && !w.isRemoved() && w.getTags().contains("umetate_zigoku_warden")) wardens.add(w);
+        return wardens;
     }
 
     @SuppressWarnings("unchecked")

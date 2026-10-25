@@ -51,6 +51,11 @@ public final class StackingForgeEvents {
     }
 
     @SubscribeEvent
+    public void onEntityJoin(net.minecraftforge.event.entity.EntityJoinLevelEvent event) {
+        runtime.lab.entityJoined(event.getEntity());
+    }
+
+    @SubscribeEvent
     public void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             runtime.lab.logout(player);
