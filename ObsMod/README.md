@@ -2,7 +2,8 @@
 
 - MyGamePack に標準装備として同梱する版（2026-10-25）。サーバーにだけ入れる（`displayTest="IGNORE_SERVER_VERSION"` を付け、Minecraft 本体に無くてもサーバー一覧で MOD が合わないと出さない）。
 - OBS ツールへ送るのは、サーバーの `config/minecraft_obs_bridge/obs-send.properties` に `enabled=true` と書いたときだけ。無ければ送らず、`/health` の確かめもしない。送り先は `endpoint=`（http・https）で、無ければ `events.generated.json` の `controller.endpoint`。
-- MyGamePack のアプリの画面（運用センター）から、オン・オフと送り先を変えられるようにする予定。
+- MyGamePack のアプリでは、運用センターの「動作設定」の「OBS 連携」で、オン・オフと送り先を決める。アプリがこのファイルを、保存したときと、サーバーを起動するたびに書き直す。
+- アプリは送り先が空のときも既定の `http://127.0.0.1:3000/event` を `endpoint=` に書くので、アプリから使う限り `controller.endpoint` は使われない（アプリは OBSMOD がそのまま使える送り先だけを書く。照らし合わせは `scripts/test-soutenmon-contracts.cjs` の ObsSendParity）。
 
 # OBSMOD v2.4.6
 

@@ -7,7 +7,7 @@ const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const { createServerProcess } = require('../server_process.cjs');
 
-function setup(t) {
+function setup(t, extras = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'server-process-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   fs.writeFileSync(path.join(dir, 'run.bat'), '');
@@ -25,6 +25,7 @@ function setup(t) {
     requestBridgeMod: async () => { throw new Error('使わない'); },
     authFailedMessage: () => 'auth failed',
     stopRequests: { record: (kind, origin) => { calls.push(`record:${kind}:${origin}`); return '出どころ'; } },
+    ...extras,
   });
   serverProcess.register({ handle: (name, fn) => handlers.set(name, fn) });
   return { dir, calls, spawned, child, serverProcess, release: () => release(), invoke: (name, ...args) => handlers.get(name)({}, ...args) };
@@ -61,4 +62,39 @@ test('サーバーの停止: 保存の完了を待つ間は isStopping() が tru
   assert.equal(x.serverProcess.child(), server, '止まらなかったサーバーは持ったまま');
   x.serverProcess.attach(null);
   assert.equal(x.serverProcess.child(), null);
+});
+
+// OBSMOD はサーバーの起動のときに obs-send.properties を読むので、アプリから起動するたびに、起動の直前にアプリの設定どおりに書く（OBS 連携。2026-10-25）。
+test('サーバーの起動: 起動の直前に、OBS 連携の設定を obs-send.properties に書く（設定を渡さないときは書かない）', async t => {
+  const x = setup(t, { obsSend: () => ({ enabled: true, endpoint: 'http://192.168.0.5:3000/event' }) });
+  const starting = x.invoke('server:start');
+  await new Promise(resolve => setImmediate(resolve));
+  x.release();
+  await starting;
+  const file = path.join(x.dir, 'config', 'minecraft_obs_bridge', 'obs-send.properties');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'enabled=true\nendpoint=http://192.168.0.5:3000/event\n');
+  assert.ok(x.invoke('server:logs').lines.some(line => line.includes('OBS 連携') && line.includes('送る')), 'ログに出す');
+  const plain = setup(t);
+  const second = plain.invoke('server:start');
+  await new Promise(resolve => setImmediate(resolve));
+  plain.release();
+  await second;
+  assert.equal(fs.existsSync(path.join(plain.dir, 'config', 'minecraft_obs_bridge', 'obs-send.properties')), false);
+});
+
+// 書けなくても起動は止めない（ログに出す）。起動のログには送り先の場所（scheme・ホスト・ポート）だけを出し、道や ? 以降は出さない（PR3 の最後のレビュー 軽い8・9）。
+test('サーバーの起動: OBS 連携の設定が書けなくても起動し、ログに出す。送り先は場所だけを出す', async t => {
+  const failing = setup(t, { obsSend: () => { throw new Error('書けない'); } });
+  const starting = failing.invoke('server:start');
+  await new Promise(resolve => setImmediate(resolve));
+  failing.release();
+  assert.deepEqual(await starting, { ok: true });
+  assert.ok(failing.invoke('server:logs').lines.some(line => line.includes('OBS 連携の設定を書けませんでした')));
+  const x = setup(t, { obsSend: () => ({ enabled: true, endpoint: 'http://192.168.0.5:3000/event?token=secret' }) });
+  const second = x.invoke('server:start');
+  await new Promise(resolve => setImmediate(resolve));
+  x.release();
+  await second;
+  const line = x.invoke('server:logs').lines.find(l => l.includes('OBS 連携'));
+  assert.ok(line.includes('http://192.168.0.5:3000') && !line.includes('secret'), line);
 });

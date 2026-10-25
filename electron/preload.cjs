@@ -43,6 +43,8 @@ contextBridge.exposeInMainWorld("mygamepack", {
   // --------------------
   configRead: () => ipcRenderer.invoke("config:read"),
   tiktokLiveStatus: (username) => ipcRenderer.invoke("tiktok:liveStatus", username),
+  obsGet: () => ipcRenderer.invoke('obs:get'),
+  obsSet: (settings) => ipcRenderer.invoke('obs:set', settings),
   eulerStatus: () => ipcRenderer.invoke('euler:status'),
   eulerSave: (key) => ipcRenderer.invoke('euler:save', key),
   eulerClear: () => ipcRenderer.invoke('euler:clear'),

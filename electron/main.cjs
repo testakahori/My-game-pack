@@ -117,6 +117,7 @@ bridgeSync.register(ipcMain);
 const { createMinecraftClient } = require('./minecraft_client.cjs');
 const minecraftClient = createMinecraftClient({ process, spawn, readAppConfig, assertGameProfileIdle });
 minecraftClient.register(ipcMain);
+const obsSendSettings = require('./obs_send.cjs');
 const { createServerProcess } = require('./server_process.cjs');
 const serverProcess = createServerProcess({
   app, process, spawn, getServerRoot, getBridgeBatDir, getConfigPath, assertGameProfileIdle, stopRequests,
@@ -125,12 +126,19 @@ const serverProcess = createServerProcess({
   recoverMapSaves: () => mapOperations.mapSaves.recover(),
   requestBridgeMod: (...args) => requestBridgeMod(...args),
   authFailedMessage: () => bridgeModClient.BRIDGE_MOD_AUTH_FAILED,
+  obsSend: () => obsSendSettings.settingsFromConfig(readAppConfig()),
 });
 // サーバーの子プロセス・起動中・停止中は server_process.cjs が持つ。main とほかのモジュールは、それを読む関数（child・isStarting・isStopping
 // など）を呼ばれたときに serverProcess.xxx() で読み、分割代入では受けない（テストが差し替えて配線を確かめるため）。
 // 下の操作の関数（ログ・起動・停止・状態の確かめ・終了待ち）は差し替えないので、分割代入で受けてよい。
 const { appendLog: appendServerLog, startServer, stopMapServer, getServerProcessStatus, waitChildExit } = serverProcess;
 serverProcess.register(ipcMain);
+// OBS 連携（標準装備の OBSMOD が OBS ツールへ送るか）。運用センターの「動作設定」が使う（2026-10-25）。
+const { createObsIpc } = require('./obs_ipc.cjs');
+createObsIpc({
+  readAppConfig, writeAppConfig, getServerRoot,
+  isServerRunning: async () => Boolean(serverProcess.child()) || await serverProcess.isServerPortOpen(),
+}).register(ipcMain);
 const { createMapOperations } = require('./map_operations.cjs');
 const mapOperations = createMapOperations({
   getServerRoot, getBridgeBatDir, getConfigPath, assertGameProfileIdle, readSavedBridgeConfig, writeBridgeConfig, startServer, stopMapServer,

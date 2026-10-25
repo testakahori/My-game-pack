@@ -3,7 +3,8 @@
   "fields": {
     "serverFolder": "", "setupComplete": false, "setupRequiredByInstall": false, "setupRequiredAt": "",
     "minecraftPlayerName": "", "minecraftLauncherPath": "", "minecraftGameFolder": "", "autoBackupOnServerStart": false,
-    "bridgeVersion": "", "gameModsVersion": "", "gameModsRefreshFailed": "", "gameModsRefreshError": ""
+    "bridgeVersion": "", "gameModsVersion": "", "gameModsRefreshFailed": "", "gameModsRefreshError": "",
+    "obsSendEnabled": false, "obsSendEndpoint": ""
   },
   "rendererWritable": ["serverFolder", "setupComplete", "setupRequiredByInstall", "minecraftPlayerName", "minecraftLauncherPath", "autoBackupOnServerStart"],
   "retired": ["authEmail", "authToken", "authLoginAt"]
