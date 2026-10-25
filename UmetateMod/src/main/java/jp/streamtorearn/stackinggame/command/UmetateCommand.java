@@ -11,6 +11,12 @@ public final class UmetateCommand {
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher, StackingRuntime runtime) {
         dispatcher.register(Commands.literal("umetate").requires(source -> source.hasPermission(2))
                 .then(Commands.literal("otasuke").executes(ctx -> otasuke(ctx.getSource())))
+                .then(Commands.literal("mofumofu").executes(ctx -> MofumofuCommand.execute(ctx.getSource())))
+                .then(Commands.literal("stamp").executes(ctx -> {
+                    var player = PlayerCommandTarget.resolve(ctx.getSource());
+                    return player == null ? 0 : runtime.stamps.start(ctx.getSource(), player);
+                }))
+                .then(Commands.literal("atamahuttou").executes(ctx -> HeadLavaCommand.execute(ctx.getSource(), runtime)))
                 .then(Commands.literal("reset").executes(ctx -> runtime.lab.reset(ctx.getSource())))
                 .then(Commands.literal("zigoku").executes(ctx -> runtime.lab.zigoku(ctx.getSource()))));
     }

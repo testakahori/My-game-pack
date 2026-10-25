@@ -93,6 +93,7 @@ public final class LabIntegrationProbe {
         }
         level.getGameRules().getRule(GameRules.RULE_RANDOMTICKING).set(0, server);
         StackingRuntime runtime = StackingGameMod.RUNTIME;
+        checkPlayerCommands(server, runtime);
         AtomicLong now = new AtomicLong(1000000);
         List<Integer> effects = new ArrayList<>();
         LabPresentation presentation = new LabPresentation() {
@@ -119,6 +120,35 @@ public final class LabIntegrationProbe {
             check(afterHelp.states().get(i).equals(filled ? Blocks.GOLD_BLOCK.defaultBlockState() : beforeHelp.states().get(i)), "otasukeの範囲と金ブロック");
         }
         check(snapshot(level, 0).equals(master) && snapshot(level, -42).equals(hellBefore), "otasukeは1階・2階を変更しない");
+        level.setBlock(new BlockPos(-6, 49, -6), Blocks.DIAMOND_BLOCK.defaultBlockState(), 18);
+        level.setBlock(new BlockPos(6, 64, 6), Blocks.DIAMOND_BLOCK.defaultBlockState(), 18);
+        level.setBlock(new BlockPos(6, 65, 6), Blocks.GOLD_BLOCK.defaultBlockState(), 18);
+        level.setBlock(new BlockPos(-7, 60, 0), Blocks.DIAMOND_BLOCK.defaultBlockState(), 18);
+        level.setBlock(new BlockPos(0, 49, 0), Blocks.STONE.defaultBlockState(), 18);
+        level.setBlock(new BlockPos(0, 50, 0), Blocks.PINK_WOOL.defaultBlockState(), 18);
+        level.setBlock(new BlockPos(0, 51, 0), Blocks.AIR.defaultBlockState(), 18);
+        Snapshot beforeWool = snapshot(level, 42);
+        level.random.setSeed(20261025L);
+        int woolCount = server.getCommands().getDispatcher().execute("umetate mofumofu",
+                server.createCommandSourceStack().withLevel(server.getLevel(net.minecraft.world.level.Level.NETHER)));
+        Snapshot afterWool = snapshot(level, 42);
+        Set<BlockState> colors = new HashSet<>(); int expectedWool = 0;
+        for (int i = 0; i < LabLayout.VOLUME; i++) {
+            int x = LabLayout.x(i), y = 42 + LabLayout.y(i), z = LabLayout.z(i);
+            BlockState before = beforeWool.states().get(i), after = afterWool.states().get(i);
+            boolean target = x >= -6 && x <= 6 && y >= 49 && y <= 64 && z >= -6 && z <= 6
+                    && (before.is(Blocks.GOLD_BLOCK) || before.is(Blocks.DIAMOND_BLOCK));
+            if (target) {
+                check(after.is(net.minecraft.tags.BlockTags.WOOL), "金・ダイヤだけを羊毛にする");
+                colors.add(after); expectedWool++;
+            } else check(after.equals(before), "mofumofuの範囲外・空気・他素材を保持");
+        }
+        check(woolCount == expectedWool && colors.size() == 16, "変換数と16色の混在");
+        check(afterWool.tags().equals(beforeWool.tags()), "収納データを保持");
+        check(snapshot(level, 0).equals(master) && snapshot(level, -42).equals(hellBefore), "mofumofuは1階・2階を変更しない");
+        check(server.getCommands().getDispatcher().execute("umetate mofumofu", server.createCommandSourceStack()) == 0,
+                "変換対象なしなら0件");
+        check(snapshot(level, 42).equals(afterWool), "再実行で既存の羊毛を変えない");
         level.setBlock(new BlockPos(0, 70, 0), Blocks.DIAMOND_BLOCK.defaultBlockState(), 18);
         level.setBlock(new BlockPos(0, 48, -12), Blocks.AIR.defaultBlockState(), 18);
         check(server.getCommands().getDispatcher().execute("umetate reset", server.createCommandSourceStack()) == 1, "reset受付");
@@ -176,5 +206,54 @@ public final class LabIntegrationProbe {
         check(effects.containsAll(List.of(1, 2, 3)), "揺れ・白の保持・フェードアウト");
         recovered.stopping(); connect(server, first, false); connect(server, second, false);
         StackingGameMod.LOGGER.info("LAB_PROBE_PASS");
+    }
+
+    @SuppressWarnings("unchecked")
+    private void checkPlayerCommands(MinecraftServer server, StackingRuntime runtime) throws Exception {
+        ServerLevel level = server.overworld();
+        ServerPlayer player = player(level, "CommandProbe");
+        player.setPos(.5, 49, -12.5); connect(server, player, true);
+        var source = server.createCommandSourceStack().withEntity(player);
+        BlockPos floor = new BlockPos(0, 48, -13);
+        List<BlockState> original = new ArrayList<>();
+        for (int i = 0; i < 9; i++) original.add(level.getBlockState(floor.above(i)));
+        level.setBlock(floor, Blocks.STONE.defaultBlockState(), 18);
+        for (int i = 1; i < 9; i++) level.setBlock(floor.above(i), Blocks.AIR.defaultBlockState(), 18);
+        var pig = net.minecraft.world.entity.EntityType.PIG.create(level);
+        pig.setNoAi(true); pig.setPos(.5, 49, -12.5); level.addFreshEntity(pig);
+        check(server.getCommands().getDispatcher().execute("umetate stamp", source) == 3, "stamp受付");
+        var stamp = ((List<?>) field(runtime.stamps, "active")).get(0);
+        var blocks = (List<net.minecraft.world.entity.item.FallingBlockEntity>) field(stamp, "blocks");
+        check(blocks.size() == 3, "黒曜石3個");
+        for (int i = 0; i < 3; i++) check(blocks.get(i).getBlockState().is(Blocks.OBSIDIAN)
+                && Math.abs(blocks.get(i).getY() - (player.getBoundingBox().maxY + 3 + i)) < .001, "頭上3ブロックから縦3個");
+        double startY = blocks.get(0).getY();
+        for (int tick = 0; tick < 60; tick++) {
+            runtime.stamps.tick();
+            for (var block : blocks) if (!block.isRemoved()) block.tick();
+            if (tick == 18) check(blocks.get(0).getY() == startY, "落下前の予告");
+        }
+        for (int i = 1; i <= 3; i++) check(level.getBlockState(floor.above(i)).is(Blocks.OBSIDIAN), "着地後も黒曜石が残る");
+        check(pig.getHealth() < pig.getMaxHealth(), "落下する黒曜石が衝突ダメージを与える");
+        pig.discard();
+        check(((List<?>) field(runtime.stamps, "active")).isEmpty(), "着地後に管理情報を片付ける");
+        check(server.getCommands().getDispatcher().execute("umetate atamahuttou", source) == 0, "頭上に既存ブロックがあれば溶岩で上書きしない");
+        for (int i = 1; i < 9; i++) level.setBlock(floor.above(i), Blocks.AIR.defaultBlockState(), 18);
+        check(server.getCommands().getDispatcher().execute("umetate atamahuttou", source) == 1, "atamahuttou受付");
+        BlockPos lava = BlockPos.containing(player.getX(), player.getBoundingBox().maxY + 1, player.getZ());
+        check(level.getBlockState(lava).is(Blocks.LAVA) && level.getFluidState(lava).isSource(), "頭上1ブロックに溶岩源");
+        level.getFluidState(lava).tick(level, lava);
+        check(level.getBlockState(lava.below()).is(Blocks.LAVA), "溶岩が下へ流れる");
+        for (int i = 0; i < 9; i++) level.setBlock(floor.above(i), original.get(i), 18);
+        player.setPos(.5, 7, -12.5);
+        check(server.getCommands().getDispatcher().execute("umetate stamp", source) == 0, "stampは2階原本を保護");
+        check(server.getCommands().getDispatcher().execute("umetate atamahuttou", source) == 0, "溶岩は2階原本を保護");
+        player.setPos(.5, 49, -12.5);
+        check(server.getCommands().getDispatcher().execute("umetate stamp", source) == 3, "stamp再実行");
+        var pending = ((List<?>) field(runtime.stamps, "active")).get(0);
+        var pendingBlocks = (List<net.minecraft.world.entity.item.FallingBlockEntity>) field(pending, "blocks");
+        runtime.reset(server);
+        check(pendingBlocks.stream().allMatch(net.minecraft.world.entity.Entity::isRemoved), "resetで空中のstampを片付ける");
+        connect(server, player, false);
     }
 }
