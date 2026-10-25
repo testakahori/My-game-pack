@@ -38,7 +38,7 @@ function fakeRepo(t) {
   put('SaikutuMod/src/main/java/B.java', 'class B {}', new Date(T.getTime() - 60000));
   put('SaikutuMod/build/libs/saikutumod-2.0.0.jar', 'jar SaikutuMod');
   put('game-packs/saikutu/game.json', JSON.stringify({ serverJar: 'saikutumod-2.0.0.jar' }));
-  // 作るが、まだ同梱しない MOD（そうてんもんさんの OBSMOD・埋め立ての MOD）。
+  // そうてんもんさんの MOD（OBSMOD は標準装備として同梱する。埋め立ての MOD は作るが、まだ同梱しない）。
   for (const [mod, id, version] of [['ObsMod', 'minecraft_obs_bridge', '2.4.7'], ['UmetateMod', 'stackinggame_events', '2.6.16']]) {
     put(`${mod}/gradle.properties`, `mod_id=${id}\nmod_version=${version}\n`, new Date(T.getTime() - 60000));
     put(`${mod}/src/main/java/C.java`, 'class C {}', new Date(T.getTime() - 60000));
@@ -90,6 +90,7 @@ test('リリース: 同梱する MOD の jar の場所は scripts/mod_jars.cjs �
     ['BridgeMOD', 'BridgeMod/build/libs/bridgemod-1.8.0.jar'],
     ['DisplayMOD', 'DisplayMod/build/libs/displaymod-1.0.0.jar'],
     ['採掘MOD', 'SaikutuMod/build/libs/saikutumod-2.0.0.jar'],
+    ['OBSMOD', 'ObsMod/build/libs/minecraft_obs_bridge-2.4.7.jar'],
   ]);
   for (const name of ['scripts/prepare-server-template.cjs', 'scripts/prepare-game-packs.cjs', 'scripts/release-windows.cjs', 'scripts/check-jar-inputs.cjs']) {
     const source = fs.readFileSync(path.join(root, name), 'utf8');
@@ -244,7 +245,7 @@ test('リリース: 作った物の置き場を空にしてから、ビルドと
   ]);
   assert.equal(fs.readFileSync(path.join(dir, 'build/installer.nsh'), 'utf8'), 'keep', 'git で管理している build/ のファイルは消さない');
   const text = summary.join('\n');
-  for (const part of ['1.2.3', 'MyGamePack-Setup-1.2.3.exe', 'bridgemod-1.8.0.jar', 'displaymod-1.0.0.jar', 'saikutumod-2.0.0.jar', '作った元:']) assert.ok(text.includes(part), part);
+  for (const part of ['1.2.3', 'MyGamePack-Setup-1.2.3.exe', 'bridgemod-1.8.0.jar', 'displaymod-1.0.0.jar', 'saikutumod-2.0.0.jar', 'minecraft_obs_bridge-2.4.7.jar', '作った元:']) assert.ok(text.includes(part), part);
 });
 
 test('リリース: MOD の作り直し忘れがあれば、何も作らずに止める', async t => {

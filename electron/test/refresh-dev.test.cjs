@@ -13,14 +13,15 @@ test('開発版が使う生成物を CI と同じ順で作り直す', () => {
     'BridgeMod の jar',
     'DisplayMod の jar',
     'SaikutuMod の jar',
+    'ObsMod の jar',
     '採掘のゲームパック',
   ]);
   assert.deepEqual(list[0].npm, ['run', 'build']);
   assert.deepEqual(list[1].npm, ['run', 'prepare:bridge-runtime']);
-  assert.deepEqual(list[5].args, [path.join(root, 'scripts', 'prepare-game-packs.cjs')]);
+  assert.deepEqual(list[6].args, [path.join(root, 'scripts', 'prepare-game-packs.cjs')]);
 });
 
-test('MOD は3つとも BridgeMod の gradlew で、オフライン・証明書確認なしでビルドする', () => {
+test('MOD は4つとも BridgeMod の gradlew で、オフライン・証明書確認なしでビルドする', () => {
   for (const [windows, name] of [[true, 'gradlew.bat'], [false, 'gradlew']]) {
     const mods = steps({ windows }).filter(step => step.title.endsWith(' の jar'));
     for (const step of mods) {

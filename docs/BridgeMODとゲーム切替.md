@@ -56,7 +56,7 @@
 | RUN | BridgeMOD＋DisplayMOD＋RunMOD | 共通＋登録されたランのコマンド |
 | 採掘 | BridgeMOD＋DisplayMOD＋saikutuMOD | 共通＋採掘の16コマンド |
 
-BridgeMODとDisplayMODは全ゲームの標準装備。アプリでの切替には両方のjarが必要。独立APIは表示MODが欠けた場合もゲーム本体を止めない。APIと表示タイミングは[DisplayMOD連携ガイド](DisplayMOD連携ガイド.md)を参照。
+BridgeMODとDisplayMODは全ゲームの標準装備。アプリでの切替には両方のjarが必要。OBSMOD（MOD ID `minecraft_obs_bridge`）も標準装備だが、サーバーにだけ入れる（Minecraft 本体には入れない。2026-10-25）。OBS ツールへ送るのは、サーバーの `config/minecraft_obs_bridge/obs-send.properties` で `enabled=true` のときだけ（無ければ送らない）。独立APIは表示MODが欠けた場合もゲーム本体を止めない。APIと表示タイミングは[DisplayMOD連携ガイド](DisplayMOD連携ガイド.md)を参照。
 
 UmetateMOD・RunMODの本体はまだ存在しないため、初期状態は「未導入」。ゲームパックを登録するまで切り替えられない。実ゲームのAPI・コマンドは未確定であり、架空の呼び出し仕様を製品へ組み込んではいない。
 
@@ -96,7 +96,7 @@ UmetateMOD・RunMODの本体はまだ存在しないため、初期状態は「�
 | command | ゲームMODが実装したMinecraftコマンド1行。先頭の`/`は省略可 |
 | commonDisplay | 任意のboolean。即時イベントでBridgeMODから共通表示を出す場合のみtrue。省略・falseはゲーム側が実開始時に表示 |
 
-commandには`{Count}`・`{ListenerName}`・`{RequestId}`を使用できる。キーは`game_umetate_<key>.txt`等に分離する。既定ではBridgeMODはゲーム側に渡す前の共通タイトルを出さない。DisplayMODの独立APIを用意済み。ゲームMODが実際に開始するときの呼び出しは、各ゲームMODの完成時に接続・検証する。OBSMODは今後の実装。
+commandには`{Count}`・`{ListenerName}`・`{RequestId}`を使用できる。キーは`game_umetate_<key>.txt`等に分離する。既定ではBridgeMODはゲーム側に渡す前の共通タイトルを出さない。DisplayMODの独立APIを用意済み。ゲームMODが実際に開始するときの呼び出しは、各ゲームMODの完成時に接続・検証する。OBSMODは `ObsMod/` に取り込み、標準装備として同梱した（2026-10-25）。
 
 プレイヤーの入力は全ゲームで `/bridge <key> <count>`。Java受付APIは`bridgeEventApi: 1`で選択でき、要求番号・名前・個数をMapで受け取る。詳細は採掘MODの連携ガイドを参照。ゲームMOD内の待機列・処理上限・実開始通知の実装まで自動的に完成するものではない。
 

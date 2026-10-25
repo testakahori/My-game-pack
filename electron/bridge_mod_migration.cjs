@@ -24,7 +24,7 @@ function retireLegacyEnvironment(serverRoot) {
 }
 
 function replaceCommonMod(source, serverRoot, modId = 'bridgemod') {
-  if (!['bridgemod', 'displaymod'].includes(modId)) throw new Error('共通MOD IDが不正です');
+  if (!['bridgemod', 'displaymod', 'minecraft_obs_bridge'].includes(modId)) throw new Error('共通MOD IDが不正です');
   const bytes = fs.readFileSync(source);
   const { jarModIds } = require('./game_profiles.cjs');
   if (!jarModIds(bytes).includes(modId)) throw new Error(`${modId}のjarを確認できません`);
@@ -33,7 +33,7 @@ function replaceCommonMod(source, serverRoot, modId = 'bridgemod') {
   const backup = path.join(serverRoot, '.mygamepack-retired-mods', crypto.randomUUID());
   const moved = [];
   try {
-    const pattern = modId === 'bridgemod' ? /^(doumacmd|bridgemod)-.*\.jar$/i : /^displaymod-.*\.jar$/i;
+    const pattern = modId === 'bridgemod' ? /^(doumacmd|bridgemod)-.*\.jar$/i : modId === 'displaymod' ? /^displaymod-.*\.jar$/i : /^minecraft_obs_bridge-.*\.jar$/i;
     for (const dir of [serverRoot, mods]) for (const old of fs.readdirSync(dir).filter(n => pattern.test(n))) {
       const file = path.join(dir, old);
       if (path.resolve(file) === path.resolve(source)) continue;

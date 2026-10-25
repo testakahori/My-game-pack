@@ -39,7 +39,7 @@ test('そうてんもんさんの MOD: jar の横に印を書き、MOD ID と ja
     assert.match(read(`${mod}/build.gradle`), /archivesName = mod_id/, mod);
   }
   assert.match(read('ObsMod/gradle.properties'), /^mod_id=minecraft_obs_bridge\r?$/m, 'StackingGame は minecraft_obs_bridge で OBSMOD を探す');
-  assert.match(read('ObsMod/gradle.properties'), /^mod_version=2\.4\.7\r?$/m);
+  assert.match(read('ObsMod/gradle.properties'), /^mod_version=2\.4\.8\r?$/m);
   assert.match(read('UmetateMod/gradle.properties'), /^mod_id=stackinggame_events\r?$/m, 'GameEvents に登録するゲーム ID');
   assert.match(read('UmetateMod/gradle.properties'), /^mod_version=2\.6\.16\r?$/m);
 });
@@ -64,11 +64,10 @@ test('そうてんもんさんの MOD: CI の mod-build で、BridgeMod のあ�
   for (const mod of MODS) for (const dir of ['build/', '.gradle/', 'bin/', 'run-client/', 'run-server/']) assert.ok(ignore.includes(`${mod}/${dir}`), `${mod}/${dir}`);
 });
 
-// 同梱はまだ（PR2 で OBSMOD を標準装備にする）。それでも CI の印の照らし合わせ（scripts/check-jar-inputs.cjs）は2つとも見る（最後のレビュー 重要1）。
+// OBSMOD は標準装備として同梱する MOD に移った（2026-10-25。electron/test/obsmod-bundle.test.cjs）。埋め立ての MOD はまだ同梱しないが、CI の印の照らし合わせ（scripts/check-jar-inputs.cjs）は見る（最後のレビュー 重要1）。
 test('そうてんもんさんの MOD: 作るが同梱しない MOD として、jar の場所を1か所で決める', () => {
   const { buildOnlyModJars } = require('../../scripts/mod_jars.cjs');
   assert.deepEqual(buildOnlyModJars(root).map(mod => [mod.dir, path.basename(mod.jar), mod.uses?.dir]), [
-    ['ObsMod', 'minecraft_obs_bridge-2.4.7.jar', undefined],
     ['UmetateMod', 'stackinggame_events-2.6.16.jar', 'BridgeMod'],
   ]);
   assert.match(read('scripts/check-jar-inputs.cjs'), /buildOnlyModJars/);

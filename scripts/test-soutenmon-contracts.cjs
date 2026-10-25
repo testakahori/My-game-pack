@@ -7,6 +7,9 @@ const bin = name => process.env.JAVA_HOME ? path.join(process.env.JAVA_HOME,'bin
 const suites=[
   { name:'LedgerSmokeTest', files:['UmetateMod/src/main/java/jp/streamtorearn/stackinggame/event/RequestLedger.java','UmetateMod/src/main/java/jp/streamtorearn/stackinggame/event/EventRequest.java','UmetateMod/src/contractTest/java/LedgerSmokeTest.java'] },
   { name:'ObsDedupeSmokeTest', files:['ObsMod/src/main/java/jp/streamtorearn/obsmodule/encounter/EncounterDeduplicator.java','ObsMod/src/contractTest/java/ObsDedupeSmokeTest.java'] },
+  // OBS ツールへ送るかの設定と、オフのときに送らないこと（2026-10-25。ObsBridgeMod と slf4j は stubs の写しを使う）。
+  { name:'ObsSendSettingsTest', files:['ObsMod/src/main/java/jp/streamtorearn/obsmodule/config/ObsSendSettings.java','ObsMod/src/main/java/jp/streamtorearn/obsmodule/http/ObsControllerClient.java',
+    'ObsMod/src/contractTest/stubs/jp/streamtorearn/obsmodule/ObsBridgeMod.java','ObsMod/src/contractTest/stubs/org/slf4j/Logger.java','ObsMod/src/contractTest/java/ObsSendSettingsTest.java'] },
 ];
 for (const suite of suites) {
   const temp=fs.mkdtempSync(path.join(os.tmpdir(),'soutenmon-contract-'));

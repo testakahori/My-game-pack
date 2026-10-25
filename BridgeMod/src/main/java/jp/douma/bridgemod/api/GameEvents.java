@@ -56,7 +56,7 @@ public final class GameEvents {
     }
     private GameEvents() {}
     /** ゲーム MOD の ID に使えない名前（アプリの MOD と、前の名前）。 */
-    public static final Set<String> RESERVED_MOD_IDS = Set.of("bridgemod", "displaymod", "doumacmd");
+    public static final Set<String> RESERVED_MOD_IDS = Set.of("bridgemod", "displaymod", "doumacmd", "minecraft_obs_bridge");
     /**
      * ゲーム MOD の ID の決まり（アプリ・BRIDGE の bridge/game_commands.cjs の isGameModId と同じ。scripts/test-bridge-contracts.cjs で比べる）。
      * 前は予約名を断らず、null を渡すと NullPointerException になっていた（処理のコピー PR6）。

@@ -2,7 +2,9 @@ package jp.streamtorearn.obsmodule.core;
 
 import jp.streamtorearn.obsmodule.config.*;
 import jp.streamtorearn.obsmodule.encounter.*;
+import jp.streamtorearn.obsmodule.ObsBridgeMod;
 import jp.streamtorearn.obsmodule.http.ObsControllerClient;
+import net.minecraftforge.fml.loading.FMLPaths;
 import jp.streamtorearn.obsmodule.tier.TierStateStore;
 
 public final class ObsRuntime {
@@ -18,7 +20,11 @@ public final class ObsRuntime {
         rules.setConfig(c);
         encounterDedupe.configure(c.encounterPolicy.exactDedupeMs, c.encounterPolicy.crossSourceDedupeMs, c.encounterPolicy.dedupeMaxEntries);
         tiers.reset(c.tierPolicy.startupDefaultTier);
-        http.setEndpoint(c.controller.endpoint);
-        http.healthAsync();
+        // OBS ツールへ送るかは、MyGamePack が書く obs-send.properties で決める。無ければ送らない（2026-10-25）。
+        ObsSendSettings send=ObsSendSettings.read(FMLPaths.CONFIGDIR.get().resolve("minecraft_obs_bridge").resolve(ObsSendSettings.FILE_NAME), c.controller.endpoint);
+        http.setEndpoint(send.endpoint());
+        http.setEnabled(send.enabled());
+        if(send.enabled()){ObsBridgeMod.LOGGER.info("OBSMOD sends events to the OBS tool: {}", send.endpoint());http.healthAsync();}
+        else ObsBridgeMod.LOGGER.info("OBSMOD does not send events to the OBS tool (turn it on in MyGamePack)");
     }
 }

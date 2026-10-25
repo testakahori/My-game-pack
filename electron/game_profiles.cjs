@@ -101,7 +101,7 @@ function inspectPackage(folder) {
 }
 
 // recordRecovery は、壊れていて戻したことの記録（main が logs/settings-recovery.log に書く）。
-function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridgeJar, displayJar = () => null, bundledPackages = () => [], ensureStopped, beforeStep = () => {}, recordRecovery, now }) {
+function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridgeJar, displayJar = () => null, obsJar = () => null, bundledPackages = () => [], ensureStopped, beforeStep = () => {}, recordRecovery, now }) {
   const root = () => path.resolve(storage());
   const stateFile = () => path.join(root(), 'profiles.json');
   const journalFile = () => path.join(root(), 'pending-switch.json');
@@ -201,7 +201,7 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     } else if (!pending.missing) restore(pending.value);
     return list();
   }
-  // BridgeMOD・DisplayMOD（全ゲームの標準装備）の jar。
+  // BridgeMOD・DisplayMOD・OBSMOD（全ゲームの標準装備）の jar。OBSMOD はサーバーにだけ入れる（serverOnly）。
   function commonModFiles() {
     const commonPath = bridgeJar(), commonBytes = plainFile(commonPath);
     if (!jarModIds(commonBytes).includes('bridgemod')) throw new Error('BridgeMODのビルド済みjarが必要です');
@@ -212,11 +212,18 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     const bytes = plainFile(displayPath), name = path.basename(displayPath);
     if (!safeName(name) || !name.endsWith('.jar') || name.toLowerCase() === commonName.toLowerCase() || !jarModIds(bytes).includes('displaymod')) throw new Error('DisplayMODのjarを確認してください');
     commonFiles[name] = bytes;
-    return commonFiles;
+    // 標準装備の OBSMOD は、サーバーにだけ入れる（Minecraft 本体には入れない。2026-10-25 ユーザーの決定）。無ければ入れない。
+    const serverOnly = {}, obsPath = obsJar();
+    if (obsPath) {
+      const obsBytes = plainFile(obsPath), obsName = path.basename(obsPath);
+      if (!safeName(obsName) || !obsName.endsWith('.jar') || Object.keys(commonFiles).some(n => n.toLowerCase() === obsName.toLowerCase()) || !jarModIds(obsBytes).includes('minecraft_obs_bridge')) throw new Error('OBSMODのjarを確認してください');
+      serverOnly[obsName] = obsBytes;
+    }
+    return { shared: commonFiles, serverOnly };
   }
   // サーバー（side 0）と Minecraft（side 1）の mods に置く jar：標準装備とゲームMOD。
   function modFiles(pack, commonFiles, side) {
-    const files = { ...commonFiles };
+    const files = { ...commonFiles.shared, ...(side === 0 ? commonFiles.serverOnly : {}) };
     if (pack) { const name = pack.manifest[side === 0 ? 'serverJar' : 'clientJar']; if (Object.keys(files).some(n => n.toLowerCase() === name.toLowerCase())) throw new Error('ゲームMODと共通MODのファイル名が重複しています'); files[name] = pack.files[name]; }
     return files;
   }
