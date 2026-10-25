@@ -11,12 +11,12 @@ const root = path.resolve(__dirname, '..');
 const GRADLE_ARGS = ['build', '--offline', '--no-daemon', '-Dnet.minecraftforge.gradle.check.certs=false'];
 
 function steps({ windows = process.platform === 'win32' } = {}) {
-  // DisplayMod と SaikutuMod には gradlew がないので、CI と同じく BridgeMod のものを使う。
+  // DisplayMod・SaikutuMod・ObsMod には gradlew がないので、CI と同じく BridgeMod のものを使う。
   const gradlew = path.join(root, 'BridgeMod', windows ? 'gradlew.bat' : 'gradlew');
   return [
     { title: '画面（dist）', npm: ['run', 'build'], cwd: root },
     { title: 'BRIDGE の同梱物とギフト取得ツール', npm: ['run', 'prepare:bridge-runtime'], cwd: root },
-    ...['BridgeMod', 'DisplayMod', 'SaikutuMod'].map(mod => ({ title: `${mod} の jar`, cmd: gradlew, args: GRADLE_ARGS, cwd: path.join(root, mod) })),
+    ...['BridgeMod', 'DisplayMod', 'SaikutuMod', 'ObsMod'].map(mod => ({ title: `${mod} の jar`, cmd: gradlew, args: GRADLE_ARGS, cwd: path.join(root, mod) })),
     // dev は build/game-packs/saikutu の jar を配置するので、SaikutuMod のビルドのあとに作る。
     { title: '採掘のゲームパック', cmd: process.execPath, args: [path.join(root, 'scripts', 'prepare-game-packs.cjs')], cwd: root },
   ];

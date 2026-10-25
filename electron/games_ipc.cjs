@@ -35,6 +35,12 @@ function createGamesIpc({
       const jars = fs.existsSync(dir) ? fs.readdirSync(dir).filter(n => /^displaymod-[0-9.]+\.jar$/.test(n)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true })) : [];
       return jars.length ? path.join(dir, jars[0]) : null;
     },
+    // 標準装備の OBSMOD（サーバーにだけ入れる。2026-10-25）。無ければ入れない。
+    obsJar: () => {
+      const dir = app.isPackaged ? path.join(getServerTemplatePath(), 'mods') : path.resolve(appDir, '..', 'ObsMod', 'build', 'libs');
+      const jars = fs.existsSync(dir) ? fs.readdirSync(dir).filter(n => /^minecraft_obs_bridge-[0-9.]+\.jar$/.test(n)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true })) : [];
+      return jars.length ? path.join(dir, jars[0]) : null;
+    },
     bridgeJar: () => {
       const dir = app.isPackaged ? path.join(getServerTemplatePath(), 'mods') : path.resolve(appDir, '..', 'BridgeMod', 'build', 'libs');
       const jars = fs.existsSync(dir) ? fs.readdirSync(dir).filter(n => /^bridgemod-[0-9.]+\.jar$/.test(n)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true })) : [];

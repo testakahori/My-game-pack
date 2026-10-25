@@ -483,3 +483,49 @@ test('復旧: 途中の記録を読めないときは外さず、もう一度押
   assert.equal(fs.existsSync(x.journal), true);
   assert.deepEqual(x.records, []);
 });
+
+// OBSMOD は標準装備だが、入れるのはサーバーにだけ（Minecraft 本体には入れない。OBSMOD はサーバーで起きたことを OBS ツールへ送る MOD。2026-10-25 ユーザーの決定）。
+function withObs(t) {
+  let obs = null;
+  const x = fixture(t, { obsJar: () => obs });
+  const obsJar = (version, id = 'minecraft_obs_bridge') => { obs = path.join(x.root, `minecraft_obs_bridge-${version}.jar`); fs.writeFileSync(obs, jar(id)); return obs; };
+  return { ...x, obsJar };
+}
+const mods = dir => fs.readdirSync(path.join(dir, 'mods')).sort();
+
+test('ゲームの切り替え: OBSMOD はサーバーにだけ入れ、Minecraft 本体には入れない', async t => {
+  const x = withObs(t); x.obsJar('2.4.8');
+  await x.api.install(x.pack('umetate'));
+  await x.api.activate('umetate');
+  assert.deepEqual(mods(x.server), ['bridgemod-1.3.4.jar', 'displaymod-1.0.0.jar', 'minecraft_obs_bridge-2.4.8.jar', 'umetate.jar']);
+  assert.deepEqual(mods(x.client), ['bridgemod-1.3.4.jar', 'displaymod-1.0.0.jar', 'umetate.jar']);
+  await x.api.activate('common');
+  assert.deepEqual(mods(x.server), ['bridgemod-1.3.4.jar', 'displaymod-1.0.0.jar', 'minecraft_obs_bridge-2.4.8.jar']);
+  assert.deepEqual(mods(x.client), ['bridgemod-1.3.4.jar', 'displaymod-1.0.0.jar']);
+});
+
+test('アプリの更新のあとの入れ替え: サーバーの OBSMOD を新しくし、Minecraft 本体に残った OBSMOD は外す', async t => {
+  const x = withObs(t); x.obsJar('2.4.7');
+  await x.api.install(x.pack('umetate'));
+  await x.api.activate('umetate');
+  fs.writeFileSync(path.join(x.client, 'mods', 'minecraft_obs_bridge-2.4.6.jar'), jar('minecraft_obs_bridge'));
+  x.obsJar('2.4.8');
+  await x.api.refreshMods();
+  assert.deepEqual(mods(x.server), ['bridgemod-1.3.4.jar', 'displaymod-1.0.0.jar', 'minecraft_obs_bridge-2.4.8.jar', 'umetate.jar']);
+  assert.deepEqual(mods(x.client), ['bridgemod-1.3.4.jar', 'displaymod-1.0.0.jar', 'umetate.jar']);
+});
+
+test('ゲームの切り替え: OBSMOD の jar の中身が OBSMOD でなければ、どちらも切り替えない', async t => {
+  const x = withObs(t); x.obsJar('2.4.8', 'displaymod');
+  await x.api.install(x.pack('umetate'));
+  await assert.rejects(x.api.activate('umetate'), /OBSMOD/);
+  for (const dir of [x.server, x.client]) assert.deepEqual(mods(dir), ['doumacmd-old.jar', 'other.jar']);
+});
+
+// 開発版で ObsMod を作っていない（OBSMOD の jar が無い）ときは入れない。サーバーにあった OBSMOD も、切り替えで外れる（配布版の雛形にはいつも入っている。最後のレビュー 軽い6）。
+test('ゲームの切り替え: OBSMOD の jar が無いときは入れず、サーバーにあった OBSMOD も外れる', async t => {
+  const x = withObs(t);
+  fs.writeFileSync(path.join(x.server, 'mods', 'minecraft_obs_bridge-2.4.7.jar'), jar('minecraft_obs_bridge'));
+  await x.api.activate('common');
+  assert.deepEqual(mods(x.server), ['bridgemod-1.3.4.jar', 'displaymod-1.0.0.jar']);
+});

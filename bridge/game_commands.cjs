@@ -15,7 +15,8 @@ const GAME_IDS = Object.freeze(GAMES.map(game => game.id));
 // common は共通（BridgeMOD だけ）。ゲームパックのゲームは残り。
 const PACK_GAME_IDS = Object.freeze(GAME_IDS.filter(id => id !== "common"));
 // ゲーム MOD の ID に使えない名前（アプリの MOD と、前の名前）。
-const RESERVED_MOD_IDS = Object.freeze(["bridgemod", "displaymod", "doumacmd"]);
+// アプリの MOD の ID（ゲーム MOD ではない）。minecraft_obs_bridge は標準装備の OBSMOD（2026-10-25。BridgeMOD 1.8.3 の GameEvents と同じ）。
+const RESERVED_MOD_IDS = Object.freeze(["bridgemod", "displaymod", "doumacmd", "minecraft_obs_bridge"]);
 
 const GAME_PREFIX = new RegExp(`^game_(${PACK_GAME_IDS.join("|")})_`, "i");
 

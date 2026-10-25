@@ -65,11 +65,65 @@
 
 1. ~~PR1 → CI → マージ~~（10-24 マージした。PR #138、マージコミット 5589566）。CI は3つとも通った。mod-build で、5つの MOD を Linux で作り、印は5つとも合い、取り込んだ selftest は10件とも通った。
 2. ~~届いたフォルダーから、写した OBSMOD・StackingGame-Events を外す~~（10-24 外した。取り込みのコミットの中身と同じファイルだけを消した：OBSMOD 28・StackingGame 74）。届いたフォルダー（`docs/soutenmon/StreamToEarn_code/`、git の外）に残っているのは、ビルドの出力・経緯の文書・イベント一覧の写し・同期の道具・BUILD.bat・API だけの jar（約 50MB）。こちらのビルドには使わないので、アーカイブに回すか消してよい。
-3. PR2：OBSMOD を標準装備として同梱する。
-   - サーバーの雛形・release:win・ゲームの切り替え・アプリの更新で、DisplayMOD と同じように入れ替える。
-   - 「ゲーム MOD ではない」一覧に `minecraft_obs_bridge` を足す。一覧は BridgeMOD と BRIDGE の両方にある。BridgeMOD は 1.8.3 に上げる。
-   - OBS ツールへの送信を既定でオフにする（設定でオン）。
-4. 埋め立ての MOD をつなぐ計画を立てる。`game-packs/umetate/game.json`・コマンド・同梱・`giftsdisplay` の食い違い・実機での確かめ。
+3. PR2：OBSMOD を標準装備として同梱する（10-25 作った。ブランチ `feat/obsmod-bundle`）。
+   - ユーザーの決定（10-25）：
+     - OBSMOD はサーバーにだけ入れる。Minecraft 本体には入れない（OBSMOD はサーバーで起きたことを送るだけで、本体ではやることが無い）。
+     - OBS ツールへの送信をオンにするのは、アプリの画面のスイッチ（PR3）。
+     - PR は2本に分ける。
+   - やったこと：
+     - OBSMOD 2.4.8：サーバーの `config/minecraft_obs_bridge/obs-send.properties` で `enabled=true` のときだけ送る。
+       - ファイルが無い・読めないときは送らず、OBS ツールが動いているかの確かめ（`/health`）もしない。
+       - 送り先は http・https のときだけ使い、それ以外は OBSMOD の設定の送り先を使う。
+       - Java だけで読めるよう properties にした（`ObsSendSettings`）。そうてんもんさんの設定ファイル（`events.generated.json`）には触らない。
+     - 同梱：`scripts/mod_jars.cjs` の同梱する MOD に移し、サーバーにだけ入れる印（`serverOnly`）を付けた。次の場面で、DisplayMOD と同じように入れ替える。
+       - サーバーの雛形と release:win（`prepare-server-template.cjs`）
+       - ゲームの切り替えとアプリの更新（`game_profiles.cjs`：本体の側だけ OBSMOD を外す。本体に残った古い OBSMOD も外す）
+       - BRIDGE の同期（`bridge_sync.cjs`・`bridge_mod_migration.cjs`）
+       - jar の探し方（`games_ipc.cjs`）
+     - 「ゲーム MOD ではない」一覧に `minecraft_obs_bridge` を足した。
+       - BRIDGE の `bridge/game_commands.cjs` と、BridgeMOD 1.8.3 の `GameEvents` の両方。
+       - 契約テストの例の一覧にも足した（12件で BRIDGE と BridgeMOD の結果がそろう）。
+     - 開発用の作り直し（`npm run dev:refresh`）でも ObsMod を作る。
+   - テスト：
+     - `electron/test/obsmod-bundle.test.cjs`（8件）と `game-profiles.test.cjs` の3件。どれも、直す前に落ちることを確かめた。
+     - Forge なしの確かめ `ObsSendSettingsTest`（はじめは11件。最後のレビューの直しで19件。設定の読み方と、オフなら本当に送らないことを、通信を待ち受けて確かめる）。
+   - 実機の確かめ（10-25）：雛形を一時フォルダーに写し、BridgeMOD 1.8.3・DisplayMOD 1.1.0・OBSMOD 2.4.8 で Forge のサーバーを2回起動した。3つとも読み込まれ、OBSMOD の警告・エラーは0件。
+     - 設定なし：「OBS ツールへは送らない」とログに出て、受け口への接続は0件。
+     - オン（送り先は手元の受け口）：「`http://127.0.0.1:3999/event` へ送る」とログに出て、受け口に `GET /health` が届いた。
+   - 5つの MOD を作り直し、契約テスト（4つ）と印の照らし合わせ（5つとも合う）が通った。`npm run verify`：型チェック・BRIDGE 15/15・アプリ 785/785・ビルドが通る。
+   - 最後のレビュー（opus）：重大 0・重要 2・軽い 11。レビューでも、本体に入れないことがどの経路でも守られること、送るのを止める所が1か所だけで抜け道が無いことを確かめた。
+     - 重要の2件は直した：
+       - OBSMOD の mods.toml に `displayTest="IGNORE_SERVER_VERSION"` が無かった（本体に OBSMOD が無いので、サーバー一覧で「MOD が合わない」赤い×が付くところだった）。DisplayMOD・採掘MOD と同じ1行を足した。
+       - `obs-send.properties` の先頭に BOM があると、黙ってオフになった。BOM を外して読み、読めない・enabled が true でも false でもない・送り先が使えないときは、理由を警告に出す。
+     - 軽い 11 件は、ユーザーの決定（10-25「11件とも直す」）で全部直した：
+       - 1：大文字の `HTTP://` も使う。
+       - 2：PR3 でアプリが書くときの決まりを、下の PR3 の項に書いた。
+       - 3：ユーザー名・パスワード入りの送り先は使わない（ログに出るので）。
+       - 4：「オフなら送らない」の確かめを、温めたあとに別のポートで見る形にした。
+       - 5：名前の違う OBSMOD（手で入れた jar）も、jar の中の MOD ID で見つけて退避する。
+       - 6：jar が無いときはサーバーからも外れることを、コメントとテストで決めた。
+       - 7：`serverOnly` は目印だとコメントに書いた。
+       - 8：同期・jar の探し方（`obsBundled`）を、動かして確かめるテストにした。
+       - 9：文書・画面（GameSelector）・README・コメントを合わせた。
+       - 10：オフなら ObsApi と遭遇の知らせは何もせずに戻る。
+       - 11：通信の仕組みは、はじめて送るときに作る。
+     - コードを1か所ずつ壊す8とおりで、どれもテストが落ちた。Forge なしの確かめは29件通る（ObsSendSettingsTest 19件を含む）。
+     - 直したあとの実機の確かめ（10-25、一時フォルダーの Forge サーバー）：
+       - 本体がサーバー一覧を出すときと同じ問い合わせを送り、返る MOD の一覧（forgeData）を読んだ。
+         - OBSMOD と DisplayMOD は「本体に無くてよい」（ignore-server-only）だった。
+         - BridgeMOD は 1.8.3（本体にも要る MOD）だった。
+       - 設定が無いときは送らなかった。BOM 付きで `enabled=true` を書くと送った（`GET /health` が届いた）。
+       - OBSMOD の警告・エラーは0件だった。
+     - `npm run verify`（直したあと）：型チェック・BRIDGE 15/15・アプリ 793/793・ビルドが通る。
+     - 残る確かめ：OBSMOD の入っていない本体から、実際にサーバーへ入れるか（ユーザーが本体で入ってみる）。
+   - ユーザーの決定（10-25）：PR2 は PR3 と一緒に配る（画面のスイッチができるまで、配るインストーラーは作らない）。本体から入れるかの確かめは、ユーザーが本体で入ってみる。
+   - そうてんもんさんに伝えること：この OBSMOD（2.4.8）は、`obs-send.properties` でオンにするまで OBS ツールへ送らない。
+   - リリースノートに足すこと：OBS 用のツールへイベントを知らせる OBSMOD を同梱しました（サーバーにだけ入ります）。OBS ツールへの送信は、はじめはオフです。新しい BridgeMOD（1.8.3）と OBSMOD はサーバーを起動し直すと入れ替わります。
+4. PR3：運用センターの「動作設定」に「OBS 連携」の欄を足す（送る・送らないのスイッチと送り先。アプリの設定に残し、サーバーの `obs-send.properties` に書く。ゲームの切り替えや同期のときにも書き直す。サーバーが動いている間に変えたら「次にサーバーを起動したときに効きます」と出す）。
+   - 書くときの決まり（PR2 の最後のレビュー 軽い2）：UTF-8・BOM なしで書き、`enabled=true` か `enabled=false` と `endpoint=<URL>` の2行だけにする。送り先は http・https で、ユーザー名・パスワードが無いものに限ってから書く（`\` と改行は書かない。properties では `\` が消える）。JS で書いて Java（`ObsSendSettings`）で読む照らし合わせのテストを足す（`scripts/test-bridge-contracts.cjs` の形）。
+   - 送り先が正しくないときは、OBSMOD は自分の設定の送り先へ黙って送る（決めた仕様）。画面で書く前に確かめる。
+   - PR2 と一緒に配る（ユーザーの決定）。
+5. 埋め立ての MOD をつなぐ計画を立てる。`game-packs/umetate/game.json`・コマンド・同梱・`giftsdisplay` の食い違い・実機での確かめ。
 
 ---
 

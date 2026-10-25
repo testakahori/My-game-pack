@@ -18,6 +18,9 @@ function modJars(root) {
     { name: "BridgeMOD", dir: "BridgeMod", jar: path.join(libs("BridgeMod"), `bridgemod-${modVersion(root, "BridgeMod")}.jar`) },
     { name: "DisplayMOD", dir: "DisplayMod", jar: path.join(libs("DisplayMod"), `displaymod-${modVersion(root, "DisplayMod")}.jar`) },
     { name: "採掘MOD", dir: "SaikutuMod", jar: path.join(libs("SaikutuMod"), saikutu.serverJar), uses: { name: "BridgeMOD", dir: "BridgeMod" } },
+    // 標準装備の OBSMOD（そうてんもんさんの minecraft_obs_bridge）。サーバーにだけ入れる（Minecraft 本体には入れない。2026-10-25 ユーザーの決定）。
+    // serverOnly は目印。サーバーにだけ入れる決まりは、electron/game_profiles.cjs（本体の側に入れない）・electron/bridge_sync.cjs・scripts/prepare-server-template.cjs にある。
+    { name: "OBSMOD", dir: "ObsMod", jar: propertyJar(root, "ObsMod"), serverOnly: true },
   ];
 }
 
@@ -29,13 +32,13 @@ function modProperty(root, dir, key) {
   return value;
 }
 
-// 作るが、まだ同梱しない MOD（そうてんもんさんの OBSMOD・埋め立ての MOD。2026-10-24 取り込み）。CI の印の照らし合わせ（check-jar-inputs.cjs）だけが見る。
-// jar の名前は <mod_id>-<mod_version>.jar（build.gradle の archivesName = mod_id）。同梱するときは modJars へ移す。
+// jar の名前が <mod_id>-<mod_version>.jar の MOD（build.gradle の archivesName = mod_id。そうてんもんさんの MOD）。
+const propertyJar = (root, dir) => path.join(root, dir, "build", "libs", `${modProperty(root, dir, "mod_id")}-${modVersion(root, dir)}.jar`);
+
+// 作るが、まだ同梱しない MOD（そうてんもんさんの埋め立ての MOD。2026-10-24 取り込み）。CI の印の照らし合わせ（check-jar-inputs.cjs）だけが見る。同梱するときは modJars へ移す。
 function buildOnlyModJars(root) {
-  const jar = dir => path.join(root, dir, "build", "libs", `${modProperty(root, dir, "mod_id")}-${modVersion(root, dir)}.jar`);
   return [
-    { name: "OBSMOD", dir: "ObsMod", jar: jar("ObsMod") },
-    { name: "埋め立てMOD", dir: "UmetateMod", jar: jar("UmetateMod"), uses: { name: "BridgeMOD", dir: "BridgeMod" } },
+    { name: "埋め立てMOD", dir: "UmetateMod", jar: propertyJar(root, "UmetateMod"), uses: { name: "BridgeMOD", dir: "BridgeMod" } },
   ];
 }
 

@@ -465,6 +465,9 @@ function createBridgeSync({
     require("./bridge_mod_migration.cjs").replaceCommonMod(path.join(srcMods, jars[0]), serverFolder);
     const display = fs.readdirSync(srcMods).filter(n => /^displaymod-[0-9.]+\.jar$/i.test(n)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0];
     if (display) require("./bridge_mod_migration.cjs").replaceCommonMod(path.join(srcMods, display), serverFolder, 'displaymod');
+    // 標準装備の OBSMOD（サーバーにだけ入れる。2026-10-25）。
+    const obs = fs.readdirSync(srcMods).filter(n => /^minecraft_obs_bridge-[0-9.]+\.jar$/i.test(n)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0];
+    if (obs) require("./bridge_mod_migration.cjs").replaceCommonMod(path.join(srcMods, obs), serverFolder, 'minecraft_obs_bridge');
   }
 
   function scheduleBridgeSync() {

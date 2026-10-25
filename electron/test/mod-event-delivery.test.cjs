@@ -281,6 +281,6 @@ test('送信中に捨てたいいねが送れなかったときは、再送を�
 // ゲーム MOD の ID は bridge/game_commands.cjs の isGameModId の1か所（アプリのパックの登録・BridgeMOD と同じ。処理のコピー PR6）。
 test('ゲーム要求: 予約名（bridgemod など）の GAME_MOD は送らない', () => {
   const { captureGameEvent } = require('../../bridge/mod_event_delivery.cjs');
-  for (const id of ['bridgemod', 'displaymod', 'doumacmd']) assert.throws(() => captureGameEvent({ type: 'gift', commandFile: 'x.txt' }, id), /Invalid game MOD ID/, id);
+  for (const id of ['bridgemod', 'displaymod', 'doumacmd', 'minecraft_obs_bridge']) assert.throws(() => captureGameEvent({ type: 'gift', commandFile: 'x.txt' }, id), /Invalid game MOD ID/, id);
   assert.equal(captureGameEvent({ type: 'gift', commandFile: 'x.txt' }, 'gamemod').gameMod, 'gamemod');
 });
