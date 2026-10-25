@@ -67,8 +67,9 @@ test('OBS 連携: OBSMOD に渡すファイルは UTF-8・BOM なしの2行（�
   assert.deepEqual(fs.readdirSync(path.dirname(file)), ['obs-send.properties'], '書きかけのファイルを残さない');
 });
 
-function ipc(t, { serverRunning = false, serverFolder = true, runningFails = false } = {}) {
+function ipc(t, { serverRunning = false, serverFolder = true, runningFails = false, runBat = true } = {}) {
   const server = tempDir(t);
+  if (runBat) fs.writeFileSync(path.join(server, 'run.bat'), '');
   let config = {};
   const handlers = new Map();
   const api = createObsIpc({
@@ -124,4 +125,52 @@ test('OBS 連携の窓口: サーバーが動いているかを確かめられ�
   assert.deepEqual(await x.invoke('obs:get'), { enabled: false, endpoint: '', defaultEndpoint: 'http://127.0.0.1:3000/event', serverRunning: null });
   assert.deepEqual(await x.invoke('obs:set', { enabled: true, endpoint: '' }), { ok: true, serverRunning: null, wroteServer: true });
   assert.equal(fs.readFileSync(x.file, 'utf8'), 'enabled=true\nendpoint=http://127.0.0.1:3000/event\n');
+});
+
+// 書きかけを残さない（置き換えに失敗しても一時ファイルを消す。アプリの丈夫な書き方 writeFileDurable を使う。PR3 の最後のレビュー 軽い1）。
+test('OBS 連携: 書けなかったときも一時ファイルを残さない', t => {
+  const server = tempDir(t);
+  fs.mkdirSync(obs.obsSendFile(server), { recursive: true });
+  assert.throws(() => obs.writeObsSend(server, { enabled: true, endpoint: '' }));
+  assert.deepEqual(fs.readdirSync(path.dirname(obs.obsSendFile(server))), ['obs-send.properties'], 'ファイルの代わりにフォルダーがあるだけ（.tmp は残らない）');
+});
+
+// 手で直すなどして壊れたアプリの設定の送り先は使わない（改行や \ が入ると properties の中身が変わる。軽い3）。
+test('OBS 連携: アプリの設定の送り先がおかしければ、既定の送り先にする', () => {
+  assert.deepEqual(obs.settingsFromConfig({ obsSendEnabled: false, obsSendEndpoint: 'http://x/\nenabled=true' }), { enabled: false, endpoint: '' });
+  assert.deepEqual(obs.settingsFromConfig({ obsSendEnabled: true, obsSendEndpoint: 'http:/192.168.0.5:3000/event' }), { enabled: true, endpoint: '' });
+});
+
+// どこが悪いかが分かる文にする（軽い5・10）。
+test('OBS 連携: 断るときの文は、直す所が分かる', () => {
+  assert.throws(() => obs.normalizeEndpoint('http://256.1.1.1/event'), /ホスト名・IP アドレス/);
+  assert.throws(() => obs.normalizeEndpoint('http://127.0.0.1:65536/event'), /ポートは 0〜65535/);
+  assert.throws(() => obs.normalizeEndpoint('http://127.0.0.1:3000/100%'), /% のあとは16進数2桁/);
+});
+
+test('OBS 連携の窓口: 渡す値の形がおかしければ断る（軽い4）', async t => {
+  const x = ipc(t);
+  await assert.rejects(x.invoke('obs:set', { enabled: true, endpoint: ['http://192.168.0.5:3000/event'] }), /送り先/);
+  await assert.rejects(x.invoke('obs:set', [true, '']), /オン・オフ/);
+  // enabled を持つ配列も断る（配列は普通のオブジェクトとして扱わない）。
+  await assert.rejects(x.invoke('obs:set', Object.assign([], { enabled: true, endpoint: '' })), /オン・オフ/);
+  assert.deepEqual(x.config(), {});
+});
+
+// サーバーのファイルが書けなくても、アプリの設定には残る。起動の直前にも書くので、失敗とせずに知らせる（軽い2）。
+test('OBS 連携の窓口: サーバーのファイルが書けなくても、アプリの設定に保存して、書けなかったことを知らせる', async t => {
+  const x = ipc(t);
+  fs.mkdirSync(x.file, { recursive: true });
+  const result = await x.invoke('obs:set', { enabled: true, endpoint: '' });
+  assert.equal(result.ok, true);
+  assert.equal(result.wroteServer, false);
+  assert.match(result.serverWriteError, /サーバーのファイルを書けませんでした/);
+  assert.deepEqual(x.config(), { obsSendEnabled: true, obsSendEndpoint: '' });
+});
+
+// サーバーでないフォルダー（run.bat が無い）には書かない（軽い9）。
+test('OBS 連携の窓口: run.bat の無いフォルダーには書かない', async t => {
+  const x = ipc(t, { runBat: false });
+  assert.deepEqual(await x.invoke('obs:set', { enabled: true, endpoint: '' }), { ok: true, serverRunning: false, wroteServer: false });
+  assert.equal(fs.existsSync(x.file), false);
 });

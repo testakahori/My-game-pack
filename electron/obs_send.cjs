@@ -4,8 +4,8 @@
 // config/minecraft_obs_bridge/obs-send.properties に書く。OBSMOD 2.4.8 の ObsSendSettings が、サーバーの起動のときに読む。
 // 書く形の決まり（PR2 の最後のレビュー 軽い2）：UTF-8・BOM なしの2行。送り先は、OBSMOD がそのまま使える URL だけにする
 // （http・https、ユーザー名・パスワードなし、空白・\・改行・ASCII でない文字なし）。照らし合わせは scripts/test-soutenmon-contracts.cjs。
-const fs = require("node:fs");
 const path = require("node:path");
+const { writeFileDurable } = require("../bridge/safe_json_file.cjs");
 
 const DEFAULT_ENDPOINT = "http://127.0.0.1:3000/event";
 const MAX_ENDPOINT_LENGTH = 2000;
@@ -52,18 +52,23 @@ function normalizeEndpoint(value) {
   return text;
 }
 
-const settingsFromConfig = config => ({ enabled: config?.obsSendEnabled === true, endpoint: typeof config?.obsSendEndpoint === "string" ? config.obsSendEndpoint : "" });
+// アプリの設定の送り先も確かめ直す（手で直すなどして改行や \ が入ると、properties の中身が変わる。PR3 の最後のレビュー 軽い3）。おかしければ既定の送り先にする。
+function settingsFromConfig(config) {
+  let endpoint = "";
+  try { endpoint = normalizeEndpoint(typeof config?.obsSendEndpoint === "string" ? config.obsSendEndpoint : ""); } catch { endpoint = ""; }
+  return { enabled: config?.obsSendEnabled === true, endpoint };
+}
 
 const propertiesText = ({ enabled, endpoint }) => `enabled=${enabled ? "true" : "false"}\nendpoint=${endpoint || DEFAULT_ENDPOINT}\n`;
 
-// サーバーのフォルダーに書く。書きかけを残さないよう、一時ファイルに書いてから置き換える。
+// サーバーのフォルダーに書く。書きかけを残さないよう、アプリの丈夫な書き方（bridge/safe_json_file.cjs の writeFileDurable）で書く。
 function writeObsSend(serverRoot, settings) {
   const file = obsSendFile(serverRoot);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(temp, propertiesText(settings), "utf8");
-  fs.renameSync(temp, file);
+  writeFileDurable(file, propertiesText(settings));
   return file;
 }
 
-module.exports = { DEFAULT_ENDPOINT, obsSendFile, normalizeEndpoint, settingsFromConfig, propertiesText, writeObsSend };
+// ログに出す送り先は、場所（scheme・ホスト・ポート）だけ（道や ? 以降に秘密の文字を付ける人がいる。PR3 の最後のレビュー 軽い9）。
+function endpointOrigin(endpoint) { try { return new URL(endpoint || DEFAULT_ENDPOINT).origin; } catch { return "（送り先を読めません）"; } }
+
+module.exports = { DEFAULT_ENDPOINT, obsSendFile, normalizeEndpoint, settingsFromConfig, propertiesText, writeObsSend, endpointOrigin };

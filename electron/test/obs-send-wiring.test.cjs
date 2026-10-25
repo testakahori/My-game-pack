@@ -51,3 +51,26 @@ test('OBS 連携の画面: チェックボックスは ops-check-row で描き�
   assert.match(panel, /<div className="ops-stability-fields mt-3\.5">/);
   assert.ok(panel.includes('サーバーが動いているかは確かめられませんでした'), 'serverRunning が null のときの文');
 });
+
+// main がサーバーの状態を、子プロセスとポートの両方で見る（外で起動したサーバーも、動いていると知らせる。軽い8）。
+test('OBS 連携の配線: サーバーが動いているかは、子プロセスとポートで見る', () => {
+  assert.match(read('electron/main.cjs'), /isServerRunning: async \(\) => Boolean\(serverProcess\.child\(\)\) \|\| await serverProcess\.isServerPortOpen\(\),/);
+  assert.match(read('electron/server_process.cjs'), /^const obsSend[A-Za-z]* = require\("\.\/obs_send\.cjs"\);/m, '読み込みはファイルの頭で1回');
+});
+
+// ブラウザーの確認用の偽物の窓口も、明らかにおかしい送り先は断る（本物の決まりは electron/obs_send.cjs。軽い6）。
+test('OBS 連携の偽物の窓口: http:// か https:// で始まらない送り先は断る', () => {
+  const mock = read('src/lib/devApiMock.ts');
+  const body = mock.slice(mock.indexOf('obsSet: async'), mock.indexOf('eulerStatus: async'));
+  assert.match(body, /throw new Error\(/);
+  assert.ok(body.includes('^https?:'), 'http:// か https:// で始まるかを見る');
+});
+
+// 画面の細かな所（軽い5・6）：読めなかったときにやり直せる。サーバーのフォルダーが無い・サーバーのファイルを書けなかったときの文。開いた時点でサーバーが動いていれば知らせる。既定の送り先は窓口の値だけを使う。
+test('OBS 連携の画面: やり直し・書けなかったとき・開いた時点の知らせ', () => {
+  const panel = read('src/components/ObsIntegrationSettings.tsx');
+  // やり直しはボタンで（コメントの中の同じ文字には当てない）。
+  assert.match(panel, /<button [^>]*onClick=\{load\}>もう一度読む<\/button>/);
+  for (const text of ['サーバーのフォルダーがまだ無い', '次にサーバーを起動したときに書き直します', 'サーバーが動いています']) assert.ok(panel.includes(text), text);
+  assert.doesNotMatch(panel, /127\.0\.0\.1:3000/, '既定の送り先を画面に書かない');
+});

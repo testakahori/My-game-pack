@@ -2,6 +2,7 @@
 // main.cjs から分けた（2026-10-17 設計書 docs/superpowers/specs/2026-10-17-main-split-design.md）。electron・child_process は読み込まず、spawn・process は main から受け取る。
 const path = require("path");
 const fs = require("fs");
+const obsSendFile = require("./obs_send.cjs");
 const { isConsoleStop } = require("./stop_requests.cjs");
 const { bridgeCommandsDir, bridgeModEndpoint } = require("../bridge/config_defaults.cjs");
 
@@ -89,8 +90,8 @@ function createServerProcess({
     try {
       const send = obsSend();
       if (send) {
-        require("./obs_send.cjs").writeObsSend(dir, send);
-        appendServerLog(`[SERVER] OBS 連携：${send.enabled ? `OBS ツールへ送る（送り先 ${send.endpoint || require("./obs_send.cjs").DEFAULT_ENDPOINT}）` : "OBS ツールへは送らない"}`);
+        obsSendFile.writeObsSend(dir, send);
+        appendServerLog(`[SERVER] OBS 連携：${send.enabled ? `OBS ツールへ送る（送り先 ${obsSendFile.endpointOrigin(send.endpoint)}）` : "OBS ツールへは送らない"}`);
       }
     } catch (error) { appendServerLog(`[SERVER] OBS 連携の設定を書けませんでした：${error.message}`); }
     // 開発版（パッケージ前）は、BRIDGE とゲームの切替がリポジトリの bridge/commands/minecraft を使う。

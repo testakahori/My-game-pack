@@ -81,3 +81,20 @@ test('サーバーの起動: 起動の直前に、OBS 連携の設定を obs-sen
   await second;
   assert.equal(fs.existsSync(path.join(plain.dir, 'config', 'minecraft_obs_bridge', 'obs-send.properties')), false);
 });
+
+// 書けなくても起動は止めない（ログに出す）。起動のログには送り先の場所（scheme・ホスト・ポート）だけを出し、道や ? 以降は出さない（PR3 の最後のレビュー 軽い8・9）。
+test('サーバーの起動: OBS 連携の設定が書けなくても起動し、ログに出す。送り先は場所だけを出す', async t => {
+  const failing = setup(t, { obsSend: () => { throw new Error('書けない'); } });
+  const starting = failing.invoke('server:start');
+  await new Promise(resolve => setImmediate(resolve));
+  failing.release();
+  assert.deepEqual(await starting, { ok: true });
+  assert.ok(failing.invoke('server:logs').lines.some(line => line.includes('OBS 連携の設定を書けませんでした')));
+  const x = setup(t, { obsSend: () => ({ enabled: true, endpoint: 'http://192.168.0.5:3000/event?token=secret' }) });
+  const second = x.invoke('server:start');
+  await new Promise(resolve => setImmediate(resolve));
+  x.release();
+  await second;
+  const line = x.invoke('server:logs').lines.find(l => l.includes('OBS 連携'));
+  assert.ok(line.includes('http://192.168.0.5:3000') && !line.includes('secret'), line);
+});

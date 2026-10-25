@@ -3,6 +3,7 @@
 // 画面からアプリの設定を直接は書かせず、ここで確かめてから、アプリの設定とサーバーの obs-send.properties に書く。
 // サーバーが動いている間に保存したときは、OBSMOD が読むのは次の起動なので、そう知らせる（serverRunning）。
 const fs = require("node:fs");
+const path = require("node:path");
 const obs = require("./obs_send.cjs");
 
 function createObsIpc({ readAppConfig, writeAppConfig, getServerRoot, isServerRunning }) {
@@ -16,14 +17,19 @@ function createObsIpc({ readAppConfig, writeAppConfig, getServerRoot, isServerRu
   }
 
   async function set(_event, settings) {
-    if (!settings || typeof settings.enabled !== "boolean") throw new Error("OBS ツールへ送るかどうか（オン・オフ）を選んでください");
+    if (!settings || typeof settings !== "object" || Array.isArray(settings) || typeof settings.enabled !== "boolean") throw new Error("OBS ツールへ送るかどうか（オン・オフ）を選んでください");
+    if (settings.endpoint !== undefined && typeof settings.endpoint !== "string") throw new Error("送り先は文字で入れてください");
     const next = { enabled: settings.enabled, endpoint: obs.normalizeEndpoint(settings.endpoint) };
     writeAppConfig({ obsSendEnabled: next.enabled, obsSendEndpoint: next.endpoint });
-    // サーバーのフォルダーがまだ無い（初期セットアップの前など）ときは、アプリの設定だけ残す。サーバーの起動の直前にも書く（server_process.cjs）。
+    // サーバーのフォルダーがまだ無い（初期セットアップの前など。run.bat が無い）ときは、アプリの設定だけ残す。サーバーの起動の直前にも書く（server_process.cjs）。
+    // サーバーのファイルが書けなくても、アプリの設定には残り、次にアプリからサーバーを起動するときに書き直すので、失敗とせずに知らせる（PR3 の最後のレビュー 軽い2）。
     const root = getServerRoot();
-    const wroteServer = Boolean(root) && fs.existsSync(root);
-    if (wroteServer) obs.writeObsSend(root, next);
-    return { ok: true, serverRunning: await serverRunning(), wroteServer };
+    let wroteServer = false, serverWriteError;
+    if (root && fs.existsSync(path.join(root, "run.bat"))) {
+      try { obs.writeObsSend(root, next); wroteServer = true; }
+      catch (error) { serverWriteError = `サーバーのファイルを書けませんでした（${error.code || error.message}）`; }
+    }
+    return { ok: true, serverRunning: await serverRunning(), wroteServer, ...(serverWriteError ? { serverWriteError } : {}) };
   }
 
   function register(ipcMain) {

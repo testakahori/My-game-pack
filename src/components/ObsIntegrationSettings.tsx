@@ -19,13 +19,25 @@ export default function ObsIntegrationSettings() {
   const dirty = saved !== null && (enabled !== saved.enabled || endpoint.trim() !== saved.endpoint);
   useUnsavedChanges(dirty, busy);
 
+  const alive = useRef(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+
   const show = (status: ObsSendStatus) => { setSaved(status); setEnabled(status.enabled); setEndpoint(status.endpoint); };
 
+  // 読めなかったときは「もう一度読む」でやり直せる。開いた時点でサーバーが動いていれば、保存しても次の起動で効くと先に知らせる（PR3 の最後のレビュー 軽い5）。
+  function load() {
+    setLoadFailed(false); setError(""); setMessage("");
+    void window.mygamepack.obsGet().then(status => {
+      if (!alive.current) return;
+      show(status);
+      if (status.serverRunning) setMessage("サーバーが動いています。ここで保存した設定は、次にサーバーを起動したときに効きます。");
+    }).catch(() => { if (alive.current) { setError("OBS 連携の設定を読めませんでした。"); setLoadFailed(true); } });
+  }
+
   useEffect(() => {
-    let alive = true;
-    const api = window.mygamepack;
-    void api.obsGet().then(status => { if (alive) show(status); }).catch(() => { if (alive) setError("OBS 連携の設定を読めませんでした。"); });
-    return () => { alive = false; };
+    alive.current = true;
+    load();
+    return () => { alive.current = false; };
   }, []);
 
   async function save() {
@@ -36,9 +48,14 @@ export default function ObsIntegrationSettings() {
     try {
       const result = await api.obsSet({ enabled, endpoint });
       show(await api.obsGet());
-      setMessage(result.serverRunning === null
-        ? "保存しました。サーバーが動いているかは確かめられませんでした。動いているなら、次にサーバーを起動したときに効きます。"
-        : result.serverRunning ? "保存しました。サーバーが動いているので、次にサーバーを起動したときに効きます。" : "保存しました。次にサーバーを起動したときから効きます。");
+      // サーバーのファイルを書けなかった・サーバーのフォルダーがまだ無いときも、アプリの設定には残り、アプリからサーバーを起動するときに書く（electron/server_process.cjs）。
+      const when = result.serverRunning === null
+        ? "サーバーが動いているかは確かめられませんでした。動いているなら、次にサーバーを起動したときに効きます。"
+        : result.serverRunning ? "サーバーが動いているので、次にサーバーを起動したときに効きます。" : "次にサーバーを起動したときから効きます。";
+      setMessage(result.serverWriteError
+        ? `保存しました。ただし、${result.serverWriteError}。次にサーバーを起動したときに書き直します。`
+        : result.wroteServer ? `保存しました。${when}`
+        : "保存しました。サーバーのフォルダーがまだ無いので、アプリの設定に残しました。初期セットアップのあと、サーバーを起動したときに書きます。");
     } catch (caught) {
       setError(ipcErrorMessage(caught));
     } finally {
@@ -47,7 +64,8 @@ export default function ObsIntegrationSettings() {
     }
   }
 
-  const defaultEndpoint = saved?.defaultEndpoint ?? "http://127.0.0.1:3000/event";
+  // 既定の送り先は窓口（electron/obs_send.cjs）の値だけを使う（画面に書くと、変えたときに食い違う。軽い6）。
+  const defaultEndpoint = saved?.defaultEndpoint ?? "";
   return (
     // 見出しの下は「安定運用・荒らし対策」と同じだけ空ける。チェックボックスは ops-check-row で小さく描く
     // （運用センターの CSS は input を横いっぱいにするため。PR3 の最後のレビュー 重要3）。
@@ -57,7 +75,7 @@ export default function ObsIntegrationSettings() {
         OBS ツールへイベントを送る
       </label>
       <label className="ops-field" htmlFor={endpointId}>
-        <span>送り先（空のときは {defaultEndpoint}）</span>
+        <span>{defaultEndpoint ? `送り先（空のときは ${defaultEndpoint}）` : "送り先"}</span>
         <input id={endpointId} type="text" value={endpoint} disabled={busy || saved === null} spellCheck={false} autoComplete="off" placeholder={defaultEndpoint} onChange={event => setEndpoint(event.target.value)} />
       </label>
       <small className="mt-1 block text-[11px] leading-relaxed text-slate-400">
@@ -66,6 +84,7 @@ export default function ObsIntegrationSettings() {
       </small>
       <button type="button" className="ops-primary-button ops-primary-button--violet" disabled={busy || !dirty} onClick={() => void save()}>{busy ? "保存中…" : "OBS 連携を保存"}</button>
       {error && <small role="alert" className="mt-1.5 block text-[11px] leading-relaxed text-amber-300">{error}</small>}
+      {loadFailed && <button type="button" className="ops-ghost-button" onClick={load}>もう一度読む</button>}
       {message && <small role="status" className="mt-1.5 block text-[11px] leading-relaxed text-slate-300">{message}</small>}
     </div>
   );

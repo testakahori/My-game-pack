@@ -362,7 +362,12 @@ if (import.meta.env.DEV && !win.mygamepack) {
     serverGamerulesApply: ok,
     serverDatapackDeployNightVision: ok,
     obsGet: async () => ({ ...previewObsSend, defaultEndpoint: 'http://127.0.0.1:3000/event', serverRunning: false }),
-    obsSet: async (settings: { enabled: boolean; endpoint: string }) => { previewObsSend = { enabled: settings.enabled, endpoint: settings.endpoint.trim() }; return { ok: true as const, serverRunning: false, wroteServer: false }; },
+    // ブラウザーの確認用の簡単な確かめ（本物の決まりは electron/obs_send.cjs。こちらは http:// か https:// で始まり、空白・@ が無いことだけを見る）。
+    obsSet: async (settings: { enabled: boolean; endpoint: string }) => {
+      const endpoint = settings.endpoint.trim();
+      if (endpoint && (!/^https?:\/\/[^\s/?#@]+/i.test(endpoint) || /[\s@]/.test(endpoint))) throw new Error('送り先は http:// か https:// で始まる URL にしてください（ブラウザーの確認用の簡単な確かめ）');
+      previewObsSend = { enabled: settings.enabled, endpoint }; return { ok: true as const, serverRunning: false, wroteServer: false };
+    },
     eulerStatus: async () => ({ configured: false, storageAvailable: false, restartRequired: false, error: 'APIキーの保存はインストール版アプリで利用できます。' }),
     eulerSave: async () => { throw new Error('インストール版アプリで設定してください。'); },
     eulerClear: async () => ({ configured: false, storageAvailable: false, restartRequired: false }),
