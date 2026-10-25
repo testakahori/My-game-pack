@@ -87,3 +87,20 @@ jar {
 // UmetateMod compiles against BridgeMod classes, so BridgeMod's sources count too.
 ext.jarInputsAlso = ['BridgeMod']
 apply from: '../scripts/jar_inputs.gradle'
+
+// 完成MAPの使い捨てコピーを使う実サーバー検証。製品jarには入れない。
+sourceSets {
+    integrationProbe {
+        java.srcDirs = ['src/integrationProbe/java']
+        resources.srcDirs = ['src/integrationProbe/resources']
+        compileClasspath += sourceSets.main.compileClasspath + sourceSets.main.output
+    }
+}
+tasks.register('labProbeJar', Jar) {
+    dependsOn 'integrationProbeClasses'
+    from sourceSets.integrationProbe.output
+    archiveFileName = 'umetate-lab-probe.jar'
+    destinationDirectory = layout.buildDirectory.dir('qa')
+    finalizedBy 'reobfLabProbeJar'
+}
+reobf { labProbeJar {} }

@@ -5,6 +5,7 @@ const fs = require('node:fs'),path=require('node:path'),os=require('node:os'),cp
 const root=path.resolve(__dirname,'..');
 const bin = name => process.env.JAVA_HOME ? path.join(process.env.JAVA_HOME,'bin',name+(process.platform==='win32'?'.exe':'')) : name;
 const suites=[
+  { name:'LabLayoutTest', files:['UmetateMod/src/main/java/jp/streamtorearn/stackinggame/lab/LabLayout.java','UmetateMod/src/contractTest/java/LabLayoutTest.java'] },
   { name:'LedgerSmokeTest', files:['UmetateMod/src/main/java/jp/streamtorearn/stackinggame/event/RequestLedger.java','UmetateMod/src/main/java/jp/streamtorearn/stackinggame/event/EventRequest.java','UmetateMod/src/contractTest/java/LedgerSmokeTest.java'] },
   { name:'ObsDedupeSmokeTest', files:['ObsMod/src/main/java/jp/streamtorearn/obsmodule/encounter/EncounterDeduplicator.java','ObsMod/src/contractTest/java/ObsDedupeSmokeTest.java'] },
   // OBS ツールへ送るかの設定と、オフのときに送らないこと（2026-10-25。ObsBridgeMod と slf4j は stubs の写しを使う）。

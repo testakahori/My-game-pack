@@ -1,0 +1,25 @@
+{
+  "source_world": "umetate_bridge01",
+  "copied_world": "umetate_lab_map",
+  "verified_on": "2026-10-25",
+  "unchanged_files_verified": 65,
+  "source_unchanged": true,
+  "changes": [
+    "LevelName=umetate_lab_map",
+    "doMobSpawning=false",
+    "umetate_lab_map.json identification marker"
+  ],
+  "master_y": [
+    0,
+    41
+  ],
+  "target_y": [
+    42,
+    83
+  ],
+  "hell_y": [
+    -42,
+    -1
+  ],
+  "automatically_restore_during_or_after_zigoku": false
+}

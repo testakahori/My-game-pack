@@ -26,6 +26,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 public final class StackingRuntime {
+    public final jp.streamtorearn.stackinggame.lab.LabStageService lab = new jp.streamtorearn.stackinggame.lab.LabStageService(this);
     public final ProtectedBlockPolicy protectedBlocks = new ProtectedBlockPolicy();
     public final ArenaService arena = new ArenaService();
     public final BlockSafetyService blockSafety = new BlockSafetyService(protectedBlocks, arena);
@@ -50,6 +51,7 @@ public final class StackingRuntime {
     public final BridgeGameApiIntegration bridgeApi = new BridgeGameApiIntegration();
 
     public StackingRuntime() {
+        blockSafety.setReservedRegion(lab::isMaster);
         EventRegistryConsistency.validate(registry);
     }
 
@@ -81,6 +83,7 @@ public final class StackingRuntime {
     }
 
     public void tick(MinecraftServer server, long tick) {
+        lab.tick(server);
         events.tick(server, tick);
         fluid.tick(tick);
         mobLifetime.tick(server, tick);
@@ -89,6 +92,7 @@ public final class StackingRuntime {
 
     public void started(MinecraftServer server) {
         tempBlocks.loadAndRestore(server);
+        lab.started(server);
         bridgeApi.start(server, this);
     }
 
@@ -107,6 +111,7 @@ public final class StackingRuntime {
     }
 
     public void stopping(MinecraftServer server) {
+        lab.stopping();
         bridgeApi.stop();
         events.cancelAll(server, CancelReason.SERVER_STOP);
         events.clearLedger();

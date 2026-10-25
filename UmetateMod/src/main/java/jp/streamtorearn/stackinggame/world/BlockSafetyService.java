@@ -16,6 +16,9 @@ import net.minecraft.world.level.block.state.BlockState;
 public final class BlockSafetyService {
     private final ProtectedBlockPolicy protectedBlocks;
     private final ArenaService arena;
+    private java.util.function.BiPredicate<ServerLevel, BlockPos> reserved = (level, pos) -> false;
+
+    public void setReservedRegion(java.util.function.BiPredicate<ServerLevel, BlockPos> reserved) { this.reserved = reserved; }
 
     public BlockSafetyService(ProtectedBlockPolicy protectedBlocks, ArenaService arena) {
         this.protectedBlocks = protectedBlocks;
@@ -24,6 +27,7 @@ public final class BlockSafetyService {
 
     public boolean canModify(ServerLevel level, BlockPos pos, EventTargetMode targetMode) {
         if (level == null || pos == null || !level.hasChunkAt(pos)) return false;
+        if (reserved.test(level, pos)) return false;
         if (targetMode == EventTargetMode.ARENA && !arena.contains(level, pos)) return false;
         return !protectedBlocks.isProtected(level.getBlockState(pos));
     }

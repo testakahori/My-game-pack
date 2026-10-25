@@ -17,6 +17,7 @@ public final class StackingGameMod {
     public static final StackingRuntime RUNTIME=new StackingRuntime();
 
     public StackingGameMod(){
+        jp.streamtorearn.stackinggame.lab.LabNetwork.register();
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, StackingConfig.SPEC, "stackinggame-common.toml");
         MinecraftForge.EVENT_BUS.register(new StackingForgeEvents(RUNTIME));
     }

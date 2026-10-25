@@ -51,6 +51,8 @@ UmetateMod/.gradle/
 UmetateMod/bin/
 UmetateMod/run-client/
 UmetateMod/run-server/
+# ローカルの完成MAP（プレイヤーデータを含むのでリポジトリへ公開しない）
+map/umetate_lab_map/
 # IDE files created by the eclipse / idea Gradle plugins
 .idea/
 *.iml
