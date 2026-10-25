@@ -44,6 +44,12 @@ public final class StackingForgeEvents {
         }
     }
 
+    @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.LOWEST)
+    public void onLabEnvironment(TickEvent.ServerTickEvent event) {
+        // BridgeMODの固定環境より後に適用し、次のワールド更新では自然湧きを止めておく。
+        if (event.phase == TickEvent.Phase.END) runtime.lab.keepNaturalSpawningOff(event.getServer());
+    }
+
     @SubscribeEvent
     public void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {

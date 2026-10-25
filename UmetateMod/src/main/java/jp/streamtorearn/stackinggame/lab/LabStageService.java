@@ -76,6 +76,12 @@ public final class LabStageService {
         if (!level.getBlockState(new BlockPos(-7, 6, -7)).is(Blocks.BEDROCK))
             throw new IllegalStateException("2階原本の中央枠が見つかりません。");
     }
+    public void keepNaturalSpawningOff(MinecraftServer server) {
+        // 識別ファイルを確認できた研究室MAPだけを対象にする。ほかのゲームの固定設定には触れない。
+        if (level == null || saved == null) return;
+        var rule = level.getGameRules().getRule(net.minecraft.world.level.GameRules.RULE_DOMOBSPAWNING);
+        if (rule.get()) rule.set(false, server);
+    }
     private boolean ready(CommandSourceStack source) {
         if (level == null || saved == null) { source.sendFailure(Component.literal("このコマンドは umetate_lab_map 専用です。")); return false; }
         if (failure != null) { source.sendFailure(Component.literal("MAP処理を停止中: " + failure + "。確認後サーバーを再起動してください。")); return false; }

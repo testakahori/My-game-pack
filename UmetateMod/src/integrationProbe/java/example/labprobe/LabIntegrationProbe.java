@@ -84,6 +84,13 @@ public final class LabIntegrationProbe {
     private void run(MinecraftServer server) throws Exception {
         check(Boolean.getBoolean("umetate.lab.probe"), "使い捨てテスト環境でのみ実行できます");
         ServerLevel level = server.overworld();
+        // BridgeMODの固定環境を含め、実際のイベントバスを通した後も研究室では自然湧きを止める。
+        for (int i = 0; i < 3; i++) {
+            level.getGameRules().getRule(GameRules.RULE_DOMOBSPAWNING).set(true, server);
+            MinecraftForge.EVENT_BUS.post(new net.minecraftforge.event.TickEvent.ServerTickEvent(
+                    net.minecraftforge.event.TickEvent.Phase.END, () -> true, server));
+            check(!level.getGameRules().getBoolean(GameRules.RULE_DOMOBSPAWNING), "研究室の自然湧きオフをBridgeMOD併用時も維持する");
+        }
         level.getGameRules().getRule(GameRules.RULE_RANDOMTICKING).set(0, server);
         StackingRuntime runtime = StackingGameMod.RUNTIME;
         AtomicLong now = new AtomicLong(1000000);
