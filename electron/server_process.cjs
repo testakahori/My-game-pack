@@ -9,6 +9,8 @@ const { bridgeCommandsDir, bridgeModEndpoint } = require("../bridge/config_defau
 function createServerProcess({
   app, process, spawn, getServerRoot, getBridgeBatDir, getConfigPath, assertGameProfileIdle, assertMapIdle,
   isInitialSetupRunning, recoverMapSaves, requestBridgeMod, authFailedMessage, stopRequests,
+  // OBS 連携の設定（{ enabled, endpoint }。electron/obs_send.cjs）。渡さないときは書かない。
+  obsSend = () => null,
 }) {
   // サーバーの状態（子プロセス・ログ・起動中・停止中・停止の待ち）。使う関数より先に置く（main.cjs の分割 PR4 の最終レビュー）。
   let serverPid  = null;
@@ -83,6 +85,14 @@ function createServerProcess({
         }
       }
     } catch { /* 設定に失敗しても起動は続行 */ }
+    // OBSMOD（標準装備）はサーバーの起動のときに obs-send.properties を読むので、起動の直前にアプリの設定どおりに書く（OBS 連携。2026-10-25）。
+    try {
+      const send = obsSend();
+      if (send) {
+        require("./obs_send.cjs").writeObsSend(dir, send);
+        appendServerLog(`[SERVER] OBS 連携：${send.enabled ? `OBS ツールへ送る（送り先 ${send.endpoint || require("./obs_send.cjs").DEFAULT_ENDPOINT}）` : "OBS ツールへは送らない"}`);
+      }
+    } catch (error) { appendServerLog(`[SERVER] OBS 連携の設定を書けませんでした：${error.message}`); }
     // 開発版（パッケージ前）は、BRIDGE とゲームの切替がリポジトリの bridge/commands/minecraft を使う。
     // BridgeMOD はふだんサーバーフォルダーの bridge/commands/minecraft を読むので、同じ場所を環境変数で教える。
     // インストール版はどちらもサーバーフォルダーなので渡さない（利用者の環境に残っていても消す）。

@@ -201,6 +201,8 @@ if (import.meta.env.DEV && !win.mygamepack) {
   let previewClientFolder = previewMinecraftFolders[0].path;
   let previewActiveGame = 'common';
   let previewModsApplied = false;
+  // OBS 連携の設定（ブラウザーの確認用。インストール版ではアプリの設定に残す）。
+  let previewObsSend = { enabled: false, endpoint: '' };
   const previewProfiles: Record<string, any> = {};
   const previewProfileKeys = ['mappings', 'likeEvents', 'unmappedGiftEvent', 'shareEvent', 'followEvent', 'memberEvent', 'roulette', 'deathRoulette', 'commentGifts'];
   const previewGameStatus = () => ({ active: previewActiveGame, applied: previewModsApplied, displayBundled: true, recoveryRequired: false,
@@ -359,6 +361,8 @@ if (import.meta.env.DEV && !win.mygamepack) {
     },
     serverGamerulesApply: ok,
     serverDatapackDeployNightVision: ok,
+    obsGet: async () => ({ ...previewObsSend, defaultEndpoint: 'http://127.0.0.1:3000/event', serverRunning: false }),
+    obsSet: async (settings: { enabled: boolean; endpoint: string }) => { previewObsSend = { enabled: settings.enabled, endpoint: settings.endpoint.trim() }; return { ok: true as const, serverRunning: false, wroteServer: false }; },
     eulerStatus: async () => ({ configured: false, storageAvailable: false, restartRequired: false, error: 'APIキーの保存はインストール版アプリで利用できます。' }),
     eulerSave: async () => { throw new Error('インストール版アプリで設定してください。'); },
     eulerClear: async () => ({ configured: false, storageAvailable: false, restartRequired: false }),

@@ -3,6 +3,7 @@ import EventTestPanel from "./EventTestPanel";
 import WorldSavesPanel from "./WorldSavesPanel";
 import SettingsBackupsPanel from "./SettingsBackupsPanel";
 import ListInput from "./ListInput";
+import ObsIntegrationSettings from "./ObsIntegrationSettings";
 import { COMMA_ONLY, hasJapaneseComma } from "../lib/listInput";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 // 既定値は BRIDGE と同じ表（bridge/config_defaults.json。処理のコピー PR4）。
@@ -423,6 +424,18 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
               <button type="button" className="ops-primary-button ops-primary-button--violet" disabled={saving} onClick={save}>動作設定を保存</button>
             </div>
           </div>
+        </OpsPanel>
+
+        {/* 標準装備の OBSMOD が OBS 用のツールへ送るか（2026-10-25）。保存は欄ごと（動作設定の保存とは別）。 */}
+        <OpsPanel className="ops-stability-card">
+          <div className="ops-panel-heading">
+            <span className="ops-panel-icon ops-panel-icon--cyan">◉</span>
+            <div>
+              <h2>OBS 連携</h2>
+              <p>OBS 用のツールへイベントを送るかを決めます（はじめはオフ）。</p>
+            </div>
+          </div>
+          <ObsIntegrationSettings />
         </OpsPanel>
       </div>
 

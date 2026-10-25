@@ -131,6 +131,25 @@
    - 書くときの決まり（PR2 の最後のレビュー 軽い2）：UTF-8・BOM なしで書き、`enabled=true` か `enabled=false` と `endpoint=<URL>` の2行だけにする。送り先は http・https で、ユーザー名・パスワードが無いものに限ってから書く（`\` と改行は書かない。properties では `\` が消える）。JS で書いて Java（`ObsSendSettings`）で読む照らし合わせのテストを足す（`scripts/test-bridge-contracts.cjs` の形）。
    - 送り先が正しくないときは、OBSMOD は自分の設定の送り先へ黙って送る（決めた仕様）。画面で書く前に確かめる。
    - PR2 と一緒に配る（ユーザーの決定）。
+   - 10-25 作った（ブランチ `feat/obs-send-settings`）。ユーザーの決定：計画どおり（送り先は手元の PC に限らない。別の PC の OBS ツールにも送れる）。
+   - やったこと：
+     - 画面：`src/components/ObsIntegrationSettings.tsx` を作った。運用センターの「動作設定」タブの「安定運用・荒らし対策」の隣に、同じ形の枠で置いた。
+       - 中身は「OBS ツールへイベントを送る」のスイッチ、送り先（空なら既定）、「OBS 連携を保存」。
+       - 保存しないままの移動は止める（`useUnsavedChanges`）。
+       - サーバーが動いている間に保存したら「次にサーバーを起動したときに効きます」と出す。
+     - アプリの設定：`obsSendEnabled`・`obsSendEndpoint` を足した（`electron/app_config_fields.json`）。画面からは直接書かせない。
+     - 窓口 `obs:get`・`obs:set`（`electron/obs_ipc.cjs`。窓口は 114 → 116）。確かめてから、アプリの設定とサーバーの obs-send.properties に書く。サーバーのフォルダーが無ければ、アプリの設定だけ残す。
+     - 書き方：`electron/obs_send.cjs`。
+       - 送り先は http・https で、ユーザー名・パスワードが無く、URL に書ける ASCII の文字だけ（空白・`\`・改行・日本語は断る。2000文字まで）。
+       - UTF-8・BOM なしの2行で、一時ファイルに書いてから置き換える。送り先が空なら既定の `http://127.0.0.1:3000/event` を書く。
+     - サーバーの起動：アプリから起動するたびに、起動の直前にアプリの設定どおりに書き、ログに「OBS 連携：OBS ツールへ送る（送り先 …）」「OBS ツールへは送らない」と出す（`server_process.cjs`）。これで、ゲームの切り替えや同期のあとでも、必ずアプリの設定どおりになる（「切り替えや同期のときにも書き直す」は、これで足りる）。
+     - preload・画面の型・開発用の偽物（`devApiMock`）に `obsGet`・`obsSet` を足した。
+   - テスト：
+     - `electron/test/obs-send.test.cjs`（7件）・`obs-send-wiring.test.cjs`（3件）・`server-process-module.test.cjs` の1件。直す前に落ちることを確かめた。
+     - アプリが書いたファイルを OBSMOD の `ObsSendSettings` で読む照らし合わせ（ObsSendParity。6とおり。警告なしで同じ「送るか・送り先」になる。`scripts/test-soutenmon-contracts.cjs`。CI の mod-build でも動く）。
+     - コードを1か所ずつ壊す9とおりで、どれもテストが落ちた。
+     - `npm run verify`：型チェック・BRIDGE 15/15・アプリ 804/804・ビルドが通る。
+   - リリースノートに足すこと：運用センターの「動作設定」に「OBS 連携」を足しました。OBS 用のツールへイベントを送るかと送り先を決められます（はじめはオフ）。サーバーを起動したときから効きます。
 5. 埋め立ての MOD をつなぐ計画を立てる。`game-packs/umetate/game.json`・コマンド・同梱・`giftsdisplay` の食い違い・実機での確かめ。
 
 ---

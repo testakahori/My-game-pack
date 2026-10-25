@@ -58,7 +58,7 @@
 
 どのゲームでも、サーバーの mods には OBSMOD も配置する（Minecraft 本体には配置しない）。
 
-BridgeMODとDisplayMODは全ゲームの標準装備。アプリでの切替には両方のjarが必要。OBSMOD（MOD ID `minecraft_obs_bridge`）も標準装備だが、サーバーにだけ入れる（Minecraft 本体には入れない。2026-10-25）。OBS ツールへ送るのは、サーバーの `config/minecraft_obs_bridge/obs-send.properties` で `enabled=true` のときだけ（無ければ送らない）。独立APIは表示MODが欠けた場合もゲーム本体を止めない。APIと表示タイミングは[DisplayMOD連携ガイド](DisplayMOD連携ガイド.md)を参照。
+BridgeMODとDisplayMODは全ゲームの標準装備。アプリでの切替には両方のjarが必要。OBSMOD（MOD ID `minecraft_obs_bridge`）も標準装備だが、サーバーにだけ入れる（Minecraft 本体には入れない。2026-10-25）。OBS ツールへ送るのは、サーバーの `config/minecraft_obs_bridge/obs-send.properties` で `enabled=true` のときだけ（無ければ送らない）。オン・オフと送り先は、運用センターの「動作設定」の「OBS 連携」で決める。アプリがこのファイルを、保存したときと、アプリからサーバーを起動するたびに書き直す（OBSMOD は起動のときに読むので、サーバーが動いている間の変更は次の起動から効く）。独立APIは表示MODが欠けた場合もゲーム本体を止めない。APIと表示タイミングは[DisplayMOD連携ガイド](DisplayMOD連携ガイド.md)を参照。
 
 UmetateMOD・RunMODの本体はまだ存在しないため、初期状態は「未導入」。ゲームパックを登録するまで切り替えられない。実ゲームのAPI・コマンドは未確定であり、架空の呼び出し仕様を製品へ組み込んではいない。
 
