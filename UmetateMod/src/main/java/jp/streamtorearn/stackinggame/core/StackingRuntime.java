@@ -49,6 +49,8 @@ public final class StackingRuntime {
 
     public final GameEventRegistry registry = new GameEventRegistry();
     public final EventManager events = new EventManager(this);
+    // 研究室の5つの順番待ち（埋め立て PR1 の最後のレビュー 重要4）。
+    public final jp.streamtorearn.stackinggame.lab.LabActionLanes labLanes = new jp.streamtorearn.stackinggame.lab.LabActionLanes();
     public final BridgeGameApiIntegration bridgeApi = new BridgeGameApiIntegration();
 
     public StackingRuntime() {
@@ -84,8 +86,16 @@ public final class StackingRuntime {
         stackBlocks.beforeEntityTick();
     }
 
+    /** 研究室の5つの順番待ちのうち、いま起こす分を起こす。 */
+    public void tickLabActions(MinecraftServer server, long tick) {
+        for (var run : labLanes.due(tick, lab.blocksEvents(), lab.idle())) {
+            jp.streamtorearn.stackinggame.command.UmetateCommand.runQueued(server, this, run);
+        }
+    }
+
     public void tick(MinecraftServer server, long tick) {
         lab.tick(server);
+        tickLabActions(server, tick);
         events.tick(server, tick);
         fluid.tick(tick);
         mobLifetime.tick(server, tick);
@@ -115,6 +125,7 @@ public final class StackingRuntime {
 
     public void stopping(MinecraftServer server) {
         stamps.clear();
+        labLanes.clear();
         lab.stopping();
         bridgeApi.stop();
         events.cancelAll(server, CancelReason.SERVER_STOP);

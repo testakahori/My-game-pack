@@ -44,6 +44,17 @@ public record EventRequest(
             String listenerName,
             List<String> eventArgs,
             long receivedAtTick) {
+        return local(eventKey, playerId, listenerName, eventArgs, receivedAtTick, false);
+    }
+
+    /** announce が true なら、始まったときにギフトを表示する（umetate で送った人の名前があるとき。埋め立て PR1）。 */
+    public static EventRequest local(
+            String eventKey,
+            UUID playerId,
+            String listenerName,
+            List<String> eventArgs,
+            long receivedAtTick,
+            boolean announce) {
         UUID executionId = UUID.randomUUID();
         return new EventRequest(
                 executionId,
@@ -55,7 +66,7 @@ public record EventRequest(
                 "other",
                 "local",
                 Map.of(),
-                false,
+                announce,
                 eventArgs,
                 receivedAtTick);
     }

@@ -55,6 +55,13 @@ public final class LabStageService {
         return candidate == level && Math.abs(pos.getX()) <= 32 && Math.abs(pos.getZ()) <= 32 && pos.getY() >= 0 && pos.getY() <= 41;
     }
     public boolean blocksEvents() { return restore != null || phase == Phase.QUAKE || phase == Phase.DOWN_FLASH || phase == Phase.UP_FLASH; }
+    /**
+     * 研究室が落ち着いているか（地獄・復元・光・帰りの光のどれでもない）。地獄の順番待ちは、これが true になるまで待つ（埋め立て PR1）。
+     * 研究室マップでないときは true（地獄は「研究室マップ専用です」で断られて終わる）。
+     */
+    public boolean idle() {
+        return level == null || (failure == null && restore == null && phase == Phase.IDLE && recoveryFlash.isEmpty());
+    }
     public boolean protects(ServerPlayer player) {
         return resetPlayers.containsKey(player.getUUID()) || recoveryFlash.containsKey(player.getUUID())
                 || visitors.contains(player.getUUID()) && phase != Phase.HELL;
@@ -138,7 +145,12 @@ public final class LabStageService {
         victoryTicks++;
         if (level == null || saved == null) return;
         // 勝ちの判定（埋め立て PR1 の Task 4）。復元中・地獄のあいだ・止まっているときは、埋まっていないものとして扱う。
-        victory.tick(level, victoryTicks, failure == null && restore == null && phase == Phase.IDLE);
+        // 勝ちの判定で何か起きても、研究室の処理とサーバーの tick は止めない（最後のレビュー 軽い8）。
+        try {
+            victory.tick(level, victoryTicks, failure == null && restore == null && phase == Phase.IDLE);
+        } catch (RuntimeException e) {
+            StackingGameMod.LOGGER.error("勝ちの判定でエラーが起きました（ゲームは続けます）", e);
+        }
         if (failure != null) return;
         try {
             if (restore != null && restore.tick()) {

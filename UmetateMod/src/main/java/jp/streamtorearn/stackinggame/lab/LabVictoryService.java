@@ -13,6 +13,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.projectile.FireworkRocketEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -38,7 +40,7 @@ public final class LabVictoryService {
         switch (countdown.update(filled, tick)) {
             case START, SECOND -> showSeconds(level, countdown.secondsLeft());
             case STOP -> stopped(level);
-            case WIN -> { wins++; celebrate(level); clearFrame(level); }
+            case WIN -> { wins++; celebrate(level); softenFall(level); clearFrame(level); }
             default -> {}
         }
     }
@@ -109,13 +111,33 @@ public final class LabVictoryService {
         return stack;
     }
 
+    /**
+     * 枠の上に立っている人（最後の段を置いたところ）が、消したあと16マス落ちて死なないように、ゆっくり落ちる効果をかける
+     * （最後のレビュー 重要3）。枠の真上の列（X・Z が枠の骨組みまで）にいて、枠の底より上の人だけ。
+     */
+    private static void softenFall(ServerLevel level) {
+        for (ServerPlayer player : level.players()) {
+            int x = player.getBlockX(), z = player.getBlockZ();
+            if (x < LabLayout.FRAME_MIN_X - 1 || x > LabLayout.FRAME_MAX_X + 1 || z < LabLayout.FRAME_MIN_Z - 1 || z > LabLayout.FRAME_MAX_Z + 1) continue;
+            if (player.getY() < LabLayout.FRAME_MIN_Y) continue;
+            player.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, 10 * 20, 0, false, false, true));
+            player.fallDistance = 0;
+        }
+    }
+
     private static void clearFrame(ServerLevel level) {
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         BlockState air = Blocks.AIR.defaultBlockState();
-        for (int x = LabLayout.FRAME_MIN_X; x <= LabLayout.FRAME_MAX_X; x++)
-            for (int y = LabLayout.FRAME_MIN_Y; y <= LabLayout.FRAME_MAX_Y; y++)
-                for (int z = LabLayout.FRAME_MIN_Z; z <= LabLayout.FRAME_MAX_Z; z++)
-                    // 物は落とさない（setBlock は壊さずに置き換える）。まわりへの更新もしない（中は金とダイヤだけ）。
-                    level.setBlock(pos.set(x, y, z), air, 18);
+        // 物は落とさない（setBlock は壊さずに置き換える）。中のマスは、まわりへ知らせない（中は金とダイヤだけ）。
+        // 外側の面のマスは、まわりへ知らせる（形の更新も）。枠の上の砂・砂利が落ち、溶岩や水が流れ込む（浮いたまま残さない。最後のレビュー 軽い9）。
+        for (int pass = 0; pass < 2; pass++)
+            for (int x = LabLayout.FRAME_MIN_X; x <= LabLayout.FRAME_MAX_X; x++)
+                for (int y = LabLayout.FRAME_MIN_Y; y <= LabLayout.FRAME_MAX_Y; y++)
+                    for (int z = LabLayout.FRAME_MIN_Z; z <= LabLayout.FRAME_MAX_Z; z++) {
+                        boolean face = x == LabLayout.FRAME_MIN_X || x == LabLayout.FRAME_MAX_X || y == LabLayout.FRAME_MIN_Y
+                                || y == LabLayout.FRAME_MAX_Y || z == LabLayout.FRAME_MIN_Z || z == LabLayout.FRAME_MAX_Z;
+                        if (pass == 0 && !face) level.setBlock(pos.set(x, y, z), air, 18);
+                        if (pass == 1 && face) level.setBlock(pos.set(x, y, z), air, 3);
+                    }
     }
 }

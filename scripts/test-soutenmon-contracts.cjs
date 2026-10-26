@@ -10,6 +10,8 @@ const suites=[
   // umetate で動かす18個の名前（埋め立て PR1。2026-10-26）。events.master.json の implemented の13個と照らす。
   { name:'UmetateKeysTest', files:['UmetateMod/src/main/java/jp/streamtorearn/stackinggame/command/UmetateKeys.java','UmetateMod/src/contractTest/java/UmetateKeysTest.java'],
     args:['UmetateMod/src/main/resources/event-master/events.master.json'] },
+  // 研究室の5つの順番待ち（埋め立て PR1 の最後のレビュー 重要4）。
+  { name:'LabActionLanesTest', files:['UmetateMod/src/main/java/jp/streamtorearn/stackinggame/lab/LabActionLanes.java','UmetateMod/src/contractTest/java/LabActionLanesTest.java'] },
   // 勝ちのカウントダウンの決まり（埋め立て PR1 の Task 4）。
   { name:'LabVictoryCountdownTest', files:['UmetateMod/src/main/java/jp/streamtorearn/stackinggame/lab/LabVictoryCountdown.java','UmetateMod/src/contractTest/java/LabVictoryCountdownTest.java'] },
   // ギフトの表示の題名と中身（埋め立て PR1 の Task 2）。

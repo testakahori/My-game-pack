@@ -9,7 +9,8 @@ import net.minecraft.world.phys.Vec3;
 /**
  * 埋め立てゲームの固定積み上げ領域。
  *
- * <p>本番MAPで確認した範囲は X=-6..6, Y=49..56, Z=-6..6 (13x8x13=1352 blocks)。
+ * <p>本番MAPで確認した範囲は X=-6..6, Y=49..56, Z=-6..6 (13x8x13=1352 blocks)。設定ファイル（stackinggame-common.toml）の既定値。
+ * 研究室マップ（umetate_lab_map）では、枠の内側 X=-6..6, Y=49..64, Z=-6..6（13x16x13=2704 blocks）にする（useLabFrame。埋め立て PR1）。
  * さらに v2.6.3 から Arena を dimension まで含めて固定し、既定値は minecraft:overworld とする。</p>
  */
 public final class ArenaService {
