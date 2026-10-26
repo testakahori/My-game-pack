@@ -26,7 +26,12 @@ public final class UmetateCommand {
         // reset は配信者が打つもの。回数を取らず、ギフトには載せない。
         root.then(Commands.literal("reset").executes(ctx -> runtime.lab.reset(ctx.getSource())));
         // 研究室の5つを先に登録する（同じ名前のイベントができても、研究室の5つが勝つ）。
-        for (String key : UmetateKeys.LAB) root.then(counted(key, (source, count, listener) -> repeatLab(source, runtime, key, count)));
+        for (String key : UmetateKeys.LAB) root.then(counted(key, (source, count, listener) -> {
+            int result = repeatLab(source, runtime, key, count);
+            // 動いたら、ギフトの表示を回数と一緒に1回出す（送った人の名前が無ければ出さない。埋め立て PR1 の Task 2）。
+            if (result > 0) runtime.integration.showStarted(source.getServer(), key, listener, count);
+            return result;
+        }));
         for (String key : UmetateKeys.EVENTS) {
             if (UmetateKeys.isLab(key) || !runtime.registry.contains(key)) continue;
             root.then(counted(key, (source, count, listener) -> StackGameCommand.submitEvent(source, runtime, key, count, listener)));

@@ -97,6 +97,7 @@ public final class LabIntegrationProbe {
         StackingRuntime runtime = StackingGameMod.RUNTIME;
         checkPlayerCommands(server, runtime);
         checkUmetateCommands(server, runtime);
+        checkDisplayOnStart(server, runtime);
         AtomicLong now = new AtomicLong(1000000);
         List<Integer> effects = new ArrayList<>();
         LabPresentation presentation = new LabPresentation() {
@@ -344,6 +345,43 @@ public final class LabIntegrationProbe {
             runEvents(runtime, server, target, tick, 1);
             check(dispatcher.execute("stackgame cancel RepeatProbe", console) == 1, "cancel受付");
             check(runEvents(runtime, server, target, tick, 0).isEmpty(), "cancel のあと残りの回数は起きない");
+        } finally {
+            runtime.reset(server);
+            connect(server, target, false);
+        }
+    }
+
+    // ギフトの表示（埋め立て PR1 の Task 2）。そうてんもんさんのイベントは1回目が始まったときに1回だけ、研究室の5つは動いたときに出す。
+    // 送った人の名前が無い（手で打った）ときは出さない。DisplayMOD は検証用の偽物（jp.douma.displaymod.api.DisplayApi）。
+    private void checkDisplayOnStart(MinecraftServer server, StackingRuntime runtime) throws Exception {
+        var calls = jp.douma.displaymod.api.DisplayApi.CALLS;
+        check(jp.streamtorearn.stackinggame.integration.OptionalDisplay.available(), "DisplayMOD の入口を見つける");
+        var dispatcher = server.getCommands().getDispatcher();
+        var console = server.createCommandSourceStack();
+        ServerPlayer target = player(server.overworld(), "DisplayProbe");
+        target.setPos(.5, 49, -12.5); connect(server, target, true);
+        long[] tick = {100000};
+        try {
+            calls.clear();
+            check(dispatcher.execute("umetate voidbomb 2 Alice 😀", console) == 1, "回数と名前付きで受け付ける");
+            check(calls.isEmpty(), "受け付けた時点では出さない: " + calls);
+            runEvents(runtime, server, target, tick, 1);
+            check(calls.size() == 1, "1回目の開始で出す: " + calls);
+            Map<String, Object> shown = calls.get(0);
+            check("ボイドボム".equals(shown.get("title")) && "Alice 😀".equals(shown.get("listenerName"))
+                    && Integer.valueOf(2).equals(shown.get("count")) && "{ListenerName}".equals(shown.get("subtitle")), "題名・送った人・回数: " + shown);
+            runEvents(runtime, server, target, tick, 0);
+            check(calls.size() == 1, "2回目の開始では出さない: " + calls);
+            check(dispatcher.execute("umetate voidbomb 1", console) == 1, "名前なしで受け付ける");
+            runEvents(runtime, server, target, tick, 0);
+            check(calls.size() == 1, "送った人の名前が無ければ出さない: " + calls);
+            check(dispatcher.execute("umetate otasuke 1 Bob", console) > 0, "otasuke受付");
+            check(calls.size() == 2 && "お助け".equals(calls.get(1).get("title")) && "Bob".equals(calls.get(1).get("listenerName"))
+                    && Integer.valueOf(1).equals(calls.get(1).get("count")), "研究室の5つは動いたときに出す: " + calls);
+            // 3階を元に戻して、あとの確かめ（otasuke の範囲など）に響かないようにする。
+            check(dispatcher.execute("umetate reset", console) == 1, "reset受付");
+            for (int i = 0; i < 20000 && runtime.lab.blocksEvents(); i++) runtime.lab.tick(server);
+            check(!runtime.lab.blocksEvents(), "復元完了");
         } finally {
             runtime.reset(server);
             connect(server, target, false);

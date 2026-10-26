@@ -45,6 +45,8 @@ public final class EventManager {
     // umetate <名前> [回数]：同じギフトをあと何回続けて起こすか（requestId ごと。埋め立て PR1。2026-10-26）。
     // 待ち行列には1つで入り、終わるたびに同じものを先頭に入れ直す。取り消し・リセットでは残りも捨てる。
     private final Map<String, Integer> repeatsLeft = new HashMap<>();
+    // 入れ直した2回目からの executionId。ギフトの表示は1回目の開始のときだけ出す（埋め立て PR1 の Task 2）。
+    private final java.util.Set<UUID> repeatRuns = new java.util.HashSet<>();
 
     public EventManager(StackingRuntime runtime) {
         this.runtime = runtime;
@@ -243,6 +245,11 @@ public final class EventManager {
 
             runtime.integration.notifyObsStart(server, request);
             // DisplayMODは任意連携。ゲーム本体/OBS lifecycleはこの時点で既に開始している。
+            // 1回目の開始のときだけ、回数と一緒に1回出す（送った人の名前が無ければ出さない。埋め立て PR1）。
+            if (!repeatRuns.remove(request.executionId())) {
+                runtime.integration.showStarted(server, request.eventKey(), request.listenerName(),
+                        repeatsLeft.getOrDefault(request.externalRequestId(), 0) + 1);
+            }
             return new Result(SubmitStatus.ACCEPTED, "started");
         } catch (IllegalArgumentException exception) {
             safeCleanupStartFailure(server, event);
@@ -306,7 +313,9 @@ public final class EventManager {
         Integer left = repeatsLeft.remove(finishedRequest.externalRequestId());
         if (left != null && left > 0) {
             repeatsLeft.put(finishedRequest.externalRequestId(), left - 1);
-            waiting.addFirst(again(finishedRequest));
+            EventRequest next = again(finishedRequest);
+            repeatRuns.add(next.executionId());
+            waiting.addFirst(next);
         }
     }
 
@@ -380,6 +389,7 @@ public final class EventManager {
         waiting.clear();
         startRetry.clear();
         repeatsLeft.clear();
+        repeatRuns.clear();
     }
 
     /**
@@ -406,6 +416,7 @@ public final class EventManager {
         waiting.clear();
         startRetry.clear();
         repeatsLeft.clear();
+        repeatRuns.clear();
     }
 
     /** サーバー停止時のみ、メモリ内の再送台帳も破棄する。 */

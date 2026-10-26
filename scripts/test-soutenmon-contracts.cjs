@@ -10,6 +10,9 @@ const suites=[
   // umetate で動かす18個の名前（埋め立て PR1。2026-10-26）。events.master.json の implemented の13個と照らす。
   { name:'UmetateKeysTest', files:['UmetateMod/src/main/java/jp/streamtorearn/stackinggame/command/UmetateKeys.java','UmetateMod/src/contractTest/java/UmetateKeysTest.java'],
     args:['UmetateMod/src/main/resources/event-master/events.master.json'] },
+  // ギフトの表示の題名と中身（埋め立て PR1 の Task 2）。
+  { name:'UmetateTitlesTest', files:['UmetateMod/src/main/java/jp/streamtorearn/stackinggame/command/UmetateKeys.java','UmetateMod/src/main/java/jp/streamtorearn/stackinggame/integration/UmetateTitles.java','UmetateMod/src/contractTest/java/UmetateTitlesTest.java'],
+    args:['UmetateMod/src/main/resources/event-master/events.master.json'] },
   { name:'ObsDedupeSmokeTest', files:['ObsMod/src/main/java/jp/streamtorearn/obsmodule/encounter/EncounterDeduplicator.java','ObsMod/src/contractTest/java/ObsDedupeSmokeTest.java'] },
   // OBS ツールへ送るかの設定と、オフのときに送らないこと（2026-10-25。ObsBridgeMod と slf4j は stubs の写しを使う）。
   { name:'ObsSendSettingsTest', files:['ObsMod/src/main/java/jp/streamtorearn/obsmodule/config/ObsSendSettings.java','ObsMod/src/main/java/jp/streamtorearn/obsmodule/http/ObsControllerClient.java',
