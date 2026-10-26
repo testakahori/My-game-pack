@@ -46,7 +46,7 @@ MOD（UmetateMod。中身はそうてんもんさんの StackingGame-Events と�
   - 載せるコマンド：13個と、otasuke・mofumofu・stamp・atamahuttou・zigoku の5つ（合わせて18）。名前（key）は MOD の名前をそのまま使い、タイトルは日本語（13個は `events.master.json` の `displayName`、5つは HANDOFF・`map/README.md` の説明から付ける）。
   - `reset` は載せない（推測：配信者が使うもので、ギフトには割り当てない）。配信者は、ゲームの中で `/umetate reset` を打って使う。アプリにボタンは作らない（私の判断）。
   - 地形を壊す・書き換えるものには `destructive: true` を付ける（2026-10-12 のユーザーの決定「地形を壊すものには印」と同じ考え）。どれに付けるかは作る人が中身を見て決め、一覧を PR に書く。
-  - 回数：どのコマンドも回数を受けないので、ギフトの数はアプリの「繰り返し」で送る。強さに上限は付けない（2026-10-10 のユーザーの決定）。
+  - 回数：コマンドは `umetate <名前> [回数] [送った人]` の形（2026-10-26 ユーザーの決定「umetate mofumofu 1 のように」。採掘の `saikutu` と同じ形）。ゲームパックのコマンドは `umetate <名前> {Count} {ListenerName}` と書き、`bridgeEventApi` は使わない（BridgeMOD がこのコマンドを、回数を入れて1回だけ打つ）。回数は MOD が受け取って、その数だけ起こす（PR1 で作った）。強さに上限は付けない（2026-10-10 のユーザーの決定）。
 - 配る：UmetateMod の jar を、サーバーと Minecraft 本体の両方に入れる（白い光や揺れの描画のため、本体にも要る。`map/README.md`）。
   - `scripts/mod_jars.cjs` で、UmetateMod を「作るだけ」（`buildOnlyModJars`）から、ゲームパックの jar に移す。
   - `scripts/prepare-game-packs.cjs` は今は採掘だけを決め打ちで作る。埋め立ても作れるようにする。

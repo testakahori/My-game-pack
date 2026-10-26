@@ -1,3 +1,54 @@
+### 2026-10-26：埋め立て PR1（UmetateMod 2.6.23。ブランチ `feat/umetate-pr1-mod`）
+
+計画：`docs/superpowers/plans/2026-10-26-umetate-pr1-mod.md`（設計書は下の節）。作り方はユーザーの選択どおり「私が作る＋最後に opus のレビュー」。
+
+#### やったこと
+
+- 計画の書き直し（ユーザーの決定「umetate mofumofu 1 のように書き直して。ややこしいから」）：はじめの計画は、BridgeMOD の受け口（GameEvents）に回数を分けて渡す作りだった。採掘の `saikutu <名前> [回数] [送った人]` と同じ、コマンドの形にした。
+- Task 0：実サーバーの検証の台本（`UmetateMod/tools/run-lab-probe.ps1`）が、終わったら libraries のジャンクションだけを外すようにした。
+  - 前は、使い捨てのフォルダーに、本物の配信サーバーの libraries へのジャンクションを残していた。
+  - ユーザーの許しで片付けた：Codex の検証の残り9つは、ジャンクションを外してから消した。`…-regression-old` の4つは、中のジャンクション9つ（map と libraries）だけを外した。本物の libraries（121件）と map（71件）のファイルの数は、前後で変わっていない。
+- Task 1：`umetate <名前> [回数] [送った人]`（回数は 1〜100000、省くと 1）で18個を動かす。
+  - そうてんもんさんの13個（`events.master.json` で implemented のもの）。中身の無い10個は登録しない。
+  - 研究室の5つ（otasuke・mofumofu・stamp・atamahuttou・zigoku）。`reset` は回数を取らない。
+  - 13個は待ち行列に1つで入り、終わるたびに同じものを先頭に入れ直して、回数の分だけ続ける（`EventManager` の `repeatsLeft`）。`/umetate reset`・`stackgame cancel`・時間切れ・エラーでは、残りの回数も捨てる。
+  - 研究室の5つは、その場で回数の分だけ動かす。2回目からの断りは出さず、最後に1行「N回のうちM回は実行できませんでした」で知らせる。
+  - `stackgame run` の形も今までどおり。
+- Task 2：送った人の名前があるとき、始まったときに DisplayMOD でギフトを表示する。
+  - 13個は1回目の開始のときだけ、回数と一緒に1回。研究室の5つは動いたとき。
+  - 題名：13個は `displayName`、5つは「お助け」「もふもふ」「黒曜石スタンプ」「頭沸騰」「地獄」。
+  - 呼び方は採掘と同じ（`DisplayApi.show` をリフレクションで）。`giftsdisplay` を探す古い作りは消した（HANDOFF の「`giftsdisplay` の食い違い」は解決）。
+- Task 3：研究室マップでは、アリーナを枠の内側（Y 49〜64）にする。サーバーにある設定ファイルの `max-y=56` によらない。
+  - 実物で調べたこと：枠は岩盤の骨組みだった。Y 49 と Y 64 の外周はぐるりと岩盤、Y 50〜63 は四隅の柱だけ、内側の真下（Y 48）は床。内側 2704マスは、まっさらなマップでは空気。
+- Task 4：勝ちの判定。
+  - 枠の内側 2704マスが金とダイヤで全部埋まったら、10 からのカウントダウン（金色のタイトルと音）。1マスでも欠けたら止まる（アクションバーに赤で「カウントダウン中止」）。
+  - 0 で花火8発・キラキラの粒子・黄緑の「congratulation」のタイトルを出し、枠の中を全部消す。
+  - `reset` の復元中と地獄のあいだは数えない。
+- Task 5：版を 2.6.23 にした。`map/README.md` にコマンドの形と勝ちを書いた。設計書の「回数」の行を、コマンドの形に直した。
+  - PR2 のゲームパックは `umetate <名前> {Count} {ListenerName}` と書き、`bridgeEventApi` は使わない。
+- 確かめ：
+  - Forge なしの確かめ（`scripts/test-soutenmon-contracts.cjs`）に4つ足した：UmetateKeysTest・UmetateTitlesTest・LabVictoryCountdownTest・LabLayoutTest の枠の範囲。
+  - 実サーバーの検証（`LabIntegrationProbe`）に足したもの：
+    - 18個の登録と回数の範囲
+    - voidbomb の3回の続け方と順番（AAA B）
+    - reset・cancel で残りが消えること
+    - zigoku 2 の断り1行
+    - 表示（検証用の偽の DisplayMOD で、題名・名前（絵文字入り）・回数・1回目だけ）
+    - 枠の骨組みとアリーナの Y 64
+    - 勝ち（混ぜて勝つ・欠けたら止まる・羊毛・下の8段・reset・地獄のあいだ）
+  - どれも、作る前に落ちることを見てから作った。
+  - `npm run verify`：型チェック・BRIDGE 15/15・アプリ 819/819・ビルドが通る。
+  - 実サーバーの検証の libraries は、本物の配信サーバー（`server/Douma_Craft/libraries`）を読むだけで使った。
+- 記録（ledger）：`.superpowers/sdd/2026-10-26-umetate-pr1-mod/progress.md`（git の外）。決めたこと（Ruling）はそこと PR に書いた。
+
+#### 次にやること
+
+1. 最後のレビュー（opus。報告は日本語）→ 直す → PR → CI → ユーザーの許しでマージ。
+2. PR2（ゲームパック `game-packs/umetate/game.json`・配り方）と PR3（マップの入れ替え・「マップを初期化」）の計画と作業。
+3. 本物の配信サーバーへの入れ替えと、本体での見た目（花火・タイトル）の確かめは、PR3 までできたあとに、アプリのゲームの切り替えを通して行う。
+
+---
+
 ### 2026-10-26：埋め立てをアプリのゲームにする設計書（計画はこれから）
 
 #### やったこと

@@ -10,13 +10,23 @@
 
 ## 使い方
 
-- Forge 1.20.1、BridgeMOD 1.4.0以上（2未満）、UmetateMod 2.6.22を使います。
-- `UmetateMod/build/libs/stackinggame_events-2.6.22.jar` を、サーバーと参加者のMinecraft両方の `mods` に入れます。旧版の同じMODは入れ替えてください。
+- Forge 1.20.1、BridgeMOD 1.4.0以上（2未満）、UmetateMod 2.6.23を使います。
+- `UmetateMod/build/libs/stackinggame_events-2.6.23.jar` を、サーバーと参加者のMinecraft両方の `mods` に入れます。旧版の同じMODは入れ替えてください。
 - サーバーではこのフォルダーをワールドとして読み込みます。シングルプレイでは `.minecraft/saves` にコピーして開けます。
 - OP権限またはチートを有効にして下記のコマンドを入力します。サーバーコンソールでは先頭の `/` は不要です。
 - 2026-10-25に、指定された `server/Douma_Craft` とMinecraft本体へ導入しました。サーバーは完成MAPのコピーを読み込みます。アプリのゲーム一覧への登録は別作業です。
 
 ## コマンド
+
+ギフトで動くものは、すべて `/umetate <名前> [回数] [送った人]` の形です（2.6.23。採掘の `saikutu` と同じ形）。例：`/umetate mofumofu 1`、`/umetate nether_army 3 視聴者`。
+
+- 回数は 1〜100000 で、省くと 1 です。送った人の名前は残り全部（空白・日本語・絵文字も可）で、省くと手で打ったものとして扱います。
+- 名前は18個です。そうてんもんさんのイベント13個（aquatower・magmatower・aquarium・voidbomb・voidbomb_rain・megablast・nether_army・void_singularity・meteor_shower・meteor_purge・tornado・orbital_laser・shockwave_collapse）と、下の研究室の5つ（otasuke・mofumofu・stamp・atamahuttou・zigoku）です。`reset` は回数を取りません。
+- そうてんもんさんのイベントは、待ち行列には1つで入り、回数の分だけ続けて起きます。ほかの人のギフトはそのあとです。`/umetate reset` と `/stackgame cancel` は、残りの回数ごと止めます。`/stackgame run <名前>` の形も今までどおり使えます。
+- 研究室の5つは、その場で回数の分だけ続けて動きます。`zigoku` は2回目から「実行中」で断られます。断られた分は、最後にまとめて1行で知らせます。
+- 送った人の名前があるときは、始まったときに DisplayMOD でギフトを表示します（そうてんもんさんのイベントは1回目の開始のときだけ、回数と一緒に1回）。
+
+**勝ち**：3階の中央の枠の内側（X・Z −6〜6、Y 49〜64。13×13×16＝2704マス）が、金ブロックとダイヤブロックで1マスの空きもなく埋まると、10 からのカウントダウンが始まります。途中で1マスでも金・ダイヤでなくなると止まり、また埋まると 10 から数え直します。0 で花火・キラキラの粒子・黄緑の「congratulation」のタイトルを出し、枠の中のブロックを全部消します。`reset` の復元中と地獄のあいだは数えません。枠は岩盤の骨組み（Y 49 と Y 64 の外周、Y 50〜63 は四隅の柱）です。研究室マップでは、イベントの届くアリーナもこの枠の内側（Y 64 まで）になります（設定ファイルの `max-y` によりません）。
 
 `/umetate otasuke` は、オーバーワールドで `fill -6 49 -6 6 56 6 minecraft:gold_block` を実行します。3階の中央枠の内側、13×13×8＝1352ブロックを金で埋めます。実行者が別の階・ディメンションにいても対象は同じです。対象範囲にある別のブロックも金に置き換わります。
 
