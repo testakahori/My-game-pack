@@ -1,6 +1,7 @@
 package jp.streamtorearn.stackinggame.world;
 
 import jp.streamtorearn.stackinggame.config.StackingConfig;
+import jp.streamtorearn.stackinggame.lab.LabLayout;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.phys.Vec3;
@@ -8,7 +9,8 @@ import net.minecraft.world.phys.Vec3;
 /**
  * 埋め立てゲームの固定積み上げ領域。
  *
- * <p>本番MAPで確認した範囲は X=-6..6, Y=49..56, Z=-6..6 (13x8x13=1352 blocks)。
+ * <p>本番MAPで確認した範囲は X=-6..6, Y=49..56, Z=-6..6 (13x8x13=1352 blocks)。設定ファイル（stackinggame-common.toml）の既定値。
+ * 研究室マップ（umetate_lab_map）では、枠の内側 X=-6..6, Y=49..64, Z=-6..6（13x16x13=2704 blocks）にする（useLabFrame。埋め立て PR1）。
  * さらに v2.6.3 から Arena を dimension まで含めて固定し、既定値は minecraft:overworld とする。</p>
  */
 public final class ArenaService {
@@ -31,7 +33,17 @@ public final class ArenaService {
         }
     }
 
+    // 研究室マップでは、アリーナを枠の内側（Y 49〜64）にする。設定ファイル（stackinggame-common.toml）の値には触らない。
+    // すでにあるサーバーの設定ファイルに max-y=56 が書かれていても、研究室マップでは枠の上の段まで届く（埋め立て PR1 の Task 3）。
+    private volatile boolean labFrame;
+
+    public void useLabFrame(boolean on) { labFrame = on; }
+
     public IntBox bounds() {
+        if (labFrame) {
+            return IntBox.of(LabLayout.FRAME_MIN_X, LabLayout.FRAME_MIN_Y, LabLayout.FRAME_MIN_Z,
+                    LabLayout.FRAME_MAX_X, LabLayout.FRAME_MAX_Y, LabLayout.FRAME_MAX_Z);
+        }
         return IntBox.of(
                 StackingConfig.ARENA_MIN_X.get(),
                 StackingConfig.ARENA_MIN_Y.get(),

@@ -95,7 +95,12 @@ public final class LabIntegrationProbe {
         }
         level.getGameRules().getRule(GameRules.RULE_RANDOMTICKING).set(0, server);
         StackingRuntime runtime = StackingGameMod.RUNTIME;
+        checkLabFrame(server, runtime);
         checkPlayerCommands(server, runtime);
+        checkUmetateCommands(server, runtime);
+        checkDisplayOnStart(server, runtime);
+        checkLabActionLanes(server, runtime);
+        checkVictory(server, runtime);
         AtomicLong now = new AtomicLong(1000000);
         List<Integer> effects = new ArrayList<>();
         LabPresentation presentation = new LabPresentation() {
@@ -113,7 +118,8 @@ public final class LabIntegrationProbe {
         Snapshot master = snapshot(level, 0);
         Snapshot beforeHelp = snapshot(level, 42);
         // ネザーを実行元にしても3階だけを埋め、枠・上半分・原本・地獄は変更しない。
-        check(server.getCommands().getDispatcher().execute("umetate otasuke",
+        // 回数付き（埋め立て PR1）。2回目は埋め済みで fill が何も変えずに断られるが、1回目の分を返す。
+        check(server.getCommands().getDispatcher().execute("umetate otasuke 2",
                 server.createCommandSourceStack().withLevel(server.getLevel(net.minecraft.world.level.Level.NETHER))) > 0, "otasuke受付");
         Snapshot afterHelp = snapshot(level, 42);
         for (int i = 0; i < LabLayout.VOLUME; i++) {
@@ -168,7 +174,19 @@ public final class LabIntegrationProbe {
         check(server.getPlayerList().getPlayer(first.getUUID()) == first, "オンライン登録");
         Warden unrelated = EntityType.WARDEN.create(level);
         unrelated.setPos(-24.5, -35, -24.5); unrelated.setNoAi(true); level.addFreshEntity(unrelated);
-        check(server.getCommands().getDispatcher().execute("umetate zigoku", server.createCommandSourceStack()) == 2, "2人が参加");
+        // 回数付き（埋め立て PR1）。2回目は「実行中」で断られ、断った分はまとめて1行だけ知らせる。
+        List<String> zigokuMessages = new ArrayList<>();
+        net.minecraft.commands.CommandSource recorder = new net.minecraft.commands.CommandSource() {
+            @Override public void sendSystemMessage(net.minecraft.network.chat.Component message) { zigokuMessages.add(message.getString()); }
+            @Override public boolean acceptsSuccess() { return true; }
+            @Override public boolean acceptsFailure() { return true; }
+            @Override public boolean shouldInformAdmins() { return false; }
+        };
+        check(server.getCommands().getDispatcher().execute("umetate zigoku 2", server.createCommandSourceStack().withSource(recorder)) == 2, "2人が参加");
+        // 2回目は断らずに順番待ちに入り、いまの地獄が終わってから落ちる（最後のレビュー 重要4。2026-10-26 ユーザーの決定「何回も地獄に落ちてもいい」）。
+        check(zigokuMessages.stream().filter(m -> m.contains("あと1回は順番に起こします")).count() == 1
+                && zigokuMessages.stream().noneMatch(m -> m.contains("実行中です")), "2回目は順番待ちだと1行で知らせる: " + zigokuMessages);
+        check(runtime.labLanes.pending("zigoku") == 1, "2回目の地獄は順番待ち");
         check(lab.zigoku(server.createCommandSourceStack()) == 0, "二重地獄は拒否");
         for (int i = 0; i < 119; i++) lab.tick(server);
         check(first.getY() > 0 && effects.contains(2), "白い光が始まってから転送する");
@@ -191,6 +209,11 @@ public final class LabIntegrationProbe {
         ServerBossEvent timer = (ServerBossEvent) field(lab, "timer");
         check(timer.getName().getString().contains("5:00") && timer.getPlayers().size() == 2, "5分のボスバー");
         check((long) field(lab, "deadline") == now.get() + 300000, "1階到着から実時間5分");
+        // 地獄のあいだは、枠が金で埋まっていても勝ちのカウントダウンをしない（埋め立て PR1 の Task 4）。
+        fillFrame(level, (x, y, z) -> Blocks.GOLD_BLOCK.defaultBlockState());
+        for (int i = 0; i < 260; i++) lab.tick(server);
+        check(victoryWins(lab) == 0 && frameCount(level, Blocks.GOLD_BLOCK) == LabLayout.FRAME_VOLUME, "地獄のあいだは勝ちにしない");
+        fillFrame(level, (x, y, z) -> Blocks.AIR.defaultBlockState());
         connect(server, second, false); lab.logout(second);
         now.addAndGet(299999); lab.tick(server);
         check(first.getY() < 0 && timer.getName().getString().contains("0:01"), "5分前に帰還しない");
@@ -212,7 +235,10 @@ public final class LabIntegrationProbe {
         check(second.getY() >= 43, "期限後の再参加でも帰還");
         check(LabSavedData.get(level).homes.isEmpty(), "帰還済みデータを消す");
         // 次のイベント途中でサービスを再起動。復元せず帰還だけを回復する。
-        check(lab.zigoku(server.createCommandSourceStack()) == 2, "2回目開始");
+        // 2回目の地獄は、順番待ちから始まる（いまの地獄が終わり、研究室が落ち着いたので）。
+        runtime.tickLabActions(server, server.getTickCount() + 1_000_000L);
+        check(runtime.labLanes.pending("zigoku") == 0 && ((Set<?>) field(lab, "visitors")).size() == 2, "2回目開始（順番待ちから）");
+        check(lab.zigoku(server.createCommandSourceStack()) == 0, "2回目の最中の地獄は拒否");
         for (int i = 0; i < 120; i++) lab.tick(server);
         List<Warden> nextWave = eventWardens(level);
         check(nextWave.size() == 3, "次の地獄イベントでも新しく3体だけ召喚");
@@ -290,5 +316,294 @@ public final class LabIntegrationProbe {
         runtime.reset(server);
         check(pendingBlocks.stream().allMatch(net.minecraft.world.entity.Entity::isRemoved), "resetで空中のstampを片付ける");
         connect(server, player, false);
+    }
+
+    // umetate <名前> [回数] [送った人]（埋め立て PR1）。18個の登録・回数の範囲。そうてんもんさんのイベントは待ち行列を1つしか使わず、
+    // 回数の分だけ続けて起き、あとのギフトはそのあと。/umetate reset と stackgame cancel は残りの回数ごと止める。
+    // 回数の確かめには、すぐ終わる voidbomb（約2秒）を使う。
+    private void checkUmetateCommands(MinecraftServer server, StackingRuntime runtime) throws Exception {
+        var dispatcher = server.getCommands().getDispatcher();
+        var umetate = dispatcher.getRoot().getChild("umetate");
+        for (String key : jp.streamtorearn.stackinggame.command.UmetateKeys.EVENTS) check(umetate.getChild(key) != null, "umetate " + key + " を登録");
+        for (String key : jp.streamtorearn.stackinggame.command.UmetateKeys.LAB) check(umetate.getChild(key) != null, "umetate " + key + " を登録");
+        check(umetate.getChild("reset") != null && umetate.getChild("gift_spawn_zombie") == null, "reset は残し、中身の無いイベントは登録しない");
+        var console = server.createCommandSourceStack();
+        for (String bad : List.of("umetate voidbomb 0", "umetate voidbomb 100001")) {
+            boolean rejected = false;
+            try { dispatcher.execute(bad, console); } catch (com.mojang.brigadier.exceptions.CommandSyntaxException e) { rejected = true; }
+            check(rejected, "回数の範囲外を受け付けない: " + bad);
+        }
+        ServerPlayer target = player(server.overworld(), "RepeatProbe");
+        target.setPos(.5, 49, -12.5); connect(server, target, true);
+        long[] tick = {0};
+        try {
+            check(dispatcher.execute("umetate voidbomb 3 視聴者 A 😀", console) == 1, "回数と送った人の名前（空白・絵文字入り）を受け付ける");
+            check(runtime.events.waitingCount() == 1, "回数があっても待ち行列は1つ");
+            check(dispatcher.execute("umetate voidbomb 1 B", console) == 1, "あとのギフトも受け付ける");
+            List<String> starts = runEvents(runtime, server, target, tick, 4);
+            check(starts.size() == 4, "3回と1回の合わせて4回始まる: " + starts);
+            String first = starts.get(0).split("\\|")[0];
+            check(starts.subList(0, 3).equals(List.of(first + "|2", first + "|1", first + "|0")), "同じギフトが3回続けて始まる: " + starts);
+            check(!starts.get(3).startsWith(first + "|") && starts.get(3).endsWith("|0"), "あとのギフトは3回のあと: " + starts);
+            runEvents(runtime, server, target, tick, 0);
+            // /umetate reset で残りの回数ごと止まる。
+            check(dispatcher.execute("umetate voidbomb 5", console) == 1, "5回を受け付ける");
+            runEvents(runtime, server, target, tick, 1);
+            check(runtime.events.activeRepeatsLeft() == 4, "1回目のあと残り4回");
+            check(dispatcher.execute("umetate reset", console) == 1, "reset受付");
+            // 復元中に届いたギフトは、待たせて、終わってから起こす（2026-10-26 ユーザーの決定）。
+            check(runtime.lab.blocksEvents(), "復元中");
+            check(dispatcher.execute("umetate voidbomb 1 待つ人", console) == 1 && runtime.events.waitingCount() == 1, "復元中に届いたギフトは待ち行列に入る（消さない）");
+            for (int i = 0; i < 20000 && runtime.lab.blocksEvents(); i++) runtime.lab.tick(server);
+            List<String> afterReset = runEvents(runtime, server, target, tick, 0);
+            check(afterReset.size() == 1 && afterReset.get(0).endsWith("|0") && runtime.events.waitingCount() == 0,
+                    "reset で前の残りは消え、復元中に届いた1回だけが起きる: " + afterReset);
+            // 死んでも残りの回数は消えない（最後のレビュー 重要1）。死んだときの取り消しは、終わったときと同じに続ける。
+            check(dispatcher.execute("umetate voidbomb 3", console) == 1, "3回を受け付ける");
+            runEvents(runtime, server, target, tick, 1);
+            runtime.events.cancelActiveForPlayer(server, target.getUUID(), jp.streamtorearn.stackinggame.event.CancelReason.PLAYER_DEATH);
+            List<String> afterDeath = runEvents(runtime, server, target, tick, 0);
+            check(afterDeath.size() == 2, "1回目の最中に死んでも、残り2回が起きる: " + afterDeath);
+            // stackgame cancel でも残りの回数ごと止まる。
+            check(dispatcher.execute("umetate voidbomb 3", console) == 1, "3回を受け付ける");
+            runEvents(runtime, server, target, tick, 1);
+            check(dispatcher.execute("stackgame cancel RepeatProbe", console) == 1, "cancel受付");
+            check(runEvents(runtime, server, target, tick, 0).isEmpty(), "cancel のあと残りの回数は起きない");
+        } finally {
+            runtime.reset(server);
+            connect(server, target, false);
+        }
+    }
+
+    // 研究室マップのアリーナは、枠の内側 Y 49〜64 まで（埋め立て PR1 の Task 3）。設定ファイルの max-y（既定 56）によらない。
+    // まっさらなマップで、枠の内側 2704マスが空気で、枠の骨組みが Y 49〜64 を囲んでいることも確かめる。
+    private void checkLabFrame(MinecraftServer server, StackingRuntime runtime) {
+        ServerLevel level = server.overworld();
+        int air = 0;
+        for (int x = LabLayout.FRAME_MIN_X; x <= LabLayout.FRAME_MAX_X; x++) for (int y = LabLayout.FRAME_MIN_Y; y <= LabLayout.FRAME_MAX_Y; y++)
+            for (int z = LabLayout.FRAME_MIN_Z; z <= LabLayout.FRAME_MAX_Z; z++) if (level.getBlockState(new BlockPos(x, y, z)).isAir()) air++;
+        check(air == LabLayout.FRAME_VOLUME, "まっさらな枠の内側は空気: " + air + "/" + LabLayout.FRAME_VOLUME);
+        // 枠の上（Y 65〜80）も空いている。アリーナの地面を探し始める高さが Y 80 になったため（設計書 3.1。最後のレビュー 軽い10）。
+        int above = 0;
+        for (int x = LabLayout.FRAME_MIN_X; x <= LabLayout.FRAME_MAX_X; x++) for (int y = LabLayout.FRAME_MAX_Y + 1; y <= 80; y++)
+            for (int z = LabLayout.FRAME_MIN_Z; z <= LabLayout.FRAME_MAX_Z; z++) if (!level.getBlockState(new BlockPos(x, y, z)).isAir()) above++;
+        check(above == 0, "枠の上（Y 65〜80）は空いている: " + above);
+        // 枠は岩盤の骨組み（2026-10-26 に実物で調べた）：Y 49 と Y 64 の外周（x か z が ±7）はぐるりと岩盤、Y 50〜63 は四隅の柱だけ。
+        // 枠の内側の真下（Y 48）は床がある。横は開いているので、勝ちの判定は内側の 2704マスだけを見る。
+        List<String> missing = new ArrayList<>();
+        for (int i = -7; i <= 7; i++) for (int y : new int[]{LabLayout.FRAME_MIN_Y, LabLayout.FRAME_MAX_Y})
+            for (BlockPos pos : List.of(new BlockPos(i, y, -7), new BlockPos(i, y, 7), new BlockPos(-7, y, i), new BlockPos(7, y, i)))
+                if (!level.getBlockState(pos).is(Blocks.BEDROCK)) missing.add(pos.toShortString());
+        for (int y = LabLayout.FRAME_MIN_Y; y <= LabLayout.FRAME_MAX_Y; y++) for (int cx : new int[]{-7, 7}) for (int cz : new int[]{-7, 7})
+            if (!level.getBlockState(new BlockPos(cx, y, cz)).is(Blocks.BEDROCK)) missing.add(cx + ", " + y + ", " + cz);
+        for (int x = LabLayout.FRAME_MIN_X; x <= LabLayout.FRAME_MAX_X; x++) for (int z = LabLayout.FRAME_MIN_Z; z <= LabLayout.FRAME_MAX_Z; z++)
+            if (level.getBlockState(new BlockPos(x, LabLayout.FRAME_MIN_Y - 1, z)).isAir()) missing.add(x + ", 48, " + z + "（床）");
+        check(missing.isEmpty(), "枠の骨組み（Y 49 と Y 64 の輪・四隅の柱・内側の床）がある: " + missing.size() + " 例 " + missing.stream().limit(5).toList());
+        var box = runtime.arena.bounds();
+        check(box.minX() == LabLayout.FRAME_MIN_X && box.maxX() == LabLayout.FRAME_MAX_X && box.minZ() == LabLayout.FRAME_MIN_Z
+                && box.maxZ() == LabLayout.FRAME_MAX_Z && box.minY() == LabLayout.FRAME_MIN_Y && box.maxY() == LabLayout.FRAME_MAX_Y,
+                "研究室マップのアリーナは枠の内側（Y 49〜64）: " + runtime.arena.summary());
+    }
+
+    // 研究室の5つの順番待ち（最後のレビュー 重要4。2026-10-26 ユーザーの決定）。
+    // 頭沸騰を2回：1回目はすぐ、2回目は1秒後に、その時のプレイヤーの位置に出る（追いかける）。表示はギフトごとに1回。
+    // 復元中に届いたお助けは、待って、終わってから起きる。
+    private void checkLabActionLanes(MinecraftServer server, StackingRuntime runtime) throws Exception {
+        ServerLevel level = server.overworld();
+        var dispatcher = server.getCommands().getDispatcher();
+        var console = server.createCommandSourceStack();
+        var calls = jp.douma.displaymod.api.DisplayApi.CALLS;
+        ServerPlayer target = player(level, "LaneProbe");
+        BlockPos a = new BlockPos(0, 48, -13), b = new BlockPos(4, 48, -13);
+        for (BlockPos floor : List.of(a, b)) {
+            level.setBlock(floor, Blocks.STONE.defaultBlockState(), 18);
+            for (int i = 1; i < 9; i++) level.setBlock(floor.above(i), Blocks.AIR.defaultBlockState(), 18);
+        }
+        target.setPos(a.getX() + .5, 49, a.getZ() + .5); connect(server, target, true);
+        long t = server.getTickCount();
+        try {
+            calls.clear();
+            check(dispatcher.execute("umetate atamahuttou 2 Viewer", console) == 1, "1回目はすぐ");
+            check(level.getBlockState(a.above(3)).is(Blocks.LAVA), "1回目は A の頭上");
+            check(runtime.labLanes.pending("atamahuttou") == 1, "2回目は順番待ち");
+            target.setPos(b.getX() + .5, 49, b.getZ() + .5);
+            runtime.tickLabActions(server, t + 5);
+            check(!level.getBlockState(b.above(3)).is(Blocks.LAVA), "1秒たつまでは2回目を出さない");
+            runtime.tickLabActions(server, t + 20);
+            check(level.getBlockState(b.above(3)).is(Blocks.LAVA) && runtime.labLanes.pending("atamahuttou") == 0, "2回目は動いた先（B）の頭上に出る");
+            check(calls.size() == 1 && "頭沸騰".equals(calls.get(0).get("title")) && Integer.valueOf(2).equals(calls.get(0).get("count")), "表示はギフトごとに1回: " + calls);
+            // 復元中に届いたお助けは、待って、終わってから起きる。
+            check(dispatcher.execute("umetate reset", console) == 1, "reset受付");
+            check(dispatcher.execute("umetate otasuke 1", console) == 1 && runtime.labLanes.pending("otasuke") == 1, "復元中のお助けは順番待ち");
+            runtime.tickLabActions(server, t + 100);
+            check(runtime.labLanes.pending("otasuke") == 1, "復元が終わるまでは待つ");
+            for (int i = 0; i < 20000 && runtime.lab.blocksEvents(); i++) runtime.lab.tick(server);
+            runtime.tickLabActions(server, t + 200);
+            check(runtime.labLanes.pending("otasuke") == 0 && frameCount(level, Blocks.GOLD_BLOCK) == LabLayout.FRAME_VOLUME / 2, "復元のあとにお助けが起きる");
+            // 片付け：3階を元に戻す。/umetate reset は順番待ちも捨てる。
+            runtime.labLanes.offer("stamp", 3, "");
+            check(dispatcher.execute("umetate reset", console) == 1 && runtime.labLanes.pending() == 0, "/umetate reset で順番待ちも捨てる");
+            for (int i = 0; i < 20000 && runtime.lab.blocksEvents(); i++) runtime.lab.tick(server);
+        } finally {
+            runtime.labLanes.clear();
+            connect(server, target, false);
+        }
+    }
+
+    // 勝ちの判定（埋め立て PR1 の Task 4）。枠の内側 2704マスが金とダイヤで全部埋まったら10から数え、0で花火を出して枠を空にする。
+    // 1マスでも欠けたら止まる。羊毛があったり、下の8段（otasuke）だけだったりでは数え始めない。/umetate reset のあいだは止まる。
+    private void checkVictory(MinecraftServer server, StackingRuntime runtime) throws Exception {
+        ServerLevel level = server.overworld();
+        var lab = runtime.lab;
+        var dispatcher = server.getCommands().getDispatcher();
+        int winsBefore = victoryWins(lab);
+        // 1. 金とダイヤを混ぜて埋めると、10秒あまりで勝ち、枠が空になり、花火が上がる。
+        int rocketsBefore = rockets(level);
+        fillFrame(level, (x, y, z) -> (x + y + z) % 2 == 0 ? Blocks.GOLD_BLOCK.defaultBlockState() : Blocks.DIAMOND_BLOCK.defaultBlockState());
+        // 枠の上に立っている配信者（最後の段を置いたところ）と、枠の上に積まれた砂（最後のレビュー 重要3・軽い9）。
+        ServerPlayer standing = player(level, "TopProbe");
+        standing.setPos(.5, LabLayout.FRAME_MAX_Y + 1, .5); connect(server, standing, true);
+        BlockPos sand = new BlockPos(3, LabLayout.FRAME_MAX_Y + 1, 3);
+        level.setBlock(sand, Blocks.SAND.defaultBlockState(), 18);
+        // 置いたときに入る「落ちる予定」は消しておく（下が空いたことを知らされて、改めて入るかを見る）。
+        level.getBlockTicks().clearArea(new net.minecraft.world.level.levelgen.structure.BoundingBox(sand));
+        check(!level.getBlockTicks().hasScheduledTick(sand, Blocks.SAND), "砂の予定を消した");
+        for (int i = 0; i < 9 * 20; i++) lab.tick(server);
+        check(victoryWins(lab) == winsBefore && frameCount(level, null) == LabLayout.FRAME_VOLUME, "10秒たつまでは勝ちにしない");
+        for (int i = 0; i < 2 * 20 + 10; i++) lab.tick(server);
+        check(victoryWins(lab) == winsBefore + 1, "10秒あまりで勝ち");
+        check(frameCount(level, Blocks.AIR) == LabLayout.FRAME_VOLUME, "勝ったら枠の中を全部消す");
+        check(rockets(level) - rocketsBefore >= 5, "花火を5発以上上げる: " + (rockets(level) - rocketsBefore));
+        check(standing.hasEffect(net.minecraft.world.effect.MobEffects.SLOW_FALLING) && standing.fallDistance == 0, "枠の上の人は、消す前にゆっくり落ちる効果がかかる");
+        check(level.getBlockTicks().hasScheduledTick(sand, Blocks.SAND), "枠の上の砂は、下が空いたことを知って落ちる");
+        level.setBlock(sand, Blocks.AIR.defaultBlockState(), 18);
+        connect(server, standing, false);
+        // 2. 埋めて3秒後に1マスを空気にすると止まり、15秒進めても残りは消えない。
+        fillFrame(level, (x, y, z) -> Blocks.GOLD_BLOCK.defaultBlockState());
+        for (int i = 0; i < 3 * 20; i++) lab.tick(server);
+        level.setBlock(new BlockPos(0, 60, 0), Blocks.AIR.defaultBlockState(), 18);
+        for (int i = 0; i < 15 * 20; i++) lab.tick(server);
+        check(victoryWins(lab) == winsBefore + 1 && frameCount(level, Blocks.GOLD_BLOCK) == LabLayout.FRAME_VOLUME - 1, "1マス欠けたら止まり、消えない");
+        // 3. 1マスでも羊毛があれば数え始めない。
+        level.setBlock(new BlockPos(0, 60, 0), Blocks.WHITE_WOOL.defaultBlockState(), 18);
+        for (int i = 0; i < 15 * 20; i++) lab.tick(server);
+        check(victoryWins(lab) == winsBefore + 1 && frameCount(level, null) == LabLayout.FRAME_VOLUME, "羊毛があると勝ちにならない");
+        // 4. 下の8段だけ金（umetate otasuke）では数え始めない。
+        fillFrame(level, (x, y, z) -> Blocks.AIR.defaultBlockState());
+        check(dispatcher.execute("umetate otasuke", server.createCommandSourceStack()) > 0, "otasuke受付");
+        for (int i = 0; i < 15 * 20; i++) lab.tick(server);
+        check(victoryWins(lab) == winsBefore + 1 && frameCount(level, Blocks.GOLD_BLOCK) == LabLayout.FRAME_VOLUME / 2, "下の8段だけでは勝ちにならない");
+        // 5. 数えているあいだに /umetate reset で止まり、勝ちにならない（3階は2階の原本どおりに戻る）。
+        //    残り約0.5秒で reset する。守りが無ければ、復元の読み取り中（約44 tick）に勝ちに届く（最後のレビュー 軽い10）。
+        fillFrame(level, (x, y, z) -> Blocks.DIAMOND_BLOCK.defaultBlockState());
+        for (int i = 0; i < 190; i++) lab.tick(server);
+        check(victoryWins(lab) == winsBefore + 1, "まだ勝ちではない");
+        check(dispatcher.execute("umetate reset", server.createCommandSourceStack()) == 1, "reset受付");
+        for (int i = 0; i < 20000 && lab.blocksEvents(); i++) lab.tick(server);
+        for (int i = 0; i < 15 * 20; i++) lab.tick(server);
+        check(victoryWins(lab) == winsBefore + 1 && frameCount(level, Blocks.AIR) == LabLayout.FRAME_VOLUME, "reset のあいだは止まり、勝ちにならない");
+        for (var entity : level.getAllEntities()) if (entity instanceof net.minecraft.world.entity.projectile.FireworkRocketEntity rocket) rocket.discard();
+        // 6. 勝ちの判定で例外が起きても、研究室の処理とサーバーの tick は止めない（最後のレビュー 軽い8）。
+        Object victory = field(lab, "victory");
+        Field countdown = victory.getClass().getDeclaredField("countdown"); countdown.setAccessible(true);
+        Object saved = countdown.get(victory);
+        countdown.set(victory, null);
+        try {
+            fillFrame(level, (x, y, z) -> Blocks.GOLD_BLOCK.defaultBlockState());
+            for (int i = 0; i < 20; i++) lab.tick(server);
+            check(!lab.blocksEvents() && field(lab, "failure") == null, "勝ちの判定の例外で、研究室の処理を止めない");
+        } finally {
+            countdown.set(victory, saved);
+            fillFrame(level, (x, y, z) -> Blocks.AIR.defaultBlockState());
+        }
+    }
+
+    @FunctionalInterface private interface FrameBlock { BlockState at(int x, int y, int z); }
+
+    private static void fillFrame(ServerLevel level, FrameBlock block) {
+        for (int x = LabLayout.FRAME_MIN_X; x <= LabLayout.FRAME_MAX_X; x++) for (int y = LabLayout.FRAME_MIN_Y; y <= LabLayout.FRAME_MAX_Y; y++)
+            for (int z = LabLayout.FRAME_MIN_Z; z <= LabLayout.FRAME_MAX_Z; z++) level.setBlock(new BlockPos(x, y, z), block.at(x, y, z), 18);
+    }
+
+    /** 枠の内側で、block のマスの数（block が null なら空気でないマスの数）。 */
+    private static int frameCount(ServerLevel level, net.minecraft.world.level.block.Block block) {
+        int count = 0;
+        for (int x = LabLayout.FRAME_MIN_X; x <= LabLayout.FRAME_MAX_X; x++) for (int y = LabLayout.FRAME_MIN_Y; y <= LabLayout.FRAME_MAX_Y; y++)
+            for (int z = LabLayout.FRAME_MIN_Z; z <= LabLayout.FRAME_MAX_Z; z++) {
+                BlockState state = level.getBlockState(new BlockPos(x, y, z));
+                if (block == null ? !state.isAir() : state.is(block)) count++;
+            }
+        return count;
+    }
+
+    private static int rockets(ServerLevel level) {
+        int count = 0;
+        for (var entity : level.getAllEntities()) if (entity instanceof net.minecraft.world.entity.projectile.FireworkRocketEntity && !entity.isRemoved()) count++;
+        return count;
+    }
+
+    private static int victoryWins(LabStageService lab) throws Exception {
+        return ((jp.streamtorearn.stackinggame.lab.LabVictoryService) field(lab, "victory")).wins();
+    }
+
+    // ギフトの表示（埋め立て PR1 の Task 2）。そうてんもんさんのイベントは1回目が始まったときに1回だけ、研究室の5つは動いたときに出す。
+    // 送った人の名前が無い（手で打った）ときは出さない。DisplayMOD は検証用の偽物（jp.douma.displaymod.api.DisplayApi）。
+    private void checkDisplayOnStart(MinecraftServer server, StackingRuntime runtime) throws Exception {
+        var calls = jp.douma.displaymod.api.DisplayApi.CALLS;
+        check(jp.streamtorearn.stackinggame.integration.OptionalDisplay.available(), "DisplayMOD の入口を見つける");
+        var dispatcher = server.getCommands().getDispatcher();
+        var console = server.createCommandSourceStack();
+        ServerPlayer target = player(server.overworld(), "DisplayProbe");
+        target.setPos(.5, 49, -12.5); connect(server, target, true);
+        long[] tick = {100000};
+        try {
+            calls.clear();
+            check(dispatcher.execute("umetate voidbomb 2 Alice 😀", console) == 1, "回数と名前付きで受け付ける");
+            check(calls.isEmpty(), "受け付けた時点では出さない: " + calls);
+            runEvents(runtime, server, target, tick, 1);
+            check(calls.size() == 1, "1回目の開始で出す: " + calls);
+            Map<String, Object> shown = calls.get(0);
+            check("ボイドボム".equals(shown.get("title")) && "Alice 😀".equals(shown.get("listenerName"))
+                    && Integer.valueOf(2).equals(shown.get("count")) && "{ListenerName}".equals(shown.get("subtitle")), "題名・送った人・回数: " + shown);
+            runEvents(runtime, server, target, tick, 0);
+            check(calls.size() == 1, "2回目の開始では出さない: " + calls);
+            check(dispatcher.execute("umetate voidbomb 1", console) == 1, "名前なしで受け付ける");
+            runEvents(runtime, server, target, tick, 0);
+            check(calls.size() == 1, "送った人の名前が無ければ出さない: " + calls);
+            check(dispatcher.execute("umetate otasuke 1 Bob", console) > 0, "otasuke受付");
+            check(calls.size() == 2 && "お助け".equals(calls.get(1).get("title")) && "Bob".equals(calls.get(1).get("listenerName"))
+                    && Integer.valueOf(1).equals(calls.get(1).get("count")), "研究室の5つは動いたときに出す: " + calls);
+            // 名前に " があっても、そのまま渡る（最後のレビュー 軽い10）。
+            check(dispatcher.execute("umetate mofumofu 1 a\"b c", console) > 0, "mofumofu受付");
+            check(calls.size() == 3 && "a\"b c".equals(calls.get(2).get("listenerName")), "名前の \" もそのまま: " + calls);
+            // stackgame run は今までどおり表示しない（--sender があっても。最後のレビュー 軽い7）。
+            check(dispatcher.execute("stackgame run voidbomb --sender Zed", console) == 1, "stackgame run受付");
+            runEvents(runtime, server, target, tick, 0);
+            check(calls.size() == 3, "stackgame run では表示しない: " + calls);
+            // 3階を元に戻して、あとの確かめ（otasuke の範囲など）に響かないようにする。
+            check(dispatcher.execute("umetate reset", console) == 1, "reset受付");
+            for (int i = 0; i < 20000 && runtime.lab.blocksEvents(); i++) runtime.lab.tick(server);
+            check(!runtime.lab.blocksEvents(), "復元完了");
+        } finally {
+            runtime.reset(server);
+            connect(server, target, false);
+        }
+    }
+
+    /** イベントを進め、始まったもの（requestId|残りの回数）を、want 個そろうか、何も動かなくなるまで集める。want が 0 なら動かなくなるまで。 */
+    private List<String> runEvents(StackingRuntime runtime, MinecraftServer server, ServerPlayer target, long[] tick, int want) {
+        List<String> starts = new ArrayList<>();
+        String last = "";
+        int idle = 0;
+        for (int i = 0; i < 6000 && (want == 0 || starts.size() < want) && idle < 200; i++) {
+            target.setHealth(target.getMaxHealth());
+            runtime.events.tick(server, tick[0]++);
+            boolean active = !runtime.events.activeKey().equals("-");
+            String now = active ? runtime.events.activeExternalRequestId() + "|" + runtime.events.activeRepeatsLeft() : "";
+            if (active && !now.equals(last)) starts.add(now);
+            idle = active || runtime.events.waitingCount() > 0 ? 0 : idle + 1;
+            last = now;
+        }
+        return starts;
     }
 }

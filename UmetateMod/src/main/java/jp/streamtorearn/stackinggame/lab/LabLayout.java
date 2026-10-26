@@ -7,7 +7,13 @@ public final class LabLayout {
     public static final int VOLUME = WIDTH * WIDTH * HEIGHT;
     public static final long VISIT_MILLIS = 300_000L;
     public static final int QUAKE_TICKS = 100, FLASH_TICKS = 40;
+    // 3階の中央の枠の内側（埋め立て PR1。2026-10-26 ユーザーの決定「16段」）。勝ちの判定と、研究室マップのアリーナの範囲に使う。
+    public static final int FRAME_MIN_X = -6, FRAME_MAX_X = 6, FRAME_MIN_Z = -6, FRAME_MAX_Z = 6, FRAME_MIN_Y = 49, FRAME_MAX_Y = 64;
+    public static final int FRAME_VOLUME = (FRAME_MAX_X - FRAME_MIN_X + 1) * (FRAME_MAX_Y - FRAME_MIN_Y + 1) * (FRAME_MAX_Z - FRAME_MIN_Z + 1);
     private LabLayout() {}
+    public static boolean inFrame(int x, int y, int z) {
+        return x >= FRAME_MIN_X && x <= FRAME_MAX_X && y >= FRAME_MIN_Y && y <= FRAME_MAX_Y && z >= FRAME_MIN_Z && z <= FRAME_MAX_Z;
+    }
     public static int x(int index) { return MIN + index % WIDTH; }
     public static int z(int index) { return MIN + (index / WIDTH) % WIDTH; }
     public static int y(int index) { return index / (WIDTH * WIDTH); }

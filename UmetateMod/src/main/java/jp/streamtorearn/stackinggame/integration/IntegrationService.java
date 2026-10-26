@@ -27,7 +27,17 @@ public final class IntegrationService {
     private volatile boolean obsEncounterLookupDone;
     private final Set<String> sentEncounters = ConcurrentHashMap.newKeySet();
 
-    public boolean hasDisplay() { return ModList.get().isLoaded("giftsdisplay"); }
+    // 表示は標準装備の DisplayMOD（MOD ID displaymod）。前は届いたときの別の表示MOD（giftsdisplay）を探していた（埋め立て PR1）。
+    public boolean hasDisplay() { return OptionalDisplay.available(); }
+
+    /**
+     * ギフトが実際に始まったときの表示（埋め立て PR1）。送った人の名前があるときだけ出す（手で打ったものは出さない）。
+     * DisplayMOD が無い・失敗しても、ゲームは止めない。
+     */
+    public boolean showStarted(MinecraftServer server, String key, String listenerName, int count) {
+        if (listenerName == null || listenerName.isBlank()) return false;
+        return OptionalDisplay.show(server, UmetateTitles.payload(key, listenerName, count));
+    }
     public boolean hasObs() { return ModList.get().isLoaded("minecraft_obs_bridge"); }
     public boolean hasObsLifecycleApi() { return hasObs() && findObsLifecycleMethod() != null; }
     public boolean notifyObsStart(MinecraftServer server, EventRequest request) { return notifyObs(server, "START", request, ""); }
@@ -177,8 +187,8 @@ public final class IntegrationService {
     }
 
     public void testDisplay(MinecraftServer server, ServerPlayer player, String key, String sender) {
-        if (hasDisplay()) bestEffort(server, "giftsdisplay sync " + player.getGameProfile().getName() + " " + key
-                + (sender.isBlank() ? "" : " --sender " + CommandTail.sanitize(sender)));
+        String name = sender.isBlank() ? player.getGameProfile().getName() : sender;
+        if (!OptionalDisplay.show(server, UmetateTitles.payload(key, name, 1))) StackingGameMod.LOGGER.warn("DisplayMOD test skipped: {}", key);
     }
     public void testObs(MinecraftServer server, String key, String sender) {
         if (hasObs()) bestEffort(server, "obsevent test " + key + (sender.isBlank() ? "" : " --sender " + CommandTail.sanitize(sender)));

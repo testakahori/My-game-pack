@@ -32,6 +32,8 @@ public final class LabStageService {
     private final java.util.function.LongSupplier clock;
     private final LabPresentation presentation;
     private final LabWardens wardens = new LabWardens();
+    private final LabVictoryService victory = new LabVictoryService();
+    private long victoryTicks;
     private final Set<UUID> visitors = new LinkedHashSet<>();
     private final Map<UUID, LabSavedData.Home> resetPlayers = new LinkedHashMap<>();
     private final Map<UUID, Integer> recoveryFlash = new HashMap<>();
@@ -53,6 +55,13 @@ public final class LabStageService {
         return candidate == level && Math.abs(pos.getX()) <= 32 && Math.abs(pos.getZ()) <= 32 && pos.getY() >= 0 && pos.getY() <= 41;
     }
     public boolean blocksEvents() { return restore != null || phase == Phase.QUAKE || phase == Phase.DOWN_FLASH || phase == Phase.UP_FLASH; }
+    /**
+     * 研究室が落ち着いているか（地獄・復元・光・帰りの光のどれでもない）。地獄の順番待ちは、これが true になるまで待つ（埋め立て PR1）。
+     * 研究室マップでないときは true（地獄は「研究室マップ専用です」で断られて終わる）。
+     */
+    public boolean idle() {
+        return level == null || (failure == null && restore == null && phase == Phase.IDLE && recoveryFlash.isEmpty());
+    }
     public boolean protects(ServerPlayer player) {
         return resetPlayers.containsKey(player.getUUID()) || recoveryFlash.containsKey(player.getUUID())
                 || visitors.contains(player.getUUID()) && phase != Phase.HELL;
@@ -62,12 +71,15 @@ public final class LabStageService {
         phase = Phase.IDLE; failure = null; restore = null; tickets = false;
         visitors.clear(); resetPlayers.clear(); recoveryFlash.clear(); timer.removeAllPlayers();
         level = null; saved = null;
+        runtime.arena.useLabFrame(false);
         try {
             var file = server.getWorldPath(LevelResource.ROOT).resolve("umetate_lab_map.json");
             if (!Files.isRegularFile(file)) return;
             var marker = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
             if (marker.get("schema").getAsInt() != 1 || !"umetate_lab_map".equals(marker.get("map").getAsString())) return;
             level = server.overworld(); saved = LabSavedData.get(level);
+            // 研究室マップでは、アリーナを枠の内側（Y 49〜64）にする（埋め立て PR1 の Task 3）。
+            runtime.arena.useLabFrame(true);
             if (saved.needsRestore) { holdChunks(); validateMaster(); restore = new LabRestoreJob(level); }
         } catch (Exception e) { fail(e); }
     }
@@ -130,7 +142,16 @@ public final class LabStageService {
     private boolean onTop(ServerPlayer p) { return p.level() == level && LabLayout.onTop(p.getX(), p.getY(), p.getZ()); }
     public void tick(MinecraftServer server) {
         wardens.tick();
-        if (level == null || saved == null || failure != null) return;
+        victoryTicks++;
+        if (level == null || saved == null) return;
+        // 勝ちの判定（埋め立て PR1 の Task 4）。復元中・地獄のあいだ・止まっているときは、埋まっていないものとして扱う。
+        // 勝ちの判定で何か起きても、研究室の処理とサーバーの tick は止めない（最後のレビュー 軽い8）。
+        try {
+            victory.tick(level, victoryTicks, failure == null && restore == null && phase == Phase.IDLE);
+        } catch (RuntimeException e) {
+            StackingGameMod.LOGGER.error("勝ちの判定でエラーが起きました（ゲームは続けます）", e);
+        }
+        if (failure != null) return;
         try {
             if (restore != null && restore.tick()) {
                 restore = null; saved.needsRestore = false; saved.flush(level);

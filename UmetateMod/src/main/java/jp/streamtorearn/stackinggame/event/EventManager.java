@@ -42,6 +42,11 @@ public final class EventManager {
      * 引数不正やstart例外などDISCARDED相当の恒久失敗は終端化し、FIFO先頭を塞がない。
      */
     private final Map<String, StartRetryState> startRetry = new HashMap<>();
+    // umetate <名前> [回数]：同じギフトをあと何回続けて起こすか（requestId ごと。埋め立て PR1。2026-10-26）。
+    // 待ち行列には1つで入り、終わるたびに同じものを先頭に入れ直す。取り消し・リセットでは残りも捨てる。
+    private final Map<String, Integer> repeatsLeft = new HashMap<>();
+    // 入れ直した2回目からの executionId。ギフトの表示は1回目の開始のときだけ出す（埋め立て PR1 の Task 2）。
+    private final java.util.Set<UUID> repeatRuns = new java.util.HashSet<>();
 
     public EventManager(StackingRuntime runtime) {
         this.runtime = runtime;
@@ -52,6 +57,15 @@ public final class EventManager {
      * Bridge由来の要求は requestId を使って再送判定する。
      */
     public synchronized Result submit(MinecraftServer server, EventRequest request) {
+        return submit(server, request, false);
+    }
+
+    /**
+     * queueWhileLabBusy が true なら、研究室の復元・地震・光のあいだも WAIT を返さずに待ち行列へ入れる
+     * （umetate の道。コマンドは WAIT を送り直さないので、返すとギフトが消える。2026-10-26 ユーザーの決定「待たせて、終わってから起こす」）。
+     * 待ち行列はそのあいだ止まっている（tick が blocksEvents で戻る）ので、終わってから起きる。
+     */
+    private Result submit(MinecraftServer server, EventRequest request, boolean queueWhileLabBusy) {
         if (!runtime.registry.contains(request.eventKey())) {
             return new Result(SubmitStatus.DISCARDED, "unknown eventKey: " + request.eventKey());
         }
@@ -70,7 +84,7 @@ public final class EventManager {
                     "request previously failed after acceptance: " + requestLedger.failureReason(request.externalRequestId()));
         }
 
-        if (runtime.lab.blocksEvents()) return new Result(SubmitStatus.WAIT, "研究室MAPの復元・転送中");
+        if (runtime.lab.blocksEvents() && !queueWhileLabBusy) return new Result(SubmitStatus.WAIT, "研究室MAPの復元・転送中");
         ServerPlayer player = server.getPlayerList().getPlayer(request.playerId());
         if (player == null) {
             // 一時的にプレイヤーが不在なら、Bridge側に要求を保持してもらう。
@@ -106,6 +120,14 @@ public final class EventManager {
         waiting.addLast(request);
         requestLedger.remember(request);
         return new Result(SubmitStatus.ACCEPTED, "queued position=" + waiting.size());
+    }
+
+    /** 回数付きの受け付け（umetate <名前> [回数]）。受け付けたら、終わるたびに同じものを count 回まで続けて起こす。 */
+    public synchronized Result submit(MinecraftServer server, EventRequest request, int count) {
+        if (count < 1) return new Result(SubmitStatus.DISCARDED, "count must be 1 or more: " + count);
+        Result result = submit(server, request, true);
+        if (result.accepted() && count > 1) repeatsLeft.putIfAbsent(request.externalRequestId(), count - 1);
+        return result;
     }
 
     /**
@@ -181,6 +203,8 @@ public final class EventManager {
                 // FIFO先頭を永久に塞がないよう終端化し、同じrequestIdの再送にもDISCARDEDを返す。
                 waiting.pollFirst();
                 startRetry.remove(next.externalRequestId());
+                repeatsLeft.remove(next.externalRequestId());
+                repeatRuns.remove(next.executionId());
                 requestLedger.markFailed(next, result.message());
                 StackingGameMod.LOGGER.error(
                         "Accepted queued event failed permanently before start; removed from FIFO: "
@@ -231,6 +255,13 @@ public final class EventManager {
 
             runtime.integration.notifyObsStart(server, request);
             // DisplayMODは任意連携。ゲーム本体/OBS lifecycleはこの時点で既に開始している。
+            // 1回目の開始のときだけ、回数と一緒に1回出す（送った人の名前が無ければ出さない。埋め立て PR1）。
+            // 表示するかは announce で決める（採掘と同じ。umetate で名前付きのとき・BridgeMOD が表示を頼んだとき。stackgame run は出さない）。
+            boolean repeatRun = repeatRuns.remove(request.executionId());
+            if (!repeatRun && request.announce()) {
+                runtime.integration.showStarted(server, request.eventKey(), request.listenerName(),
+                        repeatsLeft.getOrDefault(request.externalRequestId(), 0) + 1);
+            }
             return new Result(SubmitStatus.ACCEPTED, "started");
         } catch (IllegalArgumentException exception) {
             safeCleanupStartFailure(server, event);
@@ -289,6 +320,14 @@ public final class EventManager {
         StackingGameMod.LOGGER.info("Stacking event finished: key={} requestId={}", finishedKey,
                 finishedRequest == null ? "-" : finishedRequest.externalRequestId());
         clearActive();
+        // 回数が残っていれば、同じギフトをすぐもう一度始める（ほかの人のギフトはそのあと）。
+        if (finishedRequest != null) requeueRepeat(finishedRequest);
+    }
+
+    /** 同じギフトの次の1回。一時ブロックなどの持ち主を分けるため、executionId だけ新しくする。 */
+    private static EventRequest again(EventRequest r) {
+        return new EventRequest(UUID.randomUUID(), r.externalRequestId(), r.eventKey(), r.playerId(), r.rawCount(),
+                r.listenerName(), r.type(), r.gameSessionId(), r.args(), r.announce(), r.eventArgs(), r.receivedAtTick());
     }
 
     private void cancelActive(MinecraftServer server, CancelReason reason) {
@@ -304,6 +343,25 @@ public final class EventManager {
         StackingGameMod.LOGGER.info("Stacking event cancelled: key={} requestId={} reason={}", cancelledKey,
                 cancelledRequest == null ? "-" : cancelledRequest.externalRequestId(), reason);
         clearActive();
+        if (cancelledRequest == null) return;
+        if (reason == CancelReason.PLAYER_DEATH) {
+            // 死んでも待ち行列は消さない今の決まりに合わせ、残りの回数も続ける（いまの1回は数に入れる。最後のレビュー 重要1）。
+            // 次の1回はリスポーンするまで start() が WAIT で待つ。
+            requeueRepeat(cancelledRequest);
+        } else {
+            // 取り消し（時間切れ・エラー・ログアウトなど）のときは、残りの回数も起こさない。
+            repeatsLeft.remove(cancelledRequest.externalRequestId());
+        }
+    }
+
+    /** 回数が残っていれば、同じギフトの次の1回を待ち行列の先頭に入れる。 */
+    private void requeueRepeat(EventRequest request) {
+        Integer left = repeatsLeft.remove(request.externalRequestId());
+        if (left == null || left <= 0) return;
+        repeatsLeft.put(request.externalRequestId(), left - 1);
+        EventRequest next = again(request);
+        repeatRuns.add(next.executionId());
+        waiting.addFirst(next);
     }
 
     private void logOwnedResources(String phase, UUID executionId) {
@@ -338,6 +396,8 @@ public final class EventManager {
             waiting.removeIf(request -> {
                 if (!request.playerId().equals(player)) return false;
                 startRetry.remove(request.externalRequestId());
+                repeatsLeft.remove(request.externalRequestId());
+                repeatRuns.remove(request.executionId());
                 return true;
             });
         }
@@ -351,6 +411,8 @@ public final class EventManager {
         cancelActive(server, reason);
         waiting.clear();
         startRetry.clear();
+        repeatsLeft.clear();
+        repeatRuns.clear();
     }
 
     /**
@@ -376,6 +438,8 @@ public final class EventManager {
         }
         waiting.clear();
         startRetry.clear();
+        repeatsLeft.clear();
+        repeatRuns.clear();
     }
 
     /** サーバー停止時のみ、メモリ内の再送台帳も破棄する。 */
@@ -398,6 +462,11 @@ public final class EventManager {
 
     public synchronized String activeExternalRequestId() {
         return activeRequest == null ? "-" : activeRequest.externalRequestId();
+    }
+
+    /** 実行中のギフトの残りの回数（umetate <名前> [回数]。埋め立て PR1）。 */
+    public synchronized int activeRepeatsLeft() {
+        return activeRequest == null ? 0 : repeatsLeft.getOrDefault(activeRequest.externalRequestId(), 0);
     }
 
     public synchronized String activeDuplicatePolicy() {

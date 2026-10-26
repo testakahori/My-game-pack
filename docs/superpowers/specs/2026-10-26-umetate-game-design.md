@@ -24,7 +24,7 @@ MOD（UmetateMod。中身はそうてんもんさんの StackingGame-Events と�
 - そうてんもんさんのイベントを、`umetate <イベントの名前>` で動かせるようにする（ユーザーの決定）。例：`umetate nether_army` は今の `stackgame run nether_army` と同じ。
   - 対象は、MOD で実際に動く13個：aquatower・magmatower・aquarium・voidbomb・voidbomb_rain・megablast・nether_army・void_singularity・meteor_shower・meteor_purge・tornado・orbital_laser・shockwave_collapse（`UmetateMod/src/main/resources/event-master/events.master.json` で `implementationStatus: "implemented"` のもの）。
   - 一覧にあるだけで中身の無い10個（gift_spawn_zombie・creeper・skeleton、gift_buff_* 3個、gift_debuff_* 4個。`candidate`）は作らない（2026-10-26 ユーザーの決定）。ゾンビ・効果などは BridgeMOD の標準のコマンドを使う。
-  - イベント固有の値と `--sender 名前` は、`stackgame run` と同じに受ける。
+  - 形は `umetate <名前> [回数] [送った人]`（PR1 で決めた。3.2 の「回数」）。イベント固有の値と `--sender 名前` を受けるのは、今までどおり `stackgame run` の形。
   - `stackgame run` などの今の形は残す（私の判断。そうてんもんさんの元の使い方と、今の検証を壊さないため）。
   - `umetate` の下の名前は、今ある6つ（otasuke・mofumofu・stamp・atamahuttou・zigoku・reset）とぶつからない。ぶつかる名前が将来できたら、今ある6つが勝つ（私の判断）。
 - 勝ちの判定（2 の決まり）を MOD に入れる。
@@ -46,7 +46,10 @@ MOD（UmetateMod。中身はそうてんもんさんの StackingGame-Events と�
   - 載せるコマンド：13個と、otasuke・mofumofu・stamp・atamahuttou・zigoku の5つ（合わせて18）。名前（key）は MOD の名前をそのまま使い、タイトルは日本語（13個は `events.master.json` の `displayName`、5つは HANDOFF・`map/README.md` の説明から付ける）。
   - `reset` は載せない（推測：配信者が使うもので、ギフトには割り当てない）。配信者は、ゲームの中で `/umetate reset` を打って使う。アプリにボタンは作らない（私の判断）。
   - 地形を壊す・書き換えるものには `destructive: true` を付ける（2026-10-12 のユーザーの決定「地形を壊すものには印」と同じ考え）。どれに付けるかは作る人が中身を見て決め、一覧を PR に書く。
-  - 回数：どのコマンドも回数を受けないので、ギフトの数はアプリの「繰り返し」で送る。強さに上限は付けない（2026-10-10 のユーザーの決定）。
+  - 回数：コマンドは `umetate <名前> [回数] [送った人]` の形（2026-10-26 ユーザーの決定「umetate mofumofu 1 のように」。採掘の `saikutu` と同じ形）。ゲームパックのコマンドは `umetate <名前> {Count} {ListenerName}` と書き、`bridgeEventApi` は使わない（BridgeMOD がこのコマンドを、回数を入れて1回だけ打つ）。回数は MOD が受け取って、その数だけ起こす（PR1 で作った）。強さに上限は付けない（2026-10-10 のユーザーの決定）。
+    - BridgeMOD は、`{Count}` のあるコマンドでも1回に100回分までしか入れない（`BridgeMod.java` の `MAX_COUNT`）。250 なら 100・100・50 の3回打たれ、そうてんもんさんのイベントなら待ち行列に3つ入り、表示も3回出る（数は合う）。
+    - そうてんもんさんの13個：待ち行列には1つで入り、回数の分だけ続けて起きる。`/umetate reset`・取り消しでは残りも捨てる。死んだときは残りを続ける。3階の復元中・地震のあいだに届いても、待ち行列に入れて、終わってから起こす（2026-10-26 ユーザーの決定）。
+    - 研究室の5つ：名前ごとの順番待ちに並べ、回数の分だけ1秒おきに起こす。黒曜石スタンプ・頭沸騰は、毎回その時のプレイヤーの位置をねらう（追いかける）。地獄は何回でも落ちる（いまの地獄が終わってから次）。処理中は待つ。`/umetate reset` は順番待ちも捨てる（2026-10-26 ユーザーの決定。最後のレビュー 重要4）。
 - 配る：UmetateMod の jar を、サーバーと Minecraft 本体の両方に入れる（白い光や揺れの描画のため、本体にも要る。`map/README.md`）。
   - `scripts/mod_jars.cjs` で、UmetateMod を「作るだけ」（`buildOnlyModJars`）から、ゲームパックの jar に移す。
   - `scripts/prepare-game-packs.cjs` は今は採掘だけを決め打ちで作る。埋め立ても作れるようにする。

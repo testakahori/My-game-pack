@@ -41,7 +41,7 @@ test('そうてんもんさんの MOD: jar の横に印を書き、MOD ID と ja
   assert.match(read('ObsMod/gradle.properties'), /^mod_id=minecraft_obs_bridge\r?$/m, 'StackingGame は minecraft_obs_bridge で OBSMOD を探す');
   assert.match(read('ObsMod/gradle.properties'), /^mod_version=2\.4\.8\r?$/m);
   assert.match(read('UmetateMod/gradle.properties'), /^mod_id=stackinggame_events\r?$/m, 'GameEvents に登録するゲーム ID');
-  assert.match(read('UmetateMod/gradle.properties'), /^mod_version=2\.6\.22\r?$/m);
+  assert.match(read('UmetateMod/gradle.properties'), /^mod_version=2\.6\.23\r?$/m);
 });
 
 // 届いたのは BridgeMOD 1.4.0 の API だけの写し（libs/）。採掘MOD と同じく、このリポジトリの BridgeMod のクラスを使って作り、API が変われば作るときに気づく。
@@ -68,7 +68,7 @@ test('そうてんもんさんの MOD: CI の mod-build で、BridgeMod のあ�
 test('そうてんもんさんの MOD: 作るが同梱しない MOD として、jar の場所を1か所で決める', () => {
   const { buildOnlyModJars } = require('../../scripts/mod_jars.cjs');
   assert.deepEqual(buildOnlyModJars(root).map(mod => [mod.dir, path.basename(mod.jar), mod.uses?.dir]), [
-    ['UmetateMod', 'stackinggame_events-2.6.22.jar', 'BridgeMod'],
+    ['UmetateMod', 'stackinggame_events-2.6.23.jar', 'BridgeMod'],
   ]);
   assert.match(read('scripts/check-jar-inputs.cjs'), /buildOnlyModJars/);
 });
@@ -158,4 +158,20 @@ test('そうてんもんさんの MOD: 作り方と決まりを AGENTS.md に書
   assert.ok(agents.includes('SaikutuMod・DisplayMod・ObsMod・UmetateMod：`BridgeMod/gradlew -p <MODのフォルダー> build`'));
   assert.ok(agents.includes('README が指す docs・tools は取り込んでいません'), '取り込んだ README が指すものが無いことを書く（最後のレビュー 軽い8）');
   assert.ok(agents.includes('node scripts/sync-event-master.cjs'));
+});
+
+// 実サーバーの検証の台本は、使い捨てのフォルダーに libraries のジャンクション（今までは本物の配信サーバーの libraries）を作る。
+// 残したままだと、フォルダーをまとめて消したときに先の本物の libraries まで消えるおそれがあるので、終わったらジャンクションだけを外す
+// （2026-10-26 に9つ残っていたのを見つけた。埋め立て PR1 の Task 0）。
+test('埋め立ての MOD: 実サーバーの検証の台本は、終わったら libraries のジャンクションだけを外す', () => {
+  const script = read('UmetateMod/tools/run-lab-probe.ps1');
+  const tail = script.slice(script.lastIndexOf('} finally {'));
+  assert.match(tail, /LinkType -eq 'Junction'/, '外すのはジャンクションのときだけ');
+  assert.match(tail, /\[IO\.Directory\]::Delete\(\$[A-Za-z]+, \$false\)/, 'ジャンクションそのものだけを外す（中身は消さない）');
+  assert.doesNotMatch(script, /Remove-Item[^\r\n]*-Recurse/, 'フォルダーや libraries をまとめて消さない');
+  // ジャンクションを作ったあとの写し（jar・マップ）で失敗しても外せるよう、作る所から try の中に入れる（最後のレビュー 重要2）。
+  const junction = script.indexOf('-ItemType Junction');
+  const tryStart = script.indexOf('try {');
+  assert.ok(junction > 0 && tryStart > 0 && tryStart < junction, 'ジャンクションを作る行は try の中');
+  assert.ok(script.indexOf('} finally {') > junction, 'finally はジャンクションを作るより後');
 });

@@ -82,7 +82,21 @@ public final class StackGameCommand {
         List<String> args = tokens.size() > 1
                 ? new ArrayList<>(tokens.subList(1, tokens.size()))
                 : List.of();
+        // stackgame run は今までどおり表示しない（--sender があっても）。
+        return submitLocal(source, runtime, key, args, parsed.sender(), 1, false);
+    }
 
+    /**
+     * umetate <名前> [回数] [送った人] の、そうてんもんさんのイベントの受け付け（埋め立て PR1）。
+     * listenerName が null なら手で打ったもの。待ち行列には1つで入り、回数の分だけ続けて起きる。
+     */
+    static int submitEvent(CommandSourceStack source, StackingRuntime runtime, String eventKey, int count, String listenerName) {
+        boolean announce = listenerName != null && !listenerName.isBlank();
+        return submitLocal(source, runtime, eventKey.toLowerCase(Locale.ROOT), List.of(), listenerName, count, announce);
+    }
+
+    /** stackgame run と umetate で共通の、手元からの受け付け。announce が true なら、始まったときにギフトを表示する。 */
+    private static int submitLocal(CommandSourceStack source, StackingRuntime runtime, String key, List<String> args, String sender, int count, boolean announce) {
         TargetPlayerResolver.Result target = TARGETS.resolve(source.getServer());
         if (!target.ok()) {
             return fail(source, "target player unavailable: " + target.message());
@@ -91,17 +105,18 @@ public final class StackGameCommand {
         EventRequest request = EventRequest.local(
                 key,
                 target.player().getUUID(),
-                parsed.sender(),
+                sender,
                 args,
-                source.getServer().getTickCount());
+                source.getServer().getTickCount(),
+                announce);
 
-        var result = runtime.events.submit(source.getServer(), request);
+        var result = runtime.events.submit(source.getServer(), request, count);
         if (result.status() != SubmitStatus.ACCEPTED) {
             return fail(source, result.status() + ": " + result.message());
         }
 
         source.sendSuccess(
-                () -> Component.literal(key + ": " + result.message()),
+                () -> Component.literal(key + ": " + result.message() + (count > 1 ? "（" + count + "回）" : "")),
                 false);
         return 1;
     }
@@ -199,7 +214,7 @@ public final class StackGameCommand {
     private static int integration(CommandSourceStack source, StackingRuntime runtime) {
         source.sendSuccess(
                 () -> Component.literal(
-                        "Legacy Gifts-Display=" + (runtime.integration.hasDisplay() ? "FOUND" : "NOT FOUND")
+                        "DisplayMOD=" + (runtime.integration.hasDisplay() ? "FOUND" : "NOT FOUND")
                                 + " / OBSMOD=" + (runtime.integration.hasObs() ? "FOUND" : "NOT FOUND")
                                 + " / OBS lifecycle API=" + (runtime.integration.hasObsLifecycleApi() ? "FOUND" : "NOT FOUND")
                                 + " / BridgeGameApi=" + (runtime.bridgeApi.available() ? "FOUND" : "NOT FOUND")),
