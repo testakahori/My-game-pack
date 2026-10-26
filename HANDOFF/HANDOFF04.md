@@ -1,3 +1,34 @@
+### 2026-10-26：埋め立てをアプリのゲームにする設計書（計画はこれから）
+
+#### やったこと
+
+- ユーザーと、埋め立てをアプリで遊べるゲームにする中身を決め、設計書を書いた：`docs/superpowers/specs/2026-10-26-umetate-game-design.md`（ブランチ `docs/umetate-game-design`）。設計書を作る人の目で読ませ（別のエージェント）、出た質問のうち4つをユーザーに聞いて決めた。ユーザーは設計書を読んで「このまま計画へ」。
+- ユーザーの決定（10-26。もう一度は聞かない）：
+  - ゲームの決まり：プレイヤーは1人。3階の中央の枠（X・Z −6〜6、Y 49〜64 の16段）を、金とダイヤで1マスの空きもなく埋めたら、10 からのカウントダウン。1つでも欠けたら止まる。0 で花火・キラキラ・黄緑の「congratulation」のタイトルを出し、枠の中を全部消す。金も埋まった数に入る。
+  - そうてんもんさんのイベントは `umetate <名前>` でも動かす。対象は MOD で動く13個だけ。中身の無い10個（召喚・強くする・弱くする。`events.master.json` で `candidate`）は作らず、BridgeMOD の標準のコマンドを使う。
+  - ギフトの表示（DisplayMOD）は、イベントが始まったときに UmetateMod が出す（採掘と同じ）。
+  - マップ：サーバーのフォルダーの `map_backup` に初期のマップを置く。ほかのゲームから埋め立てに切り替えたときだけ、初期のマップを写して使い、壊れたマップを消す。埋め立てのまま TOP の「保存」を押したときは触らない。採掘・サバイバルはマップに触らない。「マップを初期化」ボタンを作る。
+  - 採掘の専用マップは、ユーザーがイベントごとに作ってアプリと一緒に配る。埋め立てが形になってから。
+- 私の判断（設計書に一覧。ユーザーは読んで「このまま」）：`stackgame run` も残す。`reset` はギフトに載せず、配信者がゲームの中で打つ（アプリのボタンは作らない）。配るマップからプレイヤーのデータを外す。マップは git に入れない。使う場所は `haihu_world/umetate_lab_map`。サーバーの直下の `umetate_lab_map`（Codex が手で入れた物）は消さない。
+- 調べてわかったこと（計画に使う）：
+  - アリーナの範囲は `StackingConfig` の `[arena] max-y`（既定 56。設定ファイル `stackinggame-common.toml`）。既定を変えても、サーバーにすでに設定ファイルがあると効かない。案：研究室マップのときは、`ArenaService.bounds()` が研究室の決まった範囲（Y 49〜64）を返す。
+  - 研究室マップの見分けと毎 tick の処理は `LabStageService`（`started`・`tick`。`StackingRuntime.tick` から呼ぶ）。勝ちの判定もここに並べて足せる。`reset` や地獄の間（`blocksEvents()`）の扱いを決める。
+  - `umetate <名前>` は、`StackGameCommand.submit` を共通にして呼べる。
+  - 表示は、今は試しの `stackgame test display` でだけ、しかも `giftsdisplay` の名前で呼んでいる。採掘の `SaikutuMod/.../OptionalDisplay.java` の形で、`EventManager` のイベントの実開始（OBSMOD の Lifecycle を呼んでいる所）から呼ぶ。
+  - TOP の「保存」は、同じゲームでも押せて `activate` が動く（`src/components/GameSelector.tsx`）。マップを写すのは、ゲームが変わったときだけにする。
+  - ユーザーの配信サーバー（`server/Douma_Craft`）は、Codex がアプリを通さずに `level-name=umetate_lab_map`・UmetateMod 2.6.22 にしてある。アプリの切り替えがこの状態に出会っても壊さない。
+
+#### 次にやること
+
+1. この docs PR（設計書と、この記録）のマージ（ユーザーの許しを得てから）。
+2. PR1（UmetateMod）の計画を書く（superpowers:writing-plans。`docs/superpowers/plans/2026-10-26-umetate-pr1-mod.md` の名前で）。中身：`umetate` で13個、勝ちの判定、研究室のアリーナを Y 64 まで、イベントの開始時の DisplayMOD の表示。テストは Forge なしの確かめ（`UmetateMod/src/contractTest`・`scripts/test-soutenmon-contracts.cjs`）と、実サーバーの検証（`UmetateMod/tools/run-lab-probe.ps1`・`labProbeJar`）。計画をユーザーに見せ、作り方（エージェントに分けるか、私が作るか）を聞いてから作る。
+3. PR1 のあと、PR2（ゲームパック `game-packs/umetate/game.json` と配り方）と PR3（マップの入れ替えと「マップを初期化」）の計画と作業。
+4. まだ配っていないもの：OBSMOD の同梱（PR #140）と OBS 連携の欄（PR #142）。埋め立てと一緒に配るか、先に配るかは決めていない（ユーザーに聞く）。
+5. 埋め立てのあと：採掘の専用マップ。そうてんもんさんのフォルダーのアーカイブ（要らなければ消す）。
+- 作業場所：設計書は別の作業場所 `D:\Dev02\game_dev\MyGamePack02\My-game-pack-umetate-design`（git worktree。ブランチ `docs/umetate-game-design`）で書いた。いつもの作業コピー `My-game-pack-review` は main（50fcf2a）のまま。docs PR をマージしたら、作業場所は `git worktree remove` で片付けてよい。
+
+---
+
 ### 2026-10-26：地獄到着時にウォーデン3体を召喚（UmetateMod 2.6.22、PR #145）
 
 #### やったこと
@@ -263,7 +294,7 @@
          - 開発版はリポジトリの `bridge/config.minecraft.json` に `configVersion` を足すので、終わったら `git restore bridge/config.minecraft.json`。
        - サーバーの起動の直前に書くこと・OBSMOD が読むことは、テスト（`server-process-module.test.cjs`・ObsSendParity）と PR2 の実機の確かめで見た。本物の Forge サーバーを、アプリから起動しての確かめはしていない。
    - 次にやること：PR2（#140）と PR3（#142）をまとめて配る。リリースノートは、上の PR2・PR3 の「リリースノートに足すこと」を合わせる。`npm run release:win`。
-5. 埋め立ての MOD をつなぐ計画を立てる。`game-packs/umetate/game.json`・コマンド・同梱・`giftsdisplay` の食い違い・実機での確かめ。
+5. 埋め立ての MOD をつなぐ計画を立てる。`game-packs/umetate/game.json`・コマンド・同梱・`giftsdisplay` の食い違い・実機での確かめ。→ 10-26 設計書を書いた（いちばん上の「2026-10-26：埋め立てをアプリのゲームにする設計書」）。
 
 ---
 
