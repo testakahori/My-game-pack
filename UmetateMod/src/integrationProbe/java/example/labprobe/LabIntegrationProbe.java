@@ -96,6 +96,7 @@ public final class LabIntegrationProbe {
         level.getGameRules().getRule(GameRules.RULE_RANDOMTICKING).set(0, server);
         StackingRuntime runtime = StackingGameMod.RUNTIME;
         checkPlayerCommands(server, runtime);
+        checkUmetateCommands(server, runtime);
         AtomicLong now = new AtomicLong(1000000);
         List<Integer> effects = new ArrayList<>();
         LabPresentation presentation = new LabPresentation() {
@@ -113,7 +114,8 @@ public final class LabIntegrationProbe {
         Snapshot master = snapshot(level, 0);
         Snapshot beforeHelp = snapshot(level, 42);
         // ネザーを実行元にしても3階だけを埋め、枠・上半分・原本・地獄は変更しない。
-        check(server.getCommands().getDispatcher().execute("umetate otasuke",
+        // 回数付き（埋め立て PR1）。2回目は埋め済みで fill が何も変えずに断られるが、1回目の分を返す。
+        check(server.getCommands().getDispatcher().execute("umetate otasuke 2",
                 server.createCommandSourceStack().withLevel(server.getLevel(net.minecraft.world.level.Level.NETHER))) > 0, "otasuke受付");
         Snapshot afterHelp = snapshot(level, 42);
         for (int i = 0; i < LabLayout.VOLUME; i++) {
@@ -168,7 +170,17 @@ public final class LabIntegrationProbe {
         check(server.getPlayerList().getPlayer(first.getUUID()) == first, "オンライン登録");
         Warden unrelated = EntityType.WARDEN.create(level);
         unrelated.setPos(-24.5, -35, -24.5); unrelated.setNoAi(true); level.addFreshEntity(unrelated);
-        check(server.getCommands().getDispatcher().execute("umetate zigoku", server.createCommandSourceStack()) == 2, "2人が参加");
+        // 回数付き（埋め立て PR1）。2回目は「実行中」で断られ、断った分はまとめて1行だけ知らせる。
+        List<String> zigokuMessages = new ArrayList<>();
+        net.minecraft.commands.CommandSource recorder = new net.minecraft.commands.CommandSource() {
+            @Override public void sendSystemMessage(net.minecraft.network.chat.Component message) { zigokuMessages.add(message.getString()); }
+            @Override public boolean acceptsSuccess() { return true; }
+            @Override public boolean acceptsFailure() { return true; }
+            @Override public boolean shouldInformAdmins() { return false; }
+        };
+        check(server.getCommands().getDispatcher().execute("umetate zigoku 2", server.createCommandSourceStack().withSource(recorder)) == 2, "2人が参加");
+        check(zigokuMessages.stream().filter(m -> m.contains("2回のうち1回は実行できませんでした")).count() == 1
+                && zigokuMessages.stream().noneMatch(m -> m.contains("実行中です")), "断った分はまとめて1行だけ知らせる");
         check(lab.zigoku(server.createCommandSourceStack()) == 0, "二重地獄は拒否");
         for (int i = 0; i < 119; i++) lab.tick(server);
         check(first.getY() > 0 && effects.contains(2), "白い光が始まってから転送する");
@@ -290,5 +302,68 @@ public final class LabIntegrationProbe {
         runtime.reset(server);
         check(pendingBlocks.stream().allMatch(net.minecraft.world.entity.Entity::isRemoved), "resetで空中のstampを片付ける");
         connect(server, player, false);
+    }
+
+    // umetate <名前> [回数] [送った人]（埋め立て PR1）。18個の登録・回数の範囲。そうてんもんさんのイベントは待ち行列を1つしか使わず、
+    // 回数の分だけ続けて起き、あとのギフトはそのあと。/umetate reset と stackgame cancel は残りの回数ごと止める。
+    // 回数の確かめには、すぐ終わる voidbomb（約2秒）を使う。
+    private void checkUmetateCommands(MinecraftServer server, StackingRuntime runtime) throws Exception {
+        var dispatcher = server.getCommands().getDispatcher();
+        var umetate = dispatcher.getRoot().getChild("umetate");
+        for (String key : jp.streamtorearn.stackinggame.command.UmetateKeys.EVENTS) check(umetate.getChild(key) != null, "umetate " + key + " を登録");
+        for (String key : jp.streamtorearn.stackinggame.command.UmetateKeys.LAB) check(umetate.getChild(key) != null, "umetate " + key + " を登録");
+        check(umetate.getChild("reset") != null && umetate.getChild("gift_spawn_zombie") == null, "reset は残し、中身の無いイベントは登録しない");
+        var console = server.createCommandSourceStack();
+        for (String bad : List.of("umetate voidbomb 0", "umetate voidbomb 100001")) {
+            boolean rejected = false;
+            try { dispatcher.execute(bad, console); } catch (com.mojang.brigadier.exceptions.CommandSyntaxException e) { rejected = true; }
+            check(rejected, "回数の範囲外を受け付けない: " + bad);
+        }
+        ServerPlayer target = player(server.overworld(), "RepeatProbe");
+        target.setPos(.5, 49, -12.5); connect(server, target, true);
+        long[] tick = {0};
+        try {
+            check(dispatcher.execute("umetate voidbomb 3 視聴者 A 😀", console) == 1, "回数と送った人の名前（空白・絵文字入り）を受け付ける");
+            check(runtime.events.waitingCount() == 1, "回数があっても待ち行列は1つ");
+            check(dispatcher.execute("umetate voidbomb 1 B", console) == 1, "あとのギフトも受け付ける");
+            List<String> starts = runEvents(runtime, server, target, tick, 4);
+            check(starts.size() == 4, "3回と1回の合わせて4回始まる: " + starts);
+            String first = starts.get(0).split("\\|")[0];
+            check(starts.subList(0, 3).equals(List.of(first + "|2", first + "|1", first + "|0")), "同じギフトが3回続けて始まる: " + starts);
+            check(!starts.get(3).startsWith(first + "|") && starts.get(3).endsWith("|0"), "あとのギフトは3回のあと: " + starts);
+            runEvents(runtime, server, target, tick, 0);
+            // /umetate reset で残りの回数ごと止まる。
+            check(dispatcher.execute("umetate voidbomb 5", console) == 1, "5回を受け付ける");
+            runEvents(runtime, server, target, tick, 1);
+            check(runtime.events.activeRepeatsLeft() == 4, "1回目のあと残り4回");
+            check(dispatcher.execute("umetate reset", console) == 1, "reset受付");
+            for (int i = 0; i < 20000 && runtime.lab.blocksEvents(); i++) runtime.lab.tick(server);
+            check(runEvents(runtime, server, target, tick, 0).isEmpty() && runtime.events.waitingCount() == 0, "reset のあと残りの回数は起きない");
+            // stackgame cancel でも残りの回数ごと止まる。
+            check(dispatcher.execute("umetate voidbomb 3", console) == 1, "3回を受け付ける");
+            runEvents(runtime, server, target, tick, 1);
+            check(dispatcher.execute("stackgame cancel RepeatProbe", console) == 1, "cancel受付");
+            check(runEvents(runtime, server, target, tick, 0).isEmpty(), "cancel のあと残りの回数は起きない");
+        } finally {
+            runtime.reset(server);
+            connect(server, target, false);
+        }
+    }
+
+    /** イベントを進め、始まったもの（requestId|残りの回数）を、want 個そろうか、何も動かなくなるまで集める。want が 0 なら動かなくなるまで。 */
+    private List<String> runEvents(StackingRuntime runtime, MinecraftServer server, ServerPlayer target, long[] tick, int want) {
+        List<String> starts = new ArrayList<>();
+        String last = "";
+        int idle = 0;
+        for (int i = 0; i < 6000 && (want == 0 || starts.size() < want) && idle < 200; i++) {
+            target.setHealth(target.getMaxHealth());
+            runtime.events.tick(server, tick[0]++);
+            boolean active = !runtime.events.activeKey().equals("-");
+            String now = active ? runtime.events.activeExternalRequestId() + "|" + runtime.events.activeRepeatsLeft() : "";
+            if (active && !now.equals(last)) starts.add(now);
+            idle = active || runtime.events.waitingCount() > 0 ? 0 : idle + 1;
+            last = now;
+        }
+        return starts;
     }
 }

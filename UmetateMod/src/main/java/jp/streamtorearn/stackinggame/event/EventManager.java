@@ -42,6 +42,9 @@ public final class EventManager {
      * 引数不正やstart例外などDISCARDED相当の恒久失敗は終端化し、FIFO先頭を塞がない。
      */
     private final Map<String, StartRetryState> startRetry = new HashMap<>();
+    // umetate <名前> [回数]：同じギフトをあと何回続けて起こすか（requestId ごと。埋め立て PR1。2026-10-26）。
+    // 待ち行列には1つで入り、終わるたびに同じものを先頭に入れ直す。取り消し・リセットでは残りも捨てる。
+    private final Map<String, Integer> repeatsLeft = new HashMap<>();
 
     public EventManager(StackingRuntime runtime) {
         this.runtime = runtime;
@@ -106,6 +109,14 @@ public final class EventManager {
         waiting.addLast(request);
         requestLedger.remember(request);
         return new Result(SubmitStatus.ACCEPTED, "queued position=" + waiting.size());
+    }
+
+    /** 回数付きの受け付け（umetate <名前> [回数]）。受け付けたら、終わるたびに同じものを count 回まで続けて起こす。 */
+    public synchronized Result submit(MinecraftServer server, EventRequest request, int count) {
+        if (count < 1) return new Result(SubmitStatus.DISCARDED, "count must be 1 or more: " + count);
+        Result result = submit(server, request);
+        if (result.accepted() && count > 1) repeatsLeft.putIfAbsent(request.externalRequestId(), count - 1);
+        return result;
     }
 
     /**
@@ -181,6 +192,7 @@ public final class EventManager {
                 // FIFO先頭を永久に塞がないよう終端化し、同じrequestIdの再送にもDISCARDEDを返す。
                 waiting.pollFirst();
                 startRetry.remove(next.externalRequestId());
+                repeatsLeft.remove(next.externalRequestId());
                 requestLedger.markFailed(next, result.message());
                 StackingGameMod.LOGGER.error(
                         "Accepted queued event failed permanently before start; removed from FIFO: "
@@ -289,6 +301,19 @@ public final class EventManager {
         StackingGameMod.LOGGER.info("Stacking event finished: key={} requestId={}", finishedKey,
                 finishedRequest == null ? "-" : finishedRequest.externalRequestId());
         clearActive();
+        if (finishedRequest == null) return;
+        // 回数が残っていれば、同じギフトをすぐもう一度始める（ほかの人のギフトはそのあと）。
+        Integer left = repeatsLeft.remove(finishedRequest.externalRequestId());
+        if (left != null && left > 0) {
+            repeatsLeft.put(finishedRequest.externalRequestId(), left - 1);
+            waiting.addFirst(again(finishedRequest));
+        }
+    }
+
+    /** 同じギフトの次の1回。一時ブロックなどの持ち主を分けるため、executionId だけ新しくする。 */
+    private static EventRequest again(EventRequest r) {
+        return new EventRequest(UUID.randomUUID(), r.externalRequestId(), r.eventKey(), r.playerId(), r.rawCount(),
+                r.listenerName(), r.type(), r.gameSessionId(), r.args(), r.announce(), r.eventArgs(), r.receivedAtTick());
     }
 
     private void cancelActive(MinecraftServer server, CancelReason reason) {
@@ -304,6 +329,8 @@ public final class EventManager {
         StackingGameMod.LOGGER.info("Stacking event cancelled: key={} requestId={} reason={}", cancelledKey,
                 cancelledRequest == null ? "-" : cancelledRequest.externalRequestId(), reason);
         clearActive();
+        // 取り消し（時間切れ・エラーも）のときは、残りの回数も起こさない。
+        if (cancelledRequest != null) repeatsLeft.remove(cancelledRequest.externalRequestId());
     }
 
     private void logOwnedResources(String phase, UUID executionId) {
@@ -338,6 +365,7 @@ public final class EventManager {
             waiting.removeIf(request -> {
                 if (!request.playerId().equals(player)) return false;
                 startRetry.remove(request.externalRequestId());
+                repeatsLeft.remove(request.externalRequestId());
                 return true;
             });
         }
@@ -351,6 +379,7 @@ public final class EventManager {
         cancelActive(server, reason);
         waiting.clear();
         startRetry.clear();
+        repeatsLeft.clear();
     }
 
     /**
@@ -376,6 +405,7 @@ public final class EventManager {
         }
         waiting.clear();
         startRetry.clear();
+        repeatsLeft.clear();
     }
 
     /** サーバー停止時のみ、メモリ内の再送台帳も破棄する。 */
@@ -398,6 +428,11 @@ public final class EventManager {
 
     public synchronized String activeExternalRequestId() {
         return activeRequest == null ? "-" : activeRequest.externalRequestId();
+    }
+
+    /** 実行中のギフトの残りの回数（umetate <名前> [回数]。埋め立て PR1）。 */
+    public synchronized int activeRepeatsLeft() {
+        return activeRequest == null ? 0 : repeatsLeft.getOrDefault(activeRequest.externalRequestId(), 0);
     }
 
     public synchronized String activeDuplicatePolicy() {

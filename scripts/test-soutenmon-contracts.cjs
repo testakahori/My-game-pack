@@ -7,6 +7,9 @@ const bin = name => process.env.JAVA_HOME ? path.join(process.env.JAVA_HOME,'bin
 const suites=[
   { name:'LabLayoutTest', files:['UmetateMod/src/main/java/jp/streamtorearn/stackinggame/lab/LabLayout.java','UmetateMod/src/contractTest/java/LabLayoutTest.java'] },
   { name:'LedgerSmokeTest', files:['UmetateMod/src/main/java/jp/streamtorearn/stackinggame/event/RequestLedger.java','UmetateMod/src/main/java/jp/streamtorearn/stackinggame/event/EventRequest.java','UmetateMod/src/contractTest/java/LedgerSmokeTest.java'] },
+  // umetate で動かす18個の名前（埋め立て PR1。2026-10-26）。events.master.json の implemented の13個と照らす。
+  { name:'UmetateKeysTest', files:['UmetateMod/src/main/java/jp/streamtorearn/stackinggame/command/UmetateKeys.java','UmetateMod/src/contractTest/java/UmetateKeysTest.java'],
+    args:['UmetateMod/src/main/resources/event-master/events.master.json'] },
   { name:'ObsDedupeSmokeTest', files:['ObsMod/src/main/java/jp/streamtorearn/obsmodule/encounter/EncounterDeduplicator.java','ObsMod/src/contractTest/java/ObsDedupeSmokeTest.java'] },
   // OBS ツールへ送るかの設定と、オフのときに送らないこと（2026-10-25。ObsBridgeMod と slf4j は stubs の写しを使う）。
   { name:'ObsSendSettingsTest', files:['ObsMod/src/main/java/jp/streamtorearn/obsmodule/config/ObsSendSettings.java','ObsMod/src/main/java/jp/streamtorearn/obsmodule/http/ObsControllerClient.java',
@@ -16,7 +19,7 @@ for (const suite of suites) {
   const temp=fs.mkdtempSync(path.join(os.tmpdir(),'soutenmon-contract-'));
   try {
     cp.execFileSync(bin('javac'),['-encoding','UTF-8','--release','17','-d',temp,...suite.files],{cwd:root,windowsHide:true,stdio:'inherit'});
-    cp.execFileSync(bin('java'),['-Xmx64m','-Dfile.encoding=UTF-8','-Dstdout.encoding=UTF-8','-cp',temp,suite.name],{cwd:root,windowsHide:true,stdio:'inherit'});
+    cp.execFileSync(bin('java'),['-Xmx64m','-Dfile.encoding=UTF-8','-Dstdout.encoding=UTF-8','-cp',temp,suite.name,...(suite.args||[])],{cwd:root,windowsHide:true,stdio:'inherit'});
   } finally { if(path.dirname(temp)===fs.realpathSync(os.tmpdir())&&path.basename(temp).startsWith('soutenmon-contract-'))fs.rmSync(temp,{recursive:true,force:true}); }
 }
 
