@@ -99,6 +99,7 @@ public final class LabIntegrationProbe {
         checkPlayerCommands(server, runtime);
         checkUmetateCommands(server, runtime);
         checkDisplayOnStart(server, runtime);
+        checkVictory(server, runtime);
         AtomicLong now = new AtomicLong(1000000);
         List<Integer> effects = new ArrayList<>();
         LabPresentation presentation = new LabPresentation() {
@@ -205,6 +206,11 @@ public final class LabIntegrationProbe {
         ServerBossEvent timer = (ServerBossEvent) field(lab, "timer");
         check(timer.getName().getString().contains("5:00") && timer.getPlayers().size() == 2, "5分のボスバー");
         check((long) field(lab, "deadline") == now.get() + 300000, "1階到着から実時間5分");
+        // 地獄のあいだは、枠が金で埋まっていても勝ちのカウントダウンをしない（埋め立て PR1 の Task 4）。
+        fillFrame(level, (x, y, z) -> Blocks.GOLD_BLOCK.defaultBlockState());
+        for (int i = 0; i < 260; i++) lab.tick(server);
+        check(victoryWins(lab) == 0 && frameCount(level, Blocks.GOLD_BLOCK) == LabLayout.FRAME_VOLUME, "地獄のあいだは勝ちにしない");
+        fillFrame(level, (x, y, z) -> Blocks.AIR.defaultBlockState());
         connect(server, second, false); lab.logout(second);
         now.addAndGet(299999); lab.tick(server);
         check(first.getY() < 0 && timer.getName().getString().contains("0:01"), "5分前に帰還しない");
@@ -375,6 +381,75 @@ public final class LabIntegrationProbe {
         check(box.minX() == LabLayout.FRAME_MIN_X && box.maxX() == LabLayout.FRAME_MAX_X && box.minZ() == LabLayout.FRAME_MIN_Z
                 && box.maxZ() == LabLayout.FRAME_MAX_Z && box.minY() == LabLayout.FRAME_MIN_Y && box.maxY() == LabLayout.FRAME_MAX_Y,
                 "研究室マップのアリーナは枠の内側（Y 49〜64）: " + runtime.arena.summary());
+    }
+
+    // 勝ちの判定（埋め立て PR1 の Task 4）。枠の内側 2704マスが金とダイヤで全部埋まったら10から数え、0で花火を出して枠を空にする。
+    // 1マスでも欠けたら止まる。羊毛があったり、下の8段（otasuke）だけだったりでは数え始めない。/umetate reset のあいだは止まる。
+    private void checkVictory(MinecraftServer server, StackingRuntime runtime) throws Exception {
+        ServerLevel level = server.overworld();
+        var lab = runtime.lab;
+        var dispatcher = server.getCommands().getDispatcher();
+        int winsBefore = victoryWins(lab);
+        // 1. 金とダイヤを混ぜて埋めると、10秒あまりで勝ち、枠が空になり、花火が上がる。
+        int rocketsBefore = rockets(level);
+        fillFrame(level, (x, y, z) -> (x + y + z) % 2 == 0 ? Blocks.GOLD_BLOCK.defaultBlockState() : Blocks.DIAMOND_BLOCK.defaultBlockState());
+        for (int i = 0; i < 9 * 20; i++) lab.tick(server);
+        check(victoryWins(lab) == winsBefore && frameCount(level, null) == LabLayout.FRAME_VOLUME, "10秒たつまでは勝ちにしない");
+        for (int i = 0; i < 2 * 20 + 10; i++) lab.tick(server);
+        check(victoryWins(lab) == winsBefore + 1, "10秒あまりで勝ち");
+        check(frameCount(level, Blocks.AIR) == LabLayout.FRAME_VOLUME, "勝ったら枠の中を全部消す");
+        check(rockets(level) - rocketsBefore >= 5, "花火を5発以上上げる: " + (rockets(level) - rocketsBefore));
+        // 2. 埋めて3秒後に1マスを空気にすると止まり、15秒進めても残りは消えない。
+        fillFrame(level, (x, y, z) -> Blocks.GOLD_BLOCK.defaultBlockState());
+        for (int i = 0; i < 3 * 20; i++) lab.tick(server);
+        level.setBlock(new BlockPos(0, 60, 0), Blocks.AIR.defaultBlockState(), 18);
+        for (int i = 0; i < 15 * 20; i++) lab.tick(server);
+        check(victoryWins(lab) == winsBefore + 1 && frameCount(level, Blocks.GOLD_BLOCK) == LabLayout.FRAME_VOLUME - 1, "1マス欠けたら止まり、消えない");
+        // 3. 1マスでも羊毛があれば数え始めない。
+        level.setBlock(new BlockPos(0, 60, 0), Blocks.WHITE_WOOL.defaultBlockState(), 18);
+        for (int i = 0; i < 15 * 20; i++) lab.tick(server);
+        check(victoryWins(lab) == winsBefore + 1 && frameCount(level, null) == LabLayout.FRAME_VOLUME, "羊毛があると勝ちにならない");
+        // 4. 下の8段だけ金（umetate otasuke）では数え始めない。
+        fillFrame(level, (x, y, z) -> Blocks.AIR.defaultBlockState());
+        check(dispatcher.execute("umetate otasuke", server.createCommandSourceStack()) > 0, "otasuke受付");
+        for (int i = 0; i < 15 * 20; i++) lab.tick(server);
+        check(victoryWins(lab) == winsBefore + 1 && frameCount(level, Blocks.GOLD_BLOCK) == LabLayout.FRAME_VOLUME / 2, "下の8段だけでは勝ちにならない");
+        // 5. 数えているあいだに /umetate reset で止まり、勝ちにならない（3階は2階の原本どおりに戻る）。
+        fillFrame(level, (x, y, z) -> Blocks.DIAMOND_BLOCK.defaultBlockState());
+        for (int i = 0; i < 3 * 20; i++) lab.tick(server);
+        check(dispatcher.execute("umetate reset", server.createCommandSourceStack()) == 1, "reset受付");
+        for (int i = 0; i < 20000 && lab.blocksEvents(); i++) lab.tick(server);
+        for (int i = 0; i < 15 * 20; i++) lab.tick(server);
+        check(victoryWins(lab) == winsBefore + 1 && frameCount(level, Blocks.AIR) == LabLayout.FRAME_VOLUME, "reset のあいだは止まり、勝ちにならない");
+        for (var entity : level.getAllEntities()) if (entity instanceof net.minecraft.world.entity.projectile.FireworkRocketEntity rocket) rocket.discard();
+    }
+
+    @FunctionalInterface private interface FrameBlock { BlockState at(int x, int y, int z); }
+
+    private static void fillFrame(ServerLevel level, FrameBlock block) {
+        for (int x = LabLayout.FRAME_MIN_X; x <= LabLayout.FRAME_MAX_X; x++) for (int y = LabLayout.FRAME_MIN_Y; y <= LabLayout.FRAME_MAX_Y; y++)
+            for (int z = LabLayout.FRAME_MIN_Z; z <= LabLayout.FRAME_MAX_Z; z++) level.setBlock(new BlockPos(x, y, z), block.at(x, y, z), 18);
+    }
+
+    /** 枠の内側で、block のマスの数（block が null なら空気でないマスの数）。 */
+    private static int frameCount(ServerLevel level, net.minecraft.world.level.block.Block block) {
+        int count = 0;
+        for (int x = LabLayout.FRAME_MIN_X; x <= LabLayout.FRAME_MAX_X; x++) for (int y = LabLayout.FRAME_MIN_Y; y <= LabLayout.FRAME_MAX_Y; y++)
+            for (int z = LabLayout.FRAME_MIN_Z; z <= LabLayout.FRAME_MAX_Z; z++) {
+                BlockState state = level.getBlockState(new BlockPos(x, y, z));
+                if (block == null ? !state.isAir() : state.is(block)) count++;
+            }
+        return count;
+    }
+
+    private static int rockets(ServerLevel level) {
+        int count = 0;
+        for (var entity : level.getAllEntities()) if (entity instanceof net.minecraft.world.entity.projectile.FireworkRocketEntity && !entity.isRemoved()) count++;
+        return count;
+    }
+
+    private static int victoryWins(LabStageService lab) throws Exception {
+        return ((jp.streamtorearn.stackinggame.lab.LabVictoryService) field(lab, "victory")).wins();
     }
 
     // ギフトの表示（埋め立て PR1 の Task 2）。そうてんもんさんのイベントは1回目が始まったときに1回だけ、研究室の5つは動いたときに出す。

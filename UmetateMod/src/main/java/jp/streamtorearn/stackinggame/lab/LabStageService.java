@@ -32,6 +32,8 @@ public final class LabStageService {
     private final java.util.function.LongSupplier clock;
     private final LabPresentation presentation;
     private final LabWardens wardens = new LabWardens();
+    private final LabVictoryService victory = new LabVictoryService();
+    private long victoryTicks;
     private final Set<UUID> visitors = new LinkedHashSet<>();
     private final Map<UUID, LabSavedData.Home> resetPlayers = new LinkedHashMap<>();
     private final Map<UUID, Integer> recoveryFlash = new HashMap<>();
@@ -133,7 +135,11 @@ public final class LabStageService {
     private boolean onTop(ServerPlayer p) { return p.level() == level && LabLayout.onTop(p.getX(), p.getY(), p.getZ()); }
     public void tick(MinecraftServer server) {
         wardens.tick();
-        if (level == null || saved == null || failure != null) return;
+        victoryTicks++;
+        if (level == null || saved == null) return;
+        // 勝ちの判定（埋め立て PR1 の Task 4）。復元中・地獄のあいだ・止まっているときは、埋まっていないものとして扱う。
+        victory.tick(level, victoryTicks, failure == null && restore == null && phase == Phase.IDLE);
+        if (failure != null) return;
         try {
             if (restore != null && restore.tick()) {
                 restore = null; saved.needsRestore = false; saved.flush(level);
