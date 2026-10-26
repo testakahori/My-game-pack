@@ -19,6 +19,15 @@ public final class LabLayoutTest {
         check(LabLayout.countdown(deadline, deadline - 1).equals("0:01"), "期限前に0を表示しない");
         check(LabLayout.countdown(deadline, deadline).equals("0:00"), "期限で0になる");
         check(LabLayout.remainingSeconds(deadline, deadline + 999999) == 0, "再接続が遅れても負数にしない");
+        // 3階の中央の枠の内側（埋め立て PR1 の Task 3）：X・Z が −6〜6、Y が 49〜64 の16段（2026-10-26 ユーザーの決定）。
+        check(LabLayout.FRAME_MIN_X == -6 && LabLayout.FRAME_MAX_X == 6 && LabLayout.FRAME_MIN_Z == -6 && LabLayout.FRAME_MAX_Z == 6, "枠の横");
+        check(LabLayout.FRAME_MIN_Y == 49 && LabLayout.FRAME_MAX_Y == 64, "枠の高さは Y 49〜64");
+        check(LabLayout.FRAME_VOLUME == 2704, "13×13×16＝2704マス");
+        check(LabLayout.inFrame(-6, 49, -6) && LabLayout.inFrame(6, 64, 6) && LabLayout.inFrame(0, 57, 0), "枠の角と上の段");
+        check(!LabLayout.inFrame(7, 50, 0) && !LabLayout.inFrame(0, 50, -7) && !LabLayout.inFrame(0, 48, 0) && !LabLayout.inFrame(0, 65, 0), "枠の外");
+        int counted = 0;
+        for (int x = -10; x <= 10; x++) for (int y = 40; y <= 70; y++) for (int z = -10; z <= 10; z++) if (LabLayout.inFrame(x, y, z)) counted++;
+        check(counted == LabLayout.FRAME_VOLUME, "inFrame の数と FRAME_VOLUME が合う");
         System.out.println("LabLayoutTest OK");
     }
 }

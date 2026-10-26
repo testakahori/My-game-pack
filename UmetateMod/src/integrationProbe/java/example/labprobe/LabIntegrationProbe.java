@@ -95,6 +95,7 @@ public final class LabIntegrationProbe {
         }
         level.getGameRules().getRule(GameRules.RULE_RANDOMTICKING).set(0, server);
         StackingRuntime runtime = StackingGameMod.RUNTIME;
+        checkLabFrame(server, runtime);
         checkPlayerCommands(server, runtime);
         checkUmetateCommands(server, runtime);
         checkDisplayOnStart(server, runtime);
@@ -349,6 +350,31 @@ public final class LabIntegrationProbe {
             runtime.reset(server);
             connect(server, target, false);
         }
+    }
+
+    // 研究室マップのアリーナは、枠の内側 Y 49〜64 まで（埋め立て PR1 の Task 3）。設定ファイルの max-y（既定 56）によらない。
+    // まっさらなマップで、枠の内側 2704マスが空気で、枠の骨組みが Y 49〜64 を囲んでいることも確かめる。
+    private void checkLabFrame(MinecraftServer server, StackingRuntime runtime) {
+        ServerLevel level = server.overworld();
+        int air = 0;
+        for (int x = LabLayout.FRAME_MIN_X; x <= LabLayout.FRAME_MAX_X; x++) for (int y = LabLayout.FRAME_MIN_Y; y <= LabLayout.FRAME_MAX_Y; y++)
+            for (int z = LabLayout.FRAME_MIN_Z; z <= LabLayout.FRAME_MAX_Z; z++) if (level.getBlockState(new BlockPos(x, y, z)).isAir()) air++;
+        check(air == LabLayout.FRAME_VOLUME, "まっさらな枠の内側は空気: " + air + "/" + LabLayout.FRAME_VOLUME);
+        // 枠は岩盤の骨組み（2026-10-26 に実物で調べた）：Y 49 と Y 64 の外周（x か z が ±7）はぐるりと岩盤、Y 50〜63 は四隅の柱だけ。
+        // 枠の内側の真下（Y 48）は床がある。横は開いているので、勝ちの判定は内側の 2704マスだけを見る。
+        List<String> missing = new ArrayList<>();
+        for (int i = -7; i <= 7; i++) for (int y : new int[]{LabLayout.FRAME_MIN_Y, LabLayout.FRAME_MAX_Y})
+            for (BlockPos pos : List.of(new BlockPos(i, y, -7), new BlockPos(i, y, 7), new BlockPos(-7, y, i), new BlockPos(7, y, i)))
+                if (!level.getBlockState(pos).is(Blocks.BEDROCK)) missing.add(pos.toShortString());
+        for (int y = LabLayout.FRAME_MIN_Y; y <= LabLayout.FRAME_MAX_Y; y++) for (int cx : new int[]{-7, 7}) for (int cz : new int[]{-7, 7})
+            if (!level.getBlockState(new BlockPos(cx, y, cz)).is(Blocks.BEDROCK)) missing.add(cx + ", " + y + ", " + cz);
+        for (int x = LabLayout.FRAME_MIN_X; x <= LabLayout.FRAME_MAX_X; x++) for (int z = LabLayout.FRAME_MIN_Z; z <= LabLayout.FRAME_MAX_Z; z++)
+            if (level.getBlockState(new BlockPos(x, LabLayout.FRAME_MIN_Y - 1, z)).isAir()) missing.add(x + ", 48, " + z + "（床）");
+        check(missing.isEmpty(), "枠の骨組み（Y 49 と Y 64 の輪・四隅の柱・内側の床）がある: " + missing.size() + " 例 " + missing.stream().limit(5).toList());
+        var box = runtime.arena.bounds();
+        check(box.minX() == LabLayout.FRAME_MIN_X && box.maxX() == LabLayout.FRAME_MAX_X && box.minZ() == LabLayout.FRAME_MIN_Z
+                && box.maxZ() == LabLayout.FRAME_MAX_Z && box.minY() == LabLayout.FRAME_MIN_Y && box.maxY() == LabLayout.FRAME_MAX_Y,
+                "研究室マップのアリーナは枠の内側（Y 49〜64）: " + runtime.arena.summary());
     }
 
     // ギフトの表示（埋め立て PR1 の Task 2）。そうてんもんさんのイベントは1回目が始まったときに1回だけ、研究室の5つは動いたときに出す。

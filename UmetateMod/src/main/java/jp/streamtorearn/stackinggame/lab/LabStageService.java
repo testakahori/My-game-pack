@@ -62,12 +62,15 @@ public final class LabStageService {
         phase = Phase.IDLE; failure = null; restore = null; tickets = false;
         visitors.clear(); resetPlayers.clear(); recoveryFlash.clear(); timer.removeAllPlayers();
         level = null; saved = null;
+        runtime.arena.useLabFrame(false);
         try {
             var file = server.getWorldPath(LevelResource.ROOT).resolve("umetate_lab_map.json");
             if (!Files.isRegularFile(file)) return;
             var marker = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
             if (marker.get("schema").getAsInt() != 1 || !"umetate_lab_map".equals(marker.get("map").getAsString())) return;
             level = server.overworld(); saved = LabSavedData.get(level);
+            // 研究室マップでは、アリーナを枠の内側（Y 49〜64）にする（埋め立て PR1 の Task 3）。
+            runtime.arena.useLabFrame(true);
             if (saved.needsRestore) { holdChunks(); validateMaster(); restore = new LabRestoreJob(level); }
         } catch (Exception e) { fail(e); }
     }

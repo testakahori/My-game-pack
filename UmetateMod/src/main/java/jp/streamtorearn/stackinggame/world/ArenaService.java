@@ -1,6 +1,7 @@
 package jp.streamtorearn.stackinggame.world;
 
 import jp.streamtorearn.stackinggame.config.StackingConfig;
+import jp.streamtorearn.stackinggame.lab.LabLayout;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.phys.Vec3;
@@ -31,7 +32,17 @@ public final class ArenaService {
         }
     }
 
+    // 研究室マップでは、アリーナを枠の内側（Y 49〜64）にする。設定ファイル（stackinggame-common.toml）の値には触らない。
+    // すでにあるサーバーの設定ファイルに max-y=56 が書かれていても、研究室マップでは枠の上の段まで届く（埋め立て PR1 の Task 3）。
+    private volatile boolean labFrame;
+
+    public void useLabFrame(boolean on) { labFrame = on; }
+
     public IntBox bounds() {
+        if (labFrame) {
+            return IntBox.of(LabLayout.FRAME_MIN_X, LabLayout.FRAME_MIN_Y, LabLayout.FRAME_MIN_Z,
+                    LabLayout.FRAME_MAX_X, LabLayout.FRAME_MAX_Y, LabLayout.FRAME_MAX_Z);
+        }
         return IntBox.of(
                 StackingConfig.ARENA_MIN_X.get(),
                 StackingConfig.ARENA_MIN_Y.get(),
