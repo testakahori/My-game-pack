@@ -159,3 +159,14 @@ test('そうてんもんさんの MOD: 作り方と決まりを AGENTS.md に書
   assert.ok(agents.includes('README が指す docs・tools は取り込んでいません'), '取り込んだ README が指すものが無いことを書く（最後のレビュー 軽い8）');
   assert.ok(agents.includes('node scripts/sync-event-master.cjs'));
 });
+
+// 実サーバーの検証の台本は、使い捨てのフォルダーに libraries のジャンクション（今までは本物の配信サーバーの libraries）を作る。
+// 残したままだと、フォルダーをまとめて消したときに先の本物の libraries まで消えるおそれがあるので、終わったらジャンクションだけを外す
+// （2026-10-26 に9つ残っていたのを見つけた。埋め立て PR1 の Task 0）。
+test('埋め立ての MOD: 実サーバーの検証の台本は、終わったら libraries のジャンクションだけを外す', () => {
+  const script = read('UmetateMod/tools/run-lab-probe.ps1');
+  const tail = script.slice(script.lastIndexOf('} finally {'));
+  assert.match(tail, /LinkType -eq 'Junction'/, '外すのはジャンクションのときだけ');
+  assert.match(tail, /\[IO\.Directory\]::Delete\(\$[A-Za-z]+, \$false\)/, 'ジャンクションそのものだけを外す（中身は消さない）');
+  assert.doesNotMatch(script, /Remove-Item[^\r\n]*-Recurse/, 'フォルダーや libraries をまとめて消さない');
+});

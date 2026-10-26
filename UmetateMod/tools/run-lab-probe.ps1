@@ -31,4 +31,15 @@ try {
     Write-Output $testRoot
     Write-Output $result
     if (-not $result.StartsWith('PASS:')) { Get-Content lab-server.log -Tail 35; throw $result }
-} finally { Pop-Location }
+} finally {
+    Pop-Location
+    # 使い捨てのフォルダー（ログ・結果）は調べるために残すが、libraries のジャンクションは外す。
+    # 残すと、フォルダーをまとめて消したときに、先の libraries（本物のサーバーのもの）まで消えるおそれがある。
+    $link = Join-Path $testRoot 'libraries'
+    $item = Get-Item -LiteralPath $link -Force -ErrorAction SilentlyContinue
+    if ($item -and $item.LinkType -eq 'Junction') {
+        # ジャンクションそのものだけを外す。先の中身には触らない。
+        [IO.Directory]::Delete($link, $false)
+        Write-Output ('libraries のジャンクションを外しました: ' + $link)
+    }
+}
