@@ -169,4 +169,9 @@ test('埋め立ての MOD: 実サーバーの検証の台本は、終わった�
   assert.match(tail, /LinkType -eq 'Junction'/, '外すのはジャンクションのときだけ');
   assert.match(tail, /\[IO\.Directory\]::Delete\(\$[A-Za-z]+, \$false\)/, 'ジャンクションそのものだけを外す（中身は消さない）');
   assert.doesNotMatch(script, /Remove-Item[^\r\n]*-Recurse/, 'フォルダーや libraries をまとめて消さない');
+  // ジャンクションを作ったあとの写し（jar・マップ）で失敗しても外せるよう、作る所から try の中に入れる（最後のレビュー 重要2）。
+  const junction = script.indexOf('-ItemType Junction');
+  const tryStart = script.indexOf('try {');
+  assert.ok(junction > 0 && tryStart > 0 && tryStart < junction, 'ジャンクションを作る行は try の中');
+  assert.ok(script.indexOf('} finally {') > junction, 'finally はジャンクションを作るより後');
 });
