@@ -1,0 +1,27 @@
+{
+  "format": 1,
+  "id": "umetate",
+  "modId": "stackinggame_events",
+  "serverJar": "stackinggame_events-2.6.23.jar",
+  "clientJar": "stackinggame_events-2.6.23.jar",
+  "commands": [
+    { "key": "aquatower", "title": "アクアタワー", "command": "umetate aquatower {Count} {ListenerName}" },
+    { "key": "magmatower", "title": "マグマタワー", "command": "umetate magmatower {Count} {ListenerName}" },
+    { "key": "aquarium", "title": "アクアリウム", "command": "umetate aquarium {Count} {ListenerName}" },
+    { "key": "voidbomb", "title": "ボイドボム", "command": "umetate voidbomb {Count} {ListenerName}" },
+    { "key": "voidbomb_rain", "title": "ボイドボム連続", "command": "umetate voidbomb_rain {Count} {ListenerName}" },
+    { "key": "megablast", "title": "メガブラスト", "command": "umetate megablast {Count} {ListenerName}" },
+    { "key": "nether_army", "title": "ネザー軍団", "command": "umetate nether_army {Count} {ListenerName}" },
+    { "key": "void_singularity", "title": "ボイド・シンギュラリティ", "command": "umetate void_singularity {Count} {ListenerName}" },
+    { "key": "meteor_shower", "title": "メテオシャワー", "command": "umetate meteor_shower {Count} {ListenerName}" },
+    { "key": "meteor_purge", "title": "メテオパージ", "command": "umetate meteor_purge {Count} {ListenerName}" },
+    { "key": "tornado", "title": "トルネード", "command": "umetate tornado {Count} {ListenerName}" },
+    { "key": "orbital_laser", "title": "オービタルレーザー", "command": "umetate orbital_laser {Count} {ListenerName}" },
+    { "key": "shockwave_collapse", "title": "ショックウェーブ・コラプス", "command": "umetate shockwave_collapse {Count} {ListenerName}" },
+    { "key": "otasuke", "title": "お助け", "command": "umetate otasuke {Count} {ListenerName}" },
+    { "key": "mofumofu", "title": "もふもふ", "command": "umetate mofumofu {Count} {ListenerName}" },
+    { "key": "stamp", "title": "黒曜石スタンプ", "command": "umetate stamp {Count} {ListenerName}" },
+    { "key": "atamahuttou", "title": "頭沸騰", "command": "umetate atamahuttou {Count} {ListenerName}" },
+    { "key": "zigoku", "title": "地獄", "command": "umetate zigoku {Count} {ListenerName}" }
+  ]
+}
