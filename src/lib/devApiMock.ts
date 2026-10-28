@@ -1,5 +1,4 @@
 import pkg from "../../package.json";
-import miningPack from "../../game-packs/saikutu/game.json";
 // ゲームの一覧はアプリ・BRIDGE と同じ bridge/games.json（処理のコピー PR6）。
 import GAMES from "../../bridge/games.json";
 import { normalizeTikTokId, tiktokIdProblem } from "./tiktokId";
@@ -13,6 +12,10 @@ function mockTikTokIdProblem(next: any): string {
 }
 
 // ゲームパックのゲームのコマンド（game_<id>_）か。アプリの bridge/game_commands.cjs の gameOfCommand と同じく、一覧から作り、大文字小文字を区別しない。
+// 同梱のゲームパック（games.json の modDir があるゲーム）の game.json。アプリと同じく、ゲームの名前を書かずに全部読む（埋め立て PR2）。
+type PreviewPack = { id: string; commands: { key: string; title: string }[] };
+const bundledPacks = Object.values(import.meta.glob<PreviewPack>("../../game-packs/*/game.json", { eager: true, import: "default" }))
+  .filter(pack => GAMES.some(game => game.modDir && game.id === pack.id));
 const packGamePrefix = new RegExp(`^game_(${GAMES.filter(game => game.id !== "common").map(game => game.id).join("|")})_`, "i");
 
 type DevAppConfig = {
@@ -77,8 +80,9 @@ if (import.meta.env.DEV && !win.mygamepack) {
       if (response.ok) {
         const commands = await response.json();
         if (!previewModsApplied) return [];
-        const common = commands.filter((item: any) => !item.name.startsWith("_") && !packGamePrefix.test(item.name) && !miningPack.commands.some(command => item.name === command.key + ".txt"));
-        return previewActiveGame === "saikutu" ? [...common, ...miningPack.commands.map(command => ({ name: `game_saikutu_${command.key}.txt`, title: command.title, category: "saikutuMOD", chatKey: command.key }))] : common;
+        const common = commands.filter((item: any) => !item.name.startsWith("_") && !packGamePrefix.test(item.name) && !bundledPacks.some(pack => pack.commands.some(command => item.name === command.key + ".txt")));
+        const pack = bundledPacks.find(pack => pack.id === previewActiveGame), category = GAMES.find(game => game.id === previewActiveGame)?.modName;
+        return pack ? [...common, ...pack.commands.map(command => ({ name: `game_${pack.id}_${command.key}.txt`, title: command.title, category, chatKey: command.key }))] : common;
       }
     } catch { /* ignore */ }
     return [];
@@ -207,7 +211,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
   const previewProfileKeys = ['mappings', 'likeEvents', 'unmappedGiftEvent', 'shareEvent', 'followEvent', 'memberEvent', 'roulette', 'deathRoulette', 'commentGifts'];
   const previewGameStatus = () => ({ active: previewActiveGame, applied: previewModsApplied, displayBundled: true, recoveryRequired: false,
     serverMods: appConfig.serverFolder + '\\mods', clientMods: previewClientFolder + '\\mods',
-    games: GAMES.map(game => ({ ...game, installed: game.id === 'common' || game.id === 'saikutu' })) });
+    games: GAMES.map(game => ({ ...game, installed: game.id === 'common' || Boolean(game.modDir) })) });
   win.mygamepack = {
     gamesList: async () => previewGameStatus(),
     gamesClientFolders: async () => ({ candidates: previewMinecraftFolders.map(folder => ({ ...folder, modsPath: folder.path + '\\mods', current: folder.path === previewClientFolder })), warnings: [] }),

@@ -85,13 +85,18 @@ test('配布: electron が読む bridge のモジュールは、その中で読�
     const source = fs.readFileSync(path.join(root, file), 'utf8');
     for (const match of source.matchAll(/require\(\s*["'](\.{1,2}\/[^"']+)["']\s*\)/g)) visit(match[1], file);
   };
-  for (const name of fs.readdirSync(path.join(root, 'electron')).filter(n => n.endsWith('.cjs'))) {
-    const source = fs.readFileSync(path.join(root, 'electron', name), 'utf8');
-    for (const match of source.matchAll(/require\(\s*["'](\.\.\/bridge\/[^"']+)["']\s*\)/g)) visit(match[1], `electron/${name}`);
-    // bridge/ のほかの外（scripts/ など）は配布のアプリに入らないので、electron からは読まない（埋め立て PR2 で見つけた穴）。
-    for (const match of source.matchAll(/require\(\s*["'](\.\.\/(?!bridge\/)[^"']+)["']\s*\)/g)) {
-      const target = path.posix.join('electron', match[1]);
-      assert.ok(target.startsWith('electron/') || files.has(target) || files.has(target + '.cjs') || files.has(target + '.js'), `electron/${name} が配布のアプリに入らない ${match[1]} を読んでいる`);
+  // electron/ の下のフォルダーも見る（test/ は配布のアプリで読まないので外す。埋め立て PR2 の最後のレビュー）。
+  const electronFiles = fs.readdirSync(path.join(root, 'electron'), { recursive: true }).map(n => String(n).split(path.sep).join('/'))
+    .filter(n => n.endsWith('.cjs') && !n.startsWith('test/'));
+  for (const name of electronFiles) {
+    const from = `electron/${name}`, source = fs.readFileSync(path.join(root, from), 'utf8');
+    // 名前を組み立てて読む require は、配布のアプリに入るかをここでたどれないので使わない。
+    assert.doesNotMatch(source, /\brequire\(\s*(?!(["'])[^"'\n]+\1\s*\))/, `${from} が名前を組み立てて require している`);
+    for (const match of source.matchAll(/require\(\s*["'](\.{1,2}\/[^"']+)["']\s*\)/g)) {
+      const target = path.posix.join(path.posix.dirname(from), match[1]);
+      if (target.startsWith('bridge/')) { visit(match[1], from); continue; }
+      // bridge/ のほかの外（scripts/ など）は配布のアプリに入らないので、electron からは読まない（埋め立て PR2 で見つけた穴）。
+      assert.ok(target.startsWith('electron/') || files.has(target) || files.has(target + '.cjs') || files.has(target + '.js'), `${from} が配布のアプリに入らない ${match[1]} を読んでいる`);
     }
   }
   assert.ok(required.has('bridge/config_schema.js'), [...required].join(', '));

@@ -127,6 +127,43 @@ test('配り方: 埋め立ての MOD の jar が無ければ、UmetateMod を作
   assert.throws(() => prepareGamePacks(fakeRepo(t, { umetateJar: false })), /UmetateMod/);
 });
 
+test('配り方: 採掘を選んでいるとき、アプリの更新で入れ替えるのは採掘MOD だけ。同梱の埋め立てMOD は入れない', async t => {
+  const { refreshGameModsAfterUpdate } = require('../game_mods_refresh.cjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'umetate-refresh-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const server = path.join(dir, 'server'), client = path.join(dir, 'minecraft'), storage = path.join(dir, 'profiles');
+  for (const d of [server, client]) fs.mkdirSync(path.join(d, 'mods'), { recursive: true });
+  const config = path.join(server, 'bridge', 'config.minecraft.json');
+  fs.mkdirSync(path.join(path.dirname(config), 'commands/minecraft'), { recursive: true });
+  fs.writeFileSync(config, JSON.stringify({ mappings: [], options: {} }));
+  const jarAt = (name, id) => { const file = path.join(dir, name); fs.writeFileSync(file, fakeModJar(id)); return file; };
+  const bridge = jarAt('bridgemod-1.8.3.jar', 'bridgemod'), display = jarAt('displaymod-1.1.0.jar', 'displaymod');
+  // 同梱の2つのパック（リポジトリの game.json。jar の名前だけ版ごとに変える）。
+  const packs = path.join(dir, 'game-packs');
+  const bundle = (id, jarName) => {
+    const folder = path.join(packs, id), p = { ...JSON.parse(read(`game-packs/${id}/game.json`)), serverJar: jarName, clientJar: jarName };
+    fs.rmSync(folder, { recursive: true, force: true }); fs.mkdirSync(folder, { recursive: true });
+    fs.writeFileSync(path.join(folder, 'game.json'), JSON.stringify(p));
+    fs.writeFileSync(path.join(folder, jarName), fakeModJar(p.modId));
+  };
+  bundle('umetate', 'stackinggame_events-1.0.0.jar'); bundle('saikutu', 'saikutumod-1.0.0.jar');
+  const api = createGameProfiles({ storage: () => storage, serverRoot: () => server, clientRoot: () => client, configPath: () => config,
+    bridgeJar: () => bridge, displayJar: () => display, ensureStopped: async () => {},
+    bundledPackages: () => ['umetate', 'saikutu'].map(id => ({ id, folder: path.join(packs, id) })) });
+  await api.activate('saikutu');
+  // アプリの更新：同梱の2つのパックがどちらも新しい版になる。
+  bundle('umetate', 'stackinggame_events-1.0.1.jar'); bundle('saikutu', 'saikutumod-1.0.1.jar');
+  let appConfig = { gameModsVersion: '1.0.0' };
+  const result = await refreshGameModsAfterUpdate({ version: '1.0.1', readConfig: () => appConfig, writeConfig: patch => { appConfig = { ...appConfig, ...patch }; }, profiles: api });
+  assert.deepEqual(result, { state: 'done', game: 'saikutu', changed: true });
+  for (const d of [server, client]) {
+    const names = fs.readdirSync(path.join(d, 'mods'));
+    assert.ok(names.includes('saikutumod-1.0.1.jar'), `${d} の採掘MOD は新しい版`);
+    assert.deepEqual(names.filter(n => n.startsWith('stackinggame_events')), [], `${d} に埋め立てMOD を入れない`);
+  }
+  assert.deepEqual(fs.readdirSync(path.join(path.dirname(config), 'commands/minecraft')).filter(n => n.startsWith('game_umetate_')), [], '埋め立てのコマンドも置かない');
+});
+
 test('配り方: アプリは同梱のゲームパック（採掘・埋め立て）を、配る物でも開発版でも見つける', t => {
   const { bundledGamePacks } = require('../bundled_game_packs.cjs');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'umetate-bundled-'));

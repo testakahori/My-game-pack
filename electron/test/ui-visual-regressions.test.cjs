@@ -83,8 +83,10 @@ test('開発ブラウザーで保存先が空でも既存セットアップを�
   const file = path.join(sourceRoot, 'src/lib/devApiMock.ts');
   global.window = { location: { search: '' } };
   global.localStorage = { getItem: () => JSON.stringify({ serverFolder: '', setupComplete: false }), setItem() {} };
+  // import.meta.glob（同梱のゲームパックの game.json を読む）は Vite だけのもの。ここではパックの無い形にする。
+  global.__viteGlob = () => ({});
   const compiled = new Module(file, module);
-  compiled._compile(buildSync({ entryPoints: [file], bundle: true, write: false, platform: 'node', format: 'cjs', define: { 'import.meta.env.DEV': 'true' }, logLevel: 'silent' }).outputFiles[0].text, file);
+  compiled._compile(buildSync({ entryPoints: [file], bundle: true, write: false, platform: 'node', format: 'cjs', define: { 'import.meta.env.DEV': 'true', 'import.meta.glob': '__viteGlob' }, logLevel: 'silent' }).outputFiles[0].text, file);
   const status = await window.mygamepack.serverCheckSetupComplete();
   assert.ok(status.dir, '標準の保存先が返る');
 });
