@@ -40,7 +40,8 @@ test('ゲームの一覧と判定の写し: アプリ・BRIDGE・画面は自分
     const source = read(file);
     assert.doesNotMatch(source, /(umetate|saikutu)\|(umetate|run|saikutu)|startsWith\(['"]game_['"]\)|\^game_\[a-z0-9\]/, file + ' にゲームの一覧・判定の写しがある');
     assert.doesNotMatch(source, /\{1,63\}|\{0,49\}|['"]doumacmd['"]/, file + ' に MOD の ID・パックの key の写しがある');
-    // 配列で書いた一覧（['common', 'umetate', …]）も見つける。埋め立ては同梱のパックがないので、名前を文字で書く所はない。
+    // 配列で書いた一覧（['common', 'umetate', …]）も見つける。埋め立てのゲームパック（2026-10-29）も、どのゲームにパックがあるかを
+    // games.json の modDir から読むので、名前を文字で書く所はない（electron/bundled_game_packs.cjs・scripts/mod_jars.cjs・prepare-game-packs.cjs）。
     assert.doesNotMatch(source, /['"`]umetate['"`]/, file + ' にゲームの一覧の写しがある（umetate）');
   }
 });
@@ -49,8 +50,13 @@ test('ゲームの一覧と判定の写し: アプリ・BRIDGE・画面は自分
 test('画面: コマンド一覧のチャットの名前はアプリが付ける chatKey を使い、開発用のモックの一覧は games.json から', () => {
   const read = file => fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
   assert.match(read('src/components/CommandsListPage.tsx'), /meta\.chatKey \?\? meta\.name/);
-  assert.match(read('src/lib/devApiMock.ts'), /from "\.\.\/\.\.\/bridge\/games\.json"/);
-  assert.match(read('src/lib/devApiMock.ts'), /name: `game_saikutu_\$\{command\.key\}\.txt`[^\n]*chatKey: command\.key/, '開発用のモックの採掘のコマンドも /bridge <key> 1');
+  const mock = read('src/lib/devApiMock.ts');
+  assert.match(mock, /from "\.\.\/\.\.\/bridge\/games\.json"/);
+  // 同梱のゲームパックは game-packs/*/game.json を全部読み、選べるゲームは games.json の modDir から（採掘だけを決め打ちしない。埋め立て PR2 の最後のレビュー）。
+  assert.match(mock, /import\.meta\.glob[^\n]*"\.\.\/\.\.\/game-packs\/\*\/game\.json"/);
+  assert.doesNotMatch(mock, /game-packs\/saikutu|['"]saikutu['"]/, '開発用のモックが採掘を決め打ちしている');
+  assert.match(mock, /installed: game\.id === ['"]common['"] \|\| Boolean\(game\.modDir\)/, '選べるゲームは games.json の modDir（同梱のパック）から');
+  assert.match(mock, /name: `game_\$\{pack\.id\}_\$\{command\.key\}\.txt`[^\n]*chatKey: command\.key/, '開発用のモックのゲームパックのコマンドも /bridge <key> 1');
   // 開発用の一覧の1行は、アプリと同じ bridge/command_rows.cjs の commandListRow（中で publicCommandKey を使う。処理のコピー PR8）。
   assert.ok(read('vite.config.ts').includes('commandListRow(name, text)'), 'vite.config.ts が commandListRow を使っていない');
   assert.match(read('bridge/command_rows.cjs'), /chatKey: publicCommandKey\(name\)/);

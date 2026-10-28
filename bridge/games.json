@@ -1,6 +1,6 @@
 [
   { "id": "common", "name": "サバイバル", "modName": "BridgeMOD" },
-  { "id": "umetate", "name": "埋め立て", "modName": "UmetateMOD" },
+  { "id": "umetate", "name": "埋め立て", "modName": "UmetateMOD", "modDir": "UmetateMod" },
   { "id": "run", "name": "RUN", "modName": "RunMOD" },
-  { "id": "saikutu", "name": "採掘", "modName": "saikutuMOD" }
+  { "id": "saikutu", "name": "採掘", "modName": "saikutuMOD", "modDir": "SaikutuMod" }
 ]

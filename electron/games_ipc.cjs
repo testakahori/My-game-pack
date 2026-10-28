@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { createGameProfiles } = require('./game_profiles.cjs');
+const { bundledGamePacks } = require('./bundled_game_packs.cjs');
 const { refreshGameModsAfterUpdate, gameModsOutdated } = require('./game_mods_refresh.cjs');
 const { discoverMinecraftLocations, validateMinecraftFolder } = require('./minecraft_locations.cjs');
 const { switchBlockedMessage } = require('./minecraft_processes.cjs');
@@ -26,10 +27,8 @@ function createGamesIpc({
     serverRoot: () => getServerRoot(),
     clientRoot: () => readAppConfig().minecraftGameFolder || path.join(app.getPath('appData'), '.minecraft'),
     configPath: () => getConfigPath(),
-    bundledPackages: () => {
-      const folder = app.isPackaged ? path.join(process.resourcesPath, 'game-packs', 'saikutu') : path.resolve(appDir, '..', 'build', 'game-packs', 'saikutu');
-      return fs.existsSync(path.join(folder, 'game.json')) ? [{ id: 'saikutu', folder }] : [];
-    },
+    // 同梱のゲームパック（採掘・埋め立て）。場所の決まりは electron/bundled_game_packs.cjs（埋め立て PR2）。
+    bundledPackages: () => bundledGamePacks({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appDir }),
     displayJar: () => {
       const dir = app.isPackaged ? path.join(getServerTemplatePath(), 'mods') : path.resolve(appDir, '..', 'DisplayMod', 'build', 'libs');
       const jars = fs.existsSync(dir) ? fs.readdirSync(dir).filter(n => /^displaymod-[0-9.]+\.jar$/.test(n)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true })) : [];

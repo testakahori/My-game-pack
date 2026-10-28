@@ -64,13 +64,14 @@ test('そうてんもんさんの MOD: CI の mod-build で、BridgeMod のあ�
   for (const mod of MODS) for (const dir of ['build/', '.gradle/', 'bin/', 'run-client/', 'run-server/']) assert.ok(ignore.includes(`${mod}/${dir}`), `${mod}/${dir}`);
 });
 
-// OBSMOD は標準装備として同梱する MOD に移った（2026-10-25。electron/test/obsmod-bundle.test.cjs）。埋め立ての MOD はまだ同梱しないが、CI の印の照らし合わせ（scripts/check-jar-inputs.cjs）は見る（最後のレビュー 重要1）。
-test('そうてんもんさんの MOD: 作るが同梱しない MOD として、jar の場所を1か所で決める', () => {
-  const { buildOnlyModJars } = require('../../scripts/mod_jars.cjs');
-  assert.deepEqual(buildOnlyModJars(root).map(mod => [mod.dir, path.basename(mod.jar), mod.uses?.dir]), [
-    ['UmetateMod', 'stackinggame_events-2.6.23.jar', 'BridgeMod'],
-  ]);
-  assert.match(read('scripts/check-jar-inputs.cjs'), /buildOnlyModJars/);
+// OBSMOD は標準装備として同梱する MOD に移った（2026-10-25。electron/test/obsmod-bundle.test.cjs）。
+// 埋め立ての MOD も、ゲームパック（game-packs/umetate）で同梱する MOD に移った（2026-10-29 埋め立て PR2）。「作るが同梱しない MOD」は無くなった。
+test('そうてんもんさんの MOD: 埋め立ての MOD は同梱する MOD として、jar の場所を1か所で決める（ゲームパックの jar の名前）', () => {
+  const mods = require('../../scripts/mod_jars.cjs');
+  const umetate = mods.modJars(root).find(mod => mod.dir === 'UmetateMod');
+  assert.deepEqual([umetate.name, path.basename(umetate.jar), umetate.uses?.dir], ['埋め立てMOD', JSON.parse(read('game-packs/umetate/game.json')).serverJar, 'BridgeMod']);
+  assert.equal(mods.buildOnlyModJars, undefined, '作るが同梱しない MOD の一覧は無くした');
+  assert.doesNotMatch(read('scripts/check-jar-inputs.cjs'), /buildOnlyModJars/);
 });
 
 // イベントの一覧（events.master.json）から、3つの Java を作る。届いた道具（tools/sync_event_master.py）を scripts/sync-event-master.cjs に移した（最後のレビュー 軽い2）。
