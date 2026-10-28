@@ -1,3 +1,37 @@
+### 2026-10-29：埋め立て PR2（ゲームパックと配り方。ブランチ `feat/umetate-pr2-pack`）
+
+計画：`docs/superpowers/plans/2026-10-29-umetate-pr2-pack.md`。作り方は「私が作る＋最後に opus のレビュー」。
+
+#### やったこと
+
+- ユーザーの決定（10-29）：保護エリアの印（`destructive`）は、埋め立てのどのコマンドにも付けない（「妨害マイクラなんだからマップボッコボコにしていい」）。
+  - 調べてわかったこと：保護エリアは、BRIDGE がいつも `protectionEnabled: false` で送っていて（`bridge/index.js`）、画面にも設定が無い。今はどのゲームでも働いていない。
+- ゲームパック `game-packs/umetate/game.json`：
+  - `modId: stackinggame_events`、jar は `stackinggame_events-2.6.23.jar`（サーバーと本体の両方）。`bridgeEventApi` は使わない。
+  - コマンドは18個で、`umetate <名前> {Count} {ListenerName}` の形。名前・順・題名は UmetateMod の `UmetateKeys`・`UmetateTitles` と同じ。`reset` は載せない。
+- 配り方：どのゲームにパックがあるかを `bridge/games.json` の `modDir`（UmetateMod・SaikutuMod）に足した。設計書 13「ゲームの一覧は1か所」に合わせた。
+  - `scripts/mod_jars.cjs`：埋め立てMOD を同梱する MOD に移した。「作るが同梱しない MOD」（`buildOnlyModJars`）は無くした。並びは games.json の順（埋め立てMOD が採掘MOD より先）。
+  - `scripts/prepare-game-packs.cjs`：2つのパック（埋め立て・採掘）を作る。
+  - `electron/bundled_game_packs.cjs`（新しい）：アプリが同梱のパックを見つける。`electron/games_ipc.cjs` は採掘の決め打ちをやめた。
+  - `scripts/refresh-dev.cjs`：開発版の作り直しに、UmetateMod の jar を足した。
+- 見つけて直したこと：はじめ `electron/bundled_game_packs.cjs` が `scripts/` を読んでいた。配る物に `scripts/` は入らないので、インストールしたアプリが起動で落ちるところだった。`config-schema.test.cjs` の「配布」の確かめを広げて防いだ（electron が bridge/ 以外の外を読んだら落ちる）。
+- 確かめ：
+  - `electron/test/umetate-pack.test.cjs`（新しい）：game.json と MOD の照らし合わせ・ゲームパックの確かめ・保存したときの MOD の入り方（OBSMOD はサーバーだけ）・コマンドのファイルの中身・パックを作る台本・同梱の見つけ方。
+  - リリースのテスト・印の照らし合わせ・開発版の作り直しのテストを、埋め立てMOD を含む形に直した。
+  - `npm run verify`：型チェック・BRIDGE 15/15・アプリ 828/828・ビルドが通る。`scripts/test-bridge-contracts.cjs`・`check-jar-inputs.cjs` も通る。
+  - 本物のアプリ（開発版）での確かめ（10-29。一時の設定・空の一時サーバー・一時の Minecraft フォルダー）：ユーザーが TOP で「埋め立て」を選んで保存し、ギフトの割り当ての一覧に18個が日本語の名前で並ぶことを見た。こちらで見たこと：
+    - 一時のサーバーに BridgeMOD・DisplayMOD・OBSMOD・UmetateMod 2.6.23 が入った。
+    - 一時の本体には、OBSMOD を除く3つが入った。
+    - ふだんの `%APPDATA%\.minecraft` と本物の配信サーバーには触っていない。
+    - 開発版が書き換えたリポジトリの `bridge/commands/minecraft`（`game_*.txt`。git の外）は、同じ仕組みで採掘に戻した。`bridge/config.minecraft.json` は git で戻した。
+
+#### 次にやること
+
+1. 最後のレビュー（opus）→ 直す → PR → CI → ユーザーの許しでマージ → HANDOFF04 の docs PR。
+2. PR3（マップの入れ替え・「マップを初期化」）の計画と作業。PR3 までできるまで、配る物（`npm run release:win`）は作らない。
+
+---
+
 ### 2026-10-26：埋め立て PR1（UmetateMod 2.6.23。PR #147、マージコミット e17c009）
 
 計画：`docs/superpowers/plans/2026-10-26-umetate-pr1-mod.md`（設計書は下の節）。作り方はユーザーの選択どおり「私が作る＋最後に opus のレビュー」。
