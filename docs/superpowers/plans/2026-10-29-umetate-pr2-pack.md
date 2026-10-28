@@ -15,14 +15,13 @@
 - `game-packs/umetate/game.json`：`format: 1`、`id: "umetate"`、`modId: "stackinggame_events"`、`serverJar` と `clientJar` は `stackinggame_events-<UmetateMod/gradle.properties の mod_version>.jar`（今は 2.6.23）。`bridgeEventApi` は書かない。
 - コマンドは18個。`UmetateKeys.EVENTS`（13個）と `UmetateKeys.LAB`（5つ）と同じ名前・同じ順で、`command` は `umetate <名前> {Count} {ListenerName}`。`reset` は載せない。
 - 題名（`title`）は `UmetateMod/.../integration/UmetateTitles.java` の題名と同じ（ギフトの割り当ての一覧と、ゲームの中の表示を合わせる）。
-- `destructive: true` は、ふつうの地形を壊す・地形に物を残すもの（2026-10-12 のユーザーの決定「地形を壊すものには印」と同じ考え）：voidbomb・voidbomb_rain・megablast・meteor_shower（`events.master.json` で `TERRAIN`）、zigoku（3階の壁と回廊を崩す）、stamp（黒曜石が残る）、atamahuttou（溶岩が残る）。ほかの11個は付けない（枠の中の金・ダイヤだけを扱う、置いてから戻す、何もしない、枠の中の作り直し）。
+- `destructive` は、どのコマンドにも付けない（2026-10-29 ユーザーの決定「妨害マイクラなんだからマップボッコボコにしていい」）。保護エリア（印の付いたギフトを、決めた範囲の中では動かさない BridgeMOD の仕組み）は、今は BRIDGE がいつもオフで送っていて働いていないが、将来オンにしても埋め立ては止めない。
 - 表示は今の既定（`commonDisplay` を書かない ＝ `DISPLAY_OWNER: game`）。UmetateMod が始まったときに出す（PR1）。
 - UmetateMod の jar は、サーバーと Minecraft 本体の両方に入れる（白い光と揺れの描画のため）。サーバーのひな形（`scripts/prepare-server-template.cjs`）には入れない（ゲームを選んだときに入る。採掘と同じ）。
 - MOD のコード・版は変えない（2.6.23 のまま）。
 
 ## 決めたこと（Ruling。ユーザーに見せる）
 
-- `destructive` の付け方：上の Global Constraints のとおり。間違っていたときの損：game.json の印を付け替えるだけ。
 - 「作るが同梱しない MOD」（`buildOnlyModJars`）は、埋め立てMOD が同梱に移ると空になるので、関数ごと消す（呼ぶ所は `scripts/check-jar-inputs.cjs` とテスト）。
 - 同梱のパックを見つける所は、新しい小さなモジュール `electron/bundled_game_packs.cjs` にして、テストできるようにする。
 - 送った人の名前が空のとき、BridgeMOD が打つコマンドは最後に空白が残り（`umetate voidbomb 1 `）、Minecraft のコマンドの読み方では失敗する。ただし BRIDGE は名前が無ければ `viewer` を入れて送り（`bridge/index.js` の `sendBridgeModEvent`）、テスト発火も「テスト視聴者」を入れるので、ふつうは起きない。この PR では直さない（Review Focus の1に置く）。
@@ -64,9 +63,9 @@
   - `UmetateTitles.java` の `Map.entry("k", "v")` を取り出し、18個すべてで title が同じ。
   - command がすべて `umetate ${key} {Count} {ListenerName}`。
   - `format`・`id`・`modId` が Global Constraints の値。`bridgeEventApi` が無い。`serverJar`・`clientJar` が `stackinggame_events-${mod_version}.jar`。
-  - `destructive: true` の key の集まりが、ちょうど voidbomb・voidbomb_rain・megablast・meteor_shower・zigoku・stamp・atamahuttou。
+  - どのコマンドにも `destructive` が無い。
   - 一時フォルダーに game.json と `fakeJar('stackinggame_events')` を置き、`inspectPackage` が通る。正規化された commands の `category` が `UmetateMOD`。
-  - `createGameProfiles`（`game-profiles.test.cjs` の fixture と同じ作り。`bundledPackages` にこのフォルダーを渡す）で `activate('umetate')`：サーバーと本体の両方の mods に UmetateMod の jar。`obsJar` を渡したときは OBSMOD はサーバーにだけ。コマンドのフォルダーの `game_umetate_voidbomb.txt` が `# TITLE: ボイドボム`・`# CATEGORY: UmetateMOD`・`# DESTRUCTIVE: true`・`# DISPLAY_OWNER: game`・`# COUNT_MODE: aggregate` を持ち、`# GAME_MOD:` が無く、最後の行が `umetate voidbomb {Count} {ListenerName}`。`game_umetate_nether_army.txt` には `# DESTRUCTIVE:` が無い。
+  - `createGameProfiles`（`game-profiles.test.cjs` の fixture と同じ作り。`bundledPackages` にこのフォルダーを渡す）で `activate('umetate')`：サーバーと本体の両方の mods に UmetateMod の jar。`obsJar` を渡したときは OBSMOD はサーバーにだけ。コマンドのフォルダーの `game_umetate_voidbomb.txt` が `# TITLE: ボイドボム`・`# CATEGORY: UmetateMOD`・`# DISPLAY_OWNER: game`・`# COUNT_MODE: aggregate` を持ち、`# GAME_MOD:` と `# DESTRUCTIVE:` が無く、最後の行が `umetate voidbomb {Count} {ListenerName}`。
 - [ ] **Step 3: 落ちることを確かめる** — Run: `node --test electron/test/umetate-pack.test.cjs` Expected: game.json が無くて FAIL。
 - [ ] **Step 4: `game-packs/umetate/game.json` を書く** — 18個を `UmetateKeys` の順で。
 - [ ] **Step 5: 通ることを確かめる** — Run: 同じ。Expected: PASS。
