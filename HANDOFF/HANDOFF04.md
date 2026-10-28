@@ -1,4 +1,4 @@
-### 2026-10-26：埋め立て PR1（UmetateMod 2.6.23。ブランチ `feat/umetate-pr1-mod`）
+### 2026-10-26：埋め立て PR1（UmetateMod 2.6.23。PR #147、マージコミット e17c009）
 
 計画：`docs/superpowers/plans/2026-10-26-umetate-pr1-mod.md`（設計書は下の節）。作り方はユーザーの選択どおり「私が作る＋最後に opus のレビュー」。
 
@@ -39,7 +39,7 @@
   - どれも、作る前に落ちることを見てから作った。
   - `npm run verify`：型チェック・BRIDGE 15/15・アプリ 819/819・ビルドが通る。
   - 実サーバーの検証の libraries は、本物の配信サーバー（`server/Douma_Craft/libraries`）を読むだけで使った。
-- 記録（ledger）：`.superpowers/sdd/2026-10-26-umetate-pr1-mod/progress.md`（git の外）。決めたこと（Ruling）はそこと PR に書いた。
+- 決めたこと（Ruling）は PR #147 の本文に書いた（作業中の記録 `.superpowers/sdd/2026-10-26-umetate-pr1-mod/` は git の外で、マージのあと片付けた）。
 - 最後のレビュー（opus）：重大 0・重要 4・軽い 9。軽い5（処理中のギフトが消える）と軽い8（勝ちの判定が守りの外）は、効き目で見て重要として直した。
   - 重要1：死ぬと残りの回数が全部消えていた。死んだときは、終わったときと同じに残りを続ける（リスポーンを待つ）。
   - 重要2：検証の台本で、ジャンクションを作ってから try に入るまでのあいだに失敗すると、ジャンクションが残った。作る所から try の中に入れた（偽の libraries とマップの無い偽のリポジトリで、途中で失敗させて外れることを確かめた）。
@@ -62,9 +62,13 @@
 
 #### 次にやること
 
-1. PR → CI → ユーザーの許しでマージ。
-2. PR2（ゲームパック `game-packs/umetate/game.json`・配り方）と PR3（マップの入れ替え・「マップを初期化」）の計画と作業。
-3. 本物の配信サーバーへの入れ替えと、本体での見た目（花火・タイトル）の確かめは、PR3 までできたあとに、アプリのゲームの切り替えを通して行う。
+1. ~~PR → CI → ユーザーの許しでマージ~~（10-26 PR #147 をマージした。CI の verify（Ubuntu・Windows）と mod-build が通った）。
+2. PR2（ゲームパック `game-packs/umetate/game.json`・配り方）の計画と作業。ユーザーの決定（10-26「マージして PR2 へ」）。
+   - コマンドは `umetate <名前> {Count} {ListenerName}`。`bridgeEventApi` は使わない（BridgeMOD にコマンドを打たせる）。`modId` は `stackinggame_events`。
+   - 載せるのは18個（13個と研究室の5つ）。題名は MOD の `UmetateTitles` と同じにする。`reset` は載せない。
+   - UmetateMod の jar を、サーバーと Minecraft 本体の両方に入れる（`scripts/mod_jars.cjs` の `buildOnlyModJars` から、ゲームパックの jar へ）。`scripts/prepare-game-packs.cjs` は今は採掘だけを決め打ちで作るので、埋め立ても作れるようにする。
+3. PR3（マップの入れ替え・「マップを初期化」）の計画と作業。
+4. 本物の配信サーバーへの入れ替えと、本体での見た目（花火・タイトル）の確かめは、PR3 までできたあとに、アプリのゲームの切り替えを通して行う。
 
 ---
 
