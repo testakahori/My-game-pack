@@ -1,4 +1,4 @@
-### 2026-10-29：埋め立て PR2（ゲームパックと配り方。ブランチ `feat/umetate-pr2-pack`）
+### 2026-10-29：埋め立て PR2（ゲームパックと配り方。PR #149、マージコミット 3f63ca8）
 
 計画：`docs/superpowers/plans/2026-10-29-umetate-pr2-pack.md`。作り方は「私が作る＋最後に opus のレビュー」。
 
@@ -24,11 +24,23 @@
     - 一時の本体には、OBSMOD を除く3つが入った。
     - ふだんの `%APPDATA%\.minecraft` と本物の配信サーバーには触っていない。
     - 開発版が書き換えたリポジトリの `bridge/commands/minecraft`（`game_*.txt`。git の外）は、同じ仕組みで採掘に戻した。`bridge/config.minecraft.json` は git で戻した。
+- 最後のレビュー（opus）：重大 0・重要 1・軽い 6。
+  - 重要1：PR3 の前に配ると、埋め立てを選んでも専用マップが入らない。ユーザーの決定「手順書に書くだけ」に従い、`docs/手動配布とアプリ更新.md`・`AGENTS.md` に「PR3 がマージされるまで `npm run release:win` で配布用を作らない（試し用の版は作ってよい）」と書いた。コードでは止めていない。
+  - 軽い1〜6はユーザーの決定「全部直す」で直した。
+    - 採掘を選んでいるときのアプリの更新で、同梱の埋め立てMOD を入れないことをテストで押さえた。
+    - 文書3つ：手順書の作り直す MOD に埋め立てMOD、AGENTS.md の GameEvents の記述、計画の空の名前の記述。名前が空なら BridgeMOD の `ListenerNames.display` が `viewer` にする。
+    - 開発用のブラウザー表示（`src/lib/devApiMock.ts`）は、`import.meta.glob` で `game-packs/*/game.json` を全部読み、選べるゲームは games.json の `modDir` から。Node で動かすテストは、esbuild の define で `import.meta.glob` を空にしている。
+    - 配布の確かめ（`config-schema.test.cjs`）は、electron の下のフォルダーも見て、名前を組み立てる require を止める。
+    - `scripts/mod_jars.cjs` の `uses` は、その MOD の build.gradle の `ext.jarInputsAlso` から読む。2つ以上か、同梱しない MOD なら止める。
+  - `npm run verify`：アプリ 830/830。CI（mod-build・verify の2つ）も通った。
 
 #### 次にやること
 
-1. 最後のレビュー（opus）→ 直す → PR → CI → ユーザーの許しでマージ → HANDOFF04 の docs PR。
-2. PR3（マップの入れ替え・「マップを初期化」）の計画と作業。PR3 までできるまで、配る物（`npm run release:win`）は作らない。
+1. 埋め立て PR3（マップの入れ替え・「マップを初期化」）の計画（writing-plans）と作業。
+   - ユーザーの話：埋め立ては、ゲームを切り替えるたびに `map_backup` のきれいなマップを写して使い、壊れたマップは消す。採掘とサバイバルはマップをそのまま。「マップを初期化」のボタンで、バックアップのきれいなマップに戻す。
+   - 専用マップの元は、リポジトリの直下の `map/`（`map/README.md` あり）。
+2. PR3 がマージされるまで、配布用のインストーラー（`npm run release:win`）は作らない。
+3. そのあと：採掘のイベント用のマップ（ユーザーが作って一緒に配る。いくつかから選べるように）。
 
 ---
 
