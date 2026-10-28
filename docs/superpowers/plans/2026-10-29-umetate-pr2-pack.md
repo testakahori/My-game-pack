@@ -24,11 +24,11 @@
 
 - 「作るが同梱しない MOD」（`buildOnlyModJars`）は、埋め立てMOD が同梱に移ると空になるので、関数ごと消す（呼ぶ所は `scripts/check-jar-inputs.cjs` とテスト）。
 - 同梱のパックを見つける所は、新しい小さなモジュール `electron/bundled_game_packs.cjs` にして、テストできるようにする。
-- 送った人の名前が空のとき、BridgeMOD が打つコマンドは最後に空白が残り（`umetate voidbomb 1 `）、Minecraft のコマンドの読み方では失敗する。ただし BRIDGE は名前が無ければ `viewer` を入れて送り（`bridge/index.js` の `sendBridgeModEvent`）、テスト発火も「テスト視聴者」を入れるので、ふつうは起きない。この PR では直さない（Review Focus の1に置く）。
+- 送った人の名前が空でも、コマンドの最後に空白は残らない。BridgeMOD は `{ListenerName}` に入れる前に `ListenerNames.display` を通し、前後の空白を削って、空なら `viewer` にする（`BridgeMod/src/main/java/jp/douma/bridgemod/ListenerNames.java`。レビューで確かめた。2026-10-29 に直した記述）。
 
 ## Review Focus
 
-1. 送った人の名前が空のギフト（BridgeMOD の `{ListenerName}` が空になる道があるか）：コマンドが「引数が正しくない」で失敗しないか。→ BRIDGE の送り方をレビューで確かめる（テストは足さない）。
+1. 送った人の名前が空のギフト：コマンドが「引数が正しくない」で失敗しないか。→ レビューで確かめた。BridgeMOD の `ListenerNames.display` が空を `viewer` にし、後ろの空白も削るので、空になる道は無い（テストは足さない）。
 2. 採掘を選んでいる人がアプリを更新したとき：採掘のパックとゲームの切り替えが今までどおり動く。→ Task 2 のテストに入れる。
 3. 埋め立てのパックの jar が無いまま `npm run release:win` を流したとき：はっきり止まる（埋め立てMOD を作って、と言う）。→ Task 2 のテストに入れる。
 4. game.json と UmetateMod の名前・題名・版がずれたとき（MOD だけ直した）：テストが落ちる。→ Task 1 のテストに入れる。
