@@ -89,3 +89,58 @@ test('埋め立てのゲームパック: 埋め立てを選んで保存すると
   assert.equal(voidbomb.trim().split(/\r?\n/).at(-1), 'umetate voidbomb {Count} {ListenerName}');
   assert.equal(fs.readdirSync(commands).filter(n => n.startsWith('game_umetate_')).length, 18);
 });
+
+// 配り方（埋め立て PR2 の Task 2）：パックを作る台本は採掘と埋め立ての2つを作る。アプリは同梱の2つを見つける。
+// どのゲームにパックがあるかは bridge/games.json の modDir の1か所（設計書 13：ほかの所は自分の一覧を持たない）。
+test('配り方: ゲームパックのあるゲームは、games.json の modDir（埋め立て・採掘）', () => {
+  const games = JSON.parse(read('bridge/games.json'));
+  assert.deepEqual(games.filter(g => g.modDir).map(g => [g.id, g.modDir]), [['umetate', 'UmetateMod'], ['saikutu', 'SaikutuMod']]);
+  for (const g of games.filter(g => g.modDir)) assert.ok(fs.existsSync(path.join(root, 'game-packs', g.id, 'game.json')), `${g.id} のゲームパックがある`);
+});
+
+function fakeRepo(t, { umetateJar = true } = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'umetate-repo-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const put = (name, content) => { const file = path.join(dir, name); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, content); };
+  for (const id of ['saikutu', 'umetate']) put(`game-packs/${id}/game.json`, read(`game-packs/${id}/game.json`));
+  put('BridgeMod/gradle.properties', 'mod_version=1.8.3\n');
+  put('DisplayMod/gradle.properties', 'mod_version=1.1.0\n');
+  put('ObsMod/gradle.properties', 'mod_id=minecraft_obs_bridge\nmod_version=2.4.8\n');
+  put('UmetateMod/gradle.properties', `mod_id=stackinggame_events\nmod_version=${modVersion()}\n`);
+  const saikutu = JSON.parse(read('game-packs/saikutu/game.json'));
+  put(`SaikutuMod/build/libs/${saikutu.serverJar}`, fakeModJar('saikutumod'));
+  if (umetateJar) put(`UmetateMod/build/libs/${pack().serverJar}`, fakeModJar('stackinggame_events'));
+  return dir;
+}
+
+test('配り方: パックを作る台本は、採掘と埋め立ての2つを作り、どちらもゲームパックの確かめを通る', t => {
+  const { prepareGamePacks } = require('../../scripts/prepare-game-packs.cjs');
+  const dir = fakeRepo(t);
+  const made = prepareGamePacks(dir);
+  assert.deepEqual(made.map(folder => path.relative(dir, folder).split(path.sep).join('/')), ['build/game-packs/umetate', 'build/game-packs/saikutu']);
+  for (const folder of made) assert.doesNotThrow(() => inspectPackage(folder), folder);
+  assert.ok(fs.existsSync(path.join(dir, 'build/game-packs/umetate', pack().serverJar)));
+});
+
+test('配り方: 埋め立ての MOD の jar が無ければ、UmetateMod を作るように言って止める', t => {
+  const { prepareGamePacks } = require('../../scripts/prepare-game-packs.cjs');
+  assert.throws(() => prepareGamePacks(fakeRepo(t, { umetateJar: false })), /UmetateMod/);
+});
+
+test('配り方: アプリは同梱のゲームパック（採掘・埋め立て）を、配る物でも開発版でも見つける', t => {
+  const { bundledGamePacks } = require('../bundled_game_packs.cjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'umetate-bundled-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const resources = path.join(dir, 'resources'), appDir = path.join(dir, 'repo', 'electron');
+  const game = (base, id) => { fs.mkdirSync(path.join(base, id), { recursive: true }); fs.writeFileSync(path.join(base, id, 'game.json'), '{}'); };
+  assert.deepEqual(bundledGamePacks({ packaged: true, resourcesPath: resources, appDir }), [], '何も無ければ空');
+  game(path.join(resources, 'game-packs'), 'umetate');
+  assert.deepEqual(bundledGamePacks({ packaged: true, resourcesPath: resources, appDir }), [{ id: 'umetate', folder: path.join(resources, 'game-packs', 'umetate') }], '片方だけならそれだけ');
+  game(path.join(resources, 'game-packs'), 'saikutu');
+  assert.deepEqual(bundledGamePacks({ packaged: true, resourcesPath: resources, appDir }).map(p => p.id), ['umetate', 'saikutu'], 'games.json の順（埋め立て・採掘）');
+  for (const id of ['saikutu', 'umetate']) game(path.join(dir, 'repo', 'build', 'game-packs'), id);
+  assert.deepEqual(bundledGamePacks({ packaged: false, resourcesPath: resources, appDir }), ['umetate', 'saikutu'].map(id => ({ id, folder: path.join(dir, 'repo', 'build', 'game-packs', id) })), '開発版は build/game-packs');
+  const ipc = read('electron/games_ipc.cjs');
+  assert.match(ipc, /bundledGamePacks\(/);
+  assert.doesNotMatch(ipc, /'game-packs', 'saikutu'|game-packs\/saikutu/, '採掘を決め打ちしない');
+});

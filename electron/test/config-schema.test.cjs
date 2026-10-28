@@ -88,6 +88,11 @@ test('配布: electron が読む bridge のモジュールは、その中で読�
   for (const name of fs.readdirSync(path.join(root, 'electron')).filter(n => n.endsWith('.cjs'))) {
     const source = fs.readFileSync(path.join(root, 'electron', name), 'utf8');
     for (const match of source.matchAll(/require\(\s*["'](\.\.\/bridge\/[^"']+)["']\s*\)/g)) visit(match[1], `electron/${name}`);
+    // bridge/ のほかの外（scripts/ など）は配布のアプリに入らないので、electron からは読まない（埋め立て PR2 で見つけた穴）。
+    for (const match of source.matchAll(/require\(\s*["'](\.\.\/(?!bridge\/)[^"']+)["']\s*\)/g)) {
+      const target = path.posix.join('electron', match[1]);
+      assert.ok(target.startsWith('electron/') || files.has(target) || files.has(target + '.cjs') || files.has(target + '.js'), `electron/${name} が配布のアプリに入らない ${match[1]} を読んでいる`);
+    }
   }
   assert.ok(required.has('bridge/config_schema.js'), [...required].join(', '));
   assert.ok(required.has('bridge/tiktok_events.cjs'), 'audience_stats.cjs が中で読む tiktok_events.cjs までたどる: ' + [...required].join(', '));

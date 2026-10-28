@@ -12,13 +12,14 @@ const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 const { fakeModJar: jar } = require('./fake-mod-jar.cjs');
 
 test('OBSMOD: 同梱する MOD の一覧に入り、サーバーにだけ入れる印を持つ（release:win も確かめて同梱する）', () => {
-  const { modJars, buildOnlyModJars } = require('../../scripts/mod_jars.cjs');
+  const mods = require('../../scripts/mod_jars.cjs');
+  const { modJars } = mods;
   const obs = modJars(root).find(mod => mod.dir === 'ObsMod');
   assert.equal(path.basename(obs.jar), 'minecraft_obs_bridge-2.4.8.jar');
   assert.equal(obs.name, 'OBSMOD');
   assert.equal(obs.serverOnly, true);
   assert.equal(modJars(root).filter(mod => mod.serverOnly).length, 1, 'サーバーにだけ入れるのは OBSMOD だけ');
-  assert.deepEqual(buildOnlyModJars(root).map(mod => mod.dir), ['UmetateMod'], '作るが同梱しないのは埋め立ての MOD だけ');
+  assert.equal(mods.buildOnlyModJars, undefined, '作るが同梱しない MOD は無くなった（埋め立ての MOD はゲームパックで同梱する。2026-10-29 埋め立て PR2）');
 });
 
 test('OBSMOD: サーバーの雛形の mods に入れる（準備の道具は jar の場所を mod_jars から取る）', t => {

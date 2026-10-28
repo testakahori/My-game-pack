@@ -40,7 +40,8 @@ test('ゲームの一覧と判定の写し: アプリ・BRIDGE・画面は自分
     const source = read(file);
     assert.doesNotMatch(source, /(umetate|saikutu)\|(umetate|run|saikutu)|startsWith\(['"]game_['"]\)|\^game_\[a-z0-9\]/, file + ' にゲームの一覧・判定の写しがある');
     assert.doesNotMatch(source, /\{1,63\}|\{0,49\}|['"]doumacmd['"]/, file + ' に MOD の ID・パックの key の写しがある');
-    // 配列で書いた一覧（['common', 'umetate', …]）も見つける。埋め立ては同梱のパックがないので、名前を文字で書く所はない。
+    // 配列で書いた一覧（['common', 'umetate', …]）も見つける。埋め立てのゲームパック（2026-10-29）も、どのゲームにパックがあるかを
+    // games.json の modDir から読むので、名前を文字で書く所はない（electron/bundled_game_packs.cjs・scripts/mod_jars.cjs・prepare-game-packs.cjs）。
     assert.doesNotMatch(source, /['"`]umetate['"`]/, file + ' にゲームの一覧の写しがある（umetate）');
   }
 });
