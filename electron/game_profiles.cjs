@@ -12,7 +12,7 @@ const { bridgeCommandsDir, newBridgeConfig } = require('../bridge/config_default
 const { GAMES, RESERVED_MOD_IDS, gameOfCommand, isGameCommandFile, isGameModId, isGamePackKey } = require('../bridge/game_commands.cjs');
 // ゲームの初期マップ（games.json の maps）の入れ替え（埋め立て PR3）。
 const { MAP_SWITCH_DIR, hasWorld, levelBaseName, mapPlaces, ensureMapBackup, stageMap, planMapChange, journalMap, applyMapSwap, restoreMapSwap } = require('./game_maps.cjs');
-const { mergeProperties, levelNameOf } = require('./server_properties.cjs');
+const { levelNameOf } = require('./server_properties.cjs');
 const PROFILE_KEYS = ['mappings', 'likeEvents', 'unmappedGiftEvent', 'shareEvent', 'followEvent', 'memberEvent',
   'roulette', 'deathRoulette', 'commentGifts', 'milestones', 'combos'];
 const hash = data => crypto.createHash('sha256').update(data).digest('hex');
@@ -106,8 +106,9 @@ function inspectPackage(folder) {
 // recordRecovery は、壊れていて戻したことの記録（main が logs/settings-recovery.log に書く）。
 // removeTree は、切り替えが終わったあとに古いマップを消す関数（テストが消せないときを起こす）。
 // ensureServerStopped は「マップを初期化」の確かめ。サーバーだけが止まっていればよい（BRIDGE・Minecraft は動いていてよい。埋め立て PR3）。
+// missingMapHint は、初期マップが無いときの案内に足す文（開発版だけ npm run dev:refresh を出す。games_ipc.cjs が決める）。
 function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridgeJar, displayJar = () => null, obsJar = () => null, bundledPackages = () => [], ensureStopped, beforeStep = () => {}, recordRecovery, now,
-  removeTree = dir => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 }), ensureServerStopped = ensureStopped }) {
+  removeTree = dir => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 }), ensureServerStopped = ensureStopped, missingMapHint = '' }) {
   const root = () => path.resolve(storage());
   const stateFile = () => path.join(root(), 'profiles.json');
   const journalFile = () => path.join(root(), 'pending-switch.json');
@@ -187,19 +188,21 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     const places = name ? mapPlaces(server, id, name) : null;
     const plan = planMapChange({ target, previous: gameOf(current.active), switching: id !== current.active, currentLevel, useReady: Boolean(places) && hasWorld(places.use), reset });
     if (!plan) return null;
-    const base = { kind: plan.kind, propertiesFile, propertiesBefore, slot: null, use: null, fresh: false, hadUse: false };
+    // 途中の記録には、server.properties の丸ごとではなく前の level-name だけを残す（戻すときもそれだけを書く。最後のレビュー 軽い2）。
+    const base = { kind: plan.kind, propertiesFile, hadProperties: propertiesBefore !== null, levelBefore: currentLevel, slot: null, use: null, fresh: false, hadUse: false };
     if (plan.kind === 'leave') {
       // 埋め立ての前に使っていたワールドへ戻す。記録が無い・そのワールドが無ければ haihu_world/world（決めたこと 5）。
       const back = current.mapReturnLevel && hasWorld(path.resolve(server, current.mapReturnLevel)) ? current.mapReturnLevel : 'haihu_world/world';
-      return { ...base, propertiesAfter: mergeProperties(propertiesBefore || '', { 'level-name': back }) };
+      return { ...base, levelAfter: back };
     }
-    // マップと同じ名前のワールド（直下に手で入れた umetate_lab_map も）は「前のワールド」として残さない。
-    const returnLevel = levelBaseName(currentLevel) === plan.name ? current.mapReturnLevel : currentLevel;
-    const step = { ...base, use: places.use, hadUse: fs.existsSync(places.use), fresh: plan.fresh, returnLevel,
-      propertiesAfter: mergeProperties(propertiesBefore || '', { 'level-name': plan.level }) };
+    // 「埋め立てに切り替える前に使っていたワールド」（設計書 3.3）は、ほかのゲームから入るときだけ記録する。同じゲームのままの保存・初期化では、
+    // 記録が無いときだけ今のワールドを入れる（最後のレビュー 軽い1）。マップと同じ名前のワールド（直下に手で入れた umetate_lab_map も）は記録しない。
+    const candidate = levelBaseName(currentLevel) === plan.name ? undefined : currentLevel;
+    const returnLevel = id !== current.active ? (candidate ?? current.mapReturnLevel) : (current.mapReturnLevel ?? candidate);
+    const step = { ...base, use: places.use, hadUse: fs.existsSync(places.use), fresh: plan.fresh, returnLevel, levelAfter: plan.level };
     if (plan.fresh) {
       const pack = bundledPackages().find(p => p.id === id);
-      const files = await ensureMapBackup({ serverRoot: server, gameId: id, name: plan.name, bundled: pack ? path.join(pack.folder, 'maps', plan.name) : null });
+      const files = await ensureMapBackup({ serverRoot: server, gameId: id, name: plan.name, bundled: pack ? path.join(pack.folder, 'maps', plan.name) : null, remove: removeTree, hint: missingMapHint });
       step.slot = path.dirname(await stageMap({ serverRoot: server, gameId: id, name: plan.name, files, operation }));
     }
     return step;
@@ -218,7 +221,7 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
   function restore(journal) {
     const dirs = targets();
     if (!/^[a-f0-9-]{36}$/.test(journal.id || '') || JSON.stringify(dirs) !== JSON.stringify(journal.roots) || path.resolve(configPath()) !== journal.configPath) throw new Error('切替時の保存先へ戻してから復旧してください');
-    if (journal.map) restoreMapSwap(dirs[0], journal.map);
+    if (journal.map) restoreMapSwap(dirs[0], journal.map, { id: journal.id, mapNames: GAMES.flatMap(g => g.maps || []) });
     for (const dir of dirs.slice().reverse()) {
       const slot = path.join(dir, '.mygamepack-mod-switch', journal.id), mods = path.join(dir, 'mods'), old = path.join(slot, 'previous');
       if (fs.existsSync(old)) {

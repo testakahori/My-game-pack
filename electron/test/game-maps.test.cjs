@@ -164,9 +164,25 @@ test('マップをよけたところでアプリが落ちても、「切替前�
   const x = fixture(t);
   await x.api.activate('umetate');
   put(x.at(`${USE}/region/played.mca`), 'played');
-  const propertiesBefore = x.props(), configBefore = fs.readFileSync(x.config, 'utf8');
+  const configBefore = fs.readFileSync(x.config, 'utf8');
   const stateBefore = JSON.parse(fs.readFileSync(path.join(x.storage, 'profiles.json'), 'utf8'));
   // 初期化の途中で落ちた形：前のマップは slot/previous にあり、新しいマップが使う場所にあり、server.properties は書き換わった。
+  const x2 = writeCrashJournal(x, { configBefore, stateBefore });
+  // 落ちたあと「切替前の状態に戻す」を押すまでに、ダッシュボードでほかの設定を変えた。
+  fs.writeFileSync(x.properties, x.props().replace('motd=テスト', 'motd=変えた'));
+  assert.equal(x.api.list().recoveryRequired, true);
+  await x.api.recover();
+  assert.equal(contents(x.at(USE))['region/played.mca'], 'played', '前のマップが戻る');
+  const aside = fs.readdirSync(x2.slot).filter(n => n.startsWith('interrupted-'));
+  assert.equal(aside.length, 1);
+  assert.equal(fs.readFileSync(path.join(x2.slot, aside[0], 'level.dat'), 'utf8'), 'new', '新しいマップはよけておく');
+  assert.equal(x.levelName(), USE, 'level-name だけを前に戻す');
+  assert.match(x.props(), /^motd=変えた$/m, 'その間に変えたほかの行は消さない');
+  assert.equal(x.api.list().recoveryRequired, false);
+});
+
+// 落ちた形の途中の記録を手で作る（map を変えて、場所がおかしい記録も作れる）。
+function writeCrashJournal(x, { configBefore, stateBefore, map = {} }) {
   const id = crypto.randomUUID(), slot = x.at(`.mygamepack-map-switch/${id}`);
   fs.mkdirSync(slot, { recursive: true });
   fs.renameSync(x.at(USE), path.join(slot, 'previous'));
@@ -174,16 +190,9 @@ test('マップをよけたところでアプリが落ちても、「切替前�
   x.setLevel('haihu_world/changed');
   fs.writeFileSync(path.join(x.storage, 'pending-switch.json'), JSON.stringify({ id, roots: [x.server, x.client].map(p => path.resolve(p)), hadMods: [true, true],
     configPath: path.resolve(x.config), configBefore, stateBefore, commandBefore: {},
-    map: { slot, use: x.at(USE), fresh: true, hadUse: true, propertiesFile: x.properties, propertiesBefore } }));
-  assert.equal(x.api.list().recoveryRequired, true);
-  await x.api.recover();
-  assert.equal(contents(x.at(USE))['region/played.mca'], 'played', '前のマップが戻る');
-  const aside = fs.readdirSync(slot).filter(n => n.startsWith('interrupted-'));
-  assert.equal(aside.length, 1);
-  assert.equal(fs.readFileSync(path.join(slot, aside[0], 'level.dat'), 'utf8'), 'new', '新しいマップはよけておく');
-  assert.equal(x.props(), propertiesBefore);
-  assert.equal(x.api.list().recoveryRequired, false);
-});
+    map: { slot, use: x.at(USE), fresh: true, hadUse: true, propertiesFile: x.properties, hadProperties: true, levelBefore: USE, ...map } }));
+  return { id, slot };
+}
 
 test('古いマップを消せなくても切り替えは成功し、次の切り替えのときに消える', async t => {
   let failRemove = false;
@@ -313,4 +322,122 @@ test('画面: TOP の「マップを初期化」は、マップのあるゲー�
   assert.match(ui, /const canResetMap = Boolean\(status\?\.applied && activeGame\?\.maps\?\.length\)/);
   assert.match(ui, /resetMapOnSwitch/);
   assert.match(read('src/lib/devApiMock.ts'), /gamesResetMap:/);
+});
+
+// ---- 最後のレビュー（opus）を受けて足したテスト（重要1・軽い1〜6） ----
+
+test('埋め立ての前のワールド（haihu_world/sakura）に戻り、そのワールドが無くなっていれば haihu_world/world に戻す', async t => {
+  const x = fixture(t, { level: 'haihu_world/sakura' });
+  put(x.at('haihu_world/sakura/level.dat'), 'sakura');
+  await x.api.activate('saikutu');
+  await x.api.activate('umetate');
+  await x.api.activate('saikutu');
+  assert.equal(x.levelName(), 'haihu_world/sakura', '記録した前のワールドへ戻す');
+  await x.api.activate('umetate');
+  fs.rmSync(x.at('haihu_world/sakura'), { recursive: true, force: true });
+  await x.api.activate('saikutu');
+  assert.equal(x.levelName(), 'haihu_world/world', '前のワールドが無ければ haihu_world/world');
+});
+
+test('埋め立てのまま保存し直しても・初期化しても、「埋め立ての前のワールド」は変わらない', async t => {
+  const x = fixture(t, { level: 'haihu_world/sakura' });
+  for (const name of ['sakura', 'event', 'event2']) put(x.at(`haihu_world/${name}/level.dat`), name);
+  await x.api.activate('umetate');
+  x.setLevel('haihu_world/event');
+  await x.api.activate('umetate');
+  x.setLevel('haihu_world/event2');
+  await x.api.resetMap();
+  await x.api.activate('saikutu');
+  assert.equal(x.levelName(), 'haihu_world/sakura', '埋め立てに切り替える前に使っていたワールド（設計書 3.3）');
+});
+
+test('初めて埋め立てに入るときに途中で失敗したら、写したマップを残さない', async t => {
+  const x = fixture(t, { extras: { beforeStep: step => { if (step === 'map') throw new Error('map locked'); } } });
+  await assert.rejects(x.api.activate('umetate'), /元へ戻しました.*map locked/);
+  assert.equal(fs.existsSync(x.at(USE)), false, '前は無かったので、写したマップは使う場所から外す');
+  assert.equal(x.levelName(), 'haihu_world/world');
+  assert.equal(x.api.list().recoveryRequired, false);
+});
+
+test('途中で失敗したとき、その間に書き換えた server.properties のほかの行は残し、level-name だけを戻す', async t => {
+  let fail = false;
+  const x = fixture(t, { extras: { beforeStep: i => {
+    if (!fail || i !== 1) return;
+    fs.writeFileSync(x.properties, fs.readFileSync(x.properties, 'utf8').replace('motd=テスト', 'motd=変えた'));
+    throw new Error('client locked');
+  } } });
+  await x.api.activate('umetate');
+  fail = true;
+  await assert.rejects(x.api.activate('saikutu'), /元へ戻しました.*client locked/);
+  assert.equal(x.levelName(), USE, 'level-name は前（埋め立てのマップ）に戻る');
+  assert.match(x.props(), /^motd=変えた$/m, '切り替えの間に変わったほかの行は消さない');
+});
+
+test('途中の記録のマップの場所がおかしければ、復旧は止まり、ほかのフォルダーを動かさない', async t => {
+  for (const [label, map] of [
+    ['サーバーの外の slot', dir => ({ slot: path.join(dir, 'outside') })],
+    ['別の処理の slot', x => ({ slot: x.at(`.mygamepack-map-switch/${crypto.randomUUID()}`) })],
+    ['マップでない use', x => ({ use: x.at('haihu_world/world') })],
+    ['別の server.properties', dir => ({ propertiesFile: path.join(dir, 'server.properties') })],
+    ['level-name の記録が無い', () => ({ levelBefore: 5 })],
+  ]) {
+    const x = fixture(t);
+    await x.api.activate('umetate');
+    const outside = path.join(x.dir, 'outside');
+    put(path.join(outside, 'previous/keep.txt'), 'keep');
+    const configBefore = fs.readFileSync(x.config, 'utf8'), stateBefore = JSON.parse(fs.readFileSync(path.join(x.storage, 'profiles.json'), 'utf8'));
+    const arg = label === 'サーバーの外の slot' || label === '別の server.properties' ? x.dir : x;
+    writeCrashJournal(x, { configBefore, stateBefore, map: map(arg) });
+    await assert.rejects(x.api.recover(), /マップの場所が不正/, label);
+    assert.equal(fs.readFileSync(path.join(outside, 'previous/keep.txt'), 'utf8'), 'keep', label);
+    assert.equal(fs.readFileSync(x.at('haihu_world/world/level.dat'), 'utf8'), 'world', label);
+  }
+});
+
+test('map_backup の古い方を消せなくても map_backup は欠けず、残りものは次の機会に消す', async t => {
+  let failOld = false;
+  const x = fixture(t, { extras: { removeTree: dir => { if (failOld && path.basename(dir).startsWith('.old-')) throw new Error('busy'); fs.rmSync(dir, { recursive: true, force: true }); } } });
+  await x.api.activate('umetate');
+  fs.writeFileSync(x.at(`${BACKUP}/level.dat`), 'broken');
+  put(x.at('map_backup/umetate/.staging-left/level.dat'), 'left');
+  failOld = true;
+  await x.api.activate('saikutu');
+  await x.api.activate('umetate');
+  assert.deepEqual(contents(x.at(BACKUP)), SAMPLE, 'map_backup は配った物と同じ（半分にならない）');
+  const left = () => fs.readdirSync(x.at('map_backup/umetate')).filter(n => n !== 'umetate_lab_map');
+  assert.equal(left().filter(n => n.startsWith('.old-')).length, 1, '消せなかった古い方が残る');
+  assert.equal(left().filter(n => n.startsWith('.staging-')).length, 0, '前に残った写しかけは消す');
+  failOld = false;
+  fs.writeFileSync(x.at(`${BACKUP}/level.dat`), 'broken');
+  await x.api.activate('saikutu');
+  await x.api.activate('umetate');
+  assert.deepEqual(left(), [], '次の機会に消す');
+});
+
+test('マップのフォルダーをほかのアプリがつかんでいたら、少し待って試し直し、だめなら何を閉じればよいかを日本語で出す', t => {
+  const { applyMapSwap } = require('../game_maps.cjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'game-maps-lock-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const use = path.join(dir, 'haihu_world/umetate_lab_map'), slot = path.join(dir, 'slot');
+  put(path.join(use, 'level.dat'), 'played'); put(path.join(slot, 'next/level.dat'), 'new');
+  let calls = 0;
+  const rename = () => { calls++; const error = new Error('EPERM: operation not permitted, rename'); error.code = 'EPERM'; throw error; };
+  assert.throws(() => applyMapSwap({ fresh: true, use, slot, levelAfter: USE, propertiesFile: path.join(dir, 'server.properties') }, () => {}, { rename, wait: () => {} }),
+    /ほかのアプリが使っています.*エクスプローラーなどで開いていたら閉じて/);
+  assert.equal(calls, 4, '3回まで試し直す');
+  let flaky = 0;
+  applyMapSwap({ fresh: true, use, slot, levelAfter: USE, propertiesFile: path.join(dir, 'server.properties') }, () => {},
+    { rename: (a, b) => { if (flaky++ < 2) { const error = new Error('EBUSY'); error.code = 'EBUSY'; throw error; } fs.renameSync(a, b); }, wait: () => {} });
+  assert.equal(fs.readFileSync(path.join(use, 'level.dat'), 'utf8'), 'new', '一瞬つかまれていただけなら、試し直して通る');
+});
+
+test('初期マップが無いときの案内：配るアプリでは開発者向けの文を出さず、開発版だけ npm run dev:refresh を出す', async t => {
+  for (const [hint, dev] of [[undefined, false], ['（開発版では npm run dev:refresh を動かしてください）', true]]) {
+    const x = fixture(t, { extras: hint === undefined ? {} : { missingMapHint: hint } });
+    fs.rmSync(path.dirname(x.bundledMap), { recursive: true, force: true });
+    const error = await x.api.activate('umetate').then(() => null, e => e);
+    assert.match(error.message, /初期マップがありません/);
+    assert.equal(/npm run dev:refresh/.test(error.message), dev);
+  }
+  assert.match(read('electron/games_ipc.cjs'), /missingMapHint: app\.isPackaged \? '' : '（開発版では npm run dev:refresh を動かしてください）'/);
 });

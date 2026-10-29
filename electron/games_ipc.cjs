@@ -52,6 +52,8 @@ function createGamesIpc({
       const minecraft = await getMinecraftProcessStatus(true);
       if (minecraft.running) throw new Error(switchBlockedMessage(minecraft.processes));
     },
+    // 初期マップが無いときの案内。開発者向けの手順は開発版だけに出す（埋め立て PR3 の最後のレビュー 軽い6）。
+    missingMapHint: app.isPackaged ? '' : '（開発版では npm run dev:refresh を動かしてください）',
     // 「マップを初期化」はマップを読むサーバーだけを見る（BRIDGE・Minecraft は動いていてよい。埋め立て PR3）。
     ensureServerStopped: async () => {
       assertMapIdle();

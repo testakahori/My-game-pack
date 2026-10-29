@@ -281,6 +281,23 @@ test('リリース: 作った物の置き場を空にしてから、ビルドと
   for (const part of ['1.2.3', 'MyGamePack-Setup-1.2.3.exe', 'bridgemod-1.8.0.jar', 'displaymod-1.0.0.jar', 'saikutumod-2.0.0.jar', 'minecraft_obs_bridge-2.4.7.jar', '作った元:']) assert.ok(text.includes(part), part);
 });
 
+// 配る物に本当に初期マップが入ったかを、最後の表示で見せる（埋め立て PR3 の最後のレビュー 軽い8）。
+test('リリース: 最後の表示に、配る物に入ったゲームの初期マップのファイルの数と大きさを出す。入っていなければそう出す', async t => {
+  for (const withMap of [true, false]) {
+    const { dir, put } = fakeRepo(t);
+    const summary = await release.runRelease({
+      ...quiet, root: dir, outDir: path.join(dir, 'release'),
+      run: step => {
+        if (withMap && step === 'prepare:game-maps') { put('build/game-packs/umetate/maps/umetate_lab_map/level.dat', 'x'.repeat(1024)); put('build/game-packs/umetate/maps/umetate_lab_map/region/r.0.0.mca', 'y'.repeat(2048)); }
+      },
+      packageInstaller: () => freshExe(put)(),
+    });
+    const line = summary.find(row => row.startsWith('埋め立ての初期マップ umetate_lab_map: '));
+    assert.ok(line, summary.join('\n'));
+    assert.equal(line, withMap ? '埋め立ての初期マップ umetate_lab_map: 2 ファイル・3.0 KB' : '埋め立ての初期マップ umetate_lab_map: 入っていません');
+  }
+});
+
 test('リリース: MOD の作り直し忘れがあれば、何も作らずに止める', async t => {
   const { dir, put } = fakeRepo(t);
   put('BridgeMod/src/main/java/A.java', 'class A { int changed; }', later);

@@ -3,11 +3,11 @@
 // 初期マップはサーバーの map_backup/<ゲームID>/<マップ名> に持ち、使う場所 haihu_world/<マップ名> へ写す。
 // 写した中身は、MAP の保存・読込（map_saves.cjs）と同じく、ファイルごとの SHA-256 で照らす。
 const fs = require("node:fs");
-const fsp = fs.promises;
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { safePath, inventory, copyVerified } = require("./map_saves.cjs");
 const { atomicWrite } = require("./settings_backups.cjs");
+const { mergeProperties } = require("./server_properties.cjs");
 
 // 切り替え・初期化の作業のフォルダー（<サーバー>/.mygamepack-map-switch/<処理ID>/next・previous）。MOD の .mygamepack-mod-switch と同じ形。
 const MAP_SWITCH_DIR = ".mygamepack-map-switch";
@@ -19,23 +19,50 @@ function mapPlaces(serverRoot, gameId, name) {
   return { backup: safePath(serverRoot, `map_backup/${gameId}/${name}`), use: safePath(serverRoot, `haihu_world/${name}`), level: `haihu_world/${name}` };
 }
 
+const removeTreeDefault = dir => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+// ほかのアプリ（エクスプローラー・ウイルス対策など）がファイルをつかんでいるときのエラー。
+const LOCKED = new Set(["EPERM", "EBUSY", "EACCES"]);
+
+// フォルダーの名前を変える。一瞬つかまれていただけなら少し待って試し直し（3回まで）、だめなら何を閉じればよいかを日本語で出す（最後のレビュー 軽い4）。
+function renameRetrying(from, to, { rename = fs.renameSync, wait = sleep } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try { return rename(from, to); } catch (error) {
+      if (!LOCKED.has(error.code)) throw error;
+      if (attempt >= 3) throw new Error(`マップのフォルダーを、ほかのアプリが使っています。エクスプローラーなどで開いていたら閉じて、もう一度押してください（${from}。${error.code}）`);
+      wait(100);
+    }
+  }
+}
+
+// server.properties の level-name だけを書く。その時点のファイルに重ねるので、ほかの行（ダッシュボードで変えた設定など）は消さない（最後のレビュー 軽い2）。
+function writeLevelName(file, level) {
+  const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  atomicWrite(file, mergeProperties(text, { "level-name": level }));
+}
+
 // map_backup の初期マップを、配った物（bundled）と同じ中身にする。違えば（アプリの更新でマップが変わった・壊れた）配った物から写し直す。
 // 配った物が無い（開発版でまだ作っていない）ときは、map_backup にあるものを使う。返すのは中身の一覧（inventory）。
-async function ensureMapBackup({ serverRoot, gameId, name, bundled }) {
+// hint は初期マップが無いときの案内に足す文（開発版だけ npm run dev:refresh。最後のレビュー 軽い6）。
+async function ensureMapBackup({ serverRoot, gameId, name, bundled, remove = removeTreeDefault, hint = "" }) {
   const { backup } = mapPlaces(serverRoot, gameId, name);
   const parent = path.dirname(backup);
-  if (fs.existsSync(parent)) for (const entry of fs.readdirSync(parent)) if (entry.startsWith(".staging-")) await fsp.rm(path.join(parent, entry), { recursive: true, force: true });
+  // 前に残った写しかけ（.staging-*）と、消せなかった古い方（.old-*）を消す。消せなければ次の機会に消す。
+  if (fs.existsSync(parent)) for (const entry of fs.readdirSync(parent)) if (/^\.(staging|old)-/.test(entry)) { try { remove(path.join(parent, entry)); } catch { /* 次の機会に消す */ } }
   if (!bundled || !hasWorld(bundled)) {
     if (hasWorld(backup)) return inventory(backup);
-    throw new Error(`${name} の初期マップがありません。アプリを入れ直してください（開発版では npm run dev:refresh を動かしてください）`);
+    throw new Error(`${name} の初期マップがありません。アプリを入れ直してください${hint}`);
   }
   const files = await inventory(bundled);
   const current = hasWorld(backup) ? await inventory(backup).catch(() => null) : null;
   if (JSON.stringify(current) === JSON.stringify(files)) return files;
   const staging = safePath(serverRoot, `map_backup/${gameId}/.staging-${crypto.randomUUID()}`);
   await copyVerified(bundled, staging, files);
-  await fsp.rm(backup, { recursive: true, force: true });
-  await fsp.rename(staging, backup);
+  // 今の map_backup を先によけてから入れ替え、古い方は最後に消す。途中で止まっても map_backup が半分にならない（最後のレビュー 軽い3）。
+  const old = fs.existsSync(backup) ? safePath(serverRoot, `map_backup/${gameId}/.old-${crypto.randomUUID()}`) : null;
+  if (old) renameRetrying(backup, old);
+  try { renameRetrying(staging, backup); } catch (error) { if (old) fs.renameSync(old, backup); throw error; }
+  if (old) { try { remove(old); } catch (error) { console.warn(`[games] 古い map_backup を消せませんでした（次の機会に消します）: ${error.message}`); } }
   return files;
 }
 
@@ -64,27 +91,32 @@ function planMapChange({ target, previous, switching, currentLevel, useReady, re
   return null;
 }
 
-// 途中の記録（pending-switch.json）に入れるマップの分。
-const journalMap = step => ({ slot: step.slot, use: step.use, fresh: step.fresh, hadUse: step.hadUse, propertiesFile: step.propertiesFile, propertiesBefore: step.propertiesBefore });
+// 途中の記録（pending-switch.json）に入れるマップの分。server.properties は丸ごとではなく、前の level-name だけを残す。
+const journalMap = step => ({ slot: step.slot, use: step.use, fresh: step.fresh, hadUse: step.hadUse, propertiesFile: step.propertiesFile, hadProperties: step.hadProperties, levelBefore: step.levelBefore });
 
 // 写したマップを使う場所に入れ、server.properties の level-name を書き換える。使っていたマップは作業のフォルダーの previous へよける。
-// beforeStep('map') は、テストが途中の失敗を起こすための所。
-function applyMapSwap(step, beforeStep = () => {}) {
+// beforeStep('map') は、テストが途中の失敗を起こすための所。rename・wait はテストがつかまれたときを起こすための所。
+function applyMapSwap(step, beforeStep = () => {}, { rename, wait } = {}) {
   if (step.fresh) {
     fs.mkdirSync(path.dirname(step.use), { recursive: true });
-    if (fs.existsSync(step.use)) fs.renameSync(step.use, path.join(step.slot, "previous"));
-    fs.renameSync(path.join(step.slot, "next"), step.use);
+    if (fs.existsSync(step.use)) renameRetrying(step.use, path.join(step.slot, "previous"), { rename, wait });
+    renameRetrying(path.join(step.slot, "next"), step.use, { rename, wait });
   }
   beforeStep("map");
-  atomicWrite(step.propertiesFile, step.propertiesAfter);
+  writeLevelName(step.propertiesFile, step.levelAfter);
 }
 
-// 途中の記録から、使う場所のマップと server.properties を切り替えの前に戻す。途中で入れた新しいマップは消さずに interrupted-<uuid> へよける。
-function restoreMapSwap(serverRoot, m) {
-  const root = path.resolve(serverRoot).toLowerCase() + path.sep;
-  const inside = p => typeof p === "string" && path.resolve(p).toLowerCase().startsWith(root);
-  if (path.resolve(m.propertiesFile || "").toLowerCase() !== path.join(path.resolve(serverRoot), "server.properties").toLowerCase()
-    || (m.slot !== null && !inside(m.slot)) || (m.use !== null && !inside(m.use))) throw new Error("切替記録のマップの場所が不正です");
+// 途中の記録から、使う場所のマップと server.properties の level-name を切り替えの前に戻す。途中で入れた新しいマップは消さずに interrupted-<uuid> へよける。
+// 記録の場所は、この処理の作業のフォルダー（.mygamepack-map-switch/<処理ID>）・games.json のマップの使う場所・このサーバーの server.properties のどれかでなければ動かさない（最後のレビュー 軽い5）。
+function restoreMapSwap(serverRoot, m, { id, mapNames = [] }) {
+  const root = path.resolve(serverRoot);
+  const same = (a, b) => typeof a === "string" && path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+  const okSlot = m.slot === null || same(m.slot, path.join(root, MAP_SWITCH_DIR, String(id)));
+  const okUse = m.use === null || mapNames.some(name => same(m.use, path.join(root, "haihu_world", name)));
+  const okProperties = same(m.propertiesFile, path.join(root, "server.properties")) && typeof m.hadProperties === "boolean" && typeof m.levelBefore === "string";
+  if (!okSlot || !okUse || !okProperties) throw new Error("切替記録のマップの場所が不正です");
+  // 途中にリンクがあれば動かさない（map_saves.cjs の safePath）。
+  for (const p of [m.slot, m.use]) if (p) safePath(root, path.relative(root, p));
   if (m.slot && m.use) {
     const previous = path.join(m.slot, "previous"), aside = () => path.join(m.slot, "interrupted-" + crypto.randomUUID());
     if (fs.existsSync(previous)) {
@@ -92,7 +124,7 @@ function restoreMapSwap(serverRoot, m) {
       fs.renameSync(previous, m.use);
     } else if (m.fresh && !m.hadUse && fs.existsSync(m.use)) fs.renameSync(m.use, aside());
   }
-  if (typeof m.propertiesBefore === "string") atomicWrite(m.propertiesFile, m.propertiesBefore);
+  if (m.hadProperties) writeLevelName(m.propertiesFile, m.levelBefore);
   else fs.rmSync(m.propertiesFile, { force: true });
 }
 
