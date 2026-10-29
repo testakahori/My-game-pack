@@ -177,7 +177,10 @@ function ttsDevHelperPlugin(): Plugin {
           sendJson(res, 200, []);
           return;
         }
-        sendJson(res, 200, fs.readdirSync(dir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name));
+        // 今のゲームで使えるワールドだけ（アプリの server:worlds:list と同じ。2026-10-30）。
+        const load = createRequire(import.meta.url);
+        const folders = fs.readdirSync(dir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+        sendJson(res, 200, load("./electron/game_maps.cjs").worldsForGame(load("./bridge/game_commands.cjs").GAMES, url.searchParams.get("game"), folders));
       });
 
       server.middlewares.use("/__dev/server/props/read", (req, res) => {

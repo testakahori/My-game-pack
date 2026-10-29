@@ -8,7 +8,8 @@ const { worldsForGame } = require("./game_maps.cjs");
 
 // サーバーの子プロセス・MAP の作業中・BridgeMOD との通信は、あとで main で作られるので、呼ばれたときに読む関数で受け取る。
 // activeGame は今のゲーム（切り替えの記録。無ければ null）。配信ワールドの一覧を、そのゲームで使えるものだけにする。
-function createServerFiles({ getServerRoot, getBridgeBatDir, readAppConfig, assertMapIdle, serverChild, waitForBridgeMod, requestBridgeMod, activeGame = () => null }) {
+// assertGameProfileIdle は、ゲームの切り替え中・復旧が必要なときに投げる（その間は server.properties を書かない。2026-10-30）。
+function createServerFiles({ getServerRoot, getBridgeBatDir, readAppConfig, assertMapIdle, serverChild, waitForBridgeMod, requestBridgeMod, activeGame = () => null, assertGameProfileIdle = () => {} }) {
   // --------------------
   // IPC: マイクラIDへ OP 権限を付与（_op.txt を書いて Mod 経由で実行）
   // --------------------
@@ -90,6 +91,8 @@ function createServerFiles({ getServerRoot, getBridgeBatDir, readAppConfig, asse
     // --------------------
     ipcMain.handle("server:props:write", async (_event, updates) => {
       assertMapIdle();
+      // ゲームの切り替えの間（埋め立てのマップを写している間など）に配信ワールドを保存すると、切り替えで上書きされ、覚える値も古くなる。
+      assertGameProfileIdle();
       if (typeof updates !== "object" || updates === null) throw new Error("updates must be an object");
 
       const propsPath = path.join(getServerRoot(), "server.properties");

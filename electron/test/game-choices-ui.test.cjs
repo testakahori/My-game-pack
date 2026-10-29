@@ -68,7 +68,7 @@ test('ゲームの欄：選択肢・選んでおくゲーム・未保存の判�
   // あとから読み直したとき（最初の読み込みに失敗したあと・アプリの更新で MOD を入れ替えたあと）は、まだ選んでいなければ選んでおくゲームにする。
   assert.equal((ui.match(/setSelected\(current => current \?\? shownGame\(next\)\)/g) || []).length, 6);
   assert.doesNotMatch(ui, /selected === 'common'/, 'もう通らない分かれ道は残さない');
-  assert.match(ui, /const canResetMap = Boolean\(status && savedGame\(status\) && activeGame\?\.maps\?\.length\);/);
+  assert.match(ui, /const canResetMap = Boolean\(status && savedGame\(status\) && status\.mapResettable\);/);
   assert.match(ui, /\{ id: '', name: '読み込み中', installed: true \}/, '読み込み中に（未導入）を付けない');
   assert.match(ui, /savedGame\(status\) \? `適用済み：/);
   // 何も選んでいないときは「選んでください」を出し（「ゲームを選んでください」は欄の幅に入らず切れた）、「保存」は押せない（選んだゲームが無いので game が無い）。

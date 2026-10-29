@@ -160,7 +160,9 @@ const serverFiles = createServerFiles({
   serverChild: () => serverProcess.child(),
   waitForBridgeMod: () => waitForBridgeMod(),
   requestBridgeMod: (...args) => requestBridgeMod(...args),
-  activeGame: () => gameProfiles.peekActive(),
+  // 今のゲームは、写しから戻した状態（list）と同じものを使う。
+  activeGame: () => gameProfiles.list().active,
+  assertGameProfileIdle,
 });
 serverFiles.register(ipcMain);
 const { createOperationsStats } = require('./operations_stats.cjs');

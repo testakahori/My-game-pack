@@ -22,7 +22,8 @@ export default function GameSelector({ onChanged, onStatus }: { onChanged: () =>
   const api = window.mygamepack;
   // 「マップを初期化」は、今のゲームに初期マップ（games.json の maps）があり、保存済みのときに出す（サバイバルには無い。埋め立て PR3）。
   const activeGame = status?.games.find(g => g.id === status.active);
-  const canResetMap = Boolean(status && savedGame(status) && activeGame?.maps?.length);
+  // 専用マップと専用でないワールドを両方使うゲームは、今が専用マップのときだけ（アプリが決めた mapResettable。2026-10-30）。
+  const canResetMap = Boolean(status && savedGame(status) && status.mapResettable);
   // ほかのゲームから切り替えたときにマップを初期に戻すゲーム（今は埋め立て）。
   const resetGames = (status?.games || []).filter(g => g.resetMapOnSwitch).map(g => g.name).join('・');
   useEffect(() => {
