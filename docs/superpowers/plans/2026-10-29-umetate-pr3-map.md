@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** ほかのゲームから「埋め立て」に切り替えると、研究室マップを初期の状態から使うようにし、TOP に「マップを初期化」のボタンを付ける。
+**Goal:** ほかのゲームから「埋め立て」に切り替えると、研究室マップを初期の状態から使うようにし、TOP に「マップを初期化」のボタンを付ける（初期マップのあるゲームに出す。今は埋め立て。採掘・RUN は専用マップを足したら出る。サバイバルには出さない）。
 
 **Architecture:**
 - 初期マップ（`map/umetate_lab_map`）は、配る物のゲームパックのフォルダーに `maps/umetate_lab_map` として入れる。
@@ -23,7 +23,8 @@
 - マップを写すのは、ほかのゲームから埋め立てに切り替えたときだけ（2026-10-26 ユーザーの決定「ゲームが変わったときだけ」）。埋め立てを選んだまま「保存」を押しても、マップに触らない。
 - 採掘・サバイバルに切り替えたときは、マップに触らない。`level-name` は、埋め立ての前に使っていたワールドに戻す。記録が無いときは `haihu_world/world` に戻す。
 - サーバーのフォルダーの直下にある `umetate_lab_map`（ユーザーの配信サーバーに Codex が手で入れたもの）は消さない。
-- 「マップを初期化」は、今のゲームが埋め立てのときだけ出す。サーバーが動いている間は押せない（理由を出す）。押したら確かめの画面を出す。置き場所は TOP のゲームを選ぶ所。
+- 「マップを初期化」は、初期マップを持つゲーム（`games.json` の `maps`）を選んでいるときに出す。サバイバルには出さない（2026-10-29 ユーザーの決定「サバイバル以外」）。採掘・RUN は、専用マップを足したら出す（2026-10-29 ユーザーの決定「専用マップを足したら出す」）。今は埋め立てだけに出る。
+- サーバーが動いている間は押せない（理由を出す）。押したら確かめの画面を出す。置き場所は TOP のゲームを選ぶ所。
 - 切り替えも初期化も、サーバーが止まっているときだけ行う。途中で失敗したら元に戻す（MOD・コマンドの入れ替えと同じ記録で戻す）。
 - ゲームの名前（`'umetate'`）を、electron・scripts・bridge・src のコードに書かない（設計書 13。`electron/test/game-commands.test.cjs` が見張る）。どのゲームにマップがあるかは `games.json` の `maps` から読む。
 - 本物の配信サーバー（`server/Douma_Craft`）とふだんの設定は、テストや確かめで書き換えない。
@@ -31,13 +32,17 @@
 
 ## 決めたこと（Ruling。ユーザーに見せる）
 
-1. どのゲームがどのマップを持つかは、`bridge/games.json` の埋め立ての項目に `"maps": ["umetate_lab_map"]` と書く（PR2 の `modDir` と同じく、ゲームの一覧の1か所）。1つ目が、切り替えと初期化で使うマップ。
+1. どのゲームがどのマップを持つかは、`bridge/games.json` に書く（PR2 の `modDir` と同じく、ゲームの一覧の1か所）。
+   - 埋め立ての項目に `"maps": ["umetate_lab_map"]` と `"resetMapOnSwitch": true` を足す。
+   - `maps`：初期マップ。1つ目が、使うマップと初期化で戻すマップ。`maps` のあるゲームに「マップを初期化」が出る。
+   - `resetMapOnSwitch`：ほかのゲームから切り替えたときに、マップを初期の状態に戻す。埋め立てだけ。
+   - あとで採掘・RUN に専用マップを足すときは、`maps` を書けばボタンが出る。そのゲームに切り替えると、そのマップを使う。初期の状態に写すのは、使う場所にマップが無いときだけ（採掘は「切り替えてもマップはそのまま」のため）。いくつかのマップから選ぶ仕組みは、そのときに足す。
 2. 配る物の中の置き場は、ゲームパックのフォルダーの `maps/<マップ名>`（`build/game-packs/umetate/maps/umetate_lab_map`）。electron-builder の設定は増やさない。
 3. 準備の手順は、ゲームパックとは別の `npm run prepare:game-maps`（`scripts/prepare-game-maps.cjs`）にする。CI の mod-build はゲームパックの準備を動かすが、マップ（git の外）を持たないので、分けないと CI が止まる。`npm run release:win` と `npm run dev:refresh` は、パックの次にこれを動かす。
 4. `map_backup` はアプリが持つものとして扱う。使う前に、配った物と中身（ファイルごとの SHA-256）を照らし、違えば配った物から写し直す。これで、アプリの更新でマップが変わったときと、`map_backup` が壊れたときの両方に効く（`map_backup` を手で直しても、配った物に戻る）。配った物が無い（開発版でまだ作っていない）ときは、`map_backup` にあるものをそのまま使う。両方無ければ、何も変えずに止まる。
 5. 「埋め立ての前に使っていたワールド」は、切り替えの記録（`profiles.json`）の `mapReturnLevel` に残す。埋め立てのマップと同じ名前のワールド（`haihu_world/umetate_lab_map` も、直下の `umetate_lab_map` も）は記録しない。記録したワールドに `level.dat` が無ければ `haihu_world/world` に戻す。
 6. 埋め立てから出るときに `level-name` を戻すのは、今の `level-name` が埋め立てのマップのときだけ。配信者がダッシュボードで別のワールドを選んでいたら、それには触らない。
-7. 埋め立てを選んだまま「保存」を押したとき：使う場所にマップ（`level.dat`）があれば写さず、`level-name` だけをそこに合わせる。無いときだけ写す。
+7. 同じゲームのまま「保存」を押したとき：使う場所にマップ（`level.dat`）があれば写さず、`level-name` だけをそこに合わせる。無いときだけ写す。
 8. 古いマップは、切り替え・初期化が終わってから消す。消せなかったとき（ほかのアプリがファイルをつかんでいるなど）も、切り替えは成功にする。残った分は、次の切り替え・初期化の始めに消す。
 9. 「マップを初期化」は、サーバーだけが止まっていればよい（BRIDGE と Minecraft は動いていてよい。マップを読むのはサーバーだけなので）。押すと、先にサーバーの状態を見る。動いていれば理由だけを出し、確かめの画面は出さない。
 10. PR2 で手順書に書いた「PR3 まで配布用を作らない」を外す（この PR で揃うため）。
@@ -77,20 +82,23 @@
 
 **Interfaces:**
 - Produces:
-  - `games.json` の埋め立ての `maps: ["umetate_lab_map"]`
+  - `games.json` の埋め立ての `maps: ["umetate_lab_map"]` と `resetMapOnSwitch: true`
   - `prepareGameMaps(repoRoot: string = root) -> string[]`：作ったマップのフォルダーの一覧
   - `MAP_EXCLUDES = ['playerdata', 'stats', 'advancements']`
   - 配る物の置き場 `build/game-packs/<id>/maps/<name>`
 
 - [ ] **Step 1: 失敗するテストを書く** — `game-maps-prepare.test.cjs`：
-  - `games.json`：`maps` のあるゲームは埋め立てだけで、`["umetate_lab_map"]`。マップ名はどれも `/^[a-z0-9_]+$/`。
+  - `games.json`：
+    - `maps` のあるゲームは埋め立てだけで、`["umetate_lab_map"]`。`resetMapOnSwitch: true` も埋め立てだけ。
+    - サバイバル（`common`）には `maps` が無い（初期化のボタンを出さない。ユーザーの決定）。
+    - マップ名はどれも `/^[a-z0-9_]+$/`。
   - 偽のリポジトリ：`map/umetate_lab_map/` に `level.dat`・`umetate_lab_map.json`・`region/r.0.0.mca`・`playerdata/x.dat`・`stats/x.json`・`advancements/x.json`・`session.lock`・`data/playerdata/keep.dat` を置く。`prepareGameMaps(dir)`：
     - 戻り値が `[<dir>/build/game-packs/umetate/maps/umetate_lab_map]`
     - その中に `level.dat`・`umetate_lab_map.json`・`region/r.0.0.mca`・`data/playerdata/keep.dat` があり、`playerdata`・`stats`・`advancements`・`session.lock` が無い（外すのは一番上だけ）。
   - 2回目に動かしたとき、元から消したファイルが、作った物からも消える（毎回作り直す）。
   - `map/umetate_lab_map` が無い、または `level.dat` が無い：`/map\/umetate_lab_map/` を含むエラーで止まる。
 - [ ] **Step 2: 落ちることを確かめる** — Run: `node --test electron/test/game-maps-prepare.test.cjs` Expected: `prepare-game-maps.cjs` が無くて FAIL。
-- [ ] **Step 3: 書く** — `games.json` に `maps` を足す。`scripts/prepare-game-maps.cjs` を書く。
+- [ ] **Step 3: 書く** — `games.json` に `maps` と `resetMapOnSwitch` を足す。`scripts/prepare-game-maps.cjs` を書く。
   - 中身：`GAMES.filter(g => g.maps?.length)` の各マップについて、写し先を消してから `fs.cpSync`（filter で除く）で写し、`level.dat` を確かめる。
   - エラーの文：`初期マップ map/<name> がありません（<ゲームの名前>の初期マップ。git の外なので、手元に置いてから動かしてください）`
   - `require.main === module` のときに動かす。
@@ -123,6 +131,13 @@
     - `mapPlaces(serverRoot, gameId, name) -> { backup, use, level }`：`map_backup/<gameId>/<name>`・`haihu_world/<name>`。`map_saves.cjs` の `safePath` で、リンクを通らないことを確かめる。
     - `async ensureMapBackup({ serverRoot, gameId, name, bundled: string|null }) -> files`：決めたこと 4。写すときは `map_backup/<gameId>/.staging-<uuid>` に `copyVerified` してから入れ替える。始めに残った `.staging-*` を消す。
     - `async stageMap({ serverRoot, gameId, name, files, operation }) -> string`：`<サーバー>/.mygamepack-map-switch/<operation>/next` へ `copyVerified` し、そのフォルダーを返す。
+    - `planMapChange({ target, previous, switching, currentLevel, useReady, reset = false }) -> null | { kind: 'enter', name, level, fresh } | { kind: 'leave' }`：ファイルに触らない決め方（決めたこと 1・6・7）。
+      - `target`・`previous`：`games.json` の項目（切り替え先と今のゲーム）
+      - `switching`：`target.id !== 今のゲーム`
+      - `useReady`：使う場所に `level.dat` があるか
+      - 入る（`target.maps` がある）：`fresh = reset || (switching && target.resetMapOnSwitch === true) || !useReady`。`fresh` でなく、`currentLevel` がもう使う場所なら `null`。
+      - 出る（`target.maps` が無く、`currentLevel` の最後の名前が `previous.maps` のどれか）：`leave`
+      - ほかは `null`
   - `createGameProfiles` の新しい依存：
     - `removeTree = dir => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 })`
     - `ensureServerStopped = ensureStopped`（Task 3 で使う）
@@ -152,18 +167,26 @@
         - 状態：使う場所のマップを `slot/previous` へよけ、新しいマップが使う場所にあり、`server.properties` が書き換わっている。
         - `recover()` のあと、前のマップが使う場所に戻り、新しいマップは `slot/interrupted-*` に移り、`server.properties` が前の中身。
     11. `古いマップを消せなくても切り替えは成功し、次の切り替えのときに消える`（Review Focus 5）：1回目は `removeTree` が投げる → `activate` は成功し、`.mygamepack-map-switch/<id>` が残る。2回目（ふつうの `removeTree`）のあと、`.mygamepack-map-switch` の下が空。
+  - `planMapChange`（偽のゲームの項目で）：
+    - 埋め立て（`resetMapOnSwitch`）にほかのゲームから入る：`useReady` でも `fresh: true`。
+    - 同じゲームのまま：
+      - `currentLevel` が使う場所で `useReady` → `null`
+      - 別のワールドで `useReady` → `fresh: false` の `enter`
+      - `useReady` でない → `fresh: true`
+    - `reset: true` → いつも `fresh: true`
+    - マップはあるが `resetMapOnSwitch` の無いゲーム（あとの採掘の形。`{ id: 'saikutu', maps: ['saikutu_a'] }`）にほかのゲームから入る：`useReady` なら `fresh: false`（マップはそのまま）、無ければ `fresh: true`。
+    - 出る：`currentLevel` が `haihu_world/umetate_lab_map` でも `umetate_lab_map`（直下）でも `leave`。`haihu_world/sakura` なら `null`。
+    - マップの無いゲームどうし（サバイバル → 採掘）：`currentLevel` が `umetate_lab_map` でも `null`（手で入れたものに触らない）。
   - `server_properties.cjs`：
     - `mergeProperties('a=1\r\nlevel-name=world\r\n# c\r\n', { 'level-name': 'haihu_world/x' })` は `'a=1\nlevel-name=haihu_world/x\n# c\n'`（今の `initial_setup.cjs` の結果と同じ。無いキーは最後に足す）。
     - `levelNameOf('')` は `'world'`。`levelNameOf('level-name=haihu_world/x\r\n')` は `'haihu_world/x'`。
 - [ ] **Step 2: 落ちることを確かめる** — Run: `node --test electron/test/game-maps.test.cjs` Expected: モジュールが無くて FAIL。
 - [ ] **Step 3: `server_properties.cjs` と `game_maps.cjs` を書き、`map_saves.cjs` から `copyVerified` を出す。**
 - [ ] **Step 4: `game_profiles.cjs` に入れる**
-  - `prepareMapStep(current, id, operation, { reset = false })`：記録を書く前（ゆっくりな写しをここで済ませる）。決めたこと 5〜7 で次のどれかを返す。
-    - 入る（`id` のゲームに `maps` がある）：`{ fresh, slot, use, hadUse, propertiesFile, propertiesBefore, propertiesAfter, returnLevel }`
-      - `fresh = reset || id !== current.active || 使う場所に level.dat が無い`
-      - `fresh` のときだけ `ensureMapBackup` と `stageMap` を通す。
-    - 出る（前のゲームに `maps` があり、今の `level-name` の名前がそのマップ）：`level-name` を戻す step
-    - 何もしない：`null`
+  - `prepareMapStep(current, id, operation, { reset = false })`：記録を書く前（ゆっくりな写しをここで済ませる）。`planMapChange` の答えで、次のどれかを返す。
+    - `enter`：`{ fresh, slot, use, hadUse, propertiesFile, propertiesBefore, propertiesAfter, returnLevel }`。`fresh` のときだけ `ensureMapBackup` と `stageMap` を通す。`returnLevel` は決めたこと 5。
+    - `leave`：`level-name` を戻す step（決めたこと 5 の戻し先）
+    - `null`：何もしない
   - `activate`：
     - 始めに、`.mygamepack-map-switch` に残ったものを `removeTree` で消す（失敗しても続ける）。
     - `prepareMapStep` → 途中の記録に `map` を入れる。
@@ -191,14 +214,14 @@
 - Produces:
   - `gameProfiles.resetMap() -> Promise<list()>`
   - ipc `games:resetMap`、preload `gamesResetMap: () => ipcRenderer.invoke('games:resetMap')`
-  - 型：`gamesResetMap: () => Promise<GameStatus>`。`GameStatus.games` の項目に `maps?: string[]`
+  - 型：`gamesResetMap: () => Promise<GameStatus>`。`GameStatus.games` の項目に `maps?: string[]; resetMapOnSwitch?: boolean`（`list()` は games.json の項目をそのまま広げるので、アプリ側は変えなくても届く）
 
 - [ ] **Step 1: 失敗するテストを書く**
   - `game-maps.test.cjs`：
     - `マップを初期化すると、今の埋め立てのマップが初期の状態に戻り、遊んだマップは消える`：`played.mca` が消え、見本と同じ。`level-name` は使う場所。mods・設定・コマンドのファイル・今のゲームは変わらない。
     - `マップを初期化できないとき：保存前・マップの無いゲーム・途中の記録があるときは、何も変えずに止まる`：
       - 保存前：`/保存してから/`
-      - 採掘：`/初期化できるマップがありません/`
+      - 採掘・サバイバル（どちらも今は `maps` が無い）：`/初期化できるマップがありません/`
       - 途中の記録がある：`/復旧/`
     - `マップの初期化が途中で失敗したら元に戻す`：`beforeStep: step => { if (step === 'map' && failMap) throw new Error('map locked') }` で、埋め立てに切り替えたあとに `failMap = true` にして初期化する。`/元へ戻しました.*map locked/`、`played.mca` が戻り、`level-name` も前のまま。
     - `マップの初期化はサーバーの止まりだけを見る`：埋め立てに切り替えたあとで、`ensureStopped` を投げるようにする。`ensureServerStopped` が投げなければ初期化は通る。`ensureServerStopped` が投げれば、そのエラーで止まり、マップは変わらない。
@@ -209,12 +232,13 @@
       - `busy.bridge = true` と `busy.minecraft.running = true` だけなら、サーバーの止まりのエラーにならず、次の確かめ（保存前なので `/保存してから/`）まで進む。
   - 画面（`game-maps.test.cjs` の中で、ソースの文字を読む。今のテストと同じ書き方）：
     - `preload.cjs` に `gamesResetMap: () => ipcRenderer.invoke('games:resetMap'),`
-    - `electron.d.ts` に `gamesResetMap: () => Promise<GameStatus>;` と `maps?: string[]`
+    - `electron.d.ts` に `gamesResetMap: () => Promise<GameStatus>;`・`maps?: string[]`・`resetMapOnSwitch?: boolean`
     - `GameSelector.tsx`：
       - 文字 `マップを初期化` がある。
       - `resetMap` の中で `serverProcessStatus` が `window.confirm(` より前にある。
       - `api.gamesResetMap()` を呼ぶ。
-      - ボタンは `applied` と今のゲームの `maps?.length` のときだけ出る。
+      - ボタンは `applied` と今のゲームの `maps?.length` のときだけ出る（`resetMapOnSwitch` では決めない。あとで採掘にマップを足したときも出るように）。
+      - 保存の前の知らせは `resetMapOnSwitch` で決める。
     - `devApiMock.ts` に `gamesResetMap:`
 - [ ] **Step 2: 落ちることを確かめる** — Run: `node --test electron/test/game-maps.test.cjs electron/test/games-ipc-module.test.cjs` Expected: 新しいテストが FAIL（`resetMap` が無い）。
 - [ ] **Step 3: アプリ側を書く**
@@ -239,8 +263,8 @@
     1. `api.serverProcessStatus()` を見る。`running` なら、エラーの欄に `サーバーが動いています。サーバーを止めてから「マップを初期化」を押してください。` を出して終わる。
     2. `window.confirm` の文：`{name}のマップを初期の状態に戻します。\n今のマップは消え、元に戻せません。残したいときは、先に「MAPセーブ・ロード」で保存してください。\n初期化しますか？`
     3. `api.gamesResetMap()` を呼ぶ。成功したら `{name}のマップを初期の状態に戻しました。`、失敗したらエラーの欄。
-  - 「保存」の前の知らせ（`dirty`）：選んだゲームに `maps` があり、今のゲームと違うとき、`{name}に切り替えると、{name}のマップは初期の状態から始まります（前に遊んだ{name}のマップは消えます）。` を足す。
-  - 下の説明 `ゲーム切替では現在のMODを削除せず退避します。MAPは変更しません。` を、次のように直す：`ゲーム切替では現在のMODを削除せず退避します。MAPは変更しません（専用マップのあるゲーム（{マップのあるゲームの名前を「・」でつないだもの}）に切り替えたときだけ、そのゲームのマップを初期の状態から使います）。`
+  - 「保存」の前の知らせ（`dirty`）：選んだゲームが `resetMapOnSwitch` で、今のゲームと違うとき、`{name}に切り替えると、{name}のマップは初期の状態から始まります（前に遊んだ{name}のマップは消えます）。` を足す。
+  - 下の説明 `ゲーム切替では現在のMODを削除せず退避します。MAPは変更しません。` を、次のように直す：`ゲーム切替では現在のMODを削除せず退避します。MAPは変更しません（{resetMapOnSwitch のゲームの名前を「・」でつないだもの}に切り替えたときだけ、そのゲームのマップを初期の状態から使います）。`
   - `devApiMock.ts` に `gamesResetMap: async () => previewGameStatus()` を足す。
 - [ ] **Step 5: 通ることを確かめる** — Run: `node --test electron/test/game-maps.test.cjs electron/test/games-ipc-module.test.cjs electron/test/game-profiles.test.cjs` と `npx tsc --noEmit -p .` Expected: 全部 PASS、型エラーなし。
 - [ ] **Step 6: Commit** — `feat(umetate): TOP に「マップを初期化」のボタンを付ける`
