@@ -37,6 +37,7 @@
 .ui-refresh :is(button,input,textarea,select):focus-visible {outline:2px solid #a9c6ff;outline-offset:3px;}
 .ui-refresh button:disabled {cursor:not-allowed;}
 .ui-refresh .page-surface {max-width:1480px;margin-left:auto;margin-right:auto;}
+/* 下の平らにする決まりは、配信ホームのカードと全ページの大きな箱（.ops-panel を含む）について、src/components/CockpitTheme.css が !important で上書きしている（2026-10-29「コックピット強め」）。 */
 .ui-refresh :is(.ops-panel,.cockpit-main,.cockpit-flow-panel,.cockpit-info-card,.cockpit-activity,.cockpit-bridge-log-panel,.preflight-panel) {background:#141c2a!important;border:1px solid #303b50!important;border-radius:12px!important;box-shadow:none!important;clip-path:none!important;}
 .ui-refresh :is(.ops-panel,.cockpit-main,.cockpit-flow-panel,.cockpit-info-card)::before,
 .ui-refresh :is(.ops-panel,.cockpit-main,.cockpit-flow-panel,.cockpit-info-card)::after {display:none!important;}

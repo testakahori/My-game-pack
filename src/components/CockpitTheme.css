@@ -1,9 +1,12 @@
-/* 見た目「コックピット強め」（2026-10-29 ユーザーの決定。見本を見て「コックピット＋文字も大きく」を選んだ）。
-   今の「配信の準備」の枠（角を切った形・方眼・青く光る枠・マイクラ風の四角い飾り）を、配信ホームのほかのカードにもそろえる。
-   色は今の青・水色・紫のまま。画像・書体は変えない。光り方は足すだけで、抑えない（2026-10-17 の決めごと）。
-   同じ強さの index.css・studio.css・DashboardLayout.css に勝つよう、src/main.tsx でいちばん後に読む。index.css には足さない（AGENTS.md）。 */
+/* 見た目「コックピット強め」（2026-10-29 ユーザーの決定。見本を見て「コックピット＋文字も大きく」を選び、そのあと全ページへ広げた）。
+   index.css のもとの「配信の準備」 .cockpit-main の作り（角を切った形・方眼・青い枠・内側の光・マイクラ風の四角い飾り）を、全ページの大きな箱にそろえる。
+   色は今の青・水色・紫のまま（もとから色の付いた箱はその色を残す）。画像・書体は変えない。光り方は足すだけで、抑えない（2026-10-17 の決めごと）。
+   光は内側だけ：clip-path は外側の影も切るので、外に光る影は描かれない（書いても見えない）。
+   同じ強さの index.css・studio.css・DashboardLayout.css に勝つよう、src/main.tsx でいちばん後に読む。index.css には足さない（AGENTS.md）。
+   注意：「配信の準備」とゲームの欄の直下の子には position: relative; z-index: 1 を付けている（飾りを後ろに回すため）。
+   ここに自分で作るドロップダウンやツールチップを置くと、後ろの兄弟の下に隠れることがあるので、そのときは z-index を足す。 */
 
-/* 1. カードの形：方眼の背景・青く光る枠・角を切った形（index.css の「配信の準備」 .cockpit-main のもとの作り）。
+/* 1. 配信ホームのカード：方眼の背景・青い枠・角を切った形・内側の光。
    studio.css の .ui-refresh :is(.cockpit-main, …) が !important で平らにしているので、ここも !important で上書きする（カードの形の所だけ）。 */
 .ui-refresh .cockpit-main,
 .ui-refresh .game-selector,
@@ -19,40 +22,8 @@
     linear-gradient(rgba(30, 127, 212, 0.09) 1px, transparent 1px),
     linear-gradient(90deg, rgba(30, 127, 212, 0.09) 1px, transparent 1px) !important;
   background-size: auto, 24px 24px, 24px 24px !important;
-  box-shadow: inset 0 0 38px rgba(21, 112, 237, 0.1), 0 0 18px rgba(38, 118, 255, 0.1), 0 14px 35px rgba(0, 0, 0, 0.22) !important;
+  box-shadow: inset 0 0 38px rgba(21, 112, 237, 0.1), inset 0 0 0 1px rgba(39, 216, 255, 0.06) !important;
   clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px) !important;
-}
-
-/* 「配信の準備」の右上のマイクラ風の四角い飾り（index.css のもとの飾り）を、もう一度見せる。
-   左下の飾りは、studio.css で余白が詰まった今は「ランチャー設定」の文字にかかるので、今までどおり隠したまま。 */
-.ui-refresh .cockpit-main::before {
-  display: block !important;
-  z-index: 0;
-  pointer-events: none;
-}
-
-/* 飾りは文字やボタンの後ろに置く（狭い窓で、左下の飾りが「ランチャー設定」の上に重なっていた） */
-.ui-refresh .cockpit-main > *,
-.ui-refresh .game-selector > * {
-  position: relative;
-  z-index: 1;
-}
-
-/* 「配信の準備」の見出しにも、水色に光る短い線 */
-.ui-refresh .cockpit-panel-title h1 {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  letter-spacing: 0.04em;
-}
-
-.ui-refresh .cockpit-panel-title h1::before {
-  content: "";
-  flex: 0 0 auto;
-  width: 4px;
-  height: 20px;
-  background: #27d8ff;
-  box-shadow: 0 0 10px rgba(39, 216, 255, 0.9);
 }
 
 /* 切った角に、水色に光る斜めの線（studio.css が info-card・flow-panel の飾りを隠しているので、出す） */
@@ -72,7 +43,22 @@
   pointer-events: none;
 }
 
-/* 2. 見出し：白い見出しの前に、水色に光る短い線（「配信の準備」の › と同じ雰囲気） */
+/* 「配信の準備」の右上のマイクラ風の四角い飾り（index.css のもとの飾り）を、もう一度見せる。
+   左下の飾りは、studio.css で余白が詰まった今は「ランチャー設定」の文字にかかるので、今までどおり隠したまま。 */
+.ui-refresh .cockpit-main::before {
+  display: block !important;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* 飾りは文字やボタンの後ろに置く（狭い窓で、左下の飾りが「ランチャー設定」の上に重なっていた） */
+.ui-refresh .cockpit-main > *,
+.ui-refresh .game-selector > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* 2. カードの見出し：白い見出しの前に、水色に光る短い線 */
 .ui-refresh .game-selector label > strong,
 .ui-refresh .cockpit-preflight .safety-panel h2,
 .ui-refresh .cockpit-info-card h2,
@@ -114,7 +100,7 @@
   pointer-events: none;
 }
 
-/* 4. 押すボタン：水色に光る枠（保存・チェックを開始）。ほかのボタンは細い水色の枠 */
+/* 4. 押すボタン：水色に光る枠（保存・チェックを開始）。ほかのボタンは細い水色の枠。カーソルを乗せたら少し明るく */
 .ui-refresh .game-selector button.game-selector-apply,
 .ui-refresh .cockpit-preflight .safety-panel button.safety-primary {
   background: linear-gradient(180deg, rgba(14, 116, 144, 0.95), rgba(8, 82, 108, 0.95));
@@ -129,17 +115,78 @@
   color: #d5f2ff;
 }
 
-/* 5. 左のメニュー：選んでいるページに、水色の光る線 */
-.ui-refresh .studio-nav button[aria-current="page"] {
+.ui-refresh .game-selector button.game-selector-apply:hover:not(:disabled),
+.ui-refresh .cockpit-preflight .safety-panel button.safety-primary:hover:not(:disabled),
+.ui-refresh .game-selector button:not(.game-selector-apply):hover:not(:disabled) {
+  border-color: #7ee8ff;
+  box-shadow: 0 0 18px rgba(39, 216, 255, 0.5), inset 0 0 12px rgba(39, 216, 255, 0.25);
+}
+
+/* 5. 左のメニュー：選んでいるページに光る線（水色。配信画像は紫の配色なので紫） */
+.ui-refresh .studio-nav button[aria-current="page"]:not(.is-creator) {
   box-shadow: inset 3px 0 0 #27d8ff, 0 0 16px rgba(39, 216, 255, 0.18);
 }
 
-/* 6. いちばん上の帯の下に、細い光る線 */
-.ui-refresh .app-topbar {
+.ui-refresh .studio-nav button.is-creator[aria-current="page"] {
+  box-shadow: inset 3px 0 0 #c5a2ff, 0 0 16px rgba(197, 162, 255, 0.2);
+}
+
+/* 6. いちばん上の帯（BRIDGE の名前と Minecraft・BRIDGE の状態）の下に、細い光る線 */
+.ui-refresh .global-app-header {
   box-shadow: 0 1px 0 rgba(39, 216, 255, 0.35), 0 6px 18px rgba(39, 216, 255, 0.06);
 }
 
-/* 7. 文字：書体は変えず、小さすぎる文字（9〜10px）だけを 11〜12px に（配信中にちらっと見ても読めるように） */
+/* 7. ページの大きな見出しの前に、水色に光る線（全ページ。配信ホームの「配信の準備をはじめよう」も） */
+.ui-refresh .app-content h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  letter-spacing: 0.04em;
+}
+
+.ui-refresh .app-content h1::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 4px;
+  height: 22px;
+  background: #27d8ff;
+  box-shadow: 0 0 10px rgba(39, 216, 255, 0.9);
+}
+
+/* 8. 全ページの大きな箱：方眼・角を切った形・内側の光。枠の色はここでは変えない（紫・赤・緑などの色付きの箱の色を残す） */
+.ui-refresh :is(.stream-recording-panel, .analytics-panel,
+  .gift-design-top, .gift-template-tools, .gift-flow-panel, .gift-registered-panel, .gift-command-stage,
+  .events-summary, .events-like-panel, .events2-page > section,
+  .tts-read-target-section, .tts-tuning-section, .tts-test-section, .tts-engine-alert,
+  .panel-document-bar, .panel-settings, .panel-preview-shell, .panel-library,
+  .gift-catalog-panel-v2, .cmd-usage-banner,
+  .ops-panel, .map-saves-panel,
+  .setup-info-panel-v2, .setup-step-card-v2, .setup-verify-panel-v2, .setup-folder-panel-v2) {
+  border-radius: 0 !important;
+  background:
+    linear-gradient(rgba(4, 20, 43, 0.92), rgba(3, 13, 29, 0.96)),
+    linear-gradient(rgba(30, 127, 212, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(30, 127, 212, 0.09) 1px, transparent 1px) !important;
+  background-size: auto, 24px 24px, 24px 24px !important;
+  box-shadow: inset 0 0 38px rgba(21, 112, 237, 0.1), inset 0 0 0 1px rgba(39, 216, 255, 0.06) !important;
+  clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px) !important;
+}
+
+/* 色の付いていない（灰色の枠の）大きな箱は、配信ホームと同じ青い枠に */
+.ui-refresh :is(.stream-recording-panel, .analytics-panel, .gift-design-top, .gift-template-tools, .gift-registered-panel,
+  .events-summary, .events-like-panel, .events2-page > section, .tts-read-target-section, .tts-tuning-section,
+  .panel-document-bar, .panel-settings, .panel-preview-shell, .panel-library, .gift-catalog-panel-v2,
+  .map-saves-panel, .setup-info-panel-v2, .setup-step-card-v2, .setup-verify-panel-v2, .setup-folder-panel-v2) {
+  border: 1px solid rgba(44, 137, 232, 0.62) !important;
+}
+
+/* 小さなカード：角を小さく切るだけ（色・影はそのまま） */
+.ui-refresh :is(.analytics-tile, .event-simple-card, .tts-status-card, .gift-stat-card, .gift-catalog-card, .cmd-card) {
+  border-radius: 0 !important;
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+}
+
+/* 9. 文字：書体は変えず、小さすぎる文字（8〜10px）だけを 11〜12px に（配信中にちらっと見ても読めるように） */
 .ui-refresh .cockpit-log p {
   font-size: 12px;
 }
@@ -150,10 +197,29 @@
   font-size: 11px;
 }
 
+/* カードの中は、小さすぎる所だけを名指しで（small を一括で狙うと、12.8px の知らせまで縮んだ。最後のレビュー 重要2） */
 .ui-refresh .cockpit-info-card label,
-.ui-refresh .cockpit-info-card small,
-.ui-refresh .cockpit-account-row em {
+.ui-refresh .cockpit-account-row em,
+.ui-refresh .cockpit-apply small,
+.ui-refresh .cockpit-safety-state small,
+.ui-refresh .cockpit-world-card > small,
+.ui-refresh .euler-settings small,
+.ui-refresh .cockpit-safety-card li,
+.ui-refresh .cockpit-activity button,
+.ui-refresh .cockpit-flow-note,
+.ui-refresh .cockpit-flow-panel h2 small {
   font-size: 11px;
+}
+
+/* 大きくした文字が、よく使う幅（1181〜1440px）で言葉の途中で割れないように（最後のレビュー 重要1） */
+.ui-refresh .cockpit-account-row em {
+  white-space: nowrap;
+}
+
+.ui-refresh .cockpit-apply small,
+.ui-refresh .cockpit-safety-state b,
+.ui-refresh .cockpit-safety-state small {
+  word-break: auto-phrase;
 }
 
 .ui-refresh .cockpit-flow-step small,
@@ -161,8 +227,9 @@
   font-size: 11px;
 }
 
+/* 一括チェックの説明だけ（運用センターの説明までは変えない） */
 .ui-refresh .cockpit-bridge-controls > p,
 .ui-refresh .cockpit-all-start-note,
-.ui-refresh .safety-panel-heading p {
+.ui-refresh .cockpit-preflight .safety-panel-heading p {
   font-size: 12px;
 }
