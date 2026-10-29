@@ -11,8 +11,9 @@ export type GameStatus = {
   // アプリの更新に合わせて MOD を入れ替えられず、古いままのとき（2026-10-13）。
   modsOutdatedAfterUpdate?: boolean; modsRefreshError?: string;
   serverMods: string; clientMods: string; recoveryRequired: boolean;
-  // maps：初期マップ（あれば TOP に「マップを初期化」を出す）。resetMapOnSwitch：ほかのゲームから切り替えたときにマップを初期に戻す（埋め立て）。bridge/games.json のまま届く。
-  games: { id: string; name: string; modName: string; installed: boolean; maps?: string[]; resetMapOnSwitch?: boolean }[];
+  // maps：初期マップ（あれば TOP に「マップを初期化」を出す）。resetMapOnSwitch：ほかのゲームから切り替えたときにマップを初期に戻す（埋め立て）。
+  // selectable：false なら配信ホームの選択肢に出さない（サバイバル。2026-10-29）。bridge/games.json のまま届く。
+  games: { id: string; name: string; modName: string; installed: boolean; maps?: string[]; resetMapOnSwitch?: boolean; selectable?: boolean }[];
 };
 export type MinecraftLocationCandidate = {
   path: string; modsPath: string; sources: string[]; profiles: { name: string; version: string }[];

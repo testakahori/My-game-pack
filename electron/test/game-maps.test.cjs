@@ -319,7 +319,8 @@ test('画面: TOP の「マップを初期化」は、マップのあるゲー�
   assert.ok(reset.indexOf('serverProcessStatus') < reset.indexOf('window.confirm('), 'サーバーが動いていたら、確かめの画面より先に理由を出す');
   assert.match(reset, /api\.gamesResetMap\(\)/);
   // ボタンは maps で出す（resetMapOnSwitch ではない。あとで採掘にマップを足したときも出るように）。保存の前の知らせは resetMapOnSwitch。
-  assert.match(ui, /const canResetMap = Boolean\(status\?\.applied && activeGame\?\.maps\?\.length\)/);
+  // 保存済みかは、ほかの判断と同じ savedGame（サバイバルを保存していても保存済みに見せない。2026-10-29）。
+  assert.match(ui, /const canResetMap = Boolean\(status && savedGame\(status\) && activeGame\?\.maps\?\.length\)/);
   assert.match(ui, /resetMapOnSwitch/);
   assert.match(read('src/lib/devApiMock.ts'), /gamesResetMap:/);
 });

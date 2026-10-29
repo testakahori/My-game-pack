@@ -45,13 +45,14 @@ test('型の宣言: テスト発火の結果は、BRIDGE が返す形（state・
 
 test('テスト発火の画面: BRIDGE が止まっていると押せず理由を出す。結果は stepLines で出し、手順 i と結果の i 行目を組にしない', () => {
   const panel = read('src/components/EventTestPanel.tsx');
-  assert.match(panel, /export default function EventTestPanel\(\{ onTested, bridgeRunning \}: \{ onTested: \(\) => Promise<void>; bridgeRunning: boolean \}\)/);
-  assert.equal((panel.match(/disabled=\{hasChanges \|\| !bridgeRunning\}/g) || []).length, 2, '2つのボタン');
-  assert.match(panel, /if \(busy \|\| hasChanges \|\| !bridgeRunning\) return;/);
-  assert.match(panel, /\{!bridgeRunning \? <p className="ops-test-note" role="status">BRIDGE を起動すると試せます。<\/p> : null\}/);
+  // ゲームを保存するまでも押せない（ゲームを選ばないと遊べない。2026-10-29 ユーザーの決定）。理由は保存のほうを先に出す。
+  assert.match(panel, /export default function EventTestPanel\(\{ onTested, bridgeRunning, gameReady \}: \{ onTested: \(\) => Promise<void>; bridgeRunning: boolean; gameReady: boolean \}\)/);
+  assert.equal((panel.match(/disabled=\{hasChanges \|\| !bridgeRunning \|\| !gameReady\}/g) || []).length, 2, '2つのボタン');
+  assert.match(panel, /if \(busy \|\| hasChanges \|\| !bridgeRunning \|\| !gameReady\) return;/);
+  assert.match(panel, /: !bridgeRunning \? <p className="ops-test-note" role="status">BRIDGE を起動すると試せます。<\/p> : null\}/);
   assert.match(panel, /stepLines\(result\.steps, result\.fired\)\.map\(\(line, i\) => <p key=\{i\}>\{line\}<\/p>\)/);
   assert.doesNotMatch(panel, /result\.fired\?\.\[i\]/);
   assert.match(panel, /本番と同じく、元のギフト・いいね・フォロー・コメントの設定も一緒に動きます。/);
   assert.match(panel, /条件確認・発火には BRIDGE の起動が必要です（本番と同じ処理で試します）。/);
-  assert.match(read('src/components/OperationsPage.tsx'), /<EventTestPanel onTested=\{refresh\} bridgeRunning=\{bridgeProcess\.running === true\} \/>/);
+  assert.match(read('src/components/OperationsPage.tsx'), /<EventTestPanel onTested=\{refresh\} bridgeRunning=\{bridgeProcess\.running === true\} gameReady=\{gameReady\} \/>/);
 });

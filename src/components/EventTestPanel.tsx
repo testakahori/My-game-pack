@@ -12,7 +12,7 @@ const EVENTS = [
 ];
 type Result = { ok: boolean; message: string; notes?: string[]; preview?: boolean; steps?: TestStep[]; fired?: FiredRow[] };
 
-export default function EventTestPanel({ onTested, bridgeRunning }: { onTested: () => Promise<void>; bridgeRunning: boolean }) {
+export default function EventTestPanel({ onTested, bridgeRunning, gameReady }: { onTested: () => Promise<void>; bridgeRunning: boolean; gameReady: boolean }) {
   const api = window.mygamepack;
   const { hasChanges } = useUnsavedGuard();
   const [type, setType] = useState('gift');
@@ -41,7 +41,7 @@ export default function EventTestPanel({ onTested, bridgeRunning }: { onTested: 
     return () => { cancelled = true; };
   }, [api]);
   const fire = async (preview: boolean) => {
-    if (busy || hasChanges || !bridgeRunning) return;
+    if (busy || hasChanges || !bridgeRunning || !gameReady) return;
     setBusy(true); setResult(null);
     try {
       setResult(await api.testEvent({ type, preview, listenerName: sender, commandFile,
@@ -65,8 +65,8 @@ export default function EventTestPanel({ onTested, bridgeRunning }: { onTested: 
       {['follow', 'follow_milestone'].includes(type) ? <label className="ops-field"><span>今回で何人目のフォローか</span><input type="number" min={1} max={1000000} value={followCount} onChange={e => setFollowCount(Number(e.target.value))} /></label> : null}
       {type === 'poll' ? <label className="ops-field"><span>当選させる投票番号（例: 1）</span><input value={pollOption} onChange={e => setPollOption(e.target.value)} /></label> : null}
       {['combo', 'like_milestone', 'follow_milestone', 'comment_command'].includes(type) ? <p className="ops-test-note">本番と同じく、元のギフト・いいね・フォロー・コメントの設定も一緒に動きます。</p> : null}
-      <div className="ops-action-row"><button type="button" disabled={hasChanges || !bridgeRunning} className="ops-small-button" onClick={() => fire(true)}>条件だけ確認</button><button type="button" disabled={hasChanges || !bridgeRunning} className="ops-primary-button ops-primary-button--cyan" onClick={() => fire(false)}>{busy ? '確認中…' : type === 'gift' ? '🎁 ギフト発火' : type === 'like' ? '♥ いいね発火' : 'テスト発火'}</button></div>
-      {!bridgeRunning ? <p className="ops-test-note" role="status">BRIDGE を起動すると試せます。</p> : null}
+      <div className="ops-action-row"><button type="button" disabled={hasChanges || !bridgeRunning || !gameReady} className="ops-small-button" onClick={() => fire(true)}>条件だけ確認</button><button type="button" disabled={hasChanges || !bridgeRunning || !gameReady} className="ops-primary-button ops-primary-button--cyan" onClick={() => fire(false)}>{busy ? '確認中…' : type === 'gift' ? '🎁 ギフト発火' : type === 'like' ? '♥ いいね発火' : 'テスト発火'}</button></div>
+      {!gameReady ? <p className="ops-test-note" role="status">配信ホームでプレイするゲームを選んで「保存」すると試せます。</p> : !bridgeRunning ? <p className="ops-test-note" role="status">BRIDGE を起動すると試せます。</p> : null}
     </fieldset>
     <p className="ops-test-note">{hasChanges ? '未保存の変更があります。保存してからテストしてください。' : '条件確認・発火には BRIDGE の起動が必要です（本番と同じ処理で試します）。発火には Minecraft サーバーも必要です。実際にコマンドが動きますが、テスト履歴は配信統計に加算しません。'}</p>
     {result ? <div className="event-test-result" role="status"><b className={result.ok ? 'ok' : 'bad'}>{result.message}</b>{result.notes?.map((note, i) => <p key={i}>{note}</p>)}{stepLines(result.steps, result.fired).map((line, i) => <p key={i}>{line}</p>)}</div> : null}
