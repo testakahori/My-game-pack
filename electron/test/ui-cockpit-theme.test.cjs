@@ -80,7 +80,8 @@ test('配信ホームの細かな所：上の帯の光る線・配信画像は�
 
 test('文字：小さすぎる文字だけを 11〜12px にし、書体は変えず、光り方も画像も消さない（10-17 の決めごと）', () => {
   const css = theme(), list = rules(css);
-  const sizes = [...css.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)].map(m => Number(m[1]));
+  // 小さすぎる文字は 11〜12px。BRIDGE と妨害のボタンだけは、一括起動と同じ大きさ（下のテスト）。
+  const sizes = list.filter(r => !r.selectors.includes('.ui-refresh .cockpit-bridge-actions > button')).flatMap(r => [...r.body.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)].map(m => Number(m[1])));
   for (const size of sizes) assert.ok(size >= 11 && size <= 12, `font-size ${size}px は 11〜12px`);
   // もとの大きさ（index.css・studio.css）→ 新しい大きさ。どれも前より大きい。
   const expected = {
@@ -123,4 +124,15 @@ test('全ページ：大きな箱を同じ作り（角を切った形・方眼�
   assert.ok(small, '小さなカードは角を小さく切る');
   const h1 = find(list, '.ui-refresh .app-content h1::before', /background: #27d8ff/);
   assert.ok(h1, 'ページの見出しの前に水色の線');
+});
+
+// 「BRIDGE起動・停止・再起動」「妨害を一時停止」の文字が小さすぎる（11px）ので、一括起動と同じ大きさに（2026-10-29 ユーザーの決定）。
+test('配信ホーム：BRIDGE と妨害のボタンの文字は、一括起動と同じ大きさ', () => {
+  const allStart = read('src/studio.css').match(/\.ui-refresh \.cockpit-all-start \{[^}]*font-size:(\d+)px/)[1];
+  const rule = find(rules(theme()), '.ui-refresh .cockpit-bridge-actions > button', /font-size:/);
+  assert.ok(rule, 'BRIDGE と妨害のボタンの決まりがある');
+  assert.match(rule.body, new RegExp(`font-size: ${allStart}px`), `一括起動と同じ ${allStart}px`);
+  // 妨害を一時停止のボタンも同じ並び（.cockpit-bridge-actions）の中にある。
+  const dash = read('src/components/DashboardPage.tsx');
+  assert.ok((dash.match(/<div className="cockpit-bridge-actions">/g) || []).length >= 2, 'BRIDGE と妨害のボタンは、どちらも .cockpit-bridge-actions の中');
 });

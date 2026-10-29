@@ -30,6 +30,17 @@ test('画面: 言葉をそろえる（「再読込」は「再読み込み」、
   assert.match(app, /変更は配信ホームから/);
 });
 
+test('画面: 左上のロゴは、緑の顔ではなく BRIDGE のアプリのアイコンの画像（2026-10-29 ユーザーの決定）', () => {
+  const app = code(read('src/App.tsx'));
+  assert.match(app, /import appIcon from "\.\.\/assets\/app-icon\.png";/);
+  assert.match(app, /<img className="global-app-icon" src=\{appIcon\}/);
+  assert.doesNotMatch(app, /MinecraftBlockIcon/, '緑の顔の部品は使わない');
+  // assets/app-icon.png は assets/icon.ico（アプリのアイコン）の 128px の画像。
+  const png = fs.readFileSync(path.join(root, 'assets/app-icon.png'));
+  assert.equal(png.subarray(1, 4).toString(), 'PNG');
+  assert.ok(png.readUInt32BE(16) >= 64 && png.readUInt32BE(20) >= 64, 'ロゴに使えるだけの大きさ（64px 以上）');
+});
+
 test('画面: 左上のアプリの名前は BRIDGE（MyGamePack を出さない。2026-10-29 ユーザーの決定）', () => {
   const app = code(read('src/App.tsx'));
   assert.match(app, /<b>BRIDGE<\/b>/);

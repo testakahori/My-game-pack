@@ -136,6 +136,15 @@
   box-shadow: 0 1px 0 rgba(39, 216, 255, 0.35), 0 6px 18px rgba(39, 216, 255, 0.06);
 }
 
+/* 左上のロゴ：BRIDGE のアプリのアイコンの画像（2026-10-29 ユーザーの決定）。角を切らないので、外に光る影も見える */
+.ui-refresh .global-app-icon {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  box-shadow: 0 0 14px rgba(39, 216, 255, 0.35);
+}
+
 /* 7. ページの大きな見出しの前に、水色に光る線（全ページ。配信ホームの「配信の準備をはじめよう」も） */
 .ui-refresh .app-content h1 {
   display: flex;
@@ -225,6 +234,13 @@
 .ui-refresh .cockpit-flow-step small,
 .ui-refresh .cockpit-flow-step em {
   font-size: 11px;
+}
+
+/* 「BRIDGE起動・停止・再起動」「妨害を一時停止」のボタンの文字を、一括起動（studio.css の 16px）と同じ大きさに（2026-10-29 ユーザーの決定） */
+.ui-refresh .cockpit-bridge-actions > button {
+  min-height: 46px;
+  padding: 10px 16px;
+  font-size: 16px;
 }
 
 /* 一括チェックの説明だけ（運用センターの説明までは変えない） */
