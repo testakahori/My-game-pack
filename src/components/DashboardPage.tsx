@@ -3,8 +3,6 @@ import LaunchGuide from "./LaunchGuide";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AppPage } from "../types";
 import PreflightPanel from "./PreflightPanel";
-// 配信ホームの並び（右の列・一括チェックの置き場・表示のくずれの直し）。index.css には足さない（AGENTS.md）。
-import "./DashboardLayout.css";
 import EulerApiKeySettings from './EulerApiKeySettings';
 import { useUnsavedChanges } from "../UnsavedChanges";
 import type { GiftMapping } from "../types";

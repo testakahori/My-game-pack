@@ -40,7 +40,10 @@ test('配信ホーム: ゲームの欄は右の列（ライブ手順の上）。
   const app = read('src/App.tsx'), dash = read('src/components/DashboardPage.tsx'), css = read('src/components/DashboardLayout.css');
   assert.doesNotMatch(app, /activePage === AppPage\.DASHBOARD && <GameSelector/, 'ゲームの欄をページの上に出さない');
   assert.match(app, /gameSelector=\{setupComplete \? <GameSelector /);
-  assert.match(dash, /import "\.\/DashboardLayout\.css";/);
+  // 同じ強さの index.css・studio.css の決まりに勝つよう、いちばん後に読む（コンポーネントから読むと、組み立てた CSS の頭に入って負けた。最後のレビュー）。
+  const main = read('src/main.tsx');
+  assert.ok(main.indexOf('import "./studio.css";') >= 0 && main.indexOf('import "./components/DashboardLayout.css";') > main.indexOf('import "./studio.css";'), 'main.tsx で studio.css の後に読む');
+  assert.doesNotMatch(dash, /DashboardLayout\.css/, 'DashboardPage からは読まない（読み込みの順がずれる）');
   assert.doesNotMatch(read('src/index.css'), /\.cockpit-side/, '巨大な index.css には足さない（AGENTS.md）');
   assert.match(dash, /<div className="cockpit-side">\s*\{gameSelector\}\s*<LaunchGuide /);
   const side = css.match(/\n\.cockpit-side \{[^}]*\}/)?.[0];
@@ -52,6 +55,12 @@ test('配信ホーム: ゲームの欄は右の列（ライブ手順の上）。
   assert.ok(narrowSide, '狭い窓の .cockpit-side の決まりがある');
   assert.match(narrowSide, /grid-column: 1;/);
   assert.doesNotMatch(narrowSide, /display: none/, '狭い窓でもゲームの欄は隠さない');
+  // studio.css の .ui-refresh .cockpit-layout（2列）より後で、同じ強さで1列にする（右に空の列を残さない）。
+  assert.match(narrow, /\.ui-refresh \.cockpit-layout \{[^}]*grid-template-columns: minmax\(0, 1fr\);/);
+  assert.match(narrow, /\.ui-refresh \.cockpit-lower-grid \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/, '下のカードは2列（右に空きを作らない）');
+  for (const rule of ['.cockpit-preflight', '.cockpit-lower-grid']) {
+    assert.match(css, new RegExp(`\\n\\${rule} \\{[^}]*align-self: start;`), `${rule} は右の列の高さに引き伸ばされない`);
+  }
 });
 
 test('配信ホーム: ゲームの欄の説明は「くわしく」を押したときだけ出し、状態の知らせ（未保存・MOD が古い・復旧・エラー）はいつも出す', () => {

@@ -1,7 +1,9 @@
-/* 配信ホームの並び（2026-10-29 ユーザーの決定）。index.css の .cockpit-layout の格子に、右の列と一括チェックの置き場を足す。
-   色・光り方・文字の大きさは変えない（2026-10-17 の決めごと）。 */
+/* 配信ホームの並び（2026-10-29 ユーザーの決定）。index.css・studio.css の .cockpit-layout の格子に、右の列と一括チェックの置き場を足す。
+   同じ強さの index.css・studio.css の決まりに勝つよう、src/main.tsx で studio.css の後に読む（コンポーネントから読むと先に入って負ける）。
+   index.css には足さない（AGENTS.md）。色・光り方・文字の大きさは変えない（2026-10-17 の決めごと）。 */
 
-/* 右の列：ゲームの欄とライブ手順。中身の高さまでにして、下まで伸ばさない（空の縦長の枠を作らない）。 */
+/* 右の列：ゲームの欄とライブ手順。中身の高さまでにして、下まで伸ばさない（空の縦長の枠を作らない）。
+   列の幅は studio.css の .ui-refresh .cockpit-layout（270px）。 */
 .cockpit-side {
   grid-column: 2;
   grid-row: 1 / span 3;
@@ -12,15 +14,20 @@
   min-width: 0;
 }
 
-/* 配信前の一括チェックは、配信の準備のすぐ下。 */
+/* 配信前の一括チェックは、配信の準備のすぐ下。右の列が高いときも引き伸ばさない。 */
 .cockpit-preflight {
   grid-column: 1;
   grid-row: 2;
+  align-self: start;
   min-width: 0;
 }
 
-.cockpit-preflight .safety-panel {
+.ui-refresh .cockpit-preflight .safety-panel {
   margin-bottom: 0;
+}
+
+.cockpit-lower-grid {
+  align-self: start;
 }
 
 /* 右の列のゲームの欄は、ページの上に出していたときの外の余白を外す。 */
@@ -48,8 +55,18 @@
   grid-column: 2 / -1;
 }
 
-/* 狭い窓では右の列を起動ボタンの下に回す。ゲームの欄は隠さず、ライブ手順だけ隠す（index.css の .cockpit-flow-panel）。 */
+/* 狭い窓では1列にし、右の列を起動ボタンの下に回す。ゲームの欄は隠さず、ライブ手順だけ隠す（index.css の .cockpit-flow-panel）。
+   studio.css は 1150px 以下でも右の列（245px）を残していて、空いた列ができていた。 */
 @media (max-width: 1180px) {
+  .ui-refresh .cockpit-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 下のカードは2列（MAPセーブ・ロードは下の行いっぱい。index.css の決まり）。studio.css の3列のままだと右に空きができていた。 */
+  .ui-refresh .cockpit-lower-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .cockpit-side {
     grid-column: 1;
     grid-row: 2;
