@@ -34,3 +34,16 @@ test('おじさんパーティと魔女パニックの説明は、それぞれ�
   assert.notEqual(ozisan, witch);
   for (const mob of ['ヴィンディケーター', 'ピリジャー', 'イリュージョナー', 'エヴォーカー']) assert.ok(ozisan.includes(mob), mob);
 });
+
+// /bridge magma_cube 1（マグマスライム！）を足す（2026-10-29 ユーザーの決定）。スライム！と同じ作り：頭上が空いていれば頭上から落とし、
+// 塞がっていれば足元に出す。視聴者の名前を付け、ゆっくり落とす。一時タグは外す。どのゲームでも使える共通のコマンド。
+test('マグマスライム！は、スライム！と同じ作りでマグマキューブを1体ずつ出す', () => {
+  const text = read('magma_cube');
+  assert.equal(meta(text, 'TITLE'), 'マグマスライム！');
+  assert.equal(meta(text, 'CATEGORY'), '敵対MOB');
+  assert.equal(meta(text, 'DESTRUCTIVE'), undefined, '地形は壊さない');
+  const commands = parseCommandText(text).commands;
+  assert.deepEqual(commands, parseCommandText(read('slime')).commands.map(line => line.replaceAll('minecraft:slime', 'minecraft:magma_cube')));
+  assert.equal(commands.filter(line => /summon minecraft:magma_cube .*CustomName:"\\"\{ListenerName\}\\""/.test(line)).length, 2);
+  assert.equal(require('../../bridge/game_commands.cjs').gameOfCommand('magma_cube.txt'), null, 'どのゲームでも使える');
+});
