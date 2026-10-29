@@ -13,7 +13,8 @@ import EventSettings2Page from "./components/EventSettings2Page";
 import TTSSettingsPage from "./components/TTSSettingsPage";
 import OperationsPage from "./components/OperationsPage";
 import StatsDashboardPage from "./components/StatsDashboardPage";
-import MinecraftBlockIcon from "./components/MinecraftBlockIcon";
+// 左上のロゴは BRIDGE のアプリのアイコン（assets/icon.ico の 128px の画像。2026-10-29 ユーザーの決定）。
+import appIcon from "../assets/app-icon.png";
 import GameSelector from './components/GameSelector';
 import StopPanel from "./components/StopPanel";
 import { pauseView, pauseBannerText, setDisruptionPause, type PauseView } from "./lib/disruptionPause";
@@ -174,7 +175,7 @@ const App: React.FC = () => {
     <div className="app-shell ui-refresh flex h-screen flex-col bg-gray-900 text-gray-100 overflow-hidden">
       <header className="global-app-header">
         <div className="global-app-identity">
-          <div className="global-app-cube"><MinecraftBlockIcon /></div>
+          <img className="global-app-icon" src={appIcon} alt="" />
           {/* アプリの名前は BRIDGE（2026-10-29 ユーザーの決定）。インストーラー・ショートカットの名前（MyGamePack Bridge UI）は設定の置き場所に関わるので変えない。 */}
           <div><b>BRIDGE</b><small>{appVersion ? `v${appVersion}` : ""}</small></div>
         </div>

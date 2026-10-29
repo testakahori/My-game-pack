@@ -5,7 +5,6 @@
 .ui-refresh .global-app-identity {gap:10px;min-width:210px;}
 .ui-refresh .global-app-identity b {font-size:17px;letter-spacing:-.3px;}
 .ui-refresh .global-app-identity small {font-size:10px;color:#97a6bc;}
-.ui-refresh .global-app-cube {width:30px;height:36px;filter:none;}
 .global-app-edition {font-style:normal;font-size:9px;letter-spacing:1.8px;margin-left:8px;color:#69dfd0;}
 .ui-refresh .global-app-status {margin-left:auto;border:0;background:transparent;box-shadow:none;font-size:11px;}
 .ui-refresh .global-app-status>span {border:0;padding:0 10px;color:#9cabc1;gap:6px;}
@@ -37,6 +36,7 @@
 .ui-refresh :is(button,input,textarea,select):focus-visible {outline:2px solid #a9c6ff;outline-offset:3px;}
 .ui-refresh button:disabled {cursor:not-allowed;}
 .ui-refresh .page-surface {max-width:1480px;margin-left:auto;margin-right:auto;}
+/* 下の平らにする決まりは、配信ホームのカードと全ページの大きな箱（.ops-panel を含む）について、src/components/CockpitTheme.css が !important で上書きしている（2026-10-29「コックピット強め」）。 */
 .ui-refresh :is(.ops-panel,.cockpit-main,.cockpit-flow-panel,.cockpit-info-card,.cockpit-activity,.cockpit-bridge-log-panel,.preflight-panel) {background:#141c2a!important;border:1px solid #303b50!important;border-radius:12px!important;box-shadow:none!important;clip-path:none!important;}
 .ui-refresh :is(.ops-panel,.cockpit-main,.cockpit-flow-panel,.cockpit-info-card)::before,
 .ui-refresh :is(.ops-panel,.cockpit-main,.cockpit-flow-panel,.cockpit-info-card)::after {display:none!important;}
@@ -317,6 +317,7 @@
 .studio-monitor-note{padding:16px 0;color:#98a9c3;font-size:11px;line-height:1.9;}
 
 /* Keep existing settings consistent with the shared workspace. */
+/* 下の灰色にする決まり（強さ (0,3,1)）は、ギフト設定・いいね・フォロー・ルーレット・コメント・読み上げの大きな箱について、src/components/CockpitTheme.css が html body .app-shell.ui-refresh :is(…) で上書きしている（2026-10-29 2回目のレビュー 重要1） */
 .ui-refresh :is(.gift-design-top,.gift-design-page>.space-y-5>div,.events-page>section,.events-summary,.events-summary-card,.tts-status-card,.tts-read-target-section,.tts-engine-card){background:#141c2a!important;border-color:#334158!important;box-shadow:none!important;border-radius:12px;}
 .ui-refresh :is(.gift-preview-art img,.events-summary-card>span,.events-like-icon,.tts-engine-mark){filter:none!important;}
 .ui-refresh :is(.events-page,.tts-page,.gift-design-page) button{box-shadow:none!important;}
