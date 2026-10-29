@@ -298,6 +298,32 @@ test('リリース: 最後の表示に、配る物に入ったゲームの初期
   }
 });
 
+// 配る物の bridge に、git で管理していないファイル（開発機の残り物）が入っていれば、名前を並べて知らせる。止めない
+// （前の版には _op.txt・ゲームのコマンドの写し・.omc が入っていた。2026-10-29 ユーザーの決定）。
+test('リリース: 最後の表示に、配る物の bridge に入った git に無いファイルの名前を出す。無ければ「なし」', async t => {
+  for (const kind of ['extra', 'none', 'missing']) {
+    const { dir, put } = fakeRepo(t);
+    const summary = await release.runRelease({
+      ...quiet, root: dir, outDir: path.join(dir, 'release'),
+      // git の bridge のファイル（bridge から見た道）。build/bridge-bundle の中身も、入っているべきもの。
+      bridgeFiles: () => ['index.js', 'commands/minecraft/tnt.txt'],
+      run: step => { if (step === 'prepare:bridge-runtime') put('build/bridge-bundle/index.bundle.cjs', '//'); },
+      packageInstaller: () => {
+        freshExe(put)();
+        if (kind === 'missing') return;
+        const files = ['index.js', 'index.bundle.cjs', 'commands/minecraft/tnt.txt', ...(kind === 'extra' ? ['commands/minecraft/_op.txt', 'commands/minecraft/.omc/state/a.json'] : [])];
+        for (const file of files) put(`release/win-unpacked/resources/bridge/${file}`, 'x');
+      },
+    });
+    const line = summary.find(row => row.startsWith('配る物の bridge'));
+    assert.equal(line, {
+      extra: '配る物の bridge に git に無いファイルがあります（2 件）: commands/minecraft/.omc/state/a.json、commands/minecraft/_op.txt',
+      none: '配る物の bridge の git に無いファイル: なし',
+      missing: '配る物の bridge: win-unpacked が無いので確かめていません',
+    }[kind], summary.join('\n'));
+  }
+});
+
 test('リリース: MOD の作り直し忘れがあれば、何も作らずに止める', async t => {
   const { dir, put } = fakeRepo(t);
   put('BridgeMod/src/main/java/A.java', 'class A { int changed; }', later);

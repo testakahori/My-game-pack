@@ -463,6 +463,24 @@ test('配布: 初期セットアップの BRIDGE の展開は、同梱の BRIDGE
   assert.equal(second.stats.removedFiles, 1);
 });
 
+// 前の版の配布物に紛れていた開発機の _op.txt（開発者のマイクラIDを OP にする中身）は、配信者が OP 付与をしていなければ残っていて、
+// OP の人がチャットで /bridge _op 1 と打つと、開発者が配信者のサーバーで OP になる。中身が開発者の行のときだけ消す
+// （配信者の ID の _op.txt は残す。OP 付与は付けるたびに書き直す。2026-10-29 ユーザーの決定）。
+test('配布: BRIDGE を写すとき、前の版に紛れていた開発者の _op.txt だけを消し、配信者の ID の _op.txt は残す（配布版）', async t => {
+  for (const [text, removed] of [['# TITLE: OP付与\nop Douma_Akahori\n', true], ['# TITLE: OP付与\r\nop Douma_Akahori\r\n', true], ['# TITLE: OP付与\nop Steve_01\n', false]]) {
+    const app = loadApp(t);
+    app.usePackagedPaths();
+    packagedBridgeResources(app);
+    const target = path.join(app.root, 'target');
+    const op = path.join(target, 'bridge', 'commands', 'minecraft', '_op.txt');
+    await app.invoke('bridge:extractTo', target);
+    fs.writeFileSync(op, text);
+    const second = await app.invoke('bridge:extractTo', target);
+    assert.equal(fs.existsSync(op), !removed, JSON.stringify(text));
+    assert.equal(second.stats.removedFiles, removed ? 1 : 0);
+  }
+});
+
 test('配布: サーバーテンプレートのコピーは、今あるファイルを上書きせず、コマンド txt も置き、進み具合を返す（開発版）', async t => {
   const app = loadApp(t);
   const template = path.join(app.root, 'server', 'Douma_Craft');

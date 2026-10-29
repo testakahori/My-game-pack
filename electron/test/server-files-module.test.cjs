@@ -23,6 +23,10 @@ function setup(t, { running = false, mapBusy = false } = {}) {
 test('OP の付与と古いゲームルールの窓口: サーバーが動いていれば BridgeMOD の応答を待ってから、main から受け取った通信で送る', async t => {
   const x = setup(t, { running: true });
   x.config.minecraftPlayerName = 'Steve_01';
+  // 前の版の配布物には、開発者のマイクラIDを OP にする _op.txt が紛れていた。残っていても、保存したマイクラIDで書き直してから送る
+  // （2026-10-29 ユーザーの決定：配布物から外す。OP の自動付与は外さない）。
+  fs.mkdirSync(path.join(x.bridge, 'commands', 'minecraft'), { recursive: true });
+  fs.writeFileSync(path.join(x.bridge, 'commands', 'minecraft', '_op.txt'), '# TITLE: OP付与\nop Douma_Akahori\n');
   assert.deepEqual(await x.invoke('minecraft:grantOp'), { ok: true, name: 'Steve_01' });
   assert.deepEqual(x.calls, ['wait', ['POST', '/bridge/event', { type: 'other', key: '_op', count: 1, listenerName: 'system', announce: false }]]);
   assert.equal(fs.readFileSync(path.join(x.bridge, 'commands', 'minecraft', '_op.txt'), 'utf8'), '# TITLE: OP付与\nop Steve_01\n');

@@ -88,6 +88,31 @@ function gameMapLines(root) {
   }));
 }
 
+// git の bridge のファイル（bridge から見た道）。git が使えなければ null。
+function gitBridgeFiles(root) {
+  try {
+    const out = cp.execFileSync("git", ["-C", root, "ls-files", "-z", "--", "bridge"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+    return out.split("\0").filter(Boolean).map(file => file.slice("bridge/".length));
+  } catch {
+    return null;
+  }
+}
+
+// 配る物の bridge（<出力先>/win-unpacked/resources/bridge）に、git で管理していないファイル（開発機の残り物）が入っていないか。止めずに名前を並べて知らせる
+// （前の版には _op.txt・ゲームのコマンドの写し・.omc が入っていた。2026-10-29 ユーザーの決定）。
+// 入っているべきものは、git の bridge のファイルと、prepare:bridge-runtime が作る build/bridge-bundle の中身。
+const listFiles = dir => fs.readdirSync(dir, { recursive: true }).map(name => String(name).replace(/\\/g, "/")).filter(name => fs.statSync(path.join(dir, name)).isFile());
+function extraBridgeLine(root, outDir, bridgeFiles) {
+  const shipped = path.join(outDir, "win-unpacked", "resources", "bridge");
+  if (!fs.existsSync(shipped)) return "配る物の bridge: win-unpacked が無いので確かめていません";
+  const tracked = bridgeFiles();
+  if (!tracked) return "配る物の bridge: git の情報が取れないので確かめていません";
+  const bundle = path.join(root, "build", "bridge-bundle");
+  const expected = new Set([...tracked, ...(fs.existsSync(bundle) ? listFiles(bundle) : [])]);
+  const extra = listFiles(shipped).filter(file => !expected.has(file)).sort();
+  return extra.length ? `配る物の bridge に git に無いファイルがあります（${extra.length} 件）: ${extra.join("、")}` : "配る物の bridge の git に無いファイル: なし";
+}
+
 function removeGenerated(root, remove) {
   for (const dir of GENERATED_DIRS) {
     try {
@@ -98,8 +123,8 @@ function removeGenerated(root, remove) {
   }
 }
 
-// run(step) は npm run <step>、packageInstaller(args) は scripts/package-windows.cjs（テストでは偽物）。返すのは最後に表示する行。
-async function runRelease({ root, local, outDir, run, packageInstaller, log = console.log, remove = dir => fs.rmSync(dir, REMOVE_OPTIONS) }) {
+// run(step) は npm run <step>、packageInstaller(args) は scripts/package-windows.cjs、bridgeFiles() は git の bridge のファイル（テストでは偽物）。返すのは最後に表示する行。
+async function runRelease({ root, local, outDir, run, packageInstaller, log = console.log, remove = dir => fs.rmSync(dir, REMOVE_OPTIONS), bridgeFiles = () => gitBridgeFiles(root) }) {
   const version = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
   assertReleaseVersion(version, local);
   const stale = staleMods(root);
@@ -127,6 +152,7 @@ async function runRelease({ root, local, outDir, run, packageInstaller, log = co
     state ? `作った元: ${state.commit}（${state.branch === "HEAD" ? "ブランチなし" : state.branch}）・コミットしていない変更 ${state.changes} 件` : "作った元: git の情報が取れない",
     ...modJars(root).map(mod => `${mod.name}: ${path.basename(mod.jar)}`),
     ...gameMapLines(root),
+    extraBridgeLine(root, outDir, bridgeFiles),
   ];
   for (const line of summary) log(`[release] ${line}`);
   return summary;

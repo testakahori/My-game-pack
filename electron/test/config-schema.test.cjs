@@ -124,3 +124,50 @@ test('配布: 開発者の読み上げの設定（bridge/tts-settings.json）は
   const resources = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).build.extraResources;
   assert.ok(resources.find(entry => entry.from === 'bridge').filter.includes('!tts-settings.json'));
 });
+
+// 開発機の bridge/commands/minecraft には、git の管理外のファイルが残る。配布物の bridge は中身をまるごと（**/*）入れるので、それも配っていた。
+// _op.txt（開発者のマイクラIDを OP にする中身）、ゲームのコマンドの写し（game_<ゲーム>_*.txt。ゲームを選んだときにアプリがパックから書き出す）、
+// .omc・.claude（開発の道具の記録）。OP の自動付与は、付けるたびに保存したマイクラIDで _op.txt を書き直すので、配らなくてよい
+// （2026-10-29 ユーザーの決定：外す。OP の自動付与は外さない。ゲームのコマンドは3つのゲームの分だけ外す）。
+// electron-builder（app-builder-lib）の、配る物に入れるかを決める部品そのものを使う（版は package.json で固定。中の作りなので、版を上げて変わったらここが落ちる）。
+function shipsFrom(from, patterns) {
+  const { FileMatcher } = require('app-builder-lib/out/fileMatcher.js');
+  const filter = new FileMatcher(from, 'out', text => text, patterns).createFilter();
+  // フォルダーが外れると、その中は見に行かない（builder-util の fs.js）。上のフォルダーから順に確かめる。
+  return rel => {
+    const parts = rel.split('/');
+    for (let i = 1; i <= parts.length; i++) if (!filter(path.join(from, ...parts.slice(0, i)), { isDirectory: () => i < parts.length })) return false;
+    return true;
+  };
+}
+
+test('配布: 開発機に残った _op.txt・ゲームのコマンドの写し・.omc・.claude は配布物に入れず、_gamerules.txt と共通のコマンドは入れる', () => {
+  const { PACK_GAME_IDS, gameOfCommand } = require('../../bridge/game_commands.cjs');
+  const root = path.resolve(__dirname, '../..');
+  const build = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).build;
+  const filter = build.extraResources.find(entry => entry.from === 'bridge').filter;
+  const ships = shipsFrom(path.join(root, 'bridge'), filter);
+  // 外すゲームは、ゲームの一覧（bridge/game_commands.cjs）と同じ。ゲームを足したのに外す決まりを直し忘れると、ここで止まる。
+  const games = filter.map(pattern => /^!commands\/minecraft\/game_\{(.+)\}_\*\.txt$/.exec(pattern)).find(Boolean);
+  assert.ok(games, 'ゲームのコマンドを外す決まりがある');
+  assert.deepEqual(games[1].split(',').sort(), [...PACK_GAME_IDS].sort());
+  for (const file of ['commands/minecraft/_op.txt', ...PACK_GAME_IDS.map(id => `commands/minecraft/game_${id}_flood.txt`),
+    'commands/minecraft/.omc/state/sessions/x/pre-tool-advisory-throttle.json', '.omc/state/a.json',
+    '.claude/settings.local.json', 'commands/minecraft/.claude/settings.local.json']) {
+    assert.equal(ships(file), false, `${file} は配布物に入れない`);
+  }
+  // game_ で始まっても、ゲームの一覧に無い名前は共通のコマンド（gameOfCommand が null）。配る。
+  for (const name of ['game_mode_on.txt', 'game_unknown_x.txt']) {
+    assert.equal(gameOfCommand(name), null);
+    assert.equal(ships('commands/minecraft/' + name), true, `${name} は配布物に入れる`);
+  }
+  // 手元の bridge/commands/minecraft の txt（開発機には _op.txt やゲームのコマンドの写しも残っている。CI では git から取り出したものだけ）。
+  const commands = fs.readdirSync(path.join(root, 'bridge/commands/minecraft')).filter(name => name.endsWith('.txt') && name !== '_op.txt' && !gameOfCommand(name));
+  assert.ok(commands.includes('_gamerules.txt') && commands.length > 10, 'bridge/commands/minecraft のコマンドを見ている');
+  for (const name of commands) assert.equal(ships('commands/minecraft/' + name), true, `${name} は配布物に入れる`);
+  assert.equal(ships('games.json'), true);
+  // アプリ本体（files）の側にも、開発の道具の記録は入れない。
+  const appFiles = shipsFrom(root, build.files);
+  for (const file of ['electron/.omc/state/a.json', 'electron/.claude/settings.local.json']) assert.equal(appFiles(file), false, `${file} は配布物に入れない`);
+  assert.equal(appFiles('electron/main.cjs'), true);
+});

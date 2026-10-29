@@ -56,6 +56,10 @@
       "electron/**",
       "package.json",
       "!electron/test/**",
+      "!**/.omc",
+      "!**/.omc/**",
+      "!**/.claude",
+      "!**/.claude/**",
       "bridge/roulette.cjs",
       "bridge/feature_engine.js",
       "bridge/event_rules.cjs",
@@ -102,7 +106,13 @@
           "!**/*.last-good",
           "!**/*.broken-*",
           "!**/*.????????-????-????-????-????????????.tmp",
-          "!tts-settings.json"
+          "!tts-settings.json",
+          "!commands/minecraft/_op.txt",
+          "!commands/minecraft/game_{saikutu,umetate,run}_*.txt",
+          "!**/.omc",
+          "!**/.omc/**",
+          "!**/.claude",
+          "!**/.claude/**"
         ]
       },
       {
