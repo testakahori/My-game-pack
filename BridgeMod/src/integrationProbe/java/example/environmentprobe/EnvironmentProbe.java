@@ -34,7 +34,7 @@ public final class EnvironmentProbe {
                     for (ServerLevel level : List.of(server.overworld(), server.getLevel(net.minecraft.world.level.Level.NETHER))) {
                         var checks = new LinkedHashMap<String, Object>();
                         for (EntityType<? extends Mob> type : List.of(EntityType.ZOMBIE, EntityType.SKELETON, EntityType.CREEPER,
-                                EntityType.SLIME, EntityType.PHANTOM, EntityType.PILLAGER, EntityType.GHAST, EntityType.COW, EntityType.SHEEP, EntityType.COD)) {
+                                EntityType.SLIME, EntityType.MAGMA_CUBE, EntityType.PHANTOM, EntityType.PILLAGER, EntityType.GHAST, EntityType.COW, EntityType.SHEEP, EntityType.COD)) {
                             for (MobSpawnType reason : List.of(MobSpawnType.NATURAL, MobSpawnType.CHUNK_GENERATION,
                                     MobSpawnType.PATROL, MobSpawnType.REINFORCEMENT, MobSpawnType.COMMAND, MobSpawnType.SPAWN_EGG,
                                     MobSpawnType.SPAWNER, MobSpawnType.EVENT)) {
