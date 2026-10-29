@@ -103,3 +103,18 @@ test('同梱の OBSMOD の場所: 開発版はリポジトリ、配布版は雛�
   put(path.join(packaged.resources, 'server-template', 'mods', 'minecraft_obs_bridge-2.4.8.jar'));
   assert.equal((await packaged.invoke('games:list')).obsBundled, true);
 });
+
+// 「マップを初期化」はサーバーの止まりだけを見る（BRIDGE と Minecraft は動いていてよい。埋め立て PR3 の決めたこと 9）。
+test('マップの初期化: サーバーが動いている・準備中・止まる途中・MAP の作業中・初期セットアップ中なら止め、BRIDGE と Minecraft が動いていても止めない', async t => {
+  const x = setup(t);
+  for (const flag of ['serverRunning', 'starting', 'stopping', 'setup']) {
+    x.busy[flag] = true;
+    await assert.rejects(x.invoke('games:resetMap'), /サーバーを止めてから/, flag);
+    x.busy[flag] = false;
+  }
+  x.busy.map = 'MAPを保存・読込中です';
+  await assert.rejects(x.invoke('games:resetMap'), /MAPを保存・読込中です/);
+  x.busy.map = '';
+  x.busy.bridge = true; x.busy.minecraft = { running: true, processes: [] };
+  await assert.rejects(x.invoke('games:resetMap'), /「保存」してから/, 'サーバーの止まりの確かめは通り、次の確かめ（保存前）で止まる');
+});

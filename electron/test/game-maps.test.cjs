@@ -238,3 +238,79 @@ test('server.properties: level-name だけを書き換え、無いときは worl
   assert.match(read('electron/initial_setup.cjs'), /require\("\.\/server_properties\.cjs"\)/);
   assert.doesNotMatch(read('electron/initial_setup.cjs'), /function mergeProperties/);
 });
+
+// 「マップを初期化」（TOP のボタン。マップのあるゲームに出す。サバイバルには出さない。2026-10-29 ユーザーの決定）。
+test('マップを初期化すると、今の埋め立てのマップが初期の状態に戻り、遊んだマップは消える', async t => {
+  const x = fixture(t);
+  await x.api.activate('umetate');
+  put(x.at(`${USE}/region/played.mca`), 'played');
+  const commands = path.join(path.dirname(x.config), 'commands/minecraft');
+  const snapshot = () => ({ server: fs.readdirSync(x.at('mods')).sort(), client: fs.readdirSync(path.join(x.client, 'mods')).sort(),
+    config: fs.readFileSync(x.config, 'utf8'), commands: fs.readdirSync(commands).sort(), active: x.api.list().active, applied: x.api.list().applied });
+  const before = snapshot();
+  await x.api.resetMap();
+  assert.deepEqual(contents(x.at(USE)), SAMPLE);
+  assert.equal(x.levelName(), USE);
+  assert.deepEqual(snapshot(), before, 'MOD・設定・コマンドのファイル・今のゲームは変えない');
+  assert.deepEqual(x.switchDir(), []);
+});
+
+test('マップを初期化できないとき：保存前・マップの無いゲーム・途中の記録があるときは、何も変えずに止まる', async t => {
+  const x = fixture(t);
+  const props = x.props();
+  await assert.rejects(x.api.resetMap(), /「保存」してから/);
+  for (const id of ['saikutu', 'common']) {
+    await x.api.activate(id);
+    await assert.rejects(x.api.resetMap(), /初期化できるマップがありません/, id);
+  }
+  assert.equal(x.props(), props);
+  assert.equal(fs.existsSync(x.at(USE)), false);
+  fs.writeFileSync(path.join(x.storage, 'pending-switch.json'), '{}');
+  await assert.rejects(x.api.resetMap(), /復旧/);
+});
+
+test('マップの初期化が途中で失敗したら元に戻す', async t => {
+  let failMap = false;
+  const x = fixture(t, { extras: { beforeStep: step => { if (step === 'map' && failMap) throw new Error('map locked'); } } });
+  await x.api.activate('umetate');
+  put(x.at(`${USE}/region/played.mca`), 'played');
+  failMap = true;
+  await assert.rejects(x.api.resetMap(), /元へ戻しました.*map locked/);
+  assert.equal(contents(x.at(USE))['region/played.mca'], 'played');
+  assert.equal(x.levelName(), USE);
+  assert.equal(x.api.list().recoveryRequired, false);
+});
+
+test('マップの初期化はサーバーの止まりだけを見る（BRIDGE・Minecraft が動いていてもよい）', async t => {
+  let blockSwitch = false, blockServer = false;
+  const x = fixture(t, { extras: {
+    ensureStopped: async () => { if (blockSwitch) throw new Error('切替は止めてから'); },
+    ensureServerStopped: async () => { if (blockServer) throw new Error('サーバーを止めてから'); },
+  } });
+  await x.api.activate('umetate');
+  blockSwitch = true;
+  await x.api.resetMap();
+  blockServer = true;
+  put(x.at(`${USE}/region/played.mca`), 'played');
+  await assert.rejects(x.api.resetMap(), /サーバーを止めてから/);
+  assert.equal(contents(x.at(USE))['region/played.mca'], 'played');
+});
+
+// 画面（ソースの文字を読む。今のテストと同じ書き方）。
+test('画面: TOP の「マップを初期化」は、マップのあるゲームを保存したときに出し、先にサーバーを確かめてから確かめの画面を出す', () => {
+  assert.match(read('electron/preload.cjs'), /gamesResetMap: \(\) => ipcRenderer\.invoke\('games:resetMap'\),/);
+  const types = read('src/types/electron.d.ts');
+  assert.match(types, /gamesResetMap: \(\) => Promise<GameStatus>;/);
+  assert.match(types, /maps\?: string\[\]/);
+  assert.match(types, /resetMapOnSwitch\?: boolean/);
+  const ui = read('src/components/GameSelector.tsx');
+  assert.ok(ui.includes('マップを初期化'));
+  const reset = ui.slice(ui.indexOf('async function resetMap'), ui.indexOf('async function', ui.indexOf('async function resetMap') + 1));
+  assert.ok(reset.includes('serverProcessStatus') && reset.includes('window.confirm('), 'resetMap の中でサーバーを確かめ、確かめの画面を出す');
+  assert.ok(reset.indexOf('serverProcessStatus') < reset.indexOf('window.confirm('), 'サーバーが動いていたら、確かめの画面より先に理由を出す');
+  assert.match(reset, /api\.gamesResetMap\(\)/);
+  // ボタンは maps で出す（resetMapOnSwitch ではない。あとで採掘にマップを足したときも出るように）。保存の前の知らせは resetMapOnSwitch。
+  assert.match(ui, /const canResetMap = Boolean\(status\?\.applied && activeGame\?\.maps\?\.length\)/);
+  assert.match(ui, /resetMapOnSwitch/);
+  assert.match(read('src/lib/devApiMock.ts'), /gamesResetMap:/);
+});

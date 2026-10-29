@@ -105,8 +105,9 @@ function inspectPackage(folder) {
 
 // recordRecovery は、壊れていて戻したことの記録（main が logs/settings-recovery.log に書く）。
 // removeTree は、切り替えが終わったあとに古いマップを消す関数（テストが消せないときを起こす）。
+// ensureServerStopped は「マップを初期化」の確かめ。サーバーだけが止まっていればよい（BRIDGE・Minecraft は動いていてよい。埋め立て PR3）。
 function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridgeJar, displayJar = () => null, obsJar = () => null, bundledPackages = () => [], ensureStopped, beforeStep = () => {}, recordRecovery, now,
-  removeTree = dir => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 }) }) {
+  removeTree = dir => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 }), ensureServerStopped = ensureStopped }) {
   const root = () => path.resolve(storage());
   const stateFile = () => path.join(root(), 'profiles.json');
   const journalFile = () => path.join(root(), 'pending-switch.json');
@@ -431,9 +432,37 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     }
     return { changed, game: id };
   }
+  // TOP の「マップを初期化」：今のゲームの初期マップを map_backup から写し直し、遊んだマップを消す（MOD・設定・コマンドには触らない）。
+  // 途中で失敗・アプリが落ちたときは、切り替えと同じ途中の記録で戻す（mods は動かさないので commandBefore は空）。
+  async function resetMap() {
+    if (fs.existsSync(journalFile())) throw new Error('前回の切替を復旧してから初期化してください');
+    // サーバーの止まりを先に見る（画面が、サーバーが動いている理由を先に出せるように）。
+    await ensureServerStopped();
+    if (!list().applied) throw new Error('ゲームを「保存」してから初期化してください');
+    const current = state();
+    if (!gameOf(current.active)?.maps?.length) throw new Error('このゲームには初期化できるマップがありません');
+    const dirs = targets();
+    clearMapLeftovers(dirs[0]);
+    const operation = crypto.randomUUID();
+    const step = await prepareMapStep(current, current.active, operation, { reset: true });
+    fs.mkdirSync(root(), { recursive: true });
+    const journal = { id: operation, roots: dirs, hadMods: dirs.map(d => fs.existsSync(path.join(d, 'mods'))), configPath: path.resolve(configPath()),
+      configBefore: fs.readFileSync(configPath(), 'utf8'), stateBefore: current, commandBefore: {}, map: journalMap(step) };
+    writeJson(journalFile(), journal);
+    try {
+      applyMapStep(step);
+      const next = clone(current); recordMapReturn(next, step); stateStore.write(next);
+      fs.unlinkSync(journalFile());
+    } catch (error) {
+      try { restore(journal); } catch (rollback) { throw new Error(`マップを初期化できませんでした。復旧が必要です: ${rollback.message}（原因: ${error.message}）`); }
+      throw new Error(`マップを初期化できなかったため元へ戻しました: ${error.message}`);
+    }
+    finishMapStep(step);
+    return list();
+  }
   // 切り替えの記録の「今のゲーム」を読むだけ（無い・壊れていれば null）。ギフト設定の写しを使ってよいかを確かめるため（設計書 6.6）。
   const peekActive = () => peekJsonFile(stateFile(), stateProblem)?.active ?? null;
-  return { list, install, activate, recover, refreshMods, peekActive };
+  return { list, install, activate, recover, refreshMods, resetMap, peekActive };
 }
 
 module.exports = { GAMES, PROFILE_KEYS, jarModIds, inspectPackage, createGameProfiles };

@@ -16,6 +16,11 @@ export default function GameSelector({ onChanged, onStatus }: { onChanged: () =>
   const [folder, setFolder] = useState('');
   const [scanning, setScanning] = useState(false);
   const api = window.mygamepack;
+  // 「マップを初期化」は、今のゲームに初期マップ（games.json の maps）があり、保存済みのときに出す（サバイバルには無い。埋め立て PR3）。
+  const activeGame = status?.games.find(g => g.id === status.active);
+  const canResetMap = Boolean(status?.applied && activeGame?.maps?.length);
+  // ほかのゲームから切り替えたときにマップを初期に戻すゲーム（今は埋め立て）。
+  const resetGames = (status?.games || []).filter(g => g.resetMapOnSwitch).map(g => g.name).join('・');
   useEffect(() => {
     let disposed = false;
     api?.gamesList?.().then((next: GameStatus) => { if (!disposed) { setStatus(next); setSelected(next.active); onStatus(next); } })
@@ -40,6 +45,24 @@ export default function GameSelector({ onChanged, onStatus }: { onChanged: () =>
       const next = await api.gamesRefreshMods();
       setStatus(next); onStatus(next);
       setMessage('ゲームのMODを新しい版に入れ替えました。');
+    } catch (e: any) {
+      setError(e?.message || String(e));
+      try { const next = await api.gamesList(); setStatus(next); onStatus(next); } catch { /* 表示はそのまま */ }
+    }
+    finally { setBusy(false); }
+  }
+  // 「マップを初期化」：今のゲームのマップを初期の状態に戻す。サーバーが動いていたら、確かめの画面より先に理由を出す。
+  async function resetMap() {
+    if (busy || scanning || !activeGame) return;
+    setError(''); setMessage('');
+    const server = await api.serverProcessStatus().catch(() => null);
+    if (server?.running) { setError('サーバーが動いています。サーバーを止めてから「マップを初期化」を押してください。'); return; }
+    if (!window.confirm(`${activeGame.name}のマップを初期の状態に戻します。\n今のマップは消え、元に戻せません。残したいときは、先に「MAPセーブ・ロード」で保存してください。\n初期化しますか？`)) return;
+    setBusy(true);
+    try {
+      const next = await api.gamesResetMap();
+      setStatus(next); onStatus(next);
+      setMessage(`${activeGame.name}のマップを初期の状態に戻しました。`);
     } catch (e: any) {
       setError(e?.message || String(e));
       try { const next = await api.gamesList(); setStatus(next); onStatus(next); } catch { /* 表示はそのまま */ }
@@ -86,10 +109,14 @@ export default function GameSelector({ onChanged, onStatus }: { onChanged: () =>
     </div>
     <p>{game?.installed ? `使用するMOD：BridgeMOD ＋ DisplayMOD（表示）${selected === 'common' ? '' : ` ＋ ${game.modName}`}` : 'このゲームMODはまだ登録されていません。完成したゲームパックを登録してください。'}</p>
     <p>① ゲームを選んで保存 → ② ギフト・いいね・ルーレットなどを設定。ゲームごとに設定を保存し、次回の切替時に読み込みます。</p>
-    {dirty && <p role="status" className="game-selector-pending">ゲームの変更は未保存です。「保存」を押すと選んだゲームへ切り替わります。</p>}
+    {dirty && <p role="status" className="game-selector-pending">ゲームの変更は未保存です。「保存」を押すと選んだゲームへ切り替わります。{game?.resetMapOnSwitch ? `${game.name}に切り替えると、${game.name}のマップは初期の状態から始まります（前に遊んだ${game.name}のマップは消えます）。` : ''}</p>}
     <p>暗視・アイテムロストなし・昼・晴れは固定です。イベント中のみ時間・天候が一時的に変わります。</p>
     <p>コマンドの実行通知は非表示です。敵モブの自然発生は停止します。動物・魚の自然発生と、ギフト・コマンドでの召喚は有効です。</p>
     {status && <small>{status.applied ? `適用済み：${status.games.find(g => g.id === status.active)?.name}` : 'ゲームが未保存です。ゲームを選んで「保存」を押してください。'} ／ 切替はサーバー・Minecraft・BRIDGEの停止中に行います。</small>}
+    {canResetMap && <div className="game-selector-tools game-selector-map">
+      <button type="button" disabled={busy || scanning || status?.recoveryRequired} onClick={resetMap}>マップを初期化</button>
+      <span>{activeGame?.name}のマップを、初期の状態に戻します（サーバーを止めてから）。</span>
+    </div>}
     {status?.modsOutdatedAfterUpdate && <div role="alert" className="game-selector-pending">
       <p>アプリの更新でMODが古いままです{status.modsRefreshError ? `（理由：${status.modsRefreshError}）` : ''}。サーバーと Minecraft を止めてから「今すぐ入れ替える」を押してください（ほかのMODはそのまま残ります。次にアプリを起動したときも自動で試します）。</p>
       <button type="button" disabled={busy || scanning || status.recoveryRequired} onClick={refreshModsNow}>今すぐ入れ替える</button>
@@ -128,7 +155,7 @@ export default function GameSelector({ onChanged, onStatus }: { onChanged: () =>
           {chosenFolder?.current && <span className="minecraft-location-current">この保存先を使用中です。</span>}
         </div>
       </div>}
-      <p>ゲーム切替では現在のMODを削除せず退避します。MAPは変更しません。</p>
+      <p>ゲーム切替では現在のMODを削除せず退避します。MAPは変更しません{resetGames ? `（${resetGames}に切り替えたときだけ、そのゲームのマップを初期の状態から使います）` : ''}。</p>
     </details>
     {status?.recoveryRequired && <p role="alert">前回の切替が途中で止まっています。<button type="button" disabled={busy} onClick={() => run(() => api.gamesRecover(), true)}>切替前の状態に戻す</button></p>}
     {error && <p role="alert" className="game-selector-error">{error}</p>}

@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld("mygamepack", {
   gamesClientFolders: () => ipcRenderer.invoke('games:clientFolders'),
   gamesSelectClientFolder: (folder) => ipcRenderer.invoke('games:selectClientFolder', folder),
   gamesRefreshMods: () => ipcRenderer.invoke('games:refreshMods'),
+  gamesResetMap: () => ipcRenderer.invoke('games:resetMap'),
   // アプリの更新に合わせてゲームのMODを入れ替えた（または入れ替えられなかった）ときに知らせる。
   onGamesChanged: (callback) => {
     const listener = (_event, result) => callback(result);
