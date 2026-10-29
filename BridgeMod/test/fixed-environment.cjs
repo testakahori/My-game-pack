@@ -35,11 +35,11 @@ const pass = msg => { result.checks.push(msg); console.log('PASS ' + msg); };
   await sleep(500); // Entity sections become visible after the chunk finishes loading.
   assert.match(await cmd('environmentprobe spawns'), /spawn-probe-written/);
   const matrix = JSON.parse(fs.readFileSync(path.join(root, 'fixed-spawn-probe.json'), 'utf8'));
-  const hostile = new Set(['zombie', 'skeleton', 'creeper', 'slime', 'phantom', 'pillager', 'ghast']);
+  const hostile = new Set(['zombie', 'skeleton', 'creeper', 'slime', 'magma_cube', 'phantom', 'pillager', 'ghast']);
   const natural = new Set(['NATURAL', 'CHUNK_GENERATION', 'PATROL', 'REINFORCEMENT']);
   let checked = 0;
   for (const dimension of ['minecraft:overworld', 'minecraft:the_nether']) {
-    assert.equal(Object.keys(matrix[dimension]).length, 80);
+    assert.equal(Object.keys(matrix[dimension]).length, 88);
     for (const [key, actual] of Object.entries(matrix[dimension])) {
       const [id, reason] = key.split('/'); const blocked = hostile.has(id.split(':')[1]) && natural.has(reason);
       assert.equal(actual.placementDenied, blocked, dimension + ' placement ' + key);

@@ -5,13 +5,15 @@ type Props = {
   className?: string;
 };
 
-type Kind = "skeleton" | "zombie" | "creeper" | "slime" | "villager" | "cod" | "tnt" | "default";
+type Kind = "skeleton" | "zombie" | "creeper" | "magma" | "slime" | "villager" | "cod" | "tnt" | "default";
 
-function commandKind(command = ""): Kind {
+export function commandKind(command = ""): Kind {
   const value = command.toLowerCase();
   if (value.includes("skeleton") || value.includes("スケルトン")) return "skeleton";
   if (value.includes("zombie") || value.includes("ゾンビ")) return "zombie";
   if (value.includes("creeper") || value.includes("クリーパー")) return "creeper";
+  // マグマスライム！（magma_cube.txt）は名前に「スライム」があるので、スライムより先に見る（2026-10-29）。
+  if (value.includes("magma") || value.includes("マグマ")) return "magma";
   if (value.includes("slime") || value.includes("スライム")) return "slime";
   if (value.includes("villager") || value.includes("村人")) return "villager";
   if (value.includes("cod") || value.includes("タラ")) return "cod";
@@ -51,6 +53,17 @@ const MinecraftCommandIcon: React.FC<Props> = ({ command, className = "" }) => {
           <rect x="7" y="6" width="34" height="34" rx="3" fill="#58b95d" stroke="#257239" strokeWidth="2" />
           <path d="M7 11h10v9H7zm22-5h12v11H29zM18 29h12v11H18z" fill="#79cd67" opacity=".6" />
           <path d="M13 15h8v8h-8zm14 0h8v8h-8zm-9 9h12v6h5v10H13V30h5Z" fill="#123b23" />
+        </>
+      ) : kind === "magma" ? (
+        <>
+          {/* マグマキューブの顔：黒っぽい体に溶岩の筋、赤い目に黄色い瞳（2026-10-29 ユーザーが写真で選んだ案A） */}
+          <rect x="7" y="7" width="34" height="34" rx="3" fill="#3a1410" stroke="#1d0806" strokeWidth="2" />
+          <path d="M9 14h30M9 33h30" stroke="#ff7a1a" strokeWidth="2.5" />
+          <path d="M14 9v5M31 9v5M18 33v6M34 33v6" stroke="#ffb02e" strokeWidth="2" />
+          <rect x="12" y="20" width="9" height="6" fill="#ff3d1f" />
+          <rect x="27" y="20" width="9" height="6" fill="#ff3d1f" />
+          <rect x="15" y="21" width="3" height="4" fill="#ffe14a" />
+          <rect x="30" y="21" width="3" height="4" fill="#ffe14a" />
         </>
       ) : kind === "slime" ? (
         <>
