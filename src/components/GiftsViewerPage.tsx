@@ -228,9 +228,8 @@ const GiftsViewerPage: React.FC<Props> = ({ bridgeRunning, modOnline }) => {
       <header className="gift-catalog-v2__header">
         <div>
           <h1>ギフト一覧</h1>
-          <p>TikTok Gifts</p>
+          <p>TikTok のギフトと、値段・ID の一覧</p>
         </div>
-        <span>MyGamePack Manager</span>
       </header>
 
       <section className="gift-catalog-v2__toolbar">

@@ -175,7 +175,8 @@ const App: React.FC = () => {
       <header className="global-app-header">
         <div className="global-app-identity">
           <div className="global-app-cube"><MinecraftBlockIcon /></div>
-          <div><b>MyGamePack <em className="global-app-edition">BRIDGE</em></b><small>{appVersion ? `v${appVersion}` : ""}</small></div>
+          {/* アプリの名前は BRIDGE（2026-10-29 ユーザーの決定）。インストーラー・ショートカットの名前（MyGamePack Bridge UI）は設定の置き場所に関わるので変えない。 */}
+          <div><b>BRIDGE</b><small>{appVersion ? `v${appVersion}` : ""}</small></div>
         </div>
         <div className="global-app-status">
           <span title={headerStatus.modAuthFailed ? "BridgeMODは応答していますが、認証に失敗しています。Minecraftサーバーを起動し直すと直ります。" : undefined}><i className={`status-dot ${headerStatus.modOnline ? "status-dot--ok" : "status-dot--warn"}`} />Minecraft <b>{headerStatus.modOnline ? "接続済み" : headerStatus.modAuthFailed ? "認証エラー" : "未接続"}</b></span>
@@ -209,8 +210,7 @@ const App: React.FC = () => {
             {pauseError && <em role="alert">{pauseError}</em>}
           </div>}
           <main id="main-content" tabIndex={-1} aria-label={PAGE_TITLE[activePage]} key={settingsRevision} ref={contentRef} className="app-content flex-1 overflow-y-auto">
-          {gameSettingsPage && gameReady && <div className="current-game-label">プレイ中のゲーム：<strong>{gameStatus?.games.find(game => game.id === gameStatus.active)?.name}</strong><span>変更はTOPから</span></div>}
-          {setupComplete && activePage === AppPage.DASHBOARD && <GameSelector onStatus={setGameStatus} onChanged={() => setSettingsRevision(value => value + 1)} />}
+          {gameSettingsPage && gameReady && <div className="current-game-label">プレイ中のゲーム：<strong>{gameStatus?.games.find(game => game.id === gameStatus.active)?.name}</strong><span>変更は配信ホームから</span></div>}
           {gameSettingsPage && !gameReady && <section className="game-required" role="status">
             <h2>{gameLoading ? "ゲームの保存状態を確認しています…" : "配信ホームでゲームを選んで保存してください"}</h2>
             {!gameLoading && <><p>{gameStatus?.recoveryRequired ? "前回のゲーム切替を復旧してから設定を続けてください。" : "ゲームを保存すると、そのゲームで使えるコマンドをギフト・ルーレット・デスルーレット・いいね・シェア・訪問・未設定ギフトなどに設定できます。"}</p>
@@ -220,7 +220,9 @@ const App: React.FC = () => {
           </section>}
           {activePage === AppPage.DASHBOARD && (
             <div className="page-pad p-6">
-              <DashboardPage onNavigate={navigateTo} disruption={disruption} onDisruptionPause={changeDisruptionPause} startReady={gameReady} />
+              {/* ゲームの欄は、配信ホームの右の列（ライブ手順の上）に出す（2026-10-29 ユーザーの決定）。 */}
+              <DashboardPage onNavigate={navigateTo} disruption={disruption} onDisruptionPause={changeDisruptionPause} startReady={gameReady}
+                gameSelector={setupComplete ? <GameSelector onStatus={setGameStatus} onChanged={() => setSettingsRevision(value => value + 1)} /> : null} />
             </div>
           )}
 

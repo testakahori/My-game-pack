@@ -405,7 +405,7 @@ const EventSettings2Page: React.FC = () => {
           ].join("\n"),
         });
       } catch { /* コマンドフォルダ未作成でも保存自体は成功扱い */ }
-      setMsg({ type: "ok", text: `${label}を保存しました。次回 BRIDGE 起動（または数秒後の自動再読込）から有効になります。` });
+      setMsg({ type: "ok", text: `${label}を保存しました。次回 BRIDGE 起動（または数秒後の自動の再読み込み）から有効になります。` });
       setTimeout(() => setMsg(null), 5000);
     } catch (e: any) {
       setMsg({ type: "error", text: `保存エラー: ${e?.message ?? String(e)}` });
@@ -440,7 +440,7 @@ const EventSettings2Page: React.FC = () => {
           disabled={saving}
           className="text-xs text-gray-400 hover:text-gray-200 px-3 py-2 rounded-lg border border-gray-700 hover:border-gray-500 transition"
         >
-          🔄 再読込
+          🔄 再読み込み
         </button>
       </div>
 
@@ -641,7 +641,7 @@ const EventSettings2Page: React.FC = () => {
       </Section>
 
       <div className="bg-gray-800/40 border border-gray-700 rounded-2xl p-5 text-sm text-gray-500">
-        保存後は BRIDGE が数秒で設定を自動再読込します（再起動でも可）。
+        保存後は BRIDGE が数秒で設定を自動で再読み込みします（再起動でも可）。
         デスルーレットは Mod v1.2.0 以降のサーバーで動作します。
       </div>
     </div>

@@ -19,7 +19,7 @@ function validateBridgeConfig(config, { previous } = {}) {
   }
   // 空かは整えた形で見る（「@」だけ・文字列でない値も未承認）。
   if (!normalizeTikTokId(config.tiktokUsername)) {
-    errors.push("TikTok IDが未承認です（「IDを承認する」ボタンが押されていません）。ダッシュボードでIDを入力して承認してください");
+    errors.push("TikTok IDが未承認です（「IDを承認する」ボタンが押されていません）。配信ホームでIDを入力して承認してください");
   } else if (tiktokIdProblem(config.tiktokUsername)) {
     // 文は bridge/tiktok_id.cjs の1か所（ギフト一覧の更新・画面も同じ文。処理のコピー PR9）。
     errors.push(tiktokIdProblem(config.tiktokUsername));

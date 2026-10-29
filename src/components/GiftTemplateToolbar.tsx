@@ -8,7 +8,7 @@ function TemplatePreviewDialog({ preview, busy, error, onClose, onApply }: {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { const node = dialog.current; node?.showModal(); return () => node?.close(); }, []);
   return <dialog ref={dialog} className="gift-command-dialog gift-template-dialog panel-studio" aria-labelledby="gift-template-title" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
-    <header><div><span className="studio-eyebrow">GIFT SETTINGS</span><h2 id="gift-template-title">{preview.name}</h2></div><button type="button" className="studio-icon-button" aria-label="読込の確認を閉じる" disabled={busy} onClick={onClose}><i className="fa-solid fa-xmark" /></button></header>
+    <header><div><h2 id="gift-template-title">{preview.name}</h2></div><button type="button" className="studio-icon-button" aria-label="読込の確認を閉じる" disabled={busy} onClick={onClose}><i className="fa-solid fa-xmark" /></button></header>
     <p className="gift-command-intro">現在の{preview.currentCount}件を、読み込む設定の{preview.mappings.length}件に置き換えます。アカウント・接続設定・イベント設定は保持します。</p>
     <div className="gift-template-summary"><b>{preview.mappings.length}件のギフト</b>{preview.appVersion && <span>作成元 v{preview.appVersion}</span>}<span>適用前に自動バックアップ</span></div>
     {preview.missingCommands.length > 0 && <div className="studio-alert" role="alert">このアプリにないコマンドが含まれるため、適用できません。アプリのバージョンや配布元の必要コマンドを確認してください。<ul>{preview.missingCommands.map(file => <li key={file}>{file}</li>)}</ul></div>}
@@ -66,10 +66,15 @@ export default function GiftTemplateToolbar({ ready, count, onResetEditor, onApp
     } catch (e) { setError('適用できませんでした: ' + String((e as Error)?.message || e)); }
     finally { finish(); }
   };
-  return <section className="gift-template-tools" aria-label="ギフト設定保存">
-    <div className="gift-template-toolbar"><div><b><i className="fa-regular fa-folder-open" />ギフト設定保存</b><p>保存済みの割り当てを、ゲーム別に使い分け・配布できます。</p></div><div className="gift-template-actions"><button className="studio-quiet" disabled={!ready || busy || count === 0} onClick={() => void save()}><i className="fa-solid fa-download" />ギフト設定保存</button><button className="studio-primary" disabled={!ready || busy} onClick={() => void open()}><i className="fa-solid fa-folder-open" />ギフト設定読込</button></div></div>
-    {count === 0 && <p className="panel-hint">ギフトとコマンドを登録すると、ギフト設定を保存できます。</p>}
-    <p className="panel-hint">アカウントやパスワード、コマンドのファイル本体は保存しません。配布先にも同じコマンドが必要です。</p>
+  // 1行にまとめ、説明は「くわしく」へ（大きな枠で、ギフトの一覧が狭くなっていた。2026-10-29 ユーザーの決定）。
+  return <section className="gift-template-tools" aria-label="ギフト設定のファイル">
+    <div className="gift-template-toolbar"><div><b><i className="fa-regular fa-folder-open" />ギフト設定のファイル</b></div><div className="gift-template-actions"><button className="studio-quiet" disabled={!ready || busy || count === 0} title={count === 0 ? 'ギフトとコマンドを登録すると、ギフト設定を保存できます。' : undefined} onClick={() => void save()}><i className="fa-solid fa-download" />ギフト設定を保存</button><button className="studio-primary" disabled={!ready || busy} onClick={() => void open()}><i className="fa-solid fa-folder-open" />ギフト設定を読み込む</button></div></div>
+    {/* 保存ボタンを押せない理由は、ボタンの横にいつも見える形で出す（title はキーボードでは読めない。最後のレビュー）。 */}
+    {count === 0 && <span className="panel-hint">ギフトとコマンドを登録すると、ギフト設定を保存できます。</span>}
+    <details className="studio-advanced"><summary>くわしく</summary>
+      <p className="panel-hint">保存済みの割り当てを、ゲーム別に使い分け・配布できます。</p>
+      <p className="panel-hint">アカウントやパスワード、コマンドのファイル本体は保存しません。配布先にも同じコマンドが必要です。</p>
+    </details>
     {busy && !preview && <p role="status" className="panel-hint">ファイルの選択・保存中…</p>}
     {notice && <p className="studio-notice" role="status">{notice}</p>}
     {error && !preview && <p className="studio-alert" role="alert">{error}</p>}

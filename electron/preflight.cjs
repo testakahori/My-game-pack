@@ -26,7 +26,7 @@ async function runPreflight(deps) {
   catch { return { checkedAt: new Date().toISOString(), checks: [{ id: "config", title: "設定ファイル", status: "error", detail: CONFIG_UNREADABLE_MESSAGE, page: "operations" }] }; }
   // BRIDGE が接続する形（tiktok_id.cjs で整えた形）で確かめる（2026-10-18 設計書の 9）。
   const username = normalizeTikTokId(cfg.tiktokUsername);
-  add("account", "TikTokアカウント", isValidTikTokId(username) ? "ok" : "error", username ? `@${username}` : "ダッシュボードでIDを入力して承認してください。", "dashboard");
+  add("account", "TikTokアカウント", isValidTikTokId(username) ? "ok" : "error", username ? `@${username}` : "配信ホームでIDを入力して承認してください。", "dashboard");
   const validation = validateBridgeConfig(cfg);
   const messages = [...validation.errors, ...validation.warnings].map(message => message.replace(/mappings\[(\d+)\]\.commandFile が空です/, (_match, index) => `ギフト「${cfg.mappings[index]?.name || cfg.mappings[index]?.giftId || Number(index) + 1}」のコマンドが未設定です。`));
   add("config", "設定の整合性", validation.ok ? validation.warnings.length ? "warn" : "ok" : "error", messages.join(" / ") || "設定形式に問題はありません。", "gifts");

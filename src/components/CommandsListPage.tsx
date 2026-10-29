@@ -119,7 +119,6 @@ const CommandsListPage: React.FC = () => {
           <h1>コマンド一覧</h1>
           <p>Minecraft チャットで使える /bridge コマンドのチートシート</p>
         </div>
-        <span>MyGamePack Manager</span>
       </header>
 
       {/* 使い方バナー */}

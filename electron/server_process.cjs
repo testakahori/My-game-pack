@@ -172,7 +172,7 @@ function createServerProcess({
   async function stopMapServer(origin) {
     const child = serverProcRef;
     if (!child) { await assertMapServerStopped(); return; }
-    if (!child.stdin?.writable) throw new Error('サーバーに保存・停止を送信できません。ダッシュボードで停止してください。');
+    if (!child.stdin?.writable) throw new Error('サーバーに保存・停止を送信できません。配信ホームで停止してください。');
     const ended = waitChildExit(child, stopWaitMs);
     appendServerLog(`[SERVER] ワールドを保存して停止します（${stopRequests.record('server', origin)}）`);
     child.stdin.write('stop\n');

@@ -202,7 +202,7 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
         </section> : <p className="panel-hint">プレビューのカードを選ぶと、表示する文字や色を編集できます。</p>;
   return <div className="panel-studio">
     <header className="studio-page-heading">
-      <div><span className="studio-eyebrow">CREATOR STUDIO</span><h1>配信画像<span className="studio-tag">OBS用 PNG</span></h1><p>ギフトの楽しさを、ひと目で伝えよう。</p></div>
+      <div><h1>配信画像<span className="studio-tag">OBS用 PNG</span></h1><p>ギフトの楽しさを、ひと目で伝えよう。</p></div>
       <div className="panel-heading-actions">
         <span className={'panel-save-state' + (storageError ? ' is-error' : '')}><i className={'fa-solid ' + (storageError ? 'fa-circle-exclamation' : 'fa-check')} />{storageError ? '保存を確認' : '画像の編集は自動保存'}</span>
         <button className="studio-primary" disabled={!design.cards.length || Boolean(pending || failed.length || layout.overflow || drawError || exporting)} onClick={() => void exportPng()}><i className="fa-solid fa-download" />{exporting ? '保存中…' : 'PNGを保存'}</button>

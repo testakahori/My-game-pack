@@ -6,7 +6,7 @@ const { GAME_IDS: GAME_ID_LIST, gameOfCommand } = require('../bridge/game_comman
 const GAME_IDS = new Set(GAME_ID_LIST);
 function assertGameReady(status) {
   if (!status?.applied || status.recoveryRequired || !GAME_IDS.has(status.active)) {
-    throw new Error('TOPでプレイするゲームを選び「保存」を押してから設定してください。');
+    throw new Error('配信ホームでプレイするゲームを選び「保存」を押してから設定してください。');
   }
 }
 function availableGameCommands(names, status) {
@@ -31,7 +31,7 @@ function availableSet(names, status) {
 }
 function checkCommandFile(commandFile, available, where) {
   if (!available.has(ensureTxt(commandFile).toLowerCase())) {
-    throw new Error('選択したゲームでは使えないコマンドです: ' + commandFile + '（' + where + '）。TOPでゲームを確認してください。');
+    throw new Error('選択したゲームでは使えないコマンドです: ' + commandFile + '（' + where + '）。配信ホームでゲームを確認してください。');
   }
 }
 // 設定の外で1つのコマンドだけを確かめる（テスト発火の「ギフト（コマンド直接）」。PR5 の最終レビュー）。

@@ -103,7 +103,7 @@ const MappingEditor: React.FC<Props> = (props) => {
         setTimeout(() => setCmdMsg(null), 2500);
       })
       .catch((error: any) => {
-        setCmdMsg({ type: "error", text: `コマンド再読込エラー: ${error?.message ?? String(error)}` });
+        setCmdMsg({ type: "error", text: `コマンドを再読み込みできませんでした: ${error?.message ?? String(error)}` });
       });
   };
 
@@ -189,7 +189,7 @@ const MappingEditor: React.FC<Props> = (props) => {
             <h2><span>2</span> 実行内容と回数を設定</h2>
             <p>選択したギフトに実行するコマンドと回数を設定します。</p>
           </div>
-          <button type="button" onClick={loadCmdFiles}>↻ コマンド再読込</button>
+          <button type="button" onClick={loadCmdFiles}>↻ コマンドを再読み込み</button>
         </header>
         {cmdMsg ? <p className={`gift-flow-message gift-flow-message--${cmdMsg.type}`}>{cmdMsg.text}</p> : null}
 

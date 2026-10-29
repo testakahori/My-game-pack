@@ -83,7 +83,7 @@
 .cockpit-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 362px;
-  grid-template-rows: auto auto;
+  grid-template-rows: auto auto auto;
   gap: 16px;
 }
 
@@ -429,8 +429,6 @@
 }
 
 .cockpit-flow-panel {
-  grid-column: 2;
-  grid-row: 1 / span 2;
   padding: 20px 18px;
   border-color: rgba(87, 106, 255, 0.72);
   border-radius: 13px;
@@ -560,7 +558,7 @@
   display: grid;
   grid-template-columns: 1fr 1.05fr 0.86fr;
   grid-column: 1;
-  grid-row: 2;
+  grid-row: 3;
   gap: 16px;
   margin-top: 0;
 }

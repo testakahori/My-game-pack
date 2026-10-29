@@ -7,7 +7,7 @@ import TTS_SETTINGS from "../../bridge/tts_settings.json";
 // 開発用の表示の TikTok ID の確かめ（設定の確かめと同じ文）。
 function mockTikTokIdProblem(next: any): string {
   return !normalizeTikTokId(next?.tiktokUsername)
-    ? "TikTok IDが未承認です（「IDを承認する」ボタンが押されていません）。ダッシュボードでIDを入力して承認してください"
+    ? "TikTok IDが未承認です（「IDを承認する」ボタンが押されていません）。配信ホームでIDを入力して承認してください"
     : tiktokIdProblem(next?.tiktokUsername);
 }
 

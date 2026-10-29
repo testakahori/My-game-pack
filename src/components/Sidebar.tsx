@@ -18,7 +18,7 @@ export default function Sidebar({ activePage, setActivePage, setupComplete }: {
   activePage: AppPage; setActivePage: (page: AppPage) => void; setupComplete: boolean;
 }) {
   return <aside className="studio-sidebar">
-    <div className="studio-sidebar-label"><span>WORKSPACE</span><b>配信をつくる場所</b></div>
+    <div className="studio-sidebar-label"><b>配信をつくる場所</b></div>
     <nav className="studio-nav" aria-label="メインメニュー">
       {GROUPS.map(group => <div className="studio-nav-group" key={group.label}>
         <h2>{group.label}</h2>
