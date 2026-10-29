@@ -10,6 +10,9 @@ const { migrateBridgeConfig } = require('../bridge/config_migration.cjs');
 const { bridgeCommandsDir, newBridgeConfig } = require('../bridge/config_defaults.cjs');
 // ゲームの一覧と、ゲーム専用の判定・MOD の ID・パックの key の決まりは bridge/game_commands.cjs の1か所（処理のコピー PR6）。
 const { GAMES, RESERVED_MOD_IDS, gameOfCommand, isGameCommandFile, isGameModId, isGamePackKey } = require('../bridge/game_commands.cjs');
+// ゲームの初期マップ（games.json の maps）の入れ替え（埋め立て PR3）。
+const { MAP_SWITCH_DIR, hasWorld, levelBaseName, mapPlaces, ensureMapBackup, stageMap, planMapChange, journalMap, applyMapSwap, restoreMapSwap } = require('./game_maps.cjs');
+const { levelNameOf } = require('./server_properties.cjs');
 const PROFILE_KEYS = ['mappings', 'likeEvents', 'unmappedGiftEvent', 'shareEvent', 'followEvent', 'memberEvent',
   'roulette', 'deathRoulette', 'commentGifts', 'milestones', 'combos'];
 const hash = data => crypto.createHash('sha256').update(data).digest('hex');
@@ -101,7 +104,11 @@ function inspectPackage(folder) {
 }
 
 // recordRecovery は、壊れていて戻したことの記録（main が logs/settings-recovery.log に書く）。
-function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridgeJar, displayJar = () => null, obsJar = () => null, bundledPackages = () => [], ensureStopped, beforeStep = () => {}, recordRecovery, now }) {
+// removeTree は、切り替えが終わったあとに古いマップを消す関数（テストが消せないときを起こす）。
+// ensureServerStopped は「マップを初期化」の確かめ。サーバーだけが止まっていればよい（BRIDGE・Minecraft は動いていてよい。埋め立て PR3）。
+// missingMapHint は、初期マップが無いときの案内に足す文（開発版だけ npm run dev:refresh を出す。games_ipc.cjs が決める）。
+function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridgeJar, displayJar = () => null, obsJar = () => null, bundledPackages = () => [], ensureStopped, beforeStep = () => {}, recordRecovery, now,
+  removeTree = dir => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 }), ensureServerStopped = ensureStopped, missingMapHint = '' }) {
   const root = () => path.resolve(storage());
   const stateFile = () => path.join(root(), 'profiles.json');
   const journalFile = () => path.join(root(), 'pending-switch.json');
@@ -165,9 +172,56 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     if (name !== id + '-' + checked.digest) throw new Error('登録済みゲームパックが変更されています。元の配布ファイルから再登録してください');
     return checked;
   }
+  const gameOf = id => GAMES.find(g => g.id === id);
+  // 前の切り替え・初期化で消せなかった古いマップを消す。消せなくても続ける（次の機会にまた消す。埋め立て PR3 の決めたこと 8）。
+  function clearMapLeftovers(server) {
+    const dir = path.join(server, MAP_SWITCH_DIR);
+    if (!fs.existsSync(dir)) return;
+    try { removeTree(dir); } catch (error) { console.warn(`[games] 前のマップを消せませんでした（次の切り替えで消します）: ${error.message}`); }
+  }
+  // マップの入れ替えの下準備（記録を書く前。時間のかかる写しはここで済ませ、使う場所にはまだ触らない）。
+  // 入る・出る・何もしない（null）は game_maps.cjs の planMapChange が決める。reset は「マップを初期化」。
+  async function prepareMapStep(current, id, operation, { reset = false } = {}) {
+    const server = path.resolve(serverRoot()), propertiesFile = path.join(server, 'server.properties');
+    const propertiesBefore = fs.existsSync(propertiesFile) ? fs.readFileSync(propertiesFile, 'utf8') : null;
+    const currentLevel = levelNameOf(propertiesBefore || ''), target = gameOf(id), name = target?.maps?.[0];
+    const places = name ? mapPlaces(server, id, name) : null;
+    const plan = planMapChange({ target, previous: gameOf(current.active), switching: id !== current.active, currentLevel, useReady: Boolean(places) && hasWorld(places.use), reset });
+    if (!plan) return null;
+    // 途中の記録には、server.properties の丸ごとではなく前の level-name だけを残す（戻すときもそれだけを書く。最後のレビュー 軽い2）。
+    const base = { kind: plan.kind, propertiesFile, hadProperties: propertiesBefore !== null, levelBefore: currentLevel, slot: null, use: null, fresh: false, hadUse: false };
+    if (plan.kind === 'leave') {
+      // 埋め立ての前に使っていたワールドへ戻す。記録が無い・そのワールドが無ければ haihu_world/world（決めたこと 5）。
+      const back = current.mapReturnLevel && hasWorld(path.resolve(server, current.mapReturnLevel)) ? current.mapReturnLevel : 'haihu_world/world';
+      return { ...base, levelAfter: back };
+    }
+    // 「埋め立てに切り替える前に使っていたワールド」（設計書 3.3）は、ほかのゲームから入るときだけ記録する。同じゲームのままの保存・初期化では、
+    // 記録が無いときだけ今のワールドを入れる（最後のレビュー 軽い1）。マップと同じ名前のワールド（直下に手で入れた umetate_lab_map も）は記録しない。
+    const candidate = levelBaseName(currentLevel) === plan.name ? undefined : currentLevel;
+    const returnLevel = id !== current.active ? (candidate ?? current.mapReturnLevel) : (current.mapReturnLevel ?? candidate);
+    const step = { ...base, use: places.use, hadUse: fs.existsSync(places.use), fresh: plan.fresh, returnLevel, levelAfter: plan.level };
+    if (plan.fresh) {
+      const pack = bundledPackages().find(p => p.id === id);
+      const files = await ensureMapBackup({ serverRoot: server, gameId: id, name: plan.name, bundled: pack ? path.join(pack.folder, 'maps', plan.name) : null, remove: removeTree, hint: missingMapHint });
+      step.slot = path.dirname(await stageMap({ serverRoot: server, gameId: id, name: plan.name, files, operation }));
+    }
+    return step;
+  }
+  const applyMapStep = step => { if (step) applyMapSwap(step, beforeStep); };
+  // 切り替えの記録の「埋め立ての前に使っていたワールド」。入るときは残し、出るときは消す。
+  function recordMapReturn(next, step) {
+    if (step?.kind === 'enter' && step.returnLevel) next.mapReturnLevel = step.returnLevel;
+    else if (step?.kind === 'leave') delete next.mapReturnLevel;
+  }
+  // 終わったあとに、よけた古いマップ（作業のフォルダー）を消す。消せなくても切り替えは成功にする（決めたこと 8）。
+  function finishMapStep(step) {
+    if (!step?.slot || !fs.existsSync(step.slot)) return;
+    try { removeTree(step.slot); } catch (error) { console.warn(`[games] 古いマップを消せませんでした（次の切り替えで消します）: ${error.message}`); }
+  }
   function restore(journal) {
     const dirs = targets();
     if (!/^[a-f0-9-]{36}$/.test(journal.id || '') || JSON.stringify(dirs) !== JSON.stringify(journal.roots) || path.resolve(configPath()) !== journal.configPath) throw new Error('切替時の保存先へ戻してから復旧してください');
+    if (journal.map) restoreMapSwap(dirs[0], journal.map, { id: journal.id, mapNames: GAMES.flatMap(g => g.maps || []) });
     for (const dir of dirs.slice().reverse()) {
       const slot = path.join(dir, '.mygamepack-mod-switch', journal.id), mods = path.join(dir, 'mods'), old = path.join(slot, 'previous');
       if (fs.existsSync(old)) {
@@ -244,6 +298,7 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     if (fs.existsSync(journalFile())) throw new Error('前回の切替を復旧してから切り替えてください');
     await ensureStopped();
     const dirs = targets(), current = state();
+    clearMapLeftovers(dirs[0]);
     const pack = id === 'common' ? null : packageFor(current, id);
     const commonFiles = commonModFiles();
     const before = fs.readFileSync(configPath(), 'utf8');
@@ -282,8 +337,11 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     }
     const commandBefore = Object.fromEntries([...new Set([...oldNames, ...Object.keys(gameFiles)])].map(n => [n, fs.existsSync(path.join(commandDir, n)) ? fs.readFileSync(path.join(commandDir, n), 'utf8') : null]));
     const operation = crypto.randomUUID();
+    // マップの入れ替え（ほかのゲームから埋め立てに切り替えた・埋め立てから出る）の下準備。初期マップが無ければ、ここで何も変えずに止まる。
+    const mapStep = await prepareMapStep(current, id, operation);
     fs.mkdirSync(root(), { recursive: true });
-    const journal = { id: operation, roots: dirs, hadMods: dirs.map(d => fs.existsSync(path.join(d, 'mods'))), configPath: path.resolve(configPath()), configBefore: before, stateBefore: current, commandBefore };
+    const journal = { id: operation, roots: dirs, hadMods: dirs.map(d => fs.existsSync(path.join(d, 'mods'))), configPath: path.resolve(configPath()), configBefore: before, stateBefore: current, commandBefore,
+      ...(mapStep ? { map: journalMap(mapStep) } : {}) };
     // Prepare and verify both sides before moving either current mods folder.
     for (const [i, dir] of dirs.entries()) {
       const staged = path.join(dir, '.mygamepack-mod-switch', operation, 'next'); fs.mkdirSync(staged, { recursive: true });
@@ -292,6 +350,7 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     }
     writeJson(journalFile(), journal);
     try {
+      applyMapStep(mapStep);
       for (const [i, dir] of dirs.entries()) {
         beforeStep(i);
         const slot = path.join(dir, '.mygamepack-mod-switch', operation), mods = path.join(dir, 'mods');
@@ -310,8 +369,9 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
       const migrated = migrateBridgeConfig(config);
       if (migrated.changes.length) console.log(`[Config] ゲームの設定を直しました: ${migrated.changes.join("、")}`);
       writeWithLastGood(configPath(), JSON.stringify(migrated.config, null, 2), { now });
-      next.active = id; next.appliedRoots = dirs; next.appliedFormat = 3; stateStore.write(next);
+      next.active = id; next.appliedRoots = dirs; next.appliedFormat = 3; recordMapReturn(next, mapStep); stateStore.write(next);
       fs.unlinkSync(journalFile());
+      finishMapStep(mapStep);
       return { ...list(), backupFolders: dirs.map(d => path.join(d, '.mygamepack-mod-switch', operation, 'previous')) };
     } catch (error) {
       try { restore(journal); } catch (rollback) { throw new Error(`切替を完了できませんでした。復旧が必要です: ${rollback.message}（原因: ${error.message}）`); }
@@ -375,9 +435,37 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     }
     return { changed, game: id };
   }
+  // TOP の「マップを初期化」：今のゲームの初期マップを map_backup から写し直し、遊んだマップを消す（MOD・設定・コマンドには触らない）。
+  // 途中で失敗・アプリが落ちたときは、切り替えと同じ途中の記録で戻す（mods は動かさないので commandBefore は空）。
+  async function resetMap() {
+    if (fs.existsSync(journalFile())) throw new Error('前回の切替を復旧してから初期化してください');
+    // サーバーの止まりを先に見る（画面が、サーバーが動いている理由を先に出せるように）。
+    await ensureServerStopped();
+    if (!list().applied) throw new Error('ゲームを「保存」してから初期化してください');
+    const current = state();
+    if (!gameOf(current.active)?.maps?.length) throw new Error('このゲームには初期化できるマップがありません');
+    const dirs = targets();
+    clearMapLeftovers(dirs[0]);
+    const operation = crypto.randomUUID();
+    const step = await prepareMapStep(current, current.active, operation, { reset: true });
+    fs.mkdirSync(root(), { recursive: true });
+    const journal = { id: operation, roots: dirs, hadMods: dirs.map(d => fs.existsSync(path.join(d, 'mods'))), configPath: path.resolve(configPath()),
+      configBefore: fs.readFileSync(configPath(), 'utf8'), stateBefore: current, commandBefore: {}, map: journalMap(step) };
+    writeJson(journalFile(), journal);
+    try {
+      applyMapStep(step);
+      const next = clone(current); recordMapReturn(next, step); stateStore.write(next);
+      fs.unlinkSync(journalFile());
+    } catch (error) {
+      try { restore(journal); } catch (rollback) { throw new Error(`マップを初期化できませんでした。復旧が必要です: ${rollback.message}（原因: ${error.message}）`); }
+      throw new Error(`マップを初期化できなかったため元へ戻しました: ${error.message}`);
+    }
+    finishMapStep(step);
+    return list();
+  }
   // 切り替えの記録の「今のゲーム」を読むだけ（無い・壊れていれば null）。ギフト設定の写しを使ってよいかを確かめるため（設計書 6.6）。
   const peekActive = () => peekJsonFile(stateFile(), stateProblem)?.active ?? null;
-  return { list, install, activate, recover, refreshMods, peekActive };
+  return { list, install, activate, recover, refreshMods, resetMap, peekActive };
 }
 
 module.exports = { GAMES, PROFILE_KEYS, jarModIds, inspectPackage, createGameProfiles };

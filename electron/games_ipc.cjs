@@ -52,6 +52,13 @@ function createGamesIpc({
       const minecraft = await getMinecraftProcessStatus(true);
       if (minecraft.running) throw new Error(switchBlockedMessage(minecraft.processes));
     },
+    // 初期マップが無いときの案内。開発者向けの手順は開発版だけに出す（埋め立て PR3 の最後のレビュー 軽い6）。
+    missingMapHint: app.isPackaged ? '' : '（開発版では npm run dev:refresh を動かしてください）',
+    // 「マップを初期化」はマップを読むサーバーだけを見る（BRIDGE・Minecraft は動いていてよい。埋め立て PR3）。
+    ensureServerStopped: async () => {
+      assertMapIdle();
+      if (isInitialSetupRunning() || isServerStarting() || isServerStopping() || (await getServerProcessStatus()).running) throw new Error('サーバーが動いています。サーバーを止めてから「マップを初期化」を押してください');
+    },
   });
   // ゲームの操作の最中か（設定のバックアップの復元・ウィンドウを閉じるときに main が見る）。
   function isGameProfileBusy() {
@@ -91,6 +98,8 @@ function createGamesIpc({
       return { ...result, ...gamesStatus() };
     }));
     ipcMain.handle('games:recover', () => gameProfileOperation(async () => { await gameProfiles.recover(); return gamesStatus(); }));
+    // TOP の「マップを初期化」（今のゲームの初期マップに戻す。埋め立て PR3）。
+    ipcMain.handle('games:resetMap', () => gameProfileOperation(async () => { await gameProfiles.resetMap(); return gamesStatus(); }));
     ipcMain.handle('games:install', () => gameProfileOperation(async () => {
       const selected = await dialog.showOpenDialog({ title: 'ゲームパックを登録', properties: ['openDirectory'] });
       if (selected.canceled) return { canceled: true };

@@ -11,7 +11,8 @@ export type GameStatus = {
   // アプリの更新に合わせて MOD を入れ替えられず、古いままのとき（2026-10-13）。
   modsOutdatedAfterUpdate?: boolean; modsRefreshError?: string;
   serverMods: string; clientMods: string; recoveryRequired: boolean;
-  games: { id: string; name: string; modName: string; installed: boolean }[];
+  // maps：初期マップ（あれば TOP に「マップを初期化」を出す）。resetMapOnSwitch：ほかのゲームから切り替えたときにマップを初期に戻す（埋め立て）。bridge/games.json のまま届く。
+  games: { id: string; name: string; modName: string; installed: boolean; maps?: string[]; resetMapOnSwitch?: boolean }[];
 };
 export type MinecraftLocationCandidate = {
   path: string; modsPath: string; sources: string[]; profiles: { name: string; version: string }[];
@@ -82,6 +83,7 @@ declare global {
       gamesInstall: () => Promise<GameStatus | { canceled: true }>;
       gamesRecover: () => Promise<GameStatus>;
       gamesRefreshMods: () => Promise<GameStatus>;
+      gamesResetMap: () => Promise<GameStatus>;
       gamesClientFolder: () => Promise<GameStatus | { canceled: true }>;
       gamesClientFolders: () => Promise<MinecraftLocationDiscovery>;
       gamesSelectClientFolder: (folder: string) => Promise<GameStatus>;

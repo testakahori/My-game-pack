@@ -139,4 +139,4 @@ function createMapSaves({ getRoot, assertStopped = async () => {}, rename = (a, 
   }
   return { save, load, list, recover: () => exclusive(async () => ({ ok: true })), isBusy: () => busy };
 }
-module.exports = { createMapSaves, safePath, inventory };
+module.exports = { createMapSaves, safePath, inventory, copyVerified };

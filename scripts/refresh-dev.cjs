@@ -19,6 +19,8 @@ function steps({ windows = process.platform === 'win32' } = {}) {
     ...['BridgeMod', 'DisplayMod', 'SaikutuMod', 'ObsMod', 'UmetateMod'].map(mod => ({ title: `${mod} の jar`, cmd: gradlew, args: GRADLE_ARGS, cwd: path.join(root, mod) })),
     // dev は build/game-packs/<id> の jar を配置するので、SaikutuMod と UmetateMod のビルドのあとに作る（埋め立て PR2）。
     { title: 'ゲームパック（採掘・埋め立て）', cmd: process.execPath, args: [path.join(root, 'scripts', 'prepare-game-packs.cjs')], cwd: root },
+    // 初期マップは build/game-packs/<id>/maps に入れるので、パックのあとに作る（埋め立て PR3）。元の map/<マップ名> は git の外。
+    { title: 'ゲームの初期マップ（埋め立て）', cmd: process.execPath, args: [path.join(root, 'scripts', 'prepare-game-maps.cjs')], cwd: root },
   ];
 }
 

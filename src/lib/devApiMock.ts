@@ -228,6 +228,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
     },
     gamesRecover: async () => previewGameStatus(),
     gamesRefreshMods: async () => previewGameStatus(),
+    gamesResetMap: async () => previewGameStatus(),
     gamesInstall: async () => { throw new Error('ゲームパックの登録はアプリで利用できます。'); },
     gamesClientFolder: async () => { throw new Error('手動のフォルダー選択はアプリで利用できます。'); },
 

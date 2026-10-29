@@ -11,8 +11,10 @@ const cp = require("node:child_process");
 const { assertReleaseVersion, RELEASE_PIPELINE_ENV } = require("./release_version.cjs");
 const { modJars } = require("./mod_jars.cjs");
 const { SOURCE_DIRS, SOURCE_FILES, CHANGED_DURING_BUILD, jarInputsHash, readStamp } = require("./jar_inputs.cjs");
+const { GAMES } = require("../bridge/game_commands.cjs");
 
-const RELEASE_STEPS = ["build", "prepare:bridge-runtime", "prepare:server-template", "prepare:game-packs"];
+// prepare:game-maps はゲームの初期マップ（map/<マップ名>。git の外）をパックの置き場に入れるので、パックのあと（埋め立て PR3）。
+const RELEASE_STEPS = ["build", "prepare:bridge-runtime", "prepare:server-template", "prepare:game-packs", "prepare:game-maps"];
 // 準備の道具が作り直す置き場（git で管理していない）。前に作ったものが残っていると、止まるか、そのまま入る。
 // build/ には git で管理するファイル（installer.nsh）もあるので、これだけを空にする。GiftsViewer/tools-bundled は prepare:bridge-runtime が上書きするだけで、古いファイルを消さない。
 const GENERATED_DIRS = ["build/server-template", "build/game-packs", "GiftsViewer/tools-bundled"];
@@ -74,6 +76,18 @@ function gitState(root) {
   }
 }
 
+// 配る物に入ったゲームの初期マップ（build/game-packs/<id>/maps/<マップ名>。games.json の maps）のファイルの数と大きさ。
+// 本当に入ったかを、最後の表示で jar と並べて見せる（埋め立て PR3 の最後のレビュー 軽い8）。
+const formatSize = bytes => bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${(bytes / 1024).toFixed(1)} KB`;
+function gameMapLines(root) {
+  return GAMES.filter(game => game.maps?.length).flatMap(game => game.maps.map(name => {
+    const dir = path.join(root, "build", "game-packs", game.id, "maps", name);
+    if (!fs.existsSync(path.join(dir, "level.dat"))) return `${game.name}の初期マップ ${name}: 入っていません`;
+    const files = fs.readdirSync(dir, { recursive: true }).map(n => path.join(dir, String(n))).filter(file => fs.statSync(file).isFile());
+    return `${game.name}の初期マップ ${name}: ${files.length} ファイル・${formatSize(files.reduce((sum, file) => sum + fs.statSync(file).size, 0))}`;
+  }));
+}
+
 function removeGenerated(root, remove) {
   for (const dir of GENERATED_DIRS) {
     try {
@@ -112,6 +126,7 @@ async function runRelease({ root, local, outDir, run, packageInstaller, log = co
     `インストーラー: ${installers.map(name => path.join(outDir, name)).join("、")}`,
     state ? `作った元: ${state.commit}（${state.branch === "HEAD" ? "ブランチなし" : state.branch}）・コミットしていない変更 ${state.changes} 件` : "作った元: git の情報が取れない",
     ...modJars(root).map(mod => `${mod.name}: ${path.basename(mod.jar)}`),
+    ...gameMapLines(root),
   ];
   for (const line of summary) log(`[release] ${line}`);
   return summary;
