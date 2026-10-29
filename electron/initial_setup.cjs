@@ -15,27 +15,8 @@ const JAVA_TLS_ARGS = process.platform === "win32"
   ? ["-Djavax.net.ssl.trustStoreType=Windows-ROOT", "-Djavax.net.ssl.trustStore=NONE"] : [];
 const read = file => { try { return fs.readFileSync(file, "utf8"); } catch (e) { if (e.code === "ENOENT") return ""; throw e; } };
 const isFile = file => { try { return fs.statSync(file).isFile(); } catch { return false; } };
-
-function readProperties(text) {
-  const props = {};
-  for (const line of text.split(/\r?\n/)) {
-    const match = line.match(/^\s*([^#!\s=]+)\s*=(.*)$/);
-    if (match) props[match[1]] = match[2].trim();
-  }
-  return props;
-}
-
-function mergeProperties(text, updates) {
-  const remaining = new Map(Object.entries(updates));
-  const lines = text.split(/\r?\n/).map(line => {
-    const match = line.match(/^\s*([^#!\s=]+)\s*=/);
-    if (!match || !Object.hasOwn(updates, match[1])) return line;
-    remaining.delete(match[1]);
-    return `${match[1]}=${updates[match[1]]}`;
-  });
-  while (lines.at(-1) === "") lines.pop();
-  return [...lines, ...[...remaining].map(([key, value]) => `${key}=${value}`), ""].join("\n");
-}
+// server.properties の読み書きは、ゲームの切り替えのマップの入れ替えと同じもの（埋め立て PR3 で分けた）。
+const { readProperties, mergeProperties } = require("./server_properties.cjs");
 
 function missingServerFiles(root) {
   const argsFile = `${FORGE_DIR}/win_args.txt`;

@@ -53,6 +53,8 @@ function packFolder(t) {
   const p = pack();
   fs.writeFileSync(path.join(dir, 'game.json'), JSON.stringify(p));
   fs.writeFileSync(path.join(dir, p.serverJar), fakeModJar(p.modId));
+  // 配る物の研究室マップ（埋め立てに切り替えると写す。埋め立て PR3）の小さな見本。
+  fs.mkdirSync(path.join(dir, 'maps/umetate_lab_map'), { recursive: true }); fs.writeFileSync(path.join(dir, 'maps/umetate_lab_map/level.dat'), 'lab');
   return dir;
 }
 

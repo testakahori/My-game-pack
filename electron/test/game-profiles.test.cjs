@@ -15,6 +15,8 @@ function fixture(t, extras = {}) {
   fs.writeFileSync(config, JSON.stringify({ tiktokUsername: 'viewer', rcon: { password: 'keep-local-secret' }, options: { giftCooldownMs: 300 }, mappings: [{ giftId: '1', commandFile: 'zombie.txt', repeat: 1 }], shareEvent: { enabled: true, commandFile: 'cod.txt' } }));
   fs.mkdirSync(path.join(path.dirname(config), 'commands/minecraft'), { recursive: true });
   for (const name of ['zombie.txt', 'cod.txt']) fs.writeFileSync(path.join(path.dirname(config), 'commands/minecraft', name), 'say test');
+  // 埋め立てに切り替えると初期マップを写すので、サーバーの map_backup に小さな見本を置く（アプリでは配った物から用意する。埋め立て PR3）。
+  fs.mkdirSync(path.join(server, 'map_backup/umetate/umetate_lab_map'), { recursive: true }); fs.writeFileSync(path.join(server, 'map_backup/umetate/umetate_lab_map/level.dat'), 'lab');
   const bridge = path.join(root, 'bridgemod-1.3.4.jar'); fs.writeFileSync(bridge, jar('bridgemod'));
   const display = path.join(root, 'displaymod-1.0.0.jar'); fs.writeFileSync(display, jar('displaymod'));
   const api = createGameProfiles({ storage: () => storage, serverRoot: () => server, clientRoot: () => client, configPath: () => config, bridgeJar: () => bridge, displayJar: () => display, ensureStopped: async () => {}, ...extras });
