@@ -49,6 +49,12 @@ function createBridgeSync({
     "commands/minecraft/give_blindness.txt",
     "commands/minecraft/petsummon.txt",
   ];
+  // 前の版の配布物に紛れていた開発機のファイル。中身が同じときだけ消す（配信者が書いたものは残す）。
+  // _op.txt は開発者のマイクラIDを OP にする中身で、配信者が OP 付与をしていなければ残っていた。OP 付与は付けるたびに書き直すので、
+  // 配信者の ID の _op.txt は残す（2026-10-29 ユーザーの決定：開発者の行のときだけ消す）。
+  const BRIDGE_REMOVED_BUNDLE_CONTENTS = [
+    { rel: "commands/minecraft/_op.txt", text: "# TITLE: OP付与\nop Douma_Akahori\n" },
+  ];
   const COPY_HASH_LIMIT_BYTES = 1024 * 1024;
 
   let bridgeSyncState = {
@@ -434,6 +440,18 @@ function createBridgeSync({
         await fs.promises.unlink(target);
         stats.removedFiles++;
         console.log(`[main] removed obsolete bundled file: ${rel}`);
+      } catch { /* 消せなくても同期は続行 */ }
+    }
+    for (const { rel, text } of BRIDGE_REMOVED_BUNDLE_CONTENTS) {
+      if (await pathExists(path.join(src, rel))) continue;
+      const target = path.join(dst, rel);
+      let current;
+      try { current = await fs.promises.readFile(target, "utf8"); } catch { continue; }
+      if (current.replace(/\r\n/g, "\n") !== text) continue;
+      try {
+        await fs.promises.unlink(target);
+        stats.removedFiles++;
+        console.log(`[main] removed leftover bundled file: ${rel}`);
       } catch { /* 消せなくても同期は続行 */ }
     }
 
