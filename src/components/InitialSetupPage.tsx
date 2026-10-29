@@ -539,7 +539,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
         <div className="setup-complete-actions-v2">
           <button type="button" onClick={onSetupComplete} className="setup-dashboard-button-v2">
             <span>🚀</span>
-            <div><b>ダッシュボードへ戻る</b><small>サーバーを起動して配信を開始しましょう！</small></div>
+            <div><b>配信ホームへ戻る</b><small>サーバーを起動して配信を開始しましょう！</small></div>
           </button>
           <button type="button" onClick={onResetSetup} className="setup-reset-button-v2">
             <span>↻</span>
@@ -549,7 +549,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
 
         <div className="setup-ready-banner-v2">
           <span>⬡</span>
-          <div><b>すべての準備が整いました！</b><small>ダッシュボードからいつでもサーバーの起動・監視が可能です。素敵な配信をお楽しみください！</small></div>
+          <div><b>すべての準備が整いました！</b><small>配信ホームからいつでもサーバーの起動・監視が可能です。素敵な配信をお楽しみください！</small></div>
           <em>💎</em>
         </div>
       </div>
@@ -734,7 +734,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
       <section className="setup-flow-panel-v2">
         <div className="setup-flow-copy-v2">
           <span>ⓘ</span>
-          <p>① Forgeの準備 → ② <b>環境構築</b> → 完了確認の順に進みます。<br />完了後はMinecraftランチャーで「1.20.1-forge-47.4.10」を選び、ダッシュボードからサーバーを起動できます。</p>
+          <p>① Forgeの準備 → ② <b>環境構築</b> → 完了確認の順に進みます。<br />完了後はMinecraftランチャーで「1.20.1-forge-47.4.10」を選び、配信ホームからサーバーを起動できます。</p>
         </div>
         <FlowBlocks />
       </section>

@@ -1,0 +1,65 @@
+/* 配信ホームの並び（2026-10-29 ユーザーの決定）。index.css の .cockpit-layout の格子に、右の列と一括チェックの置き場を足す。
+   色・光り方・文字の大きさは変えない（2026-10-17 の決めごと）。 */
+
+/* 右の列：ゲームの欄とライブ手順。中身の高さまでにして、下まで伸ばさない（空の縦長の枠を作らない）。 */
+.cockpit-side {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* 配信前の一括チェックは、配信の準備のすぐ下。 */
+.cockpit-preflight {
+  grid-column: 1;
+  grid-row: 2;
+  min-width: 0;
+}
+
+.cockpit-preflight .safety-panel {
+  margin-bottom: 0;
+}
+
+/* 右の列のゲームの欄は、ページの上に出していたときの外の余白を外す。 */
+.cockpit-side .game-selector {
+  margin: 0;
+  padding: 18px 18px 16px;
+}
+
+.cockpit-side .game-selector label {
+  min-width: 0;
+}
+
+/* マイクラID：入力欄を広く取り、ボタンは下の行へ（狭い枠で入力欄が切れていた）。 */
+.cockpit-account-row--wrap {
+  grid-template-columns: 20px 1fr;
+}
+
+.cockpit-account-row--wrap > button {
+  grid-column: 2;
+  justify-self: start;
+}
+
+/* ログが空のときの文は時刻が無いので、時刻の列も使って横に広げる（細い列に押し込まれていた）。 */
+.cockpit-log-empty b {
+  grid-column: 2 / -1;
+}
+
+/* 狭い窓では右の列を起動ボタンの下に回す。ゲームの欄は隠さず、ライブ手順だけ隠す（index.css の .cockpit-flow-panel）。 */
+@media (max-width: 1180px) {
+  .cockpit-side {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .cockpit-preflight {
+    grid-row: 3;
+  }
+
+  .cockpit-lower-grid {
+    grid-row: 4;
+  }
+}

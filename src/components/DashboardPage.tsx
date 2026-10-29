@@ -3,6 +3,8 @@ import LaunchGuide from "./LaunchGuide";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AppPage } from "../types";
 import PreflightPanel from "./PreflightPanel";
+// 配信ホームの並び（右の列・一括チェックの置き場・表示のくずれの直し）。index.css には足さない（AGENTS.md）。
+import "./DashboardLayout.css";
 import EulerApiKeySettings from './EulerApiKeySettings';
 import { useUnsavedChanges } from "../UnsavedChanges";
 import type { GiftMapping } from "../types";
@@ -266,7 +268,8 @@ const WorldDiorama: React.FC = () => (
 );
 
 // ── メインコンポーネント ──────────────────────────────────
-const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?: PauseView; onDisruptionPause?: (pause: boolean) => Promise<string | null>; startReady?: boolean }> = ({ onNavigate, disruption, onDisruptionPause, startReady = true }) => {
+// gameSelector：右の列のいちばん上に出すゲームの欄（App が渡す。2026-10-29）。
+const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?: PauseView; onDisruptionPause?: (pause: boolean) => Promise<string | null>; startReady?: boolean; gameSelector?: React.ReactNode }> = ({ onNavigate, disruption, onDisruptionPause, startReady = true, gameSelector = null }) => {
   const api = (window as any).mygamepack;
   // 妨害の一時停止（2026-10-16）。状態は App の5秒ごとの mod:status から受け取る。
   const [pauseBusy, setPauseBusy] = useState(false);
@@ -878,7 +881,6 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
 
   return (
     <div className="dashboard-page cockpit-page page-surface">
-      <PreflightPanel onNavigate={onNavigate} />
       <div className="cockpit-layout">
         <section className="cockpit-main">
           <div className="cockpit-panel-title">
@@ -933,7 +935,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
               {" "}割り当てたコマンドを見直してください。
             </p>
           ) : null}
-          {!startReady && <p className="cockpit-all-start-note" role="status">起動するには、画面上部でプレイするゲームを保存してください。</p>}
+          {!startReady && <p className="cockpit-all-start-note" role="status">起動するには、「プレイするゲーム」の欄でゲームを選んで保存してください。</p>}
           {serverProc.running && serverProc.managed === false && <p className="cockpit-all-start-note">このアプリを開く前からサーバーが動いています。BRIDGEは接続できます。サーバー停止・MAP保存は、起動した画面で stop を実行してから行ってください。</p>}
           <section className="cockpit-bridge-controls" aria-label="BRIDGE単体操作">
             <strong>BRIDGEだけを操作</strong>
@@ -974,7 +976,14 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
           </details>
         </section>
 
-        <LaunchGuide server={stepForge} bridge={stepBridge} gameRunning={gameRunning} live={liveState === "live"} world={levelName} />
+        {/* 右の列：ゲームの欄とライブ手順。狭い窓では、起動ボタンの下に回る（ライブ手順だけ隠す）。 */}
+        <div className="cockpit-side">
+          {gameSelector}
+          <LaunchGuide server={stepForge} bridge={stepBridge} gameRunning={gameRunning} live={liveState === "live"} world={levelName} />
+        </div>
+
+        {/* 配信前の一括チェックは、配信の準備のすぐ下（左の列）。 */}
+        <div className="cockpit-preflight"><PreflightPanel onNavigate={onNavigate} /></div>
 
         <div className="cockpit-lower-grid">
           <section className="cockpit-info-card">
@@ -997,7 +1006,8 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
 
           <EulerApiKeySettings bridgeRunning={bridgeProcess.running === true} bridgePid={bridgeProcess.pid} />
           <label htmlFor="minecraft-player" style={{ marginTop: 14 }}>マイクラID（OP自動付与）</label>
-          <div className="cockpit-account-row">
+          {/* 入力欄を広く取り、ボタンは下の行へ（狭い枠で入力欄が切れていた。2026-10-29）。 */}
+          <div className="cockpit-account-row cockpit-account-row--wrap">
             <b>⛏</b>
             <input
               id="minecraft-player"

@@ -99,7 +99,7 @@ export default function GameSelector({ onChanged, onStatus }: { onChanged: () =>
   const game = status?.games.find(g => g.id === selected);
   return <section className="game-selector" aria-label="プレイするゲーム">
     <div className="game-selector-main">
-      <label htmlFor="play-game"><strong>どのゲームをプレイしますか？</strong>
+      <label htmlFor="play-game"><strong>プレイするゲーム</strong>
         <select id="play-game" value={selected} disabled={busy || scanning || !status || status.recoveryRequired} onChange={e => setSelected(e.target.value)}>
           {(status?.games || [{ id: 'common', name: '読み込み中', installed: false }]).map(g => <option key={g.id} value={g.id}>{g.name}{!g.installed ? '（未導入）' : ''}</option>)}
         </select>
@@ -107,12 +107,10 @@ export default function GameSelector({ onChanged, onStatus }: { onChanged: () =>
       <button type="button" className="game-selector-apply" disabled={busy || scanning || !game?.installed || status?.recoveryRequired}
         onClick={() => run(() => api.gamesActivate(selected), true)}>{busy ? '処理中…' : '保存'}</button>
     </div>
-    <p>{game?.installed ? `使用するMOD：BridgeMOD ＋ DisplayMOD（表示）${selected === 'common' ? '' : ` ＋ ${game.modName}`}` : 'このゲームMODはまだ登録されていません。完成したゲームパックを登録してください。'}</p>
-    <p>① ゲームを選んで保存 → ② ギフト・いいね・ルーレットなどを設定。ゲームごとに設定を保存し、次回の切替時に読み込みます。</p>
+    {/* いつも出すもの：今の状態・未保存・マップの初期化・知らせ・エラー。説明は下の「くわしく」へ（2026-10-29 ユーザーの決定）。 */}
+    {status && <small>{status.applied ? `適用済み：${status.games.find(g => g.id === status.active)?.name}` : 'ゲームが未保存です。ゲームを選んで「保存」を押してください。'}</small>}
+    {game && !game.installed && <p>このゲームMODはまだ登録されていません。完成したゲームパックを登録してください。</p>}
     {dirty && <p role="status" className="game-selector-pending">ゲームの変更は未保存です。「保存」を押すと選んだゲームへ切り替わります。{game?.resetMapOnSwitch ? `${game.name}に切り替えると、${game.name}のマップは初期の状態から始まります（前に遊んだ${game.name}のマップは消えます）。` : ''}</p>}
-    <p>暗視・アイテムロストなし・昼・晴れは固定です。イベント中のみ時間・天候が一時的に変わります。</p>
-    <p>コマンドの実行通知は非表示です。敵モブの自然発生は停止します。動物・魚の自然発生と、ギフト・コマンドでの召喚は有効です。</p>
-    {status && <small>{status.applied ? `適用済み：${status.games.find(g => g.id === status.active)?.name}` : 'ゲームが未保存です。ゲームを選んで「保存」を押してください。'} ／ 切替はサーバー・Minecraft・BRIDGEの停止中に行います。</small>}
     {canResetMap && <div className="game-selector-tools game-selector-map">
       <button type="button" disabled={busy || scanning || status?.recoveryRequired} onClick={resetMap}>マップを初期化</button>
       <span>{activeGame?.name}のマップを、初期の状態に戻します（サーバーを止めてから）。</span>
@@ -122,6 +120,16 @@ export default function GameSelector({ onChanged, onStatus }: { onChanged: () =>
       <button type="button" disabled={busy || scanning || status.recoveryRequired} onClick={refreshModsNow}>今すぐ入れ替える</button>
     </div>}
     {status?.saikutuMigrationNeeded && <p role="status">採掘へ移したコマンド（落とし穴・採掘速度上昇など）が、今の割り当てに残っています。今のゲームのまま「保存」を押すと割り当てを整理し、採掘をまだ使っていなければ採掘へ引き継ぎます（すでに採掘の設定があるときは上書きせず、外した割り当ては退避に残ります）。</p>}
+    {status?.recoveryRequired && <p role="alert">前回の切替が途中で止まっています。<button type="button" disabled={busy} onClick={() => run(() => api.gamesRecover(), true)}>切替前の状態に戻す</button></p>}
+    {error && <p role="alert" className="game-selector-error">{error}</p>}
+    {message && <p role="status">{message}</p>}
+    <details><summary>くわしく</summary>
+      {game?.installed && <p>使用するMOD：BridgeMOD ＋ DisplayMOD（表示）{selected === 'common' ? '' : ` ＋ ${game.modName}`}</p>}
+      <p>① ゲームを選んで保存 → ② ギフト・いいね・ルーレットなどを設定。ゲームごとに設定を保存し、次回の切替時に読み込みます。</p>
+      <p>暗視・アイテムロストなし・昼・晴れは固定です。イベント中のみ時間・天候が一時的に変わります。</p>
+      <p>コマンドの実行通知は非表示です。敵モブの自然発生は停止します。動物・魚の自然発生と、ギフト・コマンドでの召喚は有効です。</p>
+      <p>切替はサーバー・Minecraft・BRIDGEの停止中に行います。ゲーム切替では現在のMODを削除せず退避します。MAPは変更しません{resetGames ? `（${resetGames}に切り替えたときだけ、そのゲームのマップを初期の状態から使います）` : ''}。</p>
+    </details>
     <details><summary>Minecraftの保存先を探す・MODの保存先を確認</summary>
       <p>サーバー：{status?.serverMods || '未確認'}<br />Minecraft：{status?.clientMods || '未確認'}</p>
       <p>Minecraftを起動せずに、標準の保存先と公式ランチャーの起動構成から探せます。別のランチャーを使う場合や候補にない場合は、手動で指定してください。</p>
@@ -155,10 +163,6 @@ export default function GameSelector({ onChanged, onStatus }: { onChanged: () =>
           {chosenFolder?.current && <span className="minecraft-location-current">この保存先を使用中です。</span>}
         </div>
       </div>}
-      <p>ゲーム切替では現在のMODを削除せず退避します。MAPは変更しません{resetGames ? `（${resetGames}に切り替えたときだけ、そのゲームのマップを初期の状態から使います）` : ''}。</p>
     </details>
-    {status?.recoveryRequired && <p role="alert">前回の切替が途中で止まっています。<button type="button" disabled={busy} onClick={() => run(() => api.gamesRecover(), true)}>切替前の状態に戻す</button></p>}
-    {error && <p role="alert" className="game-selector-error">{error}</p>}
-    {message && <p role="status">{message}</p>}
   </section>;
 }

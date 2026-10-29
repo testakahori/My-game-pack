@@ -30,14 +30,14 @@ export default function WorldSavesPanel({ active }: { active: boolean }) {
       const result = saved ? await window.mygamepack.worldSavesLoad(saved.id) : await window.mygamepack.worldSavesSave(name);
       setNotice(saved ? '「' + saved.name + '」を読み込みました。' : '「' + result.saved!.name + '」にMAPを保存しました。');
       if (!saved) setName('');
-      if (result.restartError) setError('MAP操作は完了しましたが、再起動に失敗しました。ダッシュボードから起動してください。' + result.restartError);
+      if (result.restartError) setError('MAP操作は完了しましたが、再起動に失敗しました。配信ホームから起動してください。' + result.restartError);
       else if (result.restarted) setNotice(text => text + ' サーバーの起動完了後にMinecraftへ再接続してください。');
       await refresh();
     } catch (e) { setError(String((e as Error).message || e)); setNotice(''); }
     finally { running.current = false; setBusy(false); }
   };
   return <section className="map-saves-panel" aria-labelledby="map-saves-title">
-    <header><div><span className="studio-eyebrow">WORLD CHECKPOINTS</span><h2 id="map-saves-title">MAPセーブ・ロード</h2><p>遊ぶ前に名前を付けて保存。壊れた世界も、その時点からもう一度。</p></div><span className="map-world-label">{world || 'MAPを確認中'}</span></header>
+    <header><div><h2 id="map-saves-title">MAPセーブ・ロード</h2><p>遊ぶ前に名前を付けて保存。壊れた世界も、その時点からもう一度。</p></div><span className="map-world-label">{world || 'MAPを確認中'}</span></header>
     <div className="map-save-new"><label>セーブ名<input aria-label="MAPのセーブ名" maxLength={80} placeholder="例：ダイヤ集め・配信前" value={name} onChange={e => setName(e.target.value)} disabled={busy} /></label><button className="studio-primary" disabled={busy || loading || !world} onClick={() => void run()}>{busy ? '処理中…' : '保存する'}</button></div>
     <p className="panel-hint">「保存する」を押した時だけ、地形・持ち物・各ディメンションをまとめて保存します。名前が空欄なら日時を使います。起動時・読み込み前の自動セーブは行いません。稼働中の操作ではサーバーを一度停止し、完了後に再起動します。</p>
     {pending && <p className="studio-alert">前回のMAP操作が中断されています。次の保存・読込またはサーバー起動時に復旧を試みます。</p>}

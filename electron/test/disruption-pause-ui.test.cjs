@@ -61,7 +61,8 @@ test('帯はどのページにも出し、再開ボタンは帯から出どこ�
   assert.match(app, /pauseView\(mod\)/, '画面上部の5秒ごとの mod:status から読む');
   assert.match(app, /className="pause-banner" role="status"/);
   assert.match(app, /setDisruptionPause\(api, false, "banner:resume"\)/);
-  assert.match(app, /<DashboardPage onNavigate=\{navigateTo\} disruption=\{disruption\} onDisruptionPause=\{changeDisruptionPause\} startReady=\{gameReady\} \/>/);
+  // 後ろにゲームの欄（gameSelector）を渡す（2026-10-29）。妨害の一時停止のつなぎ方は同じ。
+  assert.match(app, /<DashboardPage onNavigate=\{navigateTo\} disruption=\{disruption\} onDisruptionPause=\{changeDisruptionPause\} startReady=\{gameReady\}\s[^>]*gameSelector=/);
   const home = source('components/DashboardPage.tsx');
   assert.match(home, /onDisruptionPause\(!disruption\.paused\)/);
   assert.match(home, /妨害を再開/);
