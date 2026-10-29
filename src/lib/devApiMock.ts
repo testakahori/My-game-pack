@@ -89,7 +89,8 @@ if (import.meta.env.DEV && !win.mygamepack) {
   };
   const readDevWorlds = async () => {
     try {
-      const response = await fetch(`/__dev/worlds/list?root=${encodeURIComponent(appConfig.serverFolder || "")}`, { cache: "no-store" });
+      // 今のゲームで使えるワールドだけ（埋め立ては埋め立ての専用マップだけ。2026-10-30）。
+      const response = await fetch(`/__dev/worlds/list?root=${encodeURIComponent(appConfig.serverFolder || "")}&game=${encodeURIComponent(previewActiveGame)}`, { cache: "no-store" });
       if (response.ok) return response.json();
     } catch { /* ignore */ }
     return [];
@@ -210,6 +211,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
   const previewProfiles: Record<string, any> = {};
   const previewProfileKeys = ['mappings', 'likeEvents', 'unmappedGiftEvent', 'shareEvent', 'followEvent', 'memberEvent', 'roulette', 'deathRoulette', 'commentGifts'];
   const previewGameStatus = () => ({ active: previewActiveGame, applied: previewModsApplied, displayBundled: true, recoveryRequired: false,
+    mapResettable: Boolean(GAMES.find(game => game.id === previewActiveGame)?.maps?.length),
     serverMods: appConfig.serverFolder + '\\mods', clientMods: previewClientFolder + '\\mods',
     games: GAMES.map(game => ({ ...game, installed: game.id === 'common' || Boolean(game.modDir) })) });
   win.mygamepack = {

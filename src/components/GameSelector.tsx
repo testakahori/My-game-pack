@@ -22,7 +22,8 @@ export default function GameSelector({ onChanged, onStatus }: { onChanged: () =>
   const api = window.mygamepack;
   // 「マップを初期化」は、今のゲームに初期マップ（games.json の maps）があり、保存済みのときに出す（サバイバルには無い。埋め立て PR3）。
   const activeGame = status?.games.find(g => g.id === status.active);
-  const canResetMap = Boolean(status && savedGame(status) && activeGame?.maps?.length);
+  // 専用マップと専用でないワールドを両方使うゲームは、今が専用マップのときだけ（アプリが決めた mapResettable。2026-10-30）。
+  const canResetMap = Boolean(status && savedGame(status) && status.mapResettable);
   // ほかのゲームから切り替えたときにマップを初期に戻すゲーム（今は埋め立て）。
   const resetGames = (status?.games || []).filter(g => g.resetMapOnSwitch).map(g => g.name).join('・');
   useEffect(() => {
@@ -134,7 +135,7 @@ export default function GameSelector({ onChanged, onStatus }: { onChanged: () =>
       <p>① ゲームを選んで保存 → ② ギフト・いいね・ルーレットなどを設定。ゲームごとに設定を保存し、次回の切替時に読み込みます。</p>
       <p>暗視・アイテムロストなし・昼・晴れは固定です。イベント中のみ時間・天候が一時的に変わります。</p>
       <p>コマンドの実行通知は非表示です。敵モブの自然発生は停止します。動物・魚の自然発生と、ギフト・コマンドでの召喚は有効です。</p>
-      <p>ゲーム切替では現在のMODを削除せず退避します。MAPは変更しません{resetGames ? `（${resetGames}に切り替えたときだけ、そのゲームのマップを初期の状態から使います）` : ''}。</p>
+      <p>ゲーム切替では現在のMODを削除せず退避します。配信ワールドはゲームごとに覚え、切り替えると、そのゲームで前に使っていたワールドに戻します{resetGames ? `（${resetGames}に切り替えたときは、そのゲームのマップを初期の状態から使います）` : ''}。</p>
     </details>
     <details><summary>Minecraftの保存先を探す・MODの保存先を確認</summary>
       <p>サーバー：{status?.serverMods || '未確認'}<br />Minecraft：{status?.clientMods || '未確認'}</p>

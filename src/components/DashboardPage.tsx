@@ -1039,6 +1039,8 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
           <label htmlFor="stream-world">ワールド</label>
           <select id="stream-world" value={subfolder} disabled={worldLoading || worldSaving || allStartBusy || serverProc.running === true} onChange={(e) => setSubfolder(e.target.value)}>
             {!worldFolders.length && <option value={subfolder}>{worldLoading ? "読み込み中…" : "配布ワールドがありません"}</option>}
+            {/* 今のワールドが一覧に無い（このゲームでは使えない）ときは、それを選べない項目として見せる（最初の項目を選んでいるように見せない。2026-10-30） */}
+            {worldFolders.length > 0 && subfolder && !worldFolders.includes(subfolder) && <option value={subfolder} disabled>{draft}（このゲームでは選べません）</option>}
             {worldFolders.map((folder) => <option value={folder} key={folder}>{WORLD_PREFIX}/ {folder}</option>)}
           </select>
           <WorldDiorama />

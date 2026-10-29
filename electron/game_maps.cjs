@@ -74,20 +74,55 @@ async function stageMap({ serverRoot, gameId, name, files, operation }) {
   return next;
 }
 
-// ファイルに触らない決め方。target・previous は games.json の項目（切り替え先と今のゲーム）。
-// - 入る（target にマップがある）：fresh なら初期マップを写す。そうでなければ level-name だけを使う場所に合わせる（もう合っていれば何もしない）。
-//   fresh は、初期化のボタン・切り替えたときに初期に戻すゲーム（resetMapOnSwitch）へほかのゲームから来た・使う場所にマップが無い、のどれか。
-// - 出る（target にマップが無く、今のワールドが前のゲームのマップの名前）：level-name を前のワールドへ戻す。
-//   別のワールドを選んでいたら触らない。マップの無いゲームどうしでは、手で入れたマップにも触らない。
-function planMapChange({ target, previous, switching, currentLevel, useReady, reset = false }) {
-  const name = target?.maps?.[0];
-  if (name) {
+// ワールドの場所を比べる形（\ を / に、大文字を小文字に。Windows では同じフォルダー。2回目のレビューの軽い4・5）。
+const levelKey = level => String(level || "").replace(/\\/g, "/").toLowerCase();
+// そのゲームの専用マップ（games.json の maps）のうち、このワールドの名前のもの（無ければ undefined）。名前は haihu_world/<名前> の最後の名前で見る。
+const ownMapOf = (game, level) => (game?.maps || []).find(name => name.toLowerCase() === levelBaseName(level).toLowerCase());
+// どのゲームの専用マップでもないワールドか（自然に生成された world・プレイヤーが作ったマップ・配ったマップ）。
+const notDedicated = (games, level) => !games.some(game => ownMapOf(game, level));
+// 自分の専用マップだけを使うゲーム（埋め立て。のちの RUN）。
+const dedicatedOnly = game => Boolean(game?.maps?.length) && game.freeWorlds !== true;
+
+// そのゲームの配信ワールドに使えるか（2026-10-30 ユーザーの決定）。専用マップだけを使うゲームは、自分の専用マップだけ。
+// 専用マップの無いゲームと、専用でないワールドも使うゲーム（games.json の freeWorlds。採掘）は、自分の専用マップと、どのゲームの専用マップでもないワールド全部。
+function worldAllowed(games, game, level) {
+  if (ownMapOf(game, level)) return true;
+  if (dedicatedOnly(game)) return false;
+  return notDedicated(games, level);
+}
+// 配信ホームの「配信ワールド」に出す、haihu_world の中のフォルダー（今のゲームで使えるものだけ。並びはそのまま）。
+const worldsForGame = (games, gameId, folders) => folders.filter(name => worldAllowed(games, games.find(game => game.id === gameId), name));
+
+// ファイルに触らない決め方。games は games.json、target は切り替え先のゲーム、switching はほかのゲームから来たか、reset は「マップを初期化」。
+// exists(level) は、そのワールドが実際にあるか（level.dat がある）。remembered は、そのゲームの分として覚えたワールドのうちフォルダーがまだあるもの、
+// fallback は専用マップを持つゲームに入る前のワールド（mapReturnLevel）、folders は haihu_world の中の実際にあるワールドの名前。
+// 返すのは、専用マップを使う（kind: "enter"。fresh なら初期マップを写す）・level-name だけを変える（kind: "level"）・何もしない（null）。
+// - 専用マップだけを使うゲーム：同じゲームのままなら今遊んでいる専用マップ、切り替えたときは覚えた専用マップ、無ければ maps の最初。
+//   fresh は、初期化・切り替えたときに初期に戻すゲーム（resetMapOnSwitch）へ来た・使う場所に無い、のどれか。
+// - それ以外のゲーム：次の順に、最初に使えるものにする（2026-10-30。docs/superpowers/plans/2026-10-30-game-worlds.md）。
+//   1. 切り替えたときは、覚えたワールド。2. 今のワールド。3. 同じゲームのままなら、覚えたワールド。4. 自分の専用マップ（あれば写して使う）。
+//   5. 入る前のワールド・haihu_world/world・haihu_world の中のワールド（実際にあるものだけ）。6. どれも無ければ level-name を変えない（無いワールドを指さない。重要1）。
+// - 初期化は、今が自分の専用マップのときだけ（専用でないワールドは初期化しない。null を返し、resetMap が理由を出す）。
+function planMapChange({ games, target, switching, currentLevel, reset = false, remembered = null, fallback = null, exists = () => false, folders = [] }) {
+  const current = levelKey(currentLevel);
+  const same = level => levelKey(level) === current;
+  const enter = name => {
     const level = `haihu_world/${name}`;
-    const fresh = reset || (switching && target.resetMapOnSwitch === true) || !useReady;
-    if (!fresh && String(currentLevel).replace(/\\/g, "/") === level) return null;
-    return { kind: "enter", name, level, fresh };
+    const fresh = reset || (switching && target.resetMapOnSwitch === true) || !exists(level);
+    return !fresh && same(level) ? null : { kind: "enter", name, level, fresh };
+  };
+  if (reset) {
+    const name = ownMapOf(target, currentLevel) || (dedicatedOnly(target) ? target.maps[0] : null);
+    return name ? enter(name) : null;
   }
-  if (previous?.maps?.includes(levelBaseName(currentLevel))) return { kind: "leave" };
+  if (dedicatedOnly(target)) return enter((!switching && ownMapOf(target, currentLevel)) || ownMapOf(target, remembered) || target.maps[0]);
+  const allowed = level => Boolean(level) && worldAllowed(games, target, level);
+  const use = level => (ownMapOf(target, level) ? enter(ownMapOf(target, level)) : same(level) ? null : { kind: "level", level });
+  if (switching && allowed(remembered)) return use(remembered);
+  if (allowed(currentLevel)) return use(currentLevel);
+  if (!switching && allowed(remembered)) return use(remembered);
+  if (target?.maps?.length) return enter(target.maps[0]);
+  for (const level of [fallback, "haihu_world/world", ...folders.map(name => `haihu_world/${name}`)]) if (allowed(level) && exists(level)) return use(level);
   return null;
 }
 
@@ -128,4 +163,4 @@ function restoreMapSwap(serverRoot, m, { id, mapNames = [] }) {
   else fs.rmSync(m.propertiesFile, { force: true });
 }
 
-module.exports = { MAP_SWITCH_DIR, hasWorld, levelBaseName, mapPlaces, ensureMapBackup, stageMap, planMapChange, journalMap, applyMapSwap, restoreMapSwap };
+module.exports = { MAP_SWITCH_DIR, hasWorld, levelBaseName, mapPlaces, ensureMapBackup, stageMap, worldAllowed, worldsForGame, dedicatedOnly, notDedicated, ownMapOf, planMapChange, journalMap, applyMapSwap, restoreMapSwap };
