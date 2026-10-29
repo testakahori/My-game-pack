@@ -1,3 +1,50 @@
+### 2026-10-29：埋め立て PR3（マップの入れ替えと「マップを初期化」。PR #151、マージコミット 670aeb5）
+
+計画：`docs/superpowers/plans/2026-10-29-umetate-pr3-map.md`。作り方は「私が作る＋最後に opus のレビュー」。これで埋め立ては、研究室マップごとアプリで遊べる。
+
+#### ユーザーの決定（10-29）
+
+- 「マップを初期化」はサバイバル以外に付ける（採掘もマップをぼこぼこにされたら初期化したくなる。今後の RUN にも）。採掘・RUN は、専用マップを足したら出す。
+
+#### やったこと
+
+- どのゲームがどのマップを持つかは `bridge/games.json` に書く：
+  - `maps`：初期マップ。今は埋め立ての `["umetate_lab_map"]` だけ。`maps` のあるゲームに初期化のボタンが出る。
+  - `resetMapOnSwitch`：ほかのゲームから切り替えたときに、マップを初期に戻す。埋め立てだけ。
+- 配り方：`npm run prepare:game-maps`（`scripts/prepare-game-maps.cjs`）。
+  - `map/umetate_lab_map`（git の外。64 ファイル・約53MB）を `build/game-packs/umetate/maps/umetate_lab_map` に写す。一番上の `playerdata`・`stats`・`advancements` と `session.lock` は入れない。
+  - `npm run release:win`（パックのあと）と `npm run dev:refresh` が動かす。CI の mod-build はマップを持たないので、ゲームパックの準備とは分けた。
+  - `release:win` の最後に、入ったマップのファイルの数と大きさを出す。**インストーラーを作る PC に `map/umetate_lab_map` が要る**（無ければ止まる）。
+  - PR2 で書いた「PR3 まで配布用を作らない」は外した。
+- 切り替え（`electron/game_maps.cjs`・`electron/game_profiles.cjs`）：
+  - ほかのゲームから埋め立てに切り替えると、`<サーバー>/map_backup/umetate/umetate_lab_map` を `haihu_world/umetate_lab_map` に写し、`level-name` をそこにする。遊んだマップは終わってから消す。
+  - `map_backup` は、配った物と中身（SHA-256）を照らし、違えば写し直す（アプリの更新・壊れたとき）。配った物が無い開発版では `map_backup` を使う。両方無ければ止まる。
+  - 埋め立てのまま保存し直したときは、マップに触らない。
+  - 採掘・サバイバルに切り替えると、マップに触らず、「埋め立てに切り替える前のワールド」（`profiles.json` の `mapReturnLevel`）へ戻す。記録が無い・そのワールドが無ければ `haihu_world/world`。ダッシュボードで別のワールドを選んでいたら触らない。
+  - 直下に手で入れた `umetate_lab_map`（ユーザーの配信サーバー）は、消さない・戻り先にしない。
+  - 途中で失敗・アプリが落ちたときは、今の途中の記録（`pending-switch.json` の `map`）でマップと `level-name` を戻す。`server.properties` は `level-name` だけを書く・戻す。
+  - マップのフォルダーがつかまれていたら、少し待って試し直し、だめなら何を閉じればよいかを日本語で出す。
+- TOP の「マップを初期化」（`games:resetMap`）：サーバーだけ止まっていればよい（BRIDGE・Minecraft は動いていてよい）。押すと先にサーバーを見て、動いていれば理由だけ。止まっていれば確かめの画面を出す。保存の前に「埋め立てに切り替えると、マップは初期の状態から始まります」の知らせも出す。
+- `server.properties` の読み書きは `electron/server_properties.cjs` に分けた（`initial_setup.cjs` も使う）。
+- 確かめ：
+  - `npm run verify`：アプリ 862/862・ビルド。CI 3つも通った。
+  - 開発版の本物のアプリ（一時の設定・一時サーバー）で、ユーザーが4つ（保存の前の知らせ・初期化のボタン・確かめの画面と終わりの知らせ・採掘でボタンが消える）を見た。
+- 最後のレビュー（opus）：重大 0・重要 1・軽い 8。全部直した（軽い指摘は、ユーザーの決定「全部直す」）。
+  - 重要1：前のワールドへ戻すことと、復旧の分かれ道をテストで守った。
+  - レビューアーは、アプリを本当に落としての復旧・ファイルのつかみ・本物のマップでの時間（切り替え 0.5 秒・初期化 0.3 秒）も確かめた。
+
+#### 次にやること
+
+1. 配る前に一度：`npm run release:win` で作ったら、`release/win-unpacked/resources/game-packs/umetate/maps/umetate_lab_map` が 64 ファイルあるかを見る（最後の表示にも出る）。
+2. 本物の配信サーバー（`server/Douma_Craft`。今は `level-name=umetate_lab_map`、UmetateMod 2.6.22 を手で入れたもの）は、アプリで「埋め立て」を選んで保存すれば、アプリの形（`haihu_world/umetate_lab_map`・2.6.23）に移る。直下の `umetate_lab_map` は残る（要らなければ手で消す）。
+3. 採掘のイベント用の専用マップ（ユーザーが作って一緒に配る。いくつかから選べるように）。足すときに決めること：
+   - 採掘はいくつかのマップから選ぶ。どこで選ぶか。
+   - マップのあるゲームどうしの切り替えで「前のワールド」をどう扱うか。
+   - `games.json` の採掘に `maps` を書けば、初期化のボタンは出る。
+4. 残した小さなこと：MOD の入れ替え（`refreshMods`・`activate` の mods）でファイルがつかまれたときのエラーは、英語のまま。
+
+---
+
 ### 2026-10-29：埋め立て PR2（ゲームパックと配り方。PR #149、マージコミット 3f63ca8）
 
 計画：`docs/superpowers/plans/2026-10-29-umetate-pr2-pack.md`。作り方は「私が作る＋最後に opus のレビュー」。
