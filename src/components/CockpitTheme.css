@@ -150,7 +150,6 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  letter-spacing: 0.04em;
 }
 
 .ui-refresh .app-content h1::before {
@@ -162,15 +161,18 @@
   box-shadow: 0 0 10px rgba(39, 216, 255, 0.9);
 }
 
-/* 8. 全ページの大きな箱：方眼・角を切った形・内側の光。枠の色はここでは変えない（紫・赤・緑などの色付きの箱の色を残す） */
-.ui-refresh :is(.stream-recording-panel, .analytics-panel,
+/* 8. 全ページの大きな箱：方眼・角を切った形・内側の光。枠の色はここでは変えない（紫・赤・緑などの色付きの箱の色を残す）。
+   studio.css 321行目の .ui-refresh :is(.gift-design-top, .gift-design-page>.space-y-5>div, .events-page>section, …) は強さ (0,3,1) の !important なので、
+   html body .app-shell.ui-refresh :is(…) で (0,3,2) 以上にして上回る（同じ強さ以下だと、方眼・枠・光が効かずに灰色のままだった。2回目のレビュー 重要1）。
+   読み上げの「▲ VOICEVOX が停止しています」（.tts-engine-alert）は、もとの赤っぽい背景を残すので入れない。 */
+html body .app-shell.ui-refresh :is(.stream-recording-panel, .analytics-panel,
   .gift-design-top, .gift-template-tools, .gift-flow-panel, .gift-registered-panel, .gift-command-stage,
-  .events-summary, .events-like-panel, .events2-page > section,
-  .tts-read-target-section, .tts-tuning-section, .tts-test-section, .tts-engine-alert,
+  .events-summary, .events-like-panel, .events2-section,
+  .tts-read-target-section, .tts-tuning-section, .tts-test-section,
   .panel-document-bar, .panel-settings, .panel-preview-shell, .panel-library,
   .gift-catalog-panel-v2, .cmd-usage-banner,
   .ops-panel, .map-saves-panel,
-  .setup-info-panel-v2, .setup-step-card-v2, .setup-verify-panel-v2, .setup-folder-panel-v2) {
+  .setup-info-panel-v2, .setup-verify-panel-v2, .setup-folder-panel-v2) {
   border-radius: 0 !important;
   background:
     linear-gradient(rgba(4, 20, 43, 0.92), rgba(3, 13, 29, 0.96)),
@@ -181,11 +183,22 @@
   clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px) !important;
 }
 
-/* 色の付いていない（灰色の枠の）大きな箱は、配信ホームと同じ青い枠に */
-.ui-refresh :is(.stream-recording-panel, .analytics-panel, .gift-design-top, .gift-template-tools, .gift-registered-panel,
-  .events-summary, .events-like-panel, .events2-page > section, .tts-read-target-section, .tts-tuning-section,
+/* はじめての画面の手順のカードは、番号の丸をカードの外（左へ 30px）に出す作りなので、角を切らない（切ると丸が半分欠けた。2回目のレビュー 重要2） */
+html body .app-shell.ui-refresh .setup-step-card-v2 {
+  border-radius: 0 !important;
+  background:
+    linear-gradient(rgba(4, 20, 43, 0.92), rgba(3, 13, 29, 0.96)),
+    linear-gradient(rgba(30, 127, 212, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(30, 127, 212, 0.09) 1px, transparent 1px) !important;
+  background-size: auto, 24px 24px, 24px 24px !important;
+  box-shadow: inset 0 0 38px rgba(21, 112, 237, 0.1), inset 0 0 0 1px rgba(39, 216, 255, 0.06) !important;
+}
+
+/* 色の付いていない（灰色の枠の）大きな箱は、配信ホームと同じ青い枠に。運用センターは、接続状況（赤・緑で状態を出す）だけ色を残す */
+html body .app-shell.ui-refresh :is(.stream-recording-panel, .analytics-panel, .gift-design-top, .gift-template-tools, .gift-registered-panel,
+  .events-summary, .events-like-panel, .events2-section, .tts-read-target-section, .tts-tuning-section,
   .panel-document-bar, .panel-settings, .panel-preview-shell, .panel-library, .gift-catalog-panel-v2,
-  .map-saves-panel, .setup-info-panel-v2, .setup-step-card-v2, .setup-verify-panel-v2, .setup-folder-panel-v2) {
+  .ops-panel:not(.ops-monitor), .map-saves-panel, .setup-info-panel-v2, .setup-step-card-v2, .setup-verify-panel-v2, .setup-folder-panel-v2) {
   border: 1px solid rgba(44, 137, 232, 0.62) !important;
 }
 
@@ -193,6 +206,16 @@
 .ui-refresh :is(.analytics-tile, .event-simple-card, .tts-status-card, .gift-stat-card, .gift-catalog-card, .cmd-card) {
   border-radius: 0 !important;
   clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+}
+
+/* 角を切ると外に光る影も切れるので、ギフト一覧・コマンド一覧のカードにカーソルを乗せたときは内側を光らせる
+   （2回目のレビュー 重要3。2026-10-29 ユーザーの決定「案A」） */
+.ui-refresh .gift-catalog-card:hover {
+  box-shadow: inset 0 0 20px rgba(24, 217, 255, 0.22), inset 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.ui-refresh .cmd-card:hover {
+  box-shadow: inset 0 0 18px rgba(24, 217, 255, 0.2);
 }
 
 /* 9. 文字：書体は変えず、小さすぎる文字（8〜10px）だけを 11〜12px に（配信中にちらっと見ても読めるように） */

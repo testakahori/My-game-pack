@@ -39,6 +39,8 @@ test('画面: 左上のロゴは、緑の顔ではなく BRIDGE のアプリの�
   const png = fs.readFileSync(path.join(root, 'assets/app-icon.png'));
   assert.equal(png.subarray(1, 4).toString(), 'PNG');
   assert.ok(png.readUInt32BE(16) >= 64 && png.readUInt32BE(20) >= 64, 'ロゴに使えるだけの大きさ（64px 以上）');
+  // 緑の顔の飾り（.global-app-cube）と部品の見た目（.minecraft-block-icon）は、使う所がなくなったので残さない（2回目のレビューの軽い指摘）。
+  for (const file of ['src/index.css', 'src/studio.css']) assert.doesNotMatch(read(file), /global-app-cube|minecraft-block-icon/, file);
 });
 
 test('画面: 左上のアプリの名前は BRIDGE（MyGamePack を出さない。2026-10-29 ユーザーの決定）', () => {

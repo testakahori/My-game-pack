@@ -255,7 +255,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className={`border rounded-2xl p-5 space-y-4 transition-all ${enabled ? "bg-gray-800 border-gray-700" : "bg-gray-900/40 border-gray-800"}`}>
+    <section className={`events2-section border rounded-2xl p-5 space-y-4 transition-all ${enabled ? "bg-gray-800 border-gray-700" : "bg-gray-900/40 border-gray-800"}`}>
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="flex items-start gap-3 min-w-0">
           <span className="text-2xl shrink-0 mt-0.5">{icon}</span>
