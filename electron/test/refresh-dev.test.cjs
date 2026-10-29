@@ -16,11 +16,14 @@ test('開発版が使う生成物を CI と同じ順で作り直す', () => {
     'ObsMod の jar',
     'UmetateMod の jar',
     'ゲームパック（採掘・埋め立て）',
+    'ゲームの初期マップ（埋め立て）',
   ]);
   assert.deepEqual(list[0].npm, ['run', 'build']);
   assert.deepEqual(list[1].npm, ['run', 'prepare:bridge-runtime']);
   // 開発版は build/game-packs の jar を置くので、SaikutuMod と UmetateMod を作ったあとにパックを作る（埋め立て PR2）。
   assert.deepEqual(list[7].args, [path.join(root, 'scripts', 'prepare-game-packs.cjs')]);
+  // 初期マップはパックの置き場（build/game-packs/<id>/maps）に入れるので、パックのあと（埋め立て PR3）。
+  assert.deepEqual(list[8].args, [path.join(root, 'scripts', 'prepare-game-maps.cjs')]);
 });
 
 test('MOD は5つとも BridgeMod の gradlew で、オフライン・証明書確認なしでビルドする', () => {

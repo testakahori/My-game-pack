@@ -12,7 +12,8 @@ const { assertReleaseVersion, RELEASE_PIPELINE_ENV } = require("./release_versio
 const { modJars } = require("./mod_jars.cjs");
 const { SOURCE_DIRS, SOURCE_FILES, CHANGED_DURING_BUILD, jarInputsHash, readStamp } = require("./jar_inputs.cjs");
 
-const RELEASE_STEPS = ["build", "prepare:bridge-runtime", "prepare:server-template", "prepare:game-packs"];
+// prepare:game-maps はゲームの初期マップ（map/<マップ名>。git の外）をパックの置き場に入れるので、パックのあと（埋め立て PR3）。
+const RELEASE_STEPS = ["build", "prepare:bridge-runtime", "prepare:server-template", "prepare:game-packs", "prepare:game-maps"];
 // 準備の道具が作り直す置き場（git で管理していない）。前に作ったものが残っていると、止まるか、そのまま入る。
 // build/ には git で管理するファイル（installer.nsh）もあるので、これだけを空にする。GiftsViewer/tools-bundled は prepare:bridge-runtime が上書きするだけで、古いファイルを消さない。
 const GENERATED_DIRS = ["build/server-template", "build/game-packs", "GiftsViewer/tools-bundled"];

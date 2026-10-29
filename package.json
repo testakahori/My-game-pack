@@ -19,7 +19,8 @@
     "prepare:bridge-runtime": "node scripts/prepare-bridge-runtime.cjs",
     "prepare:server-template": "node scripts/prepare-server-template.cjs",
     "release:win": "node scripts/release-windows.cjs",
-    "prepare:game-packs": "node scripts/prepare-game-packs.cjs"
+    "prepare:game-packs": "node scripts/prepare-game-packs.cjs",
+    "prepare:game-maps": "node scripts/prepare-game-maps.cjs"
   },
   "dependencies": {
     "@fortawesome/fontawesome-free": "^7.3.1",

@@ -272,6 +272,8 @@ test('リリース: 作った物の置き場を空にしてから、ビルドと
   });
   assert.deepEqual(calls, [
     ['run', 'build', true], ['run', 'prepare:bridge-runtime', true], ['run', 'prepare:server-template', true], ['run', 'prepare:game-packs', true],
+    // ゲームの初期マップ（埋め立ての研究室マップ）は、パックの置き場に入れるので、パックのあと（埋め立て PR3）。
+    ['run', 'prepare:game-maps', true],
     ['package', path.join(dir, 'release')],
   ]);
   assert.equal(fs.readFileSync(path.join(dir, 'build/installer.nsh'), 'utf8'), 'keep', 'git で管理している build/ のファイルは消さない');
