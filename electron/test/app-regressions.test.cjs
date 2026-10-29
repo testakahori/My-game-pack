@@ -1431,8 +1431,8 @@ test('ゲーム選択IPC: TOPでの保存前は全候補・設定保存・イベ
   assert.equal(app.invoke('bridge:commands:list').length, 0);
   assert.equal(app.invoke('bridge:commands:readMeta').length, 0);
   const config = JSON.parse(fs.readFileSync(app.configPath));
-  await assert.rejects(app.invoke('config:write', config), /TOP/);
-  await assert.rejects(app.invoke('mod:testEvent', { type: 'gift', commandFile: 'cod.txt', preview: true }), /TOP/);
+  await assert.rejects(app.invoke('config:write', config), /配信ホームで/);
+  await assert.rejects(app.invoke('mod:testEvent', { type: 'gift', commandFile: 'cod.txt', preview: true }), /配信ホームで/);
 });
 test('ゲーム選択IPC: サバイバルでは残った採掘TXTをルーレットにも保存できない', async t => {
   const app = loadApp(t), dir = path.join(app.root, 'bridge/commands/minecraft');

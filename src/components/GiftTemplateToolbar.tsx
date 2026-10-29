@@ -69,9 +69,10 @@ export default function GiftTemplateToolbar({ ready, count, onResetEditor, onApp
   // 1行にまとめ、説明は「くわしく」へ（大きな枠で、ギフトの一覧が狭くなっていた。2026-10-29 ユーザーの決定）。
   return <section className="gift-template-tools" aria-label="ギフト設定のファイル">
     <div className="gift-template-toolbar"><div><b><i className="fa-regular fa-folder-open" />ギフト設定のファイル</b></div><div className="gift-template-actions"><button className="studio-quiet" disabled={!ready || busy || count === 0} title={count === 0 ? 'ギフトとコマンドを登録すると、ギフト設定を保存できます。' : undefined} onClick={() => void save()}><i className="fa-solid fa-download" />ギフト設定を保存</button><button className="studio-primary" disabled={!ready || busy} onClick={() => void open()}><i className="fa-solid fa-folder-open" />ギフト設定を読み込む</button></div></div>
+    {/* 保存ボタンを押せない理由は、ボタンの横にいつも見える形で出す（title はキーボードでは読めない。最後のレビュー）。 */}
+    {count === 0 && <span className="panel-hint">ギフトとコマンドを登録すると、ギフト設定を保存できます。</span>}
     <details className="studio-advanced"><summary>くわしく</summary>
       <p className="panel-hint">保存済みの割り当てを、ゲーム別に使い分け・配布できます。</p>
-      {count === 0 && <p className="panel-hint">ギフトとコマンドを登録すると、ギフト設定を保存できます。</p>}
       <p className="panel-hint">アカウントやパスワード、コマンドのファイル本体は保存しません。配布先にも同じコマンドが必要です。</p>
     </details>
     {busy && !preview && <p role="status" className="panel-hint">ファイルの選択・保存中…</p>}

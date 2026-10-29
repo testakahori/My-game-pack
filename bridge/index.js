@@ -1196,7 +1196,7 @@ async function main() {
     });
     // 監視のエラー（フォルダーの削除・権限など）は自動再読込が止まるだけ。Bridge は落とさない。
     configWatcher.on("error", error => {
-      console.error("[Bridge] 設定ファイルの監視でエラー（自動再読込は止まります。設定を変えたら BRIDGE を再起動してください）:", error?.message || error);
+      console.error("[Bridge] 設定ファイルの監視でエラー（自動の再読み込みは止まります。設定を変えたら BRIDGE を再起動してください）:", error?.message || error);
     });
   } catch {}
 

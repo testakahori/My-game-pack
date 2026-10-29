@@ -45,7 +45,7 @@ test('送り方: 知らない名前は警告して RCON 扱い（エラーには
 
 test('TikTok ID: 空・形が正しくないものはエラー、@ や大文字は整えれば正しい', () => {
   assert.deepEqual(validateBridgeConfig(base({ tiktokUsername: '  ' })).errors,
-    ['TikTok IDが未承認です（「IDを承認する」ボタンが押されていません）。ダッシュボードでIDを入力して承認してください']);
+    ['TikTok IDが未承認です（「IDを承認する」ボタンが押されていません）。配信ホームでIDを入力して承認してください']);
   assert.deepEqual(validateBridgeConfig(base({ tiktokUsername: 'foo-bar' })).errors,
     ['TikTok ID「foo-bar」の形が正しくありません。半角英数字・_・. の24文字以内で入力してください']);
   for (const id of [' @Foo_Bar ', 'a.b_c9']) assert.equal(validateBridgeConfig(base({ tiktokUsername: id })).ok, true, id);

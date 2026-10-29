@@ -94,3 +94,29 @@ test('大きな枠・説明を小さく：ギフト設定のファイルの欄�
   assert.ok(rec.indexOf('TikTokへ接続すると配信ごとに記録を開始') > recDetails);
   assert.ok(rec.indexOf('role="status"') < recDetails, '記録しているかどうかは、いつも出す');
 });
+
+// 画面の外から出る知らせ（アプリ・BRIDGE の文）と手順書も、同じ言葉にそろえる（最後のレビューの軽い指摘。2026-10-29 ユーザーの決定「全部直す」）。
+test('言葉：アプリ・BRIDGE の知らせと手順書にも「ダッシュボード」「TOP」「ギフト設定保存・読込」「再読込」を残さない', () => {
+  const files = [
+    ...fs.readdirSync(path.join(root, 'electron')).filter(n => n.endsWith('.cjs')).map(n => 'electron/' + n),
+    ...fs.readdirSync(path.join(root, 'bridge')).filter(n => /\.(cjs|js)$/.test(n)).map(n => 'bridge/' + n),
+    ...fs.readdirSync(path.join(root, 'src/lib')).filter(n => n.endsWith('.ts')).map(n => 'src/lib/' + n),
+  ];
+  for (const file of files) {
+    const src = code(read(file));
+    assert.doesNotMatch(src, /ダッシュボード(で|の|へ|から)|TOP(で|から|の|に)|ギフト設定保存|ギフト設定(を)?読込|再読込/, file);
+  }
+  for (const file of fs.readdirSync(path.join(root, 'docs')).filter(n => n.endsWith('.md')).map(n => 'docs/' + n)) {
+    assert.doesNotMatch(read(file), /ギフト設定保存|ギフト設定読込/, file);
+  }
+});
+
+test('配信ホーム：「切替は停止中に」はいつも見え、ギフト設定は保存できない理由をボタンの横に出す', () => {
+  const ui = read('src/components/GameSelector.tsx');
+  const details = ui.indexOf('<summary>くわしく</summary>');
+  const at = ui.indexOf('切替はサーバー・Minecraft・BRIDGEの停止中に行います');
+  assert.ok(at >= 0 && at < details, '「くわしく」の外');
+  const bar = read('src/components/GiftTemplateToolbar.tsx');
+  const hint = bar.indexOf('{count === 0 && <span');
+  assert.ok(hint >= 0 && hint < bar.indexOf('<summary>くわしく</summary>'), '押せない理由はボタンの横に見える形で');
+});

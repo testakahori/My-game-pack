@@ -35,7 +35,7 @@ function createServerFiles({ getServerRoot, getBridgeBatDir, readAppConfig, asse
     ipcMain.handle("minecraft:grantOp", async () => {
       const name = String(readAppConfig().minecraftPlayerName || "").trim();
       if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) {
-        throw new Error("マイクラIDが未設定か形式が不正です（英数字と_で3〜16文字）。ダッシュボードで保存してください。");
+        throw new Error("マイクラIDが未設定か形式が不正です（英数字と_で3〜16文字）。配信ホームで保存してください。");
       }
       const dir = bridgeCommandsDir(getBridgeBatDir());
       fs.mkdirSync(dir, { recursive: true });

@@ -6,7 +6,7 @@ const status = active => ({ active, applied: true, recoveryRequired: false });
 test('ゲーム保存前・復旧中には候補を返さず設定も保存できない', () => {
   for (const state of [null, { ...status('common'), applied: false }, { ...status('common'), recoveryRequired: true }]) {
     assert.deepEqual(availableGameCommands(names, state), []);
-    assert.throws(() => assertGameCommands({ mappings: [] }, names, state), /TOP/);
+    assert.throws(() => assertGameCommands({ mappings: [] }, names, state), /配信ホームで/);
   }
 });
 test('サバイバルは共通のみ、各ゲームにはそのMODのコマンドだけを追加する', () => {
@@ -47,7 +47,7 @@ test('大文字の拡張子（TNT.TXT）のコマンドも候補に出す（.txt
 test('1つのコマンドの確かめ: 候補にない名前は場所の名前付きで止め、.txt・前後の空白・大文字小文字は区別しない', () => {
   assert.throws(() => assertGameCommandFile('game_saikutu_get_ender_pearl.txt', names, status('common'), 'テスト発火'), /使えないコマンドです: game_saikutu_get_ender_pearl\.txt（テスト発火）/);
   assert.doesNotThrow(() => assertGameCommandFile(' COD ', names, status('common'), 'テスト発火'));
-  assert.throws(() => assertGameCommandFile('cod.txt', names, null, 'テスト発火'), /TOP/);
+  assert.throws(() => assertGameCommandFile('cod.txt', names, null, 'テスト発火'), /配信ホームで/);
 });
 
 // ゲーム専用の判定は bridge/game_commands.cjs の1か所（処理のコピー PR6）。
