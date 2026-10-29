@@ -835,6 +835,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
   };
 
   const handleApplyBridge = async () => {
+    if (!startReady) return;
     setApplyBusy(true); setApplyMsg(null);
     try {
       const applied = await applyBridgeConfig();
@@ -991,13 +992,13 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
             <b>@</b><input id="stream-account" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="配信アカウント名（ID）" />
             <em className={idApproved ? "is-approved" : "is-unapproved"}>● {idApproved ? "承認済み" : "非承認"}</em>
           </div>
-          <button type="button" onClick={handleApplyBridge} disabled={applyBusy} className="cockpit-apply">
+          <button type="button" onClick={handleApplyBridge} disabled={applyBusy || !startReady} className="cockpit-apply">
             <span>⬡</span>
             <div>
               <b>
                 {applyBusy ? "承認中…" : idApproved ? "承認済み" : "IDを承認する"}
               </b>
-              <small>RCON・イベント・ギフト連携に適用されます</small>
+              <small>{startReady ? "RCON・イベント・ギフト連携に適用されます" : "配信ホームでプレイするゲームを選んで「保存」すると承認できます"}</small>
             </div>
             <i className={idApproved && !applyBusy ? "is-applied" : "is-idle"}>●</i>
           </button>

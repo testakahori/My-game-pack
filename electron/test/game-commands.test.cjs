@@ -10,8 +10,9 @@ const { GAMES, GAME_IDS, PACK_GAME_IDS, gameOfCommand, isGameCommandFile, public
 const fixture = name => JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../bridge/test/fixtures', name), 'utf8'));
 
 test('ゲームの一覧は games.json の1か所（common と、ゲームパックの3つ）', () => {
-  assert.deepEqual(GAME_IDS, ['common', 'umetate', 'run', 'saikutu']);
-  assert.deepEqual(PACK_GAME_IDS, ['umetate', 'run', 'saikutu']);
+  // 並びは配信ホームの選択肢の順。サバイバル（common）は中に残すが、選択肢には出さない（selectable: false。2026-10-29 ユーザーの決定）。
+  assert.deepEqual(GAME_IDS, ['common', 'saikutu', 'umetate', 'run']);
+  assert.deepEqual(PACK_GAME_IDS, ['saikutu', 'umetate', 'run']);
   assert.ok(Object.isFrozen(GAMES) && Object.isFrozen(GAMES[0]));
 });
 

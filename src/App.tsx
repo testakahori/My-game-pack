@@ -18,6 +18,7 @@ import appIcon from "../assets/app-icon.png";
 import GameSelector from './components/GameSelector';
 import StopPanel from "./components/StopPanel";
 import { pauseView, pauseBannerText, setDisruptionPause, type PauseView } from "./lib/disruptionPause";
+import { gameReadyOf } from "./lib/gameChoices";
 import type { GameStatus } from './types/electron';
 import { UnsavedChangesProvider, useUnsavedGuard } from "./UnsavedChanges";
 
@@ -51,7 +52,8 @@ const App: React.FC = () => {
   const contentRef = useRef<HTMLElement>(null);
   const [gameStatus, setGameStatus] = useState<GameStatus | null>(null);
   const [gameLoading, setGameLoading] = useState(true);
-  const gameReady = Boolean(gameStatus?.applied && !gameStatus.recoveryRequired);
+  // ゲームを選ばないと遊べない。サバイバル（選択肢に出さない）を保存していたときも、ゲームを選んで保存し直すまで使えない（2026-10-29 ユーザーの決定）。
+  const gameReady = gameReadyOf(gameStatus);
   const gameSettingsPage = [AppPage.GIFTS, AppPage.EVENTS, AppPage.EVENTS2, AppPage.COMMANDS].includes(activePage);
 
   useEffect(() => {
@@ -249,7 +251,7 @@ const App: React.FC = () => {
             </div>
           )}
           {activePage === AppPage.OPERATIONS && (
-            <div className="page-pad p-6"><OperationsPage onRestored={() => { setSettingsRevision(value => value + 1); window.alert("設定を復元しました。復元前の設定もバックアップから戻せます。"); }} /></div>
+            <div className="page-pad p-6"><OperationsPage gameReady={gameReady} onRestored={() => { setSettingsRevision(value => value + 1); window.alert("設定を復元しました。復元前の設定もバックアップから戻せます。"); }} /></div>
           )}
           {activePage === AppPage.STATS && (
             <div className="page-pad p-6"><StatsDashboardPage /></div>

@@ -6,12 +6,11 @@
 
 | アプリで選ぶ名前 | サーバー・Minecraftの両側へ配置 |
 |---|---|
-| サバイバル | BridgeMOD + DisplayMOD |
+| 採掘 | BridgeMOD + DisplayMOD + saikutuMOD |
 | 埋め立て | BridgeMOD + DisplayMOD + UmetateMOD |
 | RUN | BridgeMOD + DisplayMOD + RunMOD |
-| 採掘 | BridgeMOD + DisplayMOD + saikutuMOD |
 
-BridgeMOD・DisplayMODは標準装備。ゲーム切替で他のMODは退避する。ワールドは変更しない。埋め立てとRUNの本体は未作成のため、選択肢に「未導入」と表示し、完成したパックを登録するまでは適用できない。
+BridgeMOD・DisplayMODは標準装備。ゲーム切替で他のMODは退避する。ワールドは変更しない（埋め立てに切り替えたときだけ、埋め立てのマップを初期の状態から使う）。RUNの本体は未作成のため、選択肢に「未導入」と表示し、完成したパックを登録するまでは適用できない。
 
 プレイヤーの入力は、どのゲームでも `/bridge コマンド名 回数`（OP＝権限2以上のプレイヤーだけ。中身は権限4で動くため）。採掘なら `/bridge otosiana 1` がsaikutuMODの落とし穴を実行する。`/saikutu otosiana 1` も開発・互換用に残す。
 

@@ -3,7 +3,7 @@ import type { SettingsBackup } from "../types/electron";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 
 const reasonLabel = (reason: string) => reason === "manual" ? "手動保存" : reason === "before-restore" ? "復元前の自動保存" : reason === "migration" ? "更新で直す前の自動保存" : "設定変更前の自動保存";
-export default function SettingsBackupsPanel({ onRestored }: { onRestored: () => void }) {
+export default function SettingsBackupsPanel({ onRestored, gameReady }: { onRestored: () => void; gameReady: boolean }) {
   const [rows, setRows] = useState<SettingsBackup[]>([]);
   const [selected, setSelected] = useState("");
   const [loading, setLoading] = useState(true);
@@ -28,7 +28,7 @@ export default function SettingsBackupsPanel({ onRestored }: { onRestored: () =>
     finally { setBusy(false); }
   };
   const restore = async () => {
-    if (!selectedRow || busy || !confirmDiscard()) return;
+    if (!selectedRow || busy || !gameReady || !confirmDiscard()) return;
     if (!window.confirm(`${new Date(selectedRow.createdAt).toLocaleString("ja-JP")} の設定に戻します。\n@${selectedRow.username || "未設定"} / ギフト設定 ${selectedRow.mappings}件 / コマンド ${selectedRow.commands}件\n${selectedRow.issues ? `未完成の設定を${selectedRow.issues}項目含みます。復元後に一括チェックで確認してください。\n` : ""}\n現在の設定も復元前に自動保存します。復元しますか？`)) return;
     setBusy(true); setError(""); setNotice("");
     try { await window.mygamepack.settingsBackupRestore(selectedRow.id); onRestored(); }
@@ -46,8 +46,9 @@ export default function SettingsBackupsPanel({ onRestored }: { onRestored: () =>
         {rows.map(row => <option key={row.id} value={row.id}>{new Date(row.createdAt).toLocaleString("ja-JP")} · {reasonLabel(row.reason)} · ギフト{row.mappings}件</option>)}
       </select></label>
       <button type="button" onClick={refresh} disabled={busy || loading}>一覧を更新</button>
-      <button type="button" className="safety-restore" onClick={restore} disabled={busy || loading || !selectedRow}>この設定に戻す</button>
+      <button type="button" className="safety-restore" onClick={restore} disabled={busy || loading || !selectedRow || !gameReady}>この設定に戻す</button>
     </div>
+    {!gameReady && <p className="safety-footnote" role="status">配信ホームでプレイするゲームを選んで「保存」すると戻せます。</p>}
     {selectedRow && <p className="safety-footnote">@{selectedRow.username} / ギフト{selectedRow.mappings}件 / コマンド{selectedRow.commands}件 / 読み上げ{selectedRow.ttsEnabled ? "有効" : "無効"} / v{selectedRow.version} — 復元前にBridgeを停止してください。</p>}
     {selectedRow && selectedRow.issues > 0 && <p className="safety-warning">未完成の設定を{selectedRow.issues}項目含みます。復元後に配信前チェックで確認できます。</p>}
     <div aria-live="polite">{notice && <p className="safety-success">{notice}</p>}{error && <p className="safety-error" role="alert">{error}</p>}</div>

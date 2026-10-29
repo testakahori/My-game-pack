@@ -94,8 +94,8 @@ test('リリース: 同梱する MOD の jar の場所は scripts/mod_jars.cjs �
   assert.deepEqual(modJars(dir).map(mod => [mod.name, path.relative(dir, mod.jar).split(path.sep).join('/')]), [
     ['BridgeMOD', 'BridgeMod/build/libs/bridgemod-1.8.0.jar'],
     ['DisplayMOD', 'DisplayMod/build/libs/displaymod-1.0.0.jar'],
-    ['埋め立てMOD', 'UmetateMod/build/libs/stackinggame_events-2.6.16.jar'],
     ['採掘MOD', 'SaikutuMod/build/libs/saikutumod-2.0.0.jar'],
+    ['埋め立てMOD', 'UmetateMod/build/libs/stackinggame_events-2.6.16.jar'],
     ['OBSMOD', 'ObsMod/build/libs/minecraft_obs_bridge-2.4.7.jar'],
   ]);
   assert.deepEqual(modJars(dir).find(mod => mod.dir === 'UmetateMod').uses, { name: 'BridgeMOD', dir: 'BridgeMod' }, '埋め立てMOD は BridgeMOD のクラスを使って作る');
@@ -141,13 +141,13 @@ test('リリース: jar に入らないテストのソースが新しくても�
   put('SaikutuMod/src/test/java/Q.java', 'class Q {}', later);
   assert.deepEqual(release.staleMods(dir), []);
   put('BridgeMod/src/main/resources/META-INF/mods.toml', 'x', later);
-  assert.deepEqual(release.staleMods(dir).map(row => row.name), ['BridgeMOD', '埋め立てMOD', '採掘MOD'], 'src/main の下はリソースも見る（採掘MOD は BridgeMOD を使って作るので一緒に止まる）');
+  assert.deepEqual(release.staleMods(dir).map(row => row.name), ['BridgeMOD', '採掘MOD', '埋め立てMOD'], 'src/main の下はリソースも見る（採掘MOD は BridgeMOD を使って作るので一緒に止まる）');
 });
 
 test('リリース: BridgeMOD の src/generated（jar に入る資材）が新しくても止める（最後のレビュー 軽い9）', t => {
   const { dir, put } = fakeRepo(t);
   put('BridgeMod/src/generated/resources/data/x.json', '{}', later);
-  assert.deepEqual(release.staleMods(dir).map(row => row.name), ['BridgeMOD', '埋め立てMOD', '採掘MOD']);
+  assert.deepEqual(release.staleMods(dir).map(row => row.name), ['BridgeMOD', '採掘MOD', '埋め立てMOD']);
 });
 
 // ソースを消しただけ（ブランチで足したファイルが、main に戻ると消える など）でも、jar の中身とずれる（最後のレビュー 重要1）。
@@ -161,7 +161,7 @@ test('リリース: jar を作ったあとに MOD のソースを消したとき
 // build.gradle を直したときにずれる（埋め立て PR2 の最後のレビュー 軽い6）。
 test('リリース: MOD を作るときに使う別の MOD は、その MOD の build.gradle の jarInputsAlso から読む', t => {
   const { dir, put } = fakeRepo(t);
-  assert.deepEqual(modJars(dir).map(mod => [mod.dir, mod.uses?.dir]), [['BridgeMod', undefined], ['DisplayMod', undefined], ['UmetateMod', 'BridgeMod'], ['SaikutuMod', 'BridgeMod'], ['ObsMod', undefined]]);
+  assert.deepEqual(modJars(dir).map(mod => [mod.dir, mod.uses?.dir]), [['BridgeMod', undefined], ['DisplayMod', undefined], ['SaikutuMod', 'BridgeMod'], ['UmetateMod', 'BridgeMod'], ['ObsMod', undefined]]);
   put('UmetateMod/build.gradle', "apply from: '../scripts/jar_inputs.gradle'\n");
   assert.equal(modJars(dir).find(mod => mod.dir === 'UmetateMod').uses, undefined, 'build.gradle から消したら使わない');
   put('ObsMod/build.gradle', "ext.jarInputsAlso = ['DisplayMod']\napply from: '../scripts/jar_inputs.gradle'\n");
@@ -177,7 +177,7 @@ test('リリース: BridgeMOD のソースが採掘MOD の jar より新しけ�
   const { dir, put } = fakeRepo(t);
   put('BridgeMod/src/main/java/A.java', 'class A { int api; }', later);
   put('BridgeMod/build/libs/bridgemod-1.8.0.jar', 'jar', new Date(T.getTime() + 120000));
-  assert.deepEqual(reasons(dir), [['埋め立てMOD', 'BridgeMOD のソースが jar より新しい（埋め立てMOD は BridgeMOD を使って作る）'], ['採掘MOD', 'BridgeMOD のソースが jar より新しい（採掘MOD は BridgeMOD を使って作る）']]);
+  assert.deepEqual(reasons(dir), [['採掘MOD', 'BridgeMOD のソースが jar より新しい（採掘MOD は BridgeMOD を使って作る）'], ['埋め立てMOD', 'BridgeMOD のソースが jar より新しい（埋め立てMOD は BridgeMOD を使って作る）']]);
   put('SaikutuMod/build/libs/saikutumod-2.0.0.jar', 'jar', new Date(T.getTime() + 180000));
   assert.deepEqual(release.staleMods(dir).map(row => row.name), ['埋め立てMOD'], '埋め立てMOD も BridgeMOD を使って作るので、作り直すまで止める');
   put('UmetateMod/build/libs/stackinggame_events-2.6.16.jar', 'jar', new Date(T.getTime() + 180000));
@@ -202,7 +202,7 @@ test('MOD の印: 中身を変えた・消した・足したときは止める',
   const { dir: other, put: putOther } = fakeRepo(t);
   stampAll(other);
   putOther('BridgeMod/src/generated/resources/x.json', '{}', new Date(T.getTime() - 120000));
-  assert.deepEqual(release.staleMods(other).map(row => row.name), ['BridgeMOD', '埋め立てMOD', '採掘MOD']);
+  assert.deepEqual(release.staleMods(other).map(row => row.name), ['BridgeMOD', '採掘MOD', '埋め立てMOD']);
 });
 
 test('MOD の印: BridgeMOD の中身が採掘MOD を作ったときと違えば、採掘MOD も止める', t => {
@@ -210,7 +210,7 @@ test('MOD の印: BridgeMOD の中身が採掘MOD を作ったときと違えば
   stampAll(dir);
   put('BridgeMod/src/main/java/A.java', 'class A { int api; }');
   writeStamp(dir, 'BridgeMod');
-  assert.deepEqual(reasons(dir), [['埋め立てMOD', 'BridgeMOD のソースが jar を作ったときと違う（埋め立てMOD は BridgeMOD を使って作る）'], ['採掘MOD', 'BridgeMOD のソースが jar を作ったときと違う（採掘MOD は BridgeMOD を使って作る）']]);
+  assert.deepEqual(reasons(dir), [['採掘MOD', 'BridgeMOD のソースが jar を作ったときと違う（採掘MOD は BridgeMOD を使って作る）'], ['埋め立てMOD', 'BridgeMOD のソースが jar を作ったときと違う（埋め立てMOD は BridgeMOD を使って作る）']]);
 });
 
 test('MOD の印: jar を作っている間にソースが変わったと書いてあれば止める', t => {
@@ -243,7 +243,7 @@ test('MOD の印: Gradle 側は3つの MOD のビルドで同じ決まりを使�
 // 埋め立ての MOD も CI で照らす（ObsMod・UmetateMod の取り込みの最後のレビュー 重要1。2026-10-29 からはゲームパックで同梱する）。
 test('MOD の印: check-jar-inputs は、印が無い・合わない MOD を知らせる（埋め立ての MOD も）', t => {
   const { dir } = fakeRepo(t);
-  assert.deepEqual(checkJarInputs(dir).map(row => row.name), ['BridgeMOD', 'DisplayMOD', '埋め立てMOD', '採掘MOD', 'OBSMOD']);
+  assert.deepEqual(checkJarInputs(dir).map(row => row.name), ['BridgeMOD', 'DisplayMOD', '採掘MOD', '埋め立てMOD', 'OBSMOD']);
   stampAll(dir);
   writeStamp(dir, 'UmetateMod', { UmetateMod: jarInputs.jarInputsHash(dir, 'UmetateMod'), BridgeMod: 'x' });
   assert.deepEqual(checkJarInputs(dir).map(row => row.name), ['埋め立てMOD'], '埋め立ての MOD は BridgeMod の分も照らす');

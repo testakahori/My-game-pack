@@ -199,9 +199,10 @@ test('表示MOD更新はBridgeMOD・ゲームMODを保持し、以前の表示ja
 });
 
 
-test('4種類の選択肢とサバイバルの標準2MODを両方へ適用する', async t => {
+// サバイバルは中に残し（まだゲームを選んでいない状態）、配信ホームの選択肢には出さない（selectable: false。2026-10-29 ユーザーの決定）。
+test('ゲームの一覧（サバイバルは選択肢に出さない）とサバイバルの標準2MODを両方へ適用する', async t => {
   const x = fixture(t);
-  assert.deepEqual(x.api.list().games.map(g => g.name), ['サバイバル','埋め立て','RUN','採掘']);
+  assert.deepEqual(x.api.list().games.map(g => [g.name, g.selectable !== false]), [['サバイバル', false], ['採掘', true], ['埋め立て', true], ['RUN', true]]);
   await x.api.activate('common');
   for (const dir of [x.server,x.client]) assert.deepEqual(fs.readdirSync(path.join(dir,'mods')).sort(), ['bridgemod-1.3.4.jar','displaymod-1.0.0.jar']);
 });

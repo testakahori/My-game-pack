@@ -51,10 +51,11 @@
 
 | 選択 | 両方のmodsフォルダに配置するもの | 選べるコマンド |
 |---|---|---|
-| サバイバル | BridgeMOD＋DisplayMOD | 共通コマンド |
+| 採掘 | BridgeMOD＋DisplayMOD＋saikutuMOD | 共通＋採掘の16コマンド |
 | 埋め立て | BridgeMOD＋DisplayMOD＋UmetateMOD | 共通＋登録された埋め立てのコマンド |
 | RUN | BridgeMOD＋DisplayMOD＋RunMOD | 共通＋登録されたランのコマンド |
-| 採掘 | BridgeMOD＋DisplayMOD＋saikutuMOD | 共通＋採掘の16コマンド |
+
+ゲームを選んで「保存」するまでは、一括起動・BRIDGE の起動・ギフト設定は使えない（最初は「選んでください」と出る）。サバイバルは選択肢に出さない（2026-10-29）。
 
 どのゲームでも、サーバーの mods には OBSMOD も配置する（Minecraft 本体には配置しない）。
 

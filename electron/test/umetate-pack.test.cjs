@@ -96,7 +96,7 @@ test('埋め立てのゲームパック: 埋め立てを選んで保存すると
 // どのゲームにパックがあるかは bridge/games.json の modDir の1か所（設計書 13：ほかの所は自分の一覧を持たない）。
 test('配り方: ゲームパックのあるゲームは、games.json の modDir（埋め立て・採掘）', () => {
   const games = JSON.parse(read('bridge/games.json'));
-  assert.deepEqual(games.filter(g => g.modDir).map(g => [g.id, g.modDir]), [['umetate', 'UmetateMod'], ['saikutu', 'SaikutuMod']]);
+  assert.deepEqual(games.filter(g => g.modDir).map(g => [g.id, g.modDir]), [['saikutu', 'SaikutuMod'], ['umetate', 'UmetateMod']]);
   for (const g of games.filter(g => g.modDir)) assert.ok(fs.existsSync(path.join(root, 'game-packs', g.id, 'game.json')), `${g.id} のゲームパックがある`);
 });
 
@@ -119,7 +119,7 @@ test('配り方: パックを作る台本は、採掘と埋め立ての2つを�
   const { prepareGamePacks } = require('../../scripts/prepare-game-packs.cjs');
   const dir = fakeRepo(t);
   const made = prepareGamePacks(dir);
-  assert.deepEqual(made.map(folder => path.relative(dir, folder).split(path.sep).join('/')), ['build/game-packs/umetate', 'build/game-packs/saikutu']);
+  assert.deepEqual(made.map(folder => path.relative(dir, folder).split(path.sep).join('/')), ['build/game-packs/saikutu', 'build/game-packs/umetate']);
   for (const folder of made) assert.doesNotThrow(() => inspectPackage(folder), folder);
   assert.ok(fs.existsSync(path.join(dir, 'build/game-packs/umetate', pack().serverJar)));
 });
@@ -176,9 +176,9 @@ test('配り方: アプリは同梱のゲームパック（採掘・埋め立て
   game(path.join(resources, 'game-packs'), 'umetate');
   assert.deepEqual(bundledGamePacks({ packaged: true, resourcesPath: resources, appDir }), [{ id: 'umetate', folder: path.join(resources, 'game-packs', 'umetate') }], '片方だけならそれだけ');
   game(path.join(resources, 'game-packs'), 'saikutu');
-  assert.deepEqual(bundledGamePacks({ packaged: true, resourcesPath: resources, appDir }).map(p => p.id), ['umetate', 'saikutu'], 'games.json の順（埋め立て・採掘）');
+  assert.deepEqual(bundledGamePacks({ packaged: true, resourcesPath: resources, appDir }).map(p => p.id), ['saikutu', 'umetate'], 'games.json の順（採掘・埋め立て）');
   for (const id of ['saikutu', 'umetate']) game(path.join(dir, 'repo', 'build', 'game-packs'), id);
-  assert.deepEqual(bundledGamePacks({ packaged: false, resourcesPath: resources, appDir }), ['umetate', 'saikutu'].map(id => ({ id, folder: path.join(dir, 'repo', 'build', 'game-packs', id) })), '開発版は build/game-packs');
+  assert.deepEqual(bundledGamePacks({ packaged: false, resourcesPath: resources, appDir }), ['saikutu', 'umetate'].map(id => ({ id, folder: path.join(dir, 'repo', 'build', 'game-packs', id) })), '開発版は build/game-packs');
   const ipc = read('electron/games_ipc.cjs');
   assert.match(ipc, /bundledGamePacks\(/);
   assert.doesNotMatch(ipc, /'game-packs', 'saikutu'|game-packs\/saikutu/, '採掘を決め打ちしない');

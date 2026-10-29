@@ -137,7 +137,8 @@ function CreeperSignal() {
   );
 }
 
-export default function OperationsPage({ onRestored }: { onRestored: () => void }) {
+// gameReady：ゲームを保存したか。保存するまで、ギフト設定を書く・試すボタンは押せない（2026-10-29 ユーザーの決定「ゲームを選ばないと遊べない」）。
+export default function OperationsPage({ onRestored, gameReady }: { onRestored: () => void; gameReady: boolean }) {
   const api = (window as any).mygamepack;
   const [status, setStatus] = useState<ModStatus>(defaultStatus);
   const [history, setHistory] = useState<HistoryRow[]>([]);
@@ -384,7 +385,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
 
       <nav className="studio-ops-tabs" aria-label="運用センターのメニュー">{[["map", "MAPセーブ・ロード"], ["test", "イベントテスト"], ["safety", "動作設定"], ["maintenance", "設定復元・更新"], ["advanced", "詳細設定"]].map(([id, label]) => <button key={id} aria-pressed={opsTab === id} onClick={() => setOpsTab(id)}>{label}</button>)}{opsDirty && <button className="studio-ops-save" disabled={saving} onClick={save}>変更を保存</button>}</nav>
       <div hidden={opsTab !== "map"}><WorldSavesPanel active={opsTab === "map"} /></div>
-      <div hidden={opsTab !== "test"}><EventTestPanel onTested={refresh} bridgeRunning={bridgeProcess.running === true} /></div>
+      <div hidden={opsTab !== "test"}><EventTestPanel onTested={refresh} bridgeRunning={bridgeProcess.running === true} gameReady={gameReady} /></div>
       <div className="ops-main-grid" hidden={opsTab !== "safety"}>
 
         <OpsPanel className="ops-stability-card">
@@ -422,7 +423,8 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
               <FieldLabel label="TTS NGワード（カンマ区切り）">
                 <ListInput values={o.ttsNgWords || []} onChange={(values) => setOption("ttsNgWords", values)} placeholder="例）暴言, URL, 宣伝" />
               </FieldLabel>
-              <button type="button" className="ops-primary-button ops-primary-button--violet" disabled={saving} onClick={save}>動作設定を保存</button>
+              <button type="button" className="ops-primary-button ops-primary-button--violet" disabled={saving || !gameReady} onClick={save}>動作設定を保存</button>
+              {!gameReady && <small className="ops-test-note" role="status">配信ホームでプレイするゲームを選んで「保存」すると保存できます。</small>}
             </div>
           </div>
         </OpsPanel>
@@ -481,7 +483,7 @@ export default function OperationsPage({ onRestored }: { onRestored: () => void 
         </OpsPanel>
 
         </div>
-        <div hidden={opsTab !== "maintenance"}><SettingsBackupsPanel onRestored={onRestored} /><OpsPanel className="ops-update-card">
+        <div hidden={opsTab !== "maintenance"}><SettingsBackupsPanel onRestored={onRestored} gameReady={gameReady} /><OpsPanel className="ops-update-card">
           <div className="ops-card-topline">
             <div>
               <h2>アプリのバージョン・更新方法</h2>
