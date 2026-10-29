@@ -1,6 +1,6 @@
 [
   { "id": "common", "name": "サバイバル", "modName": "BridgeMOD", "selectable": false },
-  { "id": "saikutu", "name": "採掘", "modName": "saikutuMOD", "modDir": "SaikutuMod" },
+  { "id": "saikutu", "name": "採掘", "modName": "saikutuMOD", "modDir": "SaikutuMod", "freeWorlds": true },
   { "id": "umetate", "name": "埋め立て", "modName": "UmetateMOD", "modDir": "UmetateMod", "maps": ["umetate_lab_map"], "resetMapOnSwitch": true },
   { "id": "run", "name": "RUN", "modName": "RunMOD" }
 ]

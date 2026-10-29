@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { createServerFiles } = require('../server_files.cjs');
 
-function setup(t, { running = false, mapBusy = false } = {}) {
+function setup(t, { running = false, mapBusy = false, activeGame = () => 'saikutu' } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'server-files-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const bridge = path.join(root, 'bridge'), calls = [], config = {}, handlers = new Map();
@@ -16,6 +16,7 @@ function setup(t, { running = false, mapBusy = false } = {}) {
     serverChild: () => (running ? { pid: 1 } : null),
     waitForBridgeMod: async () => { calls.push('wait'); return true; },
     requestBridgeMod: async (...args) => { calls.push(args); return { ok: true, environmentFixed: true }; },
+    activeGame,
   }).register({ handle: (name, fn) => handlers.set(name, fn) });
   return { root, bridge, calls, config, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
 }
@@ -40,4 +41,18 @@ test('server.properties の書き込み: 先に MAP の作業中でないかを�
   fs.writeFileSync(path.join(x.root, 'server.properties'), 'motd=old\n');
   await assert.rejects(x.invoke('server:props:write', { motd: 'new' }), /MAPを保存・読込中です/);
   assert.equal(fs.readFileSync(path.join(x.root, 'server.properties'), 'utf8'), 'motd=old\n');
+});
+
+// 配信ホームの「配信ワールド」には、今のゲームで使えるワールドだけを出す（2026-10-30 ユーザーの決定）。
+// 埋め立ては埋め立ての専用マップだけ。採掘は、どのゲームの専用マップでもないもの全部（自然に生成された world・プレイヤーが作ったマップ・配ったマップ）。
+test('配信ワールドの一覧：埋め立てでは umetate_lab_map だけ。採掘では umetate_lab_map 以外の全部。フォルダーでないものは出さない', async t => {
+  let active = 'umetate';
+  const x = setup(t, { activeGame: () => active });
+  for (const name of ['world', 'event', 'umetate_lab_map']) fs.mkdirSync(path.join(x.root, 'haihu_world', name), { recursive: true });
+  fs.writeFileSync(path.join(x.root, 'haihu_world', 'note.txt'), 'x');
+  assert.deepEqual(await x.invoke('server:worlds:list'), ['umetate_lab_map']);
+  active = 'saikutu';
+  assert.deepEqual((await x.invoke('server:worlds:list')).sort(), ['event', 'world']);
+  // ゲームを保存していない（null）・選択肢に出さないサバイバルも、採掘と同じ。
+  for (const game of [null, 'common']) { active = game; assert.deepEqual((await x.invoke('server:worlds:list')).sort(), ['event', 'world'], String(game)); }
 });

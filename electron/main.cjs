@@ -160,6 +160,7 @@ const serverFiles = createServerFiles({
   serverChild: () => serverProcess.child(),
   waitForBridgeMod: () => waitForBridgeMod(),
   requestBridgeMod: (...args) => requestBridgeMod(...args),
+  activeGame: () => gameProfiles.peekActive(),
 });
 serverFiles.register(ipcMain);
 const { createOperationsStats } = require('./operations_stats.cjs');

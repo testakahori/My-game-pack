@@ -212,29 +212,64 @@ test('古いマップを消せなくても切り替えは成功し、次の切�
 });
 
 // ファイルに触らない決め方（決めたこと 1・6・7）。偽のゲームの項目で、あとで採掘に専用マップを足したときの形も確かめる。
+// 配信ワールドをゲームごとに（2026-10-30 ユーザーの決定。docs/superpowers/plans/2026-10-30-game-worlds.md）：
+// 専用マップの無いゲーム（採掘など）は、覚えたワールド → 今のワールド → 専用マップを持つゲームに入る前のワールド → haihu_world/world の順。
 test('planMapChange: どのときに写す・level-name だけ合わせる・戻す・何もしないか', () => {
   const { planMapChange } = require('../game_maps.cjs');
   const umetate = { id: 'umetate', maps: ['umetate_lab_map'], resetMapOnSwitch: true };
   const saikutuWithMap = { id: 'saikutu', maps: ['saikutu_a'] };
-  const common = { id: 'common' }, saikutu = { id: 'saikutu' };
+  const common = { id: 'common' }, saikutu = { id: 'saikutu', freeWorlds: true }, run = { id: 'run' };
+  const games = [common, saikutu, umetate, run];
+  const plan = args => planMapChange({ games, ...args });
   const enter = (name, fresh) => ({ kind: 'enter', name, level: `haihu_world/${name}`, fresh });
+  const level = to => ({ kind: 'level', level: to });
   // 埋め立てにほかのゲームから入る：使う場所にマップがあっても初期に戻す。
-  assert.deepEqual(planMapChange({ target: umetate, previous: common, switching: true, currentLevel: 'haihu_world/world', useReady: true }), enter('umetate_lab_map', true));
+  assert.deepEqual(plan({ target: umetate, switching: true, currentLevel: 'haihu_world/world', useReady: true }), enter('umetate_lab_map', true));
   // 同じゲームのまま。
-  assert.equal(planMapChange({ target: umetate, previous: umetate, switching: false, currentLevel: USE, useReady: true }), null);
-  assert.deepEqual(planMapChange({ target: umetate, previous: umetate, switching: false, currentLevel: 'haihu_world/world', useReady: true }), enter('umetate_lab_map', false));
-  assert.deepEqual(planMapChange({ target: umetate, previous: umetate, switching: false, currentLevel: USE, useReady: false }), enter('umetate_lab_map', true));
+  assert.equal(plan({ target: umetate, switching: false, currentLevel: USE, useReady: true }), null);
+  assert.deepEqual(plan({ target: umetate, switching: false, currentLevel: 'haihu_world/world', useReady: true }), enter('umetate_lab_map', false));
+  assert.deepEqual(plan({ target: umetate, switching: false, currentLevel: USE, useReady: false }), enter('umetate_lab_map', true));
   // 初期化のボタン。
-  assert.deepEqual(planMapChange({ target: umetate, previous: umetate, switching: false, currentLevel: USE, useReady: true, reset: true }), enter('umetate_lab_map', true));
-  // マップはあるが、切り替えで初期に戻さないゲーム（あとの採掘の形）。
-  assert.deepEqual(planMapChange({ target: saikutuWithMap, previous: umetate, switching: true, currentLevel: USE, useReady: true }), enter('saikutu_a', false));
-  assert.deepEqual(planMapChange({ target: saikutuWithMap, previous: common, switching: true, currentLevel: 'haihu_world/world', useReady: false }), enter('saikutu_a', true));
-  // 出る：埋め立てのマップの名前のワールドを使っていたら戻す（直下の手で入れたものも）。別のワールドなら触らない。
-  assert.deepEqual(planMapChange({ target: saikutu, previous: umetate, switching: true, currentLevel: USE, useReady: false }), { kind: 'leave' });
-  assert.deepEqual(planMapChange({ target: common, previous: umetate, switching: true, currentLevel: 'umetate_lab_map', useReady: false }), { kind: 'leave' });
-  assert.equal(planMapChange({ target: saikutu, previous: umetate, switching: true, currentLevel: 'haihu_world/sakura', useReady: false }), null);
-  // マップの無いゲームどうし：手で入れた umetate_lab_map にも触らない。
-  assert.equal(planMapChange({ target: saikutu, previous: common, switching: true, currentLevel: 'umetate_lab_map', useReady: false }), null);
+  assert.deepEqual(plan({ target: umetate, switching: false, currentLevel: USE, useReady: true, reset: true }), enter('umetate_lab_map', true));
+  // マップはあるが、切り替えで初期に戻さないゲーム（あとの採掘の形。専用マップだけ）。
+  assert.deepEqual(planMapChange({ games: [common, saikutuWithMap, umetate], target: saikutuWithMap, switching: true, currentLevel: USE, useReady: true }), enter('saikutu_a', false));
+  assert.deepEqual(planMapChange({ games: [common, saikutuWithMap, umetate], target: saikutuWithMap, switching: true, currentLevel: 'haihu_world/world', useReady: false }), enter('saikutu_a', true));
+  // 専用マップの無いゲーム：覚えたワールドがあればそれ（切り替えたときだけ）。
+  assert.deepEqual(plan({ target: saikutu, switching: true, currentLevel: USE, remembered: 'haihu_world/event', fallback: 'haihu_world/sakura' }), level('haihu_world/event'));
+  assert.deepEqual(plan({ target: saikutu, switching: true, currentLevel: 'haihu_world/other', remembered: 'haihu_world/event' }), level('haihu_world/event'));
+  assert.equal(plan({ target: saikutu, switching: true, currentLevel: 'haihu_world/event', remembered: 'haihu_world/event' }), null);
+  assert.equal(plan({ target: saikutu, switching: false, currentLevel: 'haihu_world/other', remembered: 'haihu_world/event' }), null, '同じゲームのまま保存し直しても、覚えたワールドへ動かさない');
+  // 覚えたワールドが埋め立てのマップ（使えない）なら使わない。
+  assert.equal(plan({ target: saikutu, switching: true, currentLevel: 'haihu_world/other', remembered: USE }), null);
+  // 覚えたワールドが無ければ、今のワールドが使えるならそのまま。使えなければ入る前のワールド、それも無ければ haihu_world/world。
+  assert.equal(plan({ target: saikutu, switching: true, currentLevel: 'haihu_world/sakura' }), null);
+  assert.deepEqual(plan({ target: saikutu, switching: true, currentLevel: USE, fallback: 'haihu_world/sakura' }), level('haihu_world/sakura'));
+  assert.deepEqual(plan({ target: saikutu, switching: true, currentLevel: USE }), level('haihu_world/world'));
+  assert.deepEqual(plan({ target: common, switching: true, currentLevel: 'umetate_lab_map' }), level('haihu_world/world'), '直下の手で入れた umetate_lab_map も埋め立てのマップ');
+  // 変わる所：マップの無いゲームどうしでも、埋め立てのマップを使っていたら haihu_world/world へ移す（採掘では埋め立てのマップを使わない）。
+  assert.deepEqual(plan({ target: run, switching: true, currentLevel: 'umetate_lab_map' }), level('haihu_world/world'));
+});
+
+test('使えるワールド：専用マップを持つゲームはその専用マップだけ。採掘などは、どのゲームの専用マップでもないワールド全部と自分の専用マップ', () => {
+  const { worldAllowed, worldsForGame } = require('../game_maps.cjs');
+  const GAMES = require('../../bridge/games.json');
+  const folders = ['world', 'event', 'my_build', 'umetate_lab_map'];
+  assert.deepEqual(worldsForGame(GAMES, 'umetate', folders), ['umetate_lab_map']);
+  assert.deepEqual(worldsForGame(GAMES, 'saikutu', folders), ['world', 'event', 'my_build']);
+  assert.deepEqual(worldsForGame(GAMES, 'run', folders), ['world', 'event', 'my_build'], 'RUN は専用マップができるまで採掘と同じ');
+  assert.deepEqual(worldsForGame(GAMES, 'common', folders), ['world', 'event', 'my_build']);
+  assert.equal(GAMES.find(game => game.id === 'saikutu').freeWorlds, true, '採掘は専用でないワールドも使う');
+  // あとで採掘に専用マップを足したとき：自分の専用マップも、専用でないワールドも使う。ほかのゲームでは採掘の専用マップを出さない。
+  const later = GAMES.map(game => game.id === 'saikutu' ? { ...game, maps: ['saikutu_event'] } : game);
+  assert.deepEqual(worldsForGame(later, 'saikutu', [...folders, 'saikutu_event']), ['world', 'event', 'my_build', 'saikutu_event']);
+  assert.deepEqual(worldsForGame(later, 'run', [...folders, 'saikutu_event']), ['world', 'event', 'my_build']);
+  // あとで RUN に専用マップを足したとき：RUN は RUN の専用マップだけ。採掘では RUN の専用マップを出さない。
+  const withRun = GAMES.map(game => game.id === 'run' ? { ...game, maps: ['run_course'] } : game);
+  assert.deepEqual(worldsForGame(withRun, 'run', [...folders, 'run_course']), ['run_course']);
+  assert.deepEqual(worldsForGame(withRun, 'saikutu', [...folders, 'run_course']), ['world', 'event', 'my_build']);
+  // 名前は haihu_world/<名前> の最後の名前で見る。
+  assert.equal(worldAllowed(GAMES, GAMES.find(game => game.id === 'saikutu'), 'haihu_world/umetate_lab_map'), false);
+  assert.equal(worldAllowed(GAMES, GAMES.find(game => game.id === 'saikutu'), 'haihu_world/event'), true);
 });
 
 test('server.properties: level-name だけを書き換え、無いときは world として読む', () => {
@@ -322,6 +357,9 @@ test('画面: TOP の「マップを初期化」は、マップのあるゲー�
   // 保存済みかは、ほかの判断と同じ savedGame（サバイバルを保存していても保存済みに見せない。2026-10-29）。
   assert.match(ui, /const canResetMap = Boolean\(status && savedGame\(status\) && activeGame\?\.maps\?\.length\)/);
   assert.match(ui, /resetMapOnSwitch/);
+  // 「くわしく」：配信ワールドはゲームごとに覚える（前は「MAPは変更しません」。2026-10-30）。
+  assert.match(ui, /配信ワールドはゲームごとに覚え、切り替えると、そのゲームで前に使っていたワールドに戻します/);
+  assert.doesNotMatch(ui, /MAPは変更しません{/);
   assert.match(read('src/lib/devApiMock.ts'), /gamesResetMap:/);
 });
 
@@ -338,6 +376,75 @@ test('埋め立ての前のワールド（haihu_world/sakura）に戻り、そ�
   fs.rmSync(x.at('haihu_world/sakura'), { recursive: true, force: true });
   await x.api.activate('saikutu');
   assert.equal(x.levelName(), 'haihu_world/world', '前のワールドが無ければ haihu_world/world');
+});
+
+// ---- 配信ワールドをゲームごとに（2026-10-30 ユーザーの決定） ----
+
+// RUN のパックはリポジトリに無いので、偽のパックを登録する（専用マップはまだ無い）。
+async function installRun(x) {
+  const folder = path.join(x.dir, 'run-pack');
+  put(path.join(folder, 'game.json'), JSON.stringify({ format: 1, id: 'run', modId: 'runmod', serverJar: 'run.jar', clientJar: 'run.jar', commands: [{ key: 'race', title: 'レース', command: 'run race' }] }));
+  fs.writeFileSync(path.join(folder, 'run.jar'), fakeModJar('runmod'));
+  await x.api.install(folder);
+}
+const savedWorlds = x => JSON.parse(fs.readFileSync(path.join(x.storage, 'profiles.json'), 'utf8')).worlds;
+
+test('採掘で選んだワールド（haihu_world/event）は、埋め立てをはさんで採掘に戻すとそのワールドに戻る', async t => {
+  const x = fixture(t);
+  put(x.at('haihu_world/event/level.dat'), 'event');
+  await x.api.activate('saikutu');
+  x.setLevel('haihu_world/event');
+  await x.api.activate('umetate');
+  assert.equal(x.levelName(), USE);
+  assert.equal(savedWorlds(x).saikutu, 'haihu_world/event', '採掘の分として覚える');
+  await x.api.activate('saikutu');
+  assert.equal(x.levelName(), 'haihu_world/event');
+});
+
+test('ワールドはゲームごとに覚える：採掘（event）→ RUN（other）→ 採掘は event、RUN は other', async t => {
+  const x = fixture(t);
+  await installRun(x);
+  for (const name of ['event', 'other']) put(x.at(`haihu_world/${name}/level.dat`), name);
+  await x.api.activate('saikutu');
+  x.setLevel('haihu_world/event');
+  await x.api.activate('run');
+  assert.equal(x.levelName(), 'haihu_world/event', 'RUN の分はまだ無いので、今のワールドのまま');
+  x.setLevel('haihu_world/other');
+  await x.api.activate('saikutu');
+  assert.equal(x.levelName(), 'haihu_world/event', '採掘の分に戻る');
+  await x.api.activate('run');
+  assert.equal(x.levelName(), 'haihu_world/other', 'RUN の分に戻る');
+  assert.deepEqual(savedWorlds(x), { common: 'haihu_world/world', saikutu: 'haihu_world/event', run: 'haihu_world/other' });
+});
+
+test('覚えたワールドが消えていたら、今のワールド（使えなければ入る前のワールド・haihu_world/world）にする', async t => {
+  const x = fixture(t);
+  await installRun(x);
+  put(x.at('haihu_world/event/level.dat'), 'event');
+  await x.api.activate('saikutu');
+  x.setLevel('haihu_world/event');
+  await x.api.activate('run');
+  fs.rmSync(x.at('haihu_world/event'), { recursive: true, force: true });
+  x.setLevel('haihu_world/world');
+  await x.api.activate('saikutu');
+  assert.equal(x.levelName(), 'haihu_world/world', '覚えた event は無いので、今のワールドのまま');
+});
+
+test('切り替えに失敗したら、ワールドもゲームごとの記録も元に戻る', async t => {
+  let fail = false;
+  const x = fixture(t, { extras: { beforeStep: step => { if (fail && step === 1) throw new Error('client locked'); } } });
+  put(x.at('haihu_world/event/level.dat'), 'event');
+  await x.api.activate('saikutu');
+  x.setLevel('haihu_world/event');
+  await x.api.activate('umetate');
+  const before = savedWorlds(x);
+  fail = true;
+  await assert.rejects(x.api.activate('saikutu'), /元へ戻しました.*client locked/);
+  assert.equal(x.levelName(), USE, 'ワールドは切り替えの前のまま');
+  assert.deepEqual(savedWorlds(x), before, '記録も切り替えの前のまま');
+  fail = false;
+  await x.api.activate('saikutu');
+  assert.equal(x.levelName(), 'haihu_world/event');
 });
 
 test('埋め立てのまま保存し直しても・初期化しても、「埋め立ての前のワールド」は変わらない', async t => {

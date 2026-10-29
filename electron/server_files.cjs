@@ -3,9 +3,12 @@
 const path = require("path");
 const fs = require("fs");
 const { bridgeCommandsDir } = require("../bridge/config_defaults.cjs");
+const { GAMES } = require("../bridge/game_commands.cjs");
+const { worldsForGame } = require("./game_maps.cjs");
 
 // サーバーの子プロセス・MAP の作業中・BridgeMOD との通信は、あとで main で作られるので、呼ばれたときに読む関数で受け取る。
-function createServerFiles({ getServerRoot, getBridgeBatDir, readAppConfig, assertMapIdle, serverChild, waitForBridgeMod, requestBridgeMod }) {
+// activeGame は今のゲーム（切り替えの記録。無ければ null）。配信ワールドの一覧を、そのゲームで使えるものだけにする。
+function createServerFiles({ getServerRoot, getBridgeBatDir, readAppConfig, assertMapIdle, serverChild, waitForBridgeMod, requestBridgeMod, activeGame = () => null }) {
   // --------------------
   // IPC: マイクラIDへ OP 権限を付与（_op.txt を書いて Mod 経由で実行）
   // --------------------
@@ -139,14 +142,15 @@ function createServerFiles({ getServerRoot, getBridgeBatDir, readAppConfig, asse
     ipcMain.handle("server:datapack:deployNightVision", () => ({ ok: true, managedBy: "BridgeMOD" }));
 
     // --------------------
-    // IPC: haihu_world/ 内のサブフォルダ一覧
+    // IPC: haihu_world/ 内のサブフォルダ一覧（今のゲームで使えるものだけ。埋め立ては埋め立ての専用マップだけ、採掘は専用マップ以外の全部。2026-10-30）
     // --------------------
     ipcMain.handle("server:worlds:list", async () => {
       const dir = path.join(getServerRoot(), "haihu_world");
       if (!fs.existsSync(dir)) return [];
-      return fs.readdirSync(dir, { withFileTypes: true })
+      const folders = fs.readdirSync(dir, { withFileTypes: true })
         .filter((e) => e.isDirectory())
         .map((e) => e.name);
+      return worldsForGame(GAMES, activeGame(), folders);
     });
   }
 

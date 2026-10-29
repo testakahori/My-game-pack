@@ -74,21 +74,42 @@ async function stageMap({ serverRoot, gameId, name, files, operation }) {
   return next;
 }
 
-// ファイルに触らない決め方。target・previous は games.json の項目（切り替え先と今のゲーム）。
-// - 入る（target にマップがある）：fresh なら初期マップを写す。そうでなければ level-name だけを使う場所に合わせる（もう合っていれば何もしない）。
+// そのゲームの配信ワールドに使えるか（ワールドは haihu_world/<名前> の最後の名前で見る。2026-10-30 ユーザーの決定）。
+// 専用マップ（games.json の maps）を持つゲーム（埋め立て）は、自分の専用マップだけ。専用マップの無いゲームと、専用でないワールドも使うゲーム
+// （games.json の freeWorlds。採掘）は、自分の専用マップと、どのゲームの専用マップでもないワールド全部（自然に生成された world・プレイヤーが作ったマップ・配ったマップ）。
+function worldAllowed(games, game, level) {
+  const name = levelBaseName(level), own = game?.maps || [];
+  if (own.includes(name)) return true;
+  if (own.length && game.freeWorlds !== true) return false;
+  return !games.some(other => (other.maps || []).includes(name));
+}
+// 配信ホームの「配信ワールド」に出す、haihu_world の中のフォルダー（今のゲームで使えるものだけ。並びはそのまま）。
+const worldsForGame = (games, gameId, folders) => folders.filter(name => worldAllowed(games, games.find(game => game.id === gameId), name));
+// 自分の専用マップだけを使うゲーム（埋め立て。のちの RUN）。
+const dedicatedOnly = game => Boolean(game?.maps?.length) && game.freeWorlds !== true;
+
+// ファイルに触らない決め方。games は games.json、target は切り替え先のゲーム。
+// - 専用マップだけを使うゲーム（入る）：fresh なら初期マップを写す。そうでなければ level-name だけを使う場所に合わせる（もう合っていれば何もしない）。
 //   fresh は、初期化のボタン・切り替えたときに初期に戻すゲーム（resetMapOnSwitch）へほかのゲームから来た・使う場所にマップが無い、のどれか。
-// - 出る（target にマップが無く、今のワールドが前のゲームのマップの名前）：level-name を前のワールドへ戻す。
-//   別のワールドを選んでいたら触らない。マップの無いゲームどうしでは、手で入れたマップにも触らない。
-function planMapChange({ target, previous, switching, currentLevel, useReady, reset = false }) {
-  const name = target?.maps?.[0];
-  if (name) {
+//   name は使う専用マップ（覚えたものがあればそれ。無ければ maps の最初）。
+// - それ以外のゲーム：level-name だけを変える（kind: "level"）か、何もしない（null）。
+//   1. 切り替えたときで、そのゲームの分として覚えたワールド（remembered。まだあるものだけが渡る）が使えるなら、それに戻す。
+//   2. 無ければ、今のワールドが使えるならそのまま。
+//   3. 使えなければ、専用マップを持つゲームに入る前のワールド（fallback。まだあるものだけが渡る）。それも無ければ haihu_world/world。
+//   マップの無いゲームどうしでも、埋め立てのマップ（直下に手で入れた umetate_lab_map も）を使っていたら haihu_world/world へ移す（採掘では埋め立てのマップを使わない）。
+function planMapChange({ games, target, switching, currentLevel, useReady, reset = false, name = target?.maps?.[0], remembered = null, fallback = null }) {
+  const current = String(currentLevel).replace(/\\/g, "/");
+  if (dedicatedOnly(target)) {
     const level = `haihu_world/${name}`;
     const fresh = reset || (switching && target.resetMapOnSwitch === true) || !useReady;
-    if (!fresh && String(currentLevel).replace(/\\/g, "/") === level) return null;
+    if (!fresh && current === level) return null;
     return { kind: "enter", name, level, fresh };
   }
-  if (previous?.maps?.includes(levelBaseName(currentLevel))) return { kind: "leave" };
-  return null;
+  const to = level => (level === current ? null : { kind: "level", level });
+  if (switching && remembered && worldAllowed(games, target, remembered)) return to(remembered);
+  if (worldAllowed(games, target, current)) return null;
+  if (fallback && worldAllowed(games, target, fallback)) return to(fallback);
+  return to("haihu_world/world");
 }
 
 // 途中の記録（pending-switch.json）に入れるマップの分。server.properties は丸ごとではなく、前の level-name だけを残す。
@@ -128,4 +149,4 @@ function restoreMapSwap(serverRoot, m, { id, mapNames = [] }) {
   else fs.rmSync(m.propertiesFile, { force: true });
 }
 
-module.exports = { MAP_SWITCH_DIR, hasWorld, levelBaseName, mapPlaces, ensureMapBackup, stageMap, planMapChange, journalMap, applyMapSwap, restoreMapSwap };
+module.exports = { MAP_SWITCH_DIR, hasWorld, levelBaseName, mapPlaces, ensureMapBackup, stageMap, worldAllowed, worldsForGame, dedicatedOnly, planMapChange, journalMap, applyMapSwap, restoreMapSwap };
