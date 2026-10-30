@@ -47,12 +47,16 @@ function replaceCommonMod(source, serverRoot, modId = 'bridgemod') {
       const slot = path.join(backup, dir === mods ? 'mods' : 'root'); fs.mkdirSync(slot, { recursive: true });
       const target = path.join(slot, old); fs.renameSync(file, target); moved.push([file, target]);
     }
-    // 大文字小文字だけ違う名前で退避したときは、無くなっているので置き直す。
-    if (path.resolve(destination) !== path.resolve(source) && !(current && fs.existsSync(destination))) { writing = true; fs.writeFileSync(destination, bytes); }
+    // Windows では大文字小文字だけ違う名前の jar も current と読めるが、名前が違うので上で退避している。そのときは mods に無いので置き直す。
+    const keep = current && fs.existsSync(destination);
+    if (path.resolve(destination) !== path.resolve(source) && !keep) { writing = true; fs.writeFileSync(destination, bytes); }
   } catch (error) {
+    // 元へ戻す。どこかで失敗しても残りは戻し、最初のエラーを投げる（戻せなかった jar は退避先に残る）。
     // 消すのは書きかけの jar だけ（書く前に止まったときは、元からある jar を消さない）。
-    if (writing && fs.existsSync(destination)) fs.unlinkSync(destination);
-    for (const [file, target] of moved.reverse()) fs.renameSync(target, file);
+    if (writing) try { if (fs.existsSync(destination)) fs.unlinkSync(destination); } catch { /* 戻すのを続ける */ }
+    for (const [file, target] of moved.reverse()) try { fs.renameSync(target, file); } catch { /* 戻すのを続ける */ }
+    // 空になった退避先のフォルダーは消す（中身があれば rmdirSync は消さない）。
+    for (const dir of [path.join(backup, 'mods'), path.join(backup, 'root'), backup, path.dirname(backup)]) try { fs.rmdirSync(dir); } catch { /* 空でなければ残す */ }
     throw error;
   }
 }
