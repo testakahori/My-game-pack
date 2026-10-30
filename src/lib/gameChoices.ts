@@ -9,6 +9,17 @@ export function gameChoices<T extends Game>(games: T[]): T[] {
   return games.filter(selectable);
 }
 
+/** 選ぶ欄に出す名前。準備中のゲーム（games.json の preparing。今は RUN）は「（準備中）」、ゲームパックを入れていないゲームは「（未導入）」を付ける（2026-10-30 ユーザーの決定）。 */
+export function gameOptionLabel(game: { name: string; preparing?: boolean; installed?: boolean }): string {
+  if (game.preparing) return `${game.name}（準備中）`;
+  return game.installed === false ? `${game.name}（未導入）` : game.name;
+}
+
+/** 選ぶ欄で選べないか。準備中のゲームは、ゲームパックを入れていても選べない（RUN ができたら games.json の preparing を外す）。 */
+export function gameOptionDisabled(game: { preparing?: boolean }): boolean {
+  return game.preparing === true;
+}
+
 /** 欄で選んでおくゲーム。今のゲームが選択肢に無い（サバイバルのまま。新しく入れた人）ときは、何も選ばない（''。「選んでください」を出す）。
  * ゲームを選ばないと遊べない（2026-10-29 ユーザーの決定）。 */
 export function shownGame(status: { active: string; games: Game[] }): string {

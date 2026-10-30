@@ -2,6 +2,8 @@
 .game-selector-main { display: flex; align-items: end; gap: 16px; flex-wrap: wrap; }
 .game-selector label { display: grid; gap: 10px; flex: 1; min-width: 230px; }
 .game-selector select { width: 100%; min-height: 42px; padding: 8px 12px; border: 1px solid #40576c; border-radius: 8px; background: #091522; color: #edf6ff; }
+/* 準備中のゲーム（RUN）は灰褐色（選べない。2026-10-30 ユーザーの決定） */
+.game-selector select option.game-option--preparing { color: #8d7f70; }
 .game-selector button { padding: 10px 16px; min-height: 42px; background: #1c3043; color: #deeffb; border: 1px solid #40576c; border-radius: 8px; }
 .game-selector button.game-selector-apply { background: #087c92; border-color: #259caf; color: #fff; }
 .game-selector button:disabled { opacity: .5; cursor: not-allowed; }

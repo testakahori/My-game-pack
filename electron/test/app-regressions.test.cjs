@@ -1026,7 +1026,8 @@ test("設定保存: 旧版で保存した使えない名前の割り当ては残
   assert.equal(double.invalidName, true); assert.match(double.invalidReason, /\.txt が2つあります/);
   const options = await app.invoke("bridge:commands:list");
   assert.deepEqual({ ...options.find(row => row.name === "ネコ.txt") }, { name: "ネコ.txt", title: "ネコ.txt", invalidName: true, invalidReason: listed.invalidReason });
-  assert.deepEqual(Object.keys(options.find(row => row.name === "cod.txt")).sort(), ["name", "title"]);
+  // 分類（# CATEGORY:）は選ぶ欄を見出しごとに並べるのに使うので入れる。説明・chatKey などは入れない（2026-10-30）。
+  assert.deepEqual(Object.keys(options.find(row => row.name === "cod.txt")).sort(), ["category", "name", "title"]);
   // ルーレットのファイルには印を付ける（画面は写しを持たずにこれで除く。処理のコピー PR8）。大文字の Roulette.TXT は command-rows.test.cjs。
   // Windows では Roulette.TXT を書いても前からある roulette.txt の名前のままなので、小文字にして探す。
   fs.writeFileSync(path.join(app.root, "bridge", "commands", "minecraft", "Roulette.TXT"), "# TITLE: くじ\n");
@@ -1035,7 +1036,7 @@ test("設定保存: 旧版で保存した使えない名前の割り当ては残
   assert.ok(metaRoulette.length > 0 && metaRoulette.every(row => row.roulette === true), JSON.stringify(metaRoulette));
   const withRoulette = await app.invoke("bridge:commands:list");
   assert.ok(withRoulette.filter(isRouletteName).every(row => row.roulette === true) && withRoulette.some(isRouletteName));
-  assert.deepEqual(Object.keys(withRoulette.find(row => row.name === "cod.txt")).sort(), ["name", "title"]);
+  assert.deepEqual(Object.keys(withRoulette.find(row => row.name === "cod.txt")).sort(), ["category", "name", "title"]);
   await assert.rejects(app.invoke("bridge:commands:write", { filename: "ネコ2.txt", content: "say x" }), /半角英数字/);
 });
 

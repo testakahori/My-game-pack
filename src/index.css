@@ -5148,7 +5148,6 @@ button.tts-status-card:hover {
 
 .ops-test-card,
 .ops-stability-card,
-.ops-json-card,
 .ops-update-card,
 .ops-history-panel {
   padding: 17px;
@@ -5354,45 +5353,6 @@ button.tts-status-card:hover {
   line-height: 1;
 }
 
-.ops-json-help {
-  margin: 10px 0 12px;
-  padding: 8px 12px;
-  border: 1px solid rgba(75, 111, 157, 0.28);
-  border-radius: 8px;
-  background: rgba(1, 8, 20, 0.72);
-  font-size: 11px;
-  color: #90a1b8;
-}
-
-.ops-json-help summary {
-  cursor: pointer;
-  color: #cfe1f5;
-  font-weight: 800;
-  font-size: 11px;
-}
-
-.ops-json-help ul {
-  margin: 8px 0;
-  padding-left: 16px;
-  display: grid;
-  gap: 4px;
-}
-
-.ops-json-help li b {
-  color: #8fd0ff;
-}
-
-.ops-json-help pre {
-  margin: 8px 0;
-  padding: 10px;
-  border-radius: 6px;
-  background: rgba(8, 18, 36, 0.9);
-  border: 1px solid rgba(75, 111, 157, 0.22);
-  color: #a9e6c8;
-  font-size: 10px;
-  overflow-x: auto;
-}
-
 .ops-preview-log button {
   color: #8fa0b5;
   font-size: 10px;
@@ -5529,13 +5489,6 @@ button.tts-status-card:hover {
   font-weight: 950;
 }
 
-.ops-json-card {
-  border-color: rgba(154, 92, 255, 0.62);
-  background:
-    radial-gradient(circle at 100% 0%, rgba(154, 92, 255, 0.16), transparent 35%),
-    linear-gradient(145deg, rgba(7, 16, 36, 0.96), rgba(5, 9, 22, 0.96));
-}
-
 .ops-update-card {
   border-color: rgba(255, 91, 104, 0.66);
   background:
@@ -5550,21 +5503,6 @@ button.tts-status-card:hover {
 
 .ops-card-topline > div > p {
   margin: 2px 0 0;
-}
-
-.ops-json-status {
-  display: grid;
-  grid-template-columns: 1fr 1fr auto;
-  gap: 14px;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(75, 111, 157, 0.22);
-  color: #8394aa;
-  font-size: 10px;
-}
-
-.ops-json-status b {
-  color: #2df29c;
 }
 
 .ops-update-error {
@@ -5701,7 +5639,6 @@ button.tts-status-card:hover {
   .ops-action-row,
   .ops-save-row,
   .ops-update-diags,
-  .ops-json-status,
   .ops-inline-control {
     grid-template-columns: 1fr;
   }
@@ -7561,3 +7498,16 @@ button.tts-status-card:hover {
 .stream-recording-actions input { background: #081322; color: #e0f2ff; border: 1px solid #37516b; border-radius: 8px; padding: 8px; color-scheme: dark; }
 .stream-recording-actions button { background: #167b97; padding: 10px 16px; border: 1px solid #41cde9; border-radius: 8px; }
 .event-test-fields button:disabled, .stream-recording-actions button:disabled { opacity: .5; cursor: wait; }
+
+/* コマンドを選ぶ欄の分類の見出し（ギフト設定・いいね・フォロー・ルーレット・コメント）。項目と同じ色だと見出しに見えないので、黄色の太字・濃い帯にする（2026-10-30 ユーザーの決定）。 */
+select optgroup.command-optgroup {
+  color: #ffd166;
+  font-weight: 800;
+  background: #13263b;
+}
+
+select optgroup.command-optgroup option {
+  color: #edf6ff;
+  font-weight: 400;
+  background: #091522;
+}

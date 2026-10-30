@@ -59,7 +59,7 @@ test('4つの状態：新しく入れた人・採掘を選んだだけ・採掘�
 
 test('ゲームの欄：選択肢・選んでおくゲーム・未保存の判断・状態の文は gameChoices.ts を使い、サバイバルの説明を出さない', () => {
   const ui = source('components/GameSelector.tsx');
-  assert.match(ui, /import \{ gameChoices, gameDirty, savedGame, shownGame \} from '\.\.\/lib\/gameChoices';/);
+  assert.match(ui, /import \{ gameChoices, gameDirty, gameOptionDisabled, gameOptionLabel, savedGame, shownGame \} from '\.\.\/lib\/gameChoices';/);
   assert.match(ui, /\(status \? gameChoices\(status\.games\) : \[/, '選択肢はサバイバルを除く');
   assert.equal((ui.match(/setSelected\(shownGame\(next\)\)/g) || []).length, 2, '読み込んだとき・保存したときは選んでおくゲームにする');
   // 新しく入れた人が何も選んでいないときは未保存にしない（採掘を選べば未保存になる）。まだ読み込んでいないうちは、選んだゲームは null。
@@ -103,4 +103,24 @@ test('ゲームを保存するまで：動作設定の保存・設定のバッ�
   for (const [name, text] of [['動作設定', ops], ['テスト発火', test], ['バックアップの復元', backups], ['IDを承認する', dash]]) {
     assert.match(text, /ゲームを選んで「保存」すると/, name + '：押せない理由');
   }
+});
+
+// RUN はゲームパックを作っている途中。選択肢には残し、「RUN（準備中）」を灰褐色で出して選べないようにする（2026-10-30 ユーザーの決定）。
+// RUN ができたら games.json の preparing を外せば、ほかのゲームと同じに選べる。
+test('RUN は準備中：選択肢に残し、「RUN（準備中）」と灰褐色で出して選べない', () => {
+  const { gameOptionLabel, gameOptionDisabled } = loadTs('gameChoices.ts');
+  const run = GAMES.find(game => game.id === 'run');
+  assert.equal(run.preparing, true);
+  assert.ok(gameChoices(GAMES).some(game => game.id === 'run'), '選択肢には残す');
+  assert.equal(gameOptionLabel({ ...run, installed: false }), 'RUN（準備中）');
+  assert.equal(gameOptionLabel({ ...run, installed: true }), 'RUN（準備中）', 'パックを入れていても準備中');
+  assert.equal(gameOptionDisabled(run), true);
+  assert.equal(gameOptionLabel({ id: 'saikutu', name: '採掘', installed: true }), '採掘');
+  assert.equal(gameOptionLabel({ id: 'saikutu', name: '採掘', installed: false }), '採掘（未導入）');
+  assert.equal(gameOptionDisabled({ id: 'saikutu' }), false);
+  for (const game of GAMES.filter(game => game.id !== 'run')) assert.equal(game.preparing, undefined, game.id);
+  const selector = source('components/GameSelector.tsx');
+  assert.match(selector, /disabled=\{gameOptionDisabled\(g\)\}/);
+  assert.match(selector, /\{gameOptionLabel\(g\)\}/);
+  assert.match(source('components/GameSelector.css'), /\.game-option--preparing\s*\{[^}]*color:\s*#8d7f70/);
 });

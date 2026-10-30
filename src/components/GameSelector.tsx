@@ -3,7 +3,7 @@ import { useUnsavedChanges, useUnsavedGuard } from '../UnsavedChanges';
 import './GameSelector.css';
 import type { GameStatus, MinecraftLocationDiscovery } from '../types/electron';
 // 選択肢にサバイバルを出さない（中では「まだゲームを選んでいない状態」として残す。2026-10-29 ユーザーの決定）。
-import { gameChoices, gameDirty, savedGame, shownGame } from '../lib/gameChoices';
+import { gameChoices, gameDirty, gameOptionDisabled, gameOptionLabel, savedGame, shownGame } from '../lib/gameChoices';
 
 export default function GameSelector({ onChanged, onStatus }: { onChanged: () => void; onStatus: (status: GameStatus | null) => void }) {
   const [status, setStatus] = useState<GameStatus | null>(null);
@@ -108,7 +108,8 @@ export default function GameSelector({ onChanged, onStatus }: { onChanged: () =>
         <select id="play-game" value={selected ?? ''} disabled={busy || scanning || !status || status.recoveryRequired} onChange={e => setSelected(e.target.value)}>
           {/* ゲームを選ばないと遊べない。何も選んでいないときの見出し（選べない。2026-10-29 ユーザーの決定） */}
           {status && !shownGame(status) && <option value="" disabled>選んでください</option>}
-          {(status ? gameChoices(status.games) : [{ id: '', name: '読み込み中', installed: true }]).map(g => <option key={g.id} value={g.id}>{g.name}{!g.installed ? '（未導入）' : ''}</option>)}
+          {/* 準備中のゲーム（RUN）は灰褐色で出し、選べない（2026-10-30 ユーザーの決定） */}
+          {(status ? gameChoices(status.games) : [{ id: '', name: '読み込み中', installed: true }]).map(g => <option key={g.id} value={g.id} disabled={gameOptionDisabled(g)} className={gameOptionDisabled(g) ? 'game-option--preparing' : undefined}>{gameOptionLabel(g)}</option>)}
         </select>
       </label>
       <button type="button" className="game-selector-apply" disabled={busy || scanning || !game?.installed || status?.recoveryRequired}

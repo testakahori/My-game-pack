@@ -205,7 +205,8 @@ function createBridgeSettings({
     // --------------------
     // IPC: bridge/commands/minecraft/ 内の .txt ファイル一覧
     // --------------------
-    ipcMain.handle("bridge:commands:list", () => readCommandMetadata().map(({ name, title, invalidName, invalidReason, roulette }) => ({ name, title, ...(invalidName ? { invalidName, invalidReason } : {}), ...(roulette ? { roulette } : {}) })));
+    // 分類（# CATEGORY:）は、いいね・フォローとルーレット・コメントの選ぶ欄を見出しごとに並べるのに使う。分類の無いコマンドには入れない（2026-10-30）。
+    ipcMain.handle("bridge:commands:list", () => readCommandMetadata().map(({ name, title, category, invalidName, invalidReason, roulette }) => ({ name, title, ...(category ? { category } : {}), ...(invalidName ? { invalidName, invalidReason } : {}), ...(roulette ? { roulette } : {}) })));
     ipcMain.handle("bridge:commands:readMeta", () => readCommandMetadata());
     // TXT 作成の確かめ（処理のコピー PR8）。同じ名前のファイルがあるかは、コマンドの場所の txt 全部と比べる（選んでいるゲームのものに限らない）。
     ipcMain.handle("bridge:commands:check", (_event, { filename, content } = {}) => {

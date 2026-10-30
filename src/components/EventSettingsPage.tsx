@@ -6,6 +6,7 @@ import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 import { commandOptionLabel } from "../lib/commandLabel";
 import { toRepeat, toThreshold } from "../lib/integerInput";
 import { findCommandFile } from "../lib/commandFiles";
+import { commandGroupLabel, groupCommandsByCategory } from "../lib/commandGroups";
 
 type LikeEvent = {
   id: string;
@@ -30,7 +31,7 @@ type Config = {
   memberEvent?: SimpleEvent;
 };
 
-type CommandFile = { name: string; title: string; invalidName?: boolean; invalidReason?: string };
+type CommandFile = { name: string; title: string; category?: string; invalidName?: boolean; invalidReason?: string };
 
 type Props = {
   onDirtyChange?: (dirty: boolean) => void;
@@ -67,8 +68,11 @@ function CmdFileSelect({
         >
           <option value="">（未設定）</option>
           {value && !selected && <option value={value}>{value}</option>}
-          {commandFiles.map((f) => (
-            <option key={f.name} value={f.name}>{commandOptionLabel(f)}</option>
+          {/* ギフト設定と同じ分類の見出しごとに並べる（2026-10-30 ユーザーの決定） */}
+          {groupCommandsByCategory(commandFiles).map(([category, files]) => (
+            <optgroup key={category} label={commandGroupLabel(category, files.length)} className="command-optgroup">
+              {files.map((f) => <option key={f.name} value={f.name}>{commandOptionLabel(f)}</option>)}
+            </optgroup>
           ))}
         </select>
       ) : (

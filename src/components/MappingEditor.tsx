@@ -8,6 +8,7 @@ import { toRepeat } from "../lib/integerInput";
 import { findCommandFile, sameCommandFile } from "../lib/commandFiles";
 import { isDisabledMapping } from "../lib/giftMappingRows";
 import DisabledMappingMark from "./DisabledMappingMark";
+import { commandGroupLabel, groupCommandsByCategory } from "../lib/commandGroups";
 
 type Props = {
   mappings?: GiftMapping[];
@@ -27,7 +28,6 @@ type Props = {
 };
 
 type CmdFile = { name: string; title: string; category?: string; description?: string; invalidName?: boolean; invalidReason?: string };
-const commandCategory = (raw = "") => { const key = raw.split("|")[0].trim(); return key === "お助け" ? "お助け系" : key === "妨害" ? "妨害系" : key || "その他"; };
 type SaveMsg = { type: "ok" | "error"; text: string };
 
 
@@ -43,11 +43,8 @@ const MappingEditor: React.FC<Props> = (props) => {
   const [cmdFiles, setCmdFiles]           = useState<CmdFile[]>([]);
   const [commandCategoryFilter, setCommandCategoryFilter] = useState("");
   const [commandQuery, setCommandQuery] = useState("");
-  const commandGroups = useMemo(() => {
-    const groups = new Map<string, CmdFile[]>();
-    for (const file of cmdFiles) { const category = commandCategory(file.category); groups.set(category, [...(groups.get(category) || []), file]); }
-    return [...groups].sort(([a], [b]) => a.localeCompare(b, "ja"));
-  }, [cmdFiles]);
+  // 分類の見出しの決め方は、いいね・フォローとルーレット・コメントと同じ1か所（src/lib/commandGroups.ts。2026-10-30）。
+  const commandGroups = useMemo(() => groupCommandsByCategory(cmdFiles), [cmdFiles]);
   const visibleCommandGroups = useMemo(() => commandGroups.map(([category, files]) => ({ category, files: files.filter(file => (!commandCategoryFilter || category === commandCategoryFilter) && `${file.title} ${file.name} ${file.description || ""}`.toLowerCase().includes(commandQuery.trim().toLowerCase())) })).filter(group => group.files.length), [commandGroups, commandCategoryFilter, commandQuery]);
   // 同じコマンドかは .txt の有無・大文字小文字を問わない（src/lib/commandFiles.ts。処理のコピー PR8）。
   // 手で書いた Neko.TXT の割り当ても、一覧の neko.txt を選んだ形で出す（選択の値は一覧の名前）。
@@ -226,7 +223,7 @@ const MappingEditor: React.FC<Props> = (props) => {
                   {cmdFiles.length === 0 ? "コマンド設定でTXTを作成してください" : "選択してください"}
                 </option>
                 {selectedTxtName && !selectedCommandVisible && <optgroup label="現在の設定"><option value={selectedListedName}>{titleOf(selectedTxtName) || selectedTxtName}</option></optgroup>}
-                {visibleCommandGroups.map(group => <optgroup key={group.category} label={group.category}>
+                {visibleCommandGroups.map(group => <optgroup key={group.category} label={commandGroupLabel(group.category, group.files.length)} className="command-optgroup">
                   {group.files.map(file => <option key={file.name} value={file.name}>{commandOptionLabel(file)}</option>)}
                 </optgroup>)}
               </select>

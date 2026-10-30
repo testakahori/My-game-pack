@@ -4,6 +4,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
 import { commandOptionLabel } from "../lib/commandLabel";
+import { commandGroupLabel, groupCommandsByCategory } from "../lib/commandGroups";
 import { toEveryDeaths, toRepeat, toWeight } from "../lib/integerInput";
 // ルーレット・デスルーレットの既定（止まる音・粒子・何回死ぬごと）は BRIDGE と同じ表（処理のコピー PR9）。
 import CONFIG_DEFAULTS from "../../bridge/config_defaults.json";
@@ -37,7 +38,7 @@ type CommentGiftRule = {
   enabled: boolean;
 };
 
-type CommandFile = { name: string; title: string; invalidName?: boolean; invalidReason?: string; roulette?: boolean };
+type CommandFile = { name: string; title: string; category?: string; invalidName?: boolean; invalidReason?: string; roulette?: boolean };
 
 const api = (window as any).mygamepack;
 
@@ -153,7 +154,12 @@ function CmdSelect({
     >
       <option value="">（未設定）</option>
       {value && !selected && <option value={value}>{value}</option>}
-      {commandFiles.map((f) => <option key={f.name} value={f.name}>{commandOptionLabel(f)}</option>)}
+      {/* ギフト設定と同じ分類の見出しごとに並べる（2026-10-30 ユーザーの決定） */}
+      {groupCommandsByCategory(commandFiles).map(([category, files]) => (
+        <optgroup key={category} label={commandGroupLabel(category, files.length)} className="command-optgroup">
+          {files.map((f) => <option key={f.name} value={f.name}>{commandOptionLabel(f)}</option>)}
+        </optgroup>
+      ))}
     </select>
   );
 }
