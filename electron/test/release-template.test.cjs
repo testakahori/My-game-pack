@@ -5,7 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { prepareServerTemplate } = require("../../scripts/prepare-server-template.cjs");
 
-test("公開テンプレート: ワールド・プレイヤー・パスワード・設定・ログを含めない", t => {
+test("公開テンプレート: ワールド・プレイヤー・パスワード・設定・ログ・古いデータパック・作業の道具のフォルダーを含めない", t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "release-template-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const source = path.join(root, "source"), target = path.join(root, "template");
@@ -19,6 +19,10 @@ test("公開テンプレート: ワールド・プレイヤー・パスワード
   fs.writeFileSync(path.join(source, "mods", "unselected-game.jar"), "another game");
   fs.writeFileSync(path.join(source, "run.bat"), "java @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt nogui");
   fs.writeFileSync(path.join(source, "setup.bat"), "java -jar forge-1.20.1-47.3.0-installer.jar --installServer");
+  // 作業の道具（.omc・.claude）が写すフォルダーの中で動くと、記録のフォルダーができる（2026-10-30 に本物のサーバーで起きた。PR #168 レビュー 軽い2）。
+  for (const dir of ["mods/.omc/state", "libraries/.claude", "jdk-21.0.4+7/.omc"]) {
+    fs.mkdirSync(path.join(source, dir), { recursive: true }); fs.writeFileSync(path.join(source, dir, "note.json"), "{}");
+  }
   const currentMod = path.join(root, "bridgemod-1.3.0.jar");
   fs.writeFileSync(currentMod, "current");
   const displayMod = path.join(root, "displaymod-1.0.0.jar"); fs.writeFileSync(displayMod, "display");
@@ -35,6 +39,7 @@ test("公開テンプレート: ワールド・プレイヤー・パスワード
   assert.match(fs.readFileSync(path.join(source, "run.bat"), "utf8"), /47\.3\.0/);
   // GiftStream_Pack はサーバーフォルダーの直下では Minecraft に読まれず、中身もほかが受け持っているので配らない（2026-10-30 ユーザーの決定）。
   for (const name of ["world", "bridge", "logs", "GiftStream_Pack", "RCON_password.txt", "server.properties", "usercache.json", "ops.json"]) assert.equal(fs.existsSync(path.join(target, name)), false, name);
+  for (const dir of ["mods/.omc", "libraries/.claude", "jdk-21.0.4+7/.omc"]) assert.equal(fs.existsSync(path.join(target, dir)), false, dir);
   assert.equal(fs.existsSync(path.join(target, "mods", "fixture")), true);
   assert.throws(() => prepareServerTemplate(source, target), /already exists/);
 });

@@ -16,6 +16,14 @@ test('すぐ効かせる値: 今の BRIDGE と同じ式で作る（既定値と�
   assert.equal(liveOptions({ logUnknownGifts: false }).logUnknownGifts, false, '書いて止めたものは止める');
 });
 
+// タイトルは BRIDGE が title の命令を直接送って出す。前に呼んでいたデータパックの関数（gift_stream:_announce）はもう配っていない（PR #168）。
+// 設定の announceFunction・announceStorage は、古い設定ファイルの形を変えないよう名前だけ残し、BRIDGE は使わない（記録にも出さない。PR #168 レビュー 軽い3）。
+test('タイトルの表示: BRIDGE はデータパックの関数と storage の名前を使わない', () => {
+  const index = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', '..', 'bridge', 'index.js'), 'utf8');
+  assert.doesNotMatch(index, /ANNOUNCE_FUNCTION|ANNOUNCE_STORAGE/);
+  assert.doesNotMatch(index, /gift_?stream:/);
+});
+
 // 既定値は bridge/config_defaults.json の1か所（処理のコピー PR4）。前の BRIDGE は commandsDir が無いと commands を見ていた。
 test('つなぎ方: commandsDir の無い設定とアプリが書く絶対パスは同じ場所（起動のあとに保存しても案内しない）', () => {
   const path = require('node:path');

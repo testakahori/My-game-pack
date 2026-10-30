@@ -9,12 +9,12 @@
 // - txt 内の {ListenerName} を投げた人の表示名に置換（ゲーム別に安全化）
 // - 7DTD の txt 内は {PlayerId} も置換可能（config.target.telnet.playerId）
 //
-// [ADD] 全ギフト共通タイトル表示（datapack）
+// [ADD] 全ギフト共通タイトル表示
 // - txt 先頭のメタ: "# TITLE: 猫ちゃん登場" を読み取る
-// - ギフト発火時、実コマンドの前に必ず以下を前置き（Minecraftのみ）
-//   data modify storage giftstream:bridge listener set value "<投げ主名>"
-//   data modify storage giftstream:bridge title    set value "<TITLE>"
-//   function giftstream:_announce
+// - ギフト発火時、実コマンドの前に title の命令を前置き（Minecraftのみ）
+//   title @a title {"text":"<TITLE>"} / title @a subtitle {"text":"<投げ主名>"}
+// - 前はデータパックの関数を呼んでいたが、今は使わない（データパックも配っていない。PR #168）。
+//   設定の announceFunction・announceStorage は、古い設定ファイルの形を変えないよう名前だけ残っている。
 //
 // 連打ギフトで毎回タイトルを出すと煩い場合：下の options.announceEveryRepeat を false に。
 
@@ -1015,15 +1015,13 @@ async function main() {
   // 式は live_config.cjs の1か所。起動のときと設定の再読込（reloadDynamicConfig）の両方で applyLiveOptions を通す。
   // 既定値は bridge/config_defaults.json の1か所（新しい設定の雛形・運用センターの表示も同じものを読む）。
   let giftCooldownMs, maxCommandsPerGift, maxLikeCatchUpPerEvent, rconQueueWarnSize, likeBatchWindowMs, streakTtlMs, logUnknownGifts, isMutedUser, ttsNgWords,
-    ANNOUNCE_FUNCTION, ANNOUNCE_STORAGE, announceEveryRepeat, announceEnabled, gameplayConfig;
+    announceEveryRepeat, announceEnabled, gameplayConfig;
   // 配信の FeatureEngine（作ったあとに入る）。ゲームの設定は作り直さず config を入れ替え、いいねの累計・連打・上位者を保つ。
   let liveFeatureEngine = null;
   // muteMatcher は再読込が先に作っておいたもの（作るときの失敗で半分だけ入れ替わらないように）。
   function applyLiveOptions(values, muteMatcher = createMuteMatcher(values.mutedUsers)) {
     ({ giftCooldownMs, maxCommandsPerGift, maxLikeCatchUpPerEvent, rconQueueWarnSize, likeBatchWindowMs, streakTtlMs, logUnknownGifts, ttsNgWords,
       announceEveryRepeat, announceEnabled } = values);
-    ANNOUNCE_FUNCTION = values.announceFunction;
-    ANNOUNCE_STORAGE = values.announceStorage;
     isMutedUser = muteMatcher;
     runtimeProtection = values.protection;
     gameplayConfig = values.gameplay;
@@ -1217,10 +1215,8 @@ async function main() {
   console.log(`[Bridge] maxCommandsPerGift: ${maxCommandsPerGift}${useBridgeModTransport ? "（BridgeMOD 経由では使わない）" : ""}`);
 
   if (targetType === "minecraft") {
-    console.log(`[Bridge] Announce: ${announceEnabled ? "ON" : "OFF"} func=${ANNOUNCE_FUNCTION}`);
-    console.log(
-      `[Bridge] AnnounceEveryRepeat: ${announceEveryRepeat ? "true" : "false"} storage=${ANNOUNCE_STORAGE}`
-    );
+    console.log(`[Bridge] Announce: ${announceEnabled ? "ON" : "OFF"}`);
+    console.log(`[Bridge] AnnounceEveryRepeat: ${announceEveryRepeat ? "true" : "false"}`);
   }
 
   const activelikeEvents = likeEvents.filter((e) => e.enabled !== false && e.commandFile && e.threshold);
@@ -1321,7 +1317,7 @@ async function main() {
   };
 
   // RCON/Telnet 実行を直列化しつつ、ギフトをいいねの backlog より優先する。
-  // 並列接続による gift_stream:bridge ストレージの上書きを防ぐため、実行自体は常に1本。
+  // 並列接続でギフトごとのコマンド（タイトルの表示も含む）が混ざらないよう、実行自体は常に1本。
   const rconQueue = [];
   let rconQueueRunning = false;
   let rconQueueSeq = 0;
