@@ -15,7 +15,7 @@ const { toRepeat, toThreshold, toWeight } = compiled.exports;
 // ルーレットの項目の重みは上限なし（BRIDGE も上限が無い。強さの上限は設けない方針。処理のコピー PR9）。読み込みの式は BRIDGE の weightOf と同じ。
 // 前は読み込みで数でない値が NaN になり、入力では 100 に丸めていた（保存済みの 500 は 500 のまま出た）。
 test('ルーレットの重み: BRIDGE の weightOf と同じ値の一覧で同じ結果', () => {
-  const { weightOf } = require('../../bridge/feature_engine.js');
+  const { weightOf } = require('../../bridge/weighted_choice.cjs');
   for (const value of [0, 0.5, 1, 2.5, 100, 500, -3, 'x', '', null, undefined, '7']) assert.equal(toWeight(value), weightOf(value), String(value));
 });
 

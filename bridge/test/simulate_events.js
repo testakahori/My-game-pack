@@ -15,7 +15,8 @@ const fs = require("fs");
 const path = require("path");
 
 const bridge = require("../index.js");
-const { FeatureEngine, parseWeightedList, chooseWeighted } = require("../feature_engine.js");
+const { FeatureEngine } = require("../feature_engine.js");
+const { parseWeightedList, chooseWeighted } = require("../weighted_choice.cjs");
 const { validateBridgeConfig } = require("../config_schema.js");
 const { RestartPolicy } = require("../../electron/restart_policy.cjs");
 
