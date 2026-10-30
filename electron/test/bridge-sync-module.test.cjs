@@ -6,14 +6,14 @@ const os = require('node:os');
 const path = require('node:path');
 const { createBridgeSync } = require('../bridge_sync.cjs');
 
-function setup(t, { packaged = true, appConfig = () => ({}), clearEulerCredentials = () => {} } = {}) {
+function setup(t, { packaged = true, appConfig = () => ({}), clearEulerCredentials = () => {}, serverRunning = () => false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-sync-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const resources = path.join(root, 'resources'), server = path.join(root, 'server');
   fs.mkdirSync(path.join(resources, 'bridge'), { recursive: true });
   fs.mkdirSync(server, { recursive: true });
   let config = appConfig(server);
-  const ran = [], sent = [], handlers = new Map();
+  const ran = [], sent = [], handlers = new Map(), writes = [];
   // zip の展開（tar.exe）の代わり。展開先に node.exe と依存パッケージを置く。
   const runProc = async (cmd, args, cwd) => {
     ran.push([cmd, ...args]);
@@ -28,14 +28,14 @@ function setup(t, { packaged = true, appConfig = () => ({}), clearEulerCredentia
     process: { resourcesPath: resources }, appDir: path.join(root, 'app', 'electron'),
     BrowserWindow: { getAllWindows: () => [{ webContents: { send: (...args) => sent.push(args) } }] },
     runProc,
-    readAppConfig: () => config, writeAppConfig: patch => { config = { ...config, ...patch }; },
+    readAppConfig: () => config, writeAppConfig: (patch, options) => { writes.push([patch, options]); config = { ...config, ...patch }; },
     getBridgeBatDir: () => path.join(server, 'bridge'),
     getServerTemplatePath: () => path.join(resources, 'server', 'Douma_Craft'),
     gameProfiles: {}, gameProfileOperation: async action => action(), assertGameProfileIdle: () => {},
-    serverChild: () => null, isServerPortOpen: async () => false, clearEulerCredentials,
+    serverChild: () => (serverRunning() ? {} : null), isServerPortOpen: async () => false, clearEulerCredentials,
   });
   bridgeSync.register({ handle: (name, fn) => handlers.set(name, fn) });
-  return { resources, server, ran, sent, bridgeSync, config: () => config, patchConfig: patch => { config = { ...config, ...patch }; }, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
+  return { resources, server, ran, sent, writes, bridgeSync, config: () => config, patchConfig: patch => { config = { ...config, ...patch }; }, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
 }
 
 test('BRIDGE の実行環境: 開発版は何もしない。配布版で zip から展開するときは main から受け取った runProc で tar を動かし、進み具合を画面へ知らせる', async t => {
@@ -73,7 +73,7 @@ test('アプリ更新後の BRIDGE の同期: 違う版なら写して版を記�
 });
 
 // 新しい保存先（BRIDGE の設定がまだ無い所）を作ったときだけ、この PC に残っていた前の記録を空にする（2026-10-30 ユーザーの決定「新しい保存先では空にする」・API キーも「消す」）。
-// 前は、開発版と同じ %APPDATA% に残っていたマイクラID・API キーが、入れたばかりのアプリに出ていた。画面が覚えていた TikTok ユーザー名は、返す freshConfig を見て画面が消す。
+// 前は、開発版と同じ %APPDATA% に残っていたマイクラID・API キーが、入れたばかりのアプリに出ていた。画面が覚えていた TikTok ユーザー名は、返す newFolder を見て画面が消す。
 test('BRIDGE の展開: 新しい保存先ではマイクラID と API キーを消して印を返す。同じ保存先への入れ直し・開発版では消さない', async t => {
   let cleared = 0;
   const x = setup(t, { appConfig: () => ({ minecraftPlayerName: 'Douma_Akahori' }), clearEulerCredentials: () => { cleared += 1; } });
@@ -85,14 +85,16 @@ test('BRIDGE の展開: 新しい保存先ではマイクラID と API キーを
   fs.writeFileSync(path.join(src, 'bridge-runtime-manifest.json'), JSON.stringify({ runtimeKind: 'bundle', nodeExeBytes: 4 }));
   fs.writeFileSync(path.join(src, 'config.minecraft.json'), JSON.stringify({ tiktokUsername: 'smile09351', rcon: { password: 'dev-secret' } }));
   const first = await x.invoke('bridge:extractTo', x.server);
-  assert.equal(first.freshConfig, true);
+  assert.equal(first.newFolder, true);
   assert.equal(x.config().minecraftPlayerName, '');
+  assert.deepEqual(x.writes.find(([patch]) => 'minecraftPlayerName' in patch), [{ minecraftPlayerName: '' }, { forgetPrevious: true }], '前のマイクラID を設定の写しにも残さない（レビュー 軽い7）');
   assert.equal(cleared, 1, 'API キーを消す');
+  assert.equal(fs.existsSync(path.join(x.server, 'bridge', '.account-reset-pending')), false, '消し終えたら印を外す');
   const written = JSON.parse(fs.readFileSync(path.join(x.server, 'bridge', 'config.minecraft.json'), 'utf8'));
   assert.deepEqual([written.tiktokUsername, written.rcon.password], ['', '']);
   x.patchConfig({ minecraftPlayerName: 'Steve' });
   const again = await x.invoke('bridge:extractTo', x.server);
-  assert.equal(again.freshConfig, false);
+  assert.equal(again.newFolder, false);
   assert.equal(x.config().minecraftPlayerName, 'Steve', '同じ保存先への入れ直しでは消さない');
   assert.equal(cleared, 1);
   let devCleared = 0;
@@ -110,11 +112,39 @@ test('BRIDGE の展開: API キーを消せなくても、セットアップは�
   fs.writeFileSync(path.join(src, 'bridge-runtime-manifest.json'), JSON.stringify({ runtimeKind: 'bundle', nodeExeBytes: 4 }));
   fs.writeFileSync(path.join(src, 'config.minecraft.json'), JSON.stringify({ tiktokUsername: 'x' }));
   const result = await x.invoke('bridge:extractTo', x.server);
-  assert.equal(result.freshConfig, true);
+  assert.equal(result.newFolder, true);
   assert.equal(x.config().minecraftPlayerName, '');
 });
 
 test('BRIDGE の展開: main は API キーを消す関数を渡す', () => {
   const main = fs.readFileSync(path.resolve(__dirname, '../main.cjs'), 'utf8');
-  assert.match(main, /clearEulerCredentials: \(\) => eulerCredentials\.clear\(\)/);
+  assert.match(main, /clearEulerCredentials: \(\) => bridgeProcess\.clearEulerKey\(\)/);
+  // 「削除」ボタンと同じ1か所で、配信の確かめのキャッシュも一緒に消す（レビュー 軽い4）。
+  const proc = fs.readFileSync(path.resolve(__dirname, '../bridge_process.cjs'), 'utf8');
+  assert.match(proc, /function clearEulerKey\(\) \{\s*eulerCredentials\.clear\(\);\s*checkTikTokLive\.clearCache\(\);/);
+  assert.match(proc, /ipcMain\.handle\('euler:clear', \(\) => \{\s*clearEulerKey\(\);/);
+});
+
+// 新しい保存先の印は、写す前に置き、失敗しうる処理を全部終えてから消す。途中で止まってやり直しても消し損なわない（PR #176 レビュー 重要1）。
+// 例：完了画面の「フォルダを選択」を Minecraft サーバーが動いたまま押すと、BridgeMOD の入れ替えで止まる。サーバーを止めて選び直す。
+test('BRIDGE の展開: 途中で止まってやり直しても、新しい保存先の記録は消す。消すのは失敗しうる処理を終えてから', async t => {
+  let cleared = 0, running = true;
+  const x = setup(t, { appConfig: () => ({ minecraftPlayerName: 'Old_Player' }), clearEulerCredentials: () => { cleared += 1; }, serverRunning: () => running });
+  const src = path.join(x.resources, 'bridge');
+  fs.mkdirSync(path.join(src, 'node'), { recursive: true });
+  fs.writeFileSync(path.join(src, 'index.bundle.cjs'), '// bundle');
+  fs.writeFileSync(path.join(src, 'node', 'node.exe'), 'node');
+  fs.writeFileSync(path.join(src, 'bridge-runtime-manifest.json'), JSON.stringify({ runtimeKind: 'bundle', nodeExeBytes: 4 }));
+  fs.writeFileSync(path.join(src, 'config.minecraft.json'), JSON.stringify({ tiktokUsername: 'x' }));
+  const mods = path.join(x.resources, 'server', 'Douma_Craft', 'mods');
+  fs.mkdirSync(mods, { recursive: true });
+  fs.writeFileSync(path.join(mods, 'bridgemod-1.0.0.jar'), require('./fake-mod-jar.cjs').fakeModJar('bridgemod'));
+  await assert.rejects(x.invoke('bridge:extractTo', x.server), /停止/);
+  assert.deepEqual([x.config().minecraftPlayerName, cleared], ['Old_Player', 0], '止まったときはまだ消さない');
+  running = false;
+  const retry = await x.invoke('bridge:extractTo', x.server);
+  assert.equal(retry.newFolder, true, 'やり直しでも新しい保存先');
+  assert.deepEqual([x.config().minecraftPlayerName, cleared], ['', 1]);
+  assert.equal((await x.invoke('bridge:extractTo', x.server)).newFolder, false, '消し終えたあとは入れ直し');
+  assert.equal(cleared, 1);
 });

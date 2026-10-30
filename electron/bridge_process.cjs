@@ -163,6 +163,12 @@ function createBridgeProcess({ process, spawn, spawnSync, shell, runProc, stopRe
   // 子プロセスを持たせる。launchBridge と、テストが偽の子プロセスを持たせるときに使う。
   function attach(child) { bridgeProcRef = child || null; bridgePid = child?.pid || null; }
 
+  // API キーを消す1か所（「削除」ボタンと、新しい保存先を作ったとき）。配信の確かめのキャッシュも一緒に消す（PR #176 レビュー 軽い4）。
+  function clearEulerKey() {
+    eulerCredentials.clear();
+    checkTikTokLive.clearCache();
+  }
+
   function register(ipcMain) {
     ipcMain.handle("tiktok:liveStatus", (_event, username) => checkTikTokLive(username));
 
@@ -173,8 +179,7 @@ function createBridgeProcess({ process, spawn, spawnSync, shell, runProc, stopRe
       return eulerStatus();
     });
     ipcMain.handle('euler:clear', () => {
-      eulerCredentials.clear();
-      checkTikTokLive.clearCache();
+      clearEulerKey();
       return eulerStatus();
     });
     ipcMain.handle('euler:openPortal', () => shell.openExternal('https://www.eulerstream.com/dashboard'));
@@ -213,7 +218,7 @@ function createBridgeProcess({ process, spawn, spawnSync, shell, runProc, stopRe
     ipcMain.handle("bridge:logs", () => ({ ok: true, lines: [...bridgeLogBuffer] }));
   }
 
-  return { child: currentChild, isActive, attach, launchBridge, stopBridge, register };
+  return { child: currentChild, isActive, attach, launchBridge, stopBridge, clearEulerKey, register };
 }
 
 module.exports = { createBridgeProcess };

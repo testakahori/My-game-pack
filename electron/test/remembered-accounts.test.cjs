@@ -1,4 +1,4 @@
-// 新しい保存先を作ったとき（bridge:extractTo の freshConfig）だけ、画面が覚えていた TikTok ユーザー名を消す（2026-10-30 ユーザーの決定「新しい保存先では空にする」）。
+// 新しい保存先を作ったとき（bridge:extractTo の newFolder）だけ、画面が覚えていた TikTok ユーザー名を消す（2026-10-30 ユーザーの決定「新しい保存先では空にする」）。
 // 覚えておく所の名前は src/lib/rememberedAccounts.ts の1か所（配信ホームと初期セットアップで同じもの）。
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -19,14 +19,15 @@ test('新しい保存先の印があるときだけ、覚えていた TikTok ユ
   assert.equal(TIKTOK_USER_STORAGE_KEY, 'mc_tiktok_username_unified_v1', '前の版と同じ名前（覚えていた値を見つけられる）');
   const removed = [];
   const storage = { removeItem: key => removed.push(key) };
-  assert.equal(forgetRememberedTikTokUser({ ok: true, freshConfig: true }, storage), true);
+  assert.equal(forgetRememberedTikTokUser({ ok: true, newFolder: true }, storage), true);
   assert.deepEqual(removed, [TIKTOK_USER_STORAGE_KEY]);
-  for (const result of [{ ok: true, freshConfig: false }, { ok: true, skipped: true }, undefined, null]) {
+  for (const result of [{ ok: true, newFolder: false }, { ok: true, skipped: true }, undefined, null]) {
     assert.equal(forgetRememberedTikTokUser(result, storage), false, JSON.stringify(result));
   }
   assert.equal(removed.length, 1);
-  assert.equal(forgetRememberedTikTokUser({ freshConfig: true }, { removeItem: () => { throw new Error('blocked'); } }), false, '消せなくても止めない');
-  assert.equal(forgetRememberedTikTokUser({ freshConfig: true }, undefined), false, '保存領域が無くても止めない（画面のテストの中など）');
+  assert.equal(forgetRememberedTikTokUser({ newFolder: true }, { removeItem: () => { throw new Error('blocked'); } }), false, '消せなくても止めない');
+  // 動かす node に localStorage があるかに左右されないよう、使えない保存領域を渡して確かめる（レビュー 軽い8）。
+  assert.equal(forgetRememberedTikTokUser({ newFolder: true }, {}), false, '使えない保存領域でも止めない');
 });
 
 test('配信ホームは同じ名前を使い、初期セットアップは BRIDGE を置く3か所すべてで消す', () => {

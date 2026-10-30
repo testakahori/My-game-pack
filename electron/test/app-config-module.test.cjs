@@ -254,3 +254,15 @@ test('古いログインの項目: 書く値に入っていても書かない', 
   appConfig.writeAppConfig({ serverFolder: dir, authEmail: 'op@example.com', authToken: 't', authLoginAt: 'x' });
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file, 'utf8'))).sort(), ['serverFolder', 'setupComplete']);
 });
+
+// 新しい保存先で前の人のマイクラID を空にしたとき、「前の正しい状態の写し」（.last-good）にも残さない。設定が壊れて写しから戻ったときに出てこないように（PR #176 レビュー 軽い7）。
+test('アプリの設定: forgetPrevious で書くと、前の中身を写しに残さない', t => {
+  const x = setup(t);
+  x.appConfig.writeAppConfig({ minecraftPlayerName: 'Old_Player' });
+  x.appConfig.writeAppConfig({ serverFolder: x.dir });
+  x.appConfig.writeAppConfig({ minecraftPlayerName: '' }, { forgetPrevious: true });
+  assert.equal(JSON.parse(fs.readFileSync(x.file, 'utf8')).minecraftPlayerName, '');
+  assert.equal(JSON.parse(fs.readFileSync(lastGoodPath(x.file), 'utf8')).minecraftPlayerName, '');
+  x.appConfig.writeAppConfig({ minecraftPlayerName: 'Steve' });
+  assert.equal(JSON.parse(fs.readFileSync(lastGoodPath(x.file), 'utf8')).minecraftPlayerName, '', 'ふだんは前の中身を写しに残す');
+});

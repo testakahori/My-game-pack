@@ -110,8 +110,8 @@ const bridgeSync = createBridgeSync({
   gameProfiles, gameProfileOperation, assertGameProfileIdle,
   serverChild: () => serverProcess.child(),
   isServerPortOpen: () => serverProcess.isServerPortOpen(),
-  // 新しい保存先を作ったときに、この PC に残っていた API キーを消す（2026-10-30）。
-  clearEulerCredentials: () => eulerCredentials.clear(),
+  // 新しい保存先を作ったときに、この PC に残っていた API キーを消す（2026-10-30）。bridgeProcess は下で作り、呼ばれるのはセットアップのとき。
+  clearEulerCredentials: () => bridgeProcess.clearEulerKey(),
 });
 // BRIDGE の配布は bridge_sync.cjs が持つ。起動時の同期・BRIDGE の起動・ギフトの取得・配信の確認が使う。
 const { ensureNodeRuntimeAvailable, getBridgeEntryPoint, scheduleBridgeSync, refreshGameModsOnStartup } = bridgeSync;

@@ -41,10 +41,13 @@ function createAppConfig({ app, assertGameProfileIdle, assertMapIdle, isServerSt
     return { ...APP_CONFIG_FIELDS.defaults, ...saved };
   }
 
-  function writeAppConfig(data) {
+  // forgetPrevious：前の中身を「前の正しい状態の写し」に残さない。新しい保存先で前の人のマイクラID を空にしたとき、
+  // 設定が壊れて写しから戻っても出てこないように、もう1回書いて写しも今の中身にする（PR #176 レビュー 軽い7）。
+  function writeAppConfig(data, { forgetPrevious = false } = {}) {
     const next = { ...readAppConfig(), ...Object.fromEntries(Object.entries(data || {}).filter(([key]) => !RETIRED_FIELDS.has(key))) };
     if (next.serverFolder) next.serverFolder = path.resolve(next.serverFolder);
     store.write(next);
+    if (forgetPrevious) store.write(next);
   }
 
   // 画面に渡すアプリの設定（前は運営ログインの項目を外していた。今は使わなくなった項目を readAppConfig が外す）。
