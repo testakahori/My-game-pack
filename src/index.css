@@ -4906,7 +4906,6 @@ button.tts-status-card:hover {
 .ops-panel-icon--blue { color: #4aa2ff; }
 .ops-panel-icon--cyan { color: #20e1ff; }
 .ops-panel-icon--shield { color: #22e4ff; }
-.ops-panel-icon--violet { color: #af74ff; }
 
 .ops-monitor {
   display: grid;
@@ -7510,4 +7509,9 @@ select optgroup.command-optgroup option {
   color: #edf6ff;
   font-weight: 400;
   background: #091522;
+}
+
+/* ギフト設定の選ぶ欄は、前から項目が太字（.gift-command-stage select の 800）。見出しを付けても項目の太さは前のまま（PR #174 レビュー 軽い5）。 */
+.gift-command-stage select optgroup.command-optgroup option {
+  font-weight: 800;
 }

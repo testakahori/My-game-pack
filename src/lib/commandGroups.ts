@@ -18,7 +18,16 @@ export function groupCommandsByCategory<T extends { category?: string }>(files: 
   const groups = new Map<string, T[]>();
   for (const file of files) {
     const category = commandCategory(file.category);
-    groups.set(category, [...(groups.get(category) || []), file]);
+    const group = groups.get(category);
+    if (group) group.push(file); else groups.set(category, [file]);
   }
   return [...groups].sort(([a], [b]) => a.localeCompare(b, "ja"));
+}
+
+/** 検索の文字で絞る（タイトル・名前・説明。大文字小文字を問わない）。見出しは残し、当たらない分類は空にする。
+ * 見出しの（件数）と、ギフト設定の「分類で絞る欄」の（件数）は、どちらもこの絞ったあとの数（PR #174 レビュー 軽い7）。 */
+export function searchCommandGroups<T extends { name: string; title: string; description?: string }>(groups: Array<[string, T[]]>, query: string): Array<[string, T[]]> {
+  const q = query.trim().toLowerCase();
+  if (!q) return groups;
+  return groups.map(([category, files]) => [category, files.filter(file => `${file.title} ${file.name} ${file.description || ""}`.toLowerCase().includes(q))]);
 }

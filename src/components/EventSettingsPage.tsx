@@ -1,5 +1,5 @@
 // src/components/EventSettingsPage.tsx
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ToggleSlider } from "./ToggleSlider";
 import EventTypeIcon, { type EventIconKind } from "./EventTypeIcon";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
@@ -57,6 +57,8 @@ function CmdFileSelect({
 }) {
   // 同じコマンドかは .txt の有無・大文字小文字を問わない（src/lib/commandFiles.ts。処理のコピー PR8）。手で書いた Neko.TXT も一覧の neko.txt を選んだ形で出す。
   const selected = findCommandFile(commandFiles, value);
+  // 行ごとに毎回まとめ直さない（PR #174 レビュー 軽い10）。
+  const groups = useMemo(() => groupCommandsByCategory(commandFiles), [commandFiles]);
   return (
     <div className="event-command-select flex items-center gap-2">
       {commandFiles.length > 0 ? (
@@ -69,7 +71,7 @@ function CmdFileSelect({
           <option value="">（未設定）</option>
           {value && !selected && <option value={value}>{value}</option>}
           {/* ギフト設定と同じ分類の見出しごとに並べる（2026-10-30 ユーザーの決定） */}
-          {groupCommandsByCategory(commandFiles).map(([category, files]) => (
+          {groups.map(([category, files]) => (
             <optgroup key={category} label={commandGroupLabel(category, files.length)} className="command-optgroup">
               {files.map((f) => <option key={f.name} value={f.name}>{commandOptionLabel(f)}</option>)}
             </optgroup>

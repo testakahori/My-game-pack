@@ -8,7 +8,7 @@ import { toRepeat } from "../lib/integerInput";
 import { findCommandFile, sameCommandFile } from "../lib/commandFiles";
 import { isDisabledMapping } from "../lib/giftMappingRows";
 import DisabledMappingMark from "./DisabledMappingMark";
-import { commandGroupLabel, groupCommandsByCategory } from "../lib/commandGroups";
+import { commandGroupLabel, groupCommandsByCategory, searchCommandGroups } from "../lib/commandGroups";
 
 type Props = {
   mappings?: GiftMapping[];
@@ -45,7 +45,9 @@ const MappingEditor: React.FC<Props> = (props) => {
   const [commandQuery, setCommandQuery] = useState("");
   // 分類の見出しの決め方は、いいね・フォローとルーレット・コメントと同じ1か所（src/lib/commandGroups.ts。2026-10-30）。
   const commandGroups = useMemo(() => groupCommandsByCategory(cmdFiles), [cmdFiles]);
-  const visibleCommandGroups = useMemo(() => commandGroups.map(([category, files]) => ({ category, files: files.filter(file => (!commandCategoryFilter || category === commandCategoryFilter) && `${file.title} ${file.name} ${file.description || ""}`.toLowerCase().includes(commandQuery.trim().toLowerCase())) })).filter(group => group.files.length), [commandGroups, commandCategoryFilter, commandQuery]);
+  // 見出しの（件数）と分類で絞る欄の（件数）は、どちらも検索で絞ったあとの数（PR #174 レビュー 軽い7）。
+  const searchedCommandGroups = useMemo(() => searchCommandGroups(commandGroups, commandQuery), [commandGroups, commandQuery]);
+  const visibleCommandGroups = useMemo(() => searchedCommandGroups.filter(([category, files]) => files.length && (!commandCategoryFilter || category === commandCategoryFilter)).map(([category, files]) => ({ category, files })), [searchedCommandGroups, commandCategoryFilter]);
   // 同じコマンドかは .txt の有無・大文字小文字を問わない（src/lib/commandFiles.ts。処理のコピー PR8）。
   // 手で書いた Neko.TXT の割り当ても、一覧の neko.txt を選んだ形で出す（選択の値は一覧の名前）。
   const selectedListedName = findCommandFile(cmdFiles, selectedTxtName)?.name ?? selectedTxtName;
@@ -207,7 +209,7 @@ const MappingEditor: React.FC<Props> = (props) => {
             <div className="gift-command-filters">
               <select aria-label="コマンドのカテゴリ" value={commandCategoryFilter} onChange={e => setCommandCategoryFilter(e.target.value)}>
                 <option value="">すべてのカテゴリ</option>
-                {commandGroups.map(([category, files]) => <option key={category} value={category}>{category}（{files.length}）</option>)}
+                {searchedCommandGroups.map(([category, files]) => <option key={category} value={category}>{category}（{files.length}）</option>)}
               </select>
               <input aria-label="コマンド検索" placeholder="名前・効果で検索" value={commandQuery} onChange={e => setCommandQuery(e.target.value)} />
             </div>
@@ -222,7 +224,7 @@ const MappingEditor: React.FC<Props> = (props) => {
                 <option value="">
                   {cmdFiles.length === 0 ? "コマンド設定でTXTを作成してください" : "選択してください"}
                 </option>
-                {selectedTxtName && !selectedCommandVisible && <optgroup label="現在の設定"><option value={selectedListedName}>{titleOf(selectedTxtName) || selectedTxtName}</option></optgroup>}
+                {selectedTxtName && !selectedCommandVisible && <optgroup label="現在の設定" className="command-optgroup"><option value={selectedListedName}>{titleOf(selectedTxtName) || selectedTxtName}</option></optgroup>}
                 {visibleCommandGroups.map(group => <optgroup key={group.category} label={commandGroupLabel(group.category, group.files.length)} className="command-optgroup">
                   {group.files.map(file => <option key={file.name} value={file.name}>{commandOptionLabel(file)}</option>)}
                 </optgroup>)}

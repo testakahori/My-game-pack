@@ -41,3 +41,13 @@ test('運用センターの保存: 演出・ゲーム性設定（gameplay）は�
   assert.equal('gameplay' in opsConfigToSave({ options: {} }, { gameplay: { stale: true } }).options, false, '最新に無ければ足さない');
   assert.match(ops, /opsConfigToSave\(latest, cfg\.options\)/);
 });
+
+// gameplay を外す決め方は1か所（src/lib/opsConfig.ts）。保存と、未保存かどうかの比べの両方で使う（PR #174 レビュー 軽い2）。
+test('運用センター：未保存かどうかの比べも、保存と同じ決め方で gameplay を外す', () => {
+  const { withoutGameplay } = loadTs('opsConfig.ts');
+  assert.deepEqual(withoutGameplay({ giftCooldownMs: 300, gameplay: { combo: {} } }), { giftCooldownMs: 300 });
+  assert.deepEqual(withoutGameplay(undefined), {});
+  assert.match(ops, /JSON\.stringify\(\{ options: withoutGameplay\(cfg\.options\) \}\)/);
+  assert.match(ops, /JSON\.stringify\(\{ options: withoutGameplay\(bridgeConfig\.options\) \}\)/);
+  assert.doesNotMatch(ops, /const pageOptions = /, 'ページに写しを持たない');
+});

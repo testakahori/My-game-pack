@@ -6,7 +6,7 @@ import ListInput from "./ListInput";
 import ObsIntegrationSettings from "./ObsIntegrationSettings";
 import { COMMA_ONLY, hasJapaneseComma } from "../lib/listInput";
 import { useUnsavedChanges } from "../UnsavedChanges";
-import { opsConfigToSave } from "../lib/opsConfig";
+import { opsConfigToSave, withoutGameplay } from "../lib/opsConfig";
 // 既定値は BRIDGE と同じ表（bridge/config_defaults.json。処理のコピー PR4）。
 import CONFIG_DEFAULTS from "../../bridge/config_defaults.json";
 
@@ -157,8 +157,7 @@ export default function OperationsPage({ onRestored, gameReady }: { onRestored: 
   const [saving, setSaving] = useState(false);
   const [savedSnapshot, setSavedSnapshot] = useState("");
   // options.gameplay（コンボ・いいねやフォローの節目など）は画面で直さないので、未保存かどうかにも入れない（2026-10-30。src/lib/opsConfig.ts）。
-  const pageOptions = (options: any) => { const { gameplay: _ignored, ...rest } = options || {}; return rest; };
-  const currentSnapshot = JSON.stringify({ options: pageOptions(cfg.options) });
+  const currentSnapshot = JSON.stringify({ options: withoutGameplay(cfg.options) });
   // このページの動作設定だけの未保存。帯の「変更を保存」はこれを保存するので、OBS 連携の欄（自分の保存ボタンを持つ）の未保存では出さない（PR3 の最後のレビュー 重要2）。
   const opsDirty = Boolean(savedSnapshot) && currentSnapshot !== savedSnapshot;
   useUnsavedChanges(opsDirty, saving);
@@ -204,7 +203,7 @@ export default function OperationsPage({ onRestored, gameReady }: { onRestored: 
       setCfg(bridgeConfig);
       setAppCfg(appConfigValue);
       setServerProps(propsValue);
-      if (config.status === "fulfilled" && appConfig.status === "fulfilled") setSavedSnapshot(JSON.stringify({ options: pageOptions(bridgeConfig.options) }));
+      if (config.status === "fulfilled" && appConfig.status === "fulfilled") setSavedSnapshot(JSON.stringify({ options: withoutGameplay(bridgeConfig.options) }));
     });
 
     refresh();
