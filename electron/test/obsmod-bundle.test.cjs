@@ -27,7 +27,8 @@ test('OBSMOD: サーバーの雛形の mods に入れる（準備の道具は ja
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'obs-template-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const source = path.join(dir, 'source'), target = path.join(dir, 'template');
-  for (const name of ['jdk-21.0.4+7', 'libraries', 'mods', 'GiftStream_Pack']) fs.mkdirSync(path.join(source, name), { recursive: true });
+  // GiftStream_Pack が無いサーバーからでも作れる（配らなくした。2026-10-30）。
+  for (const name of ['jdk-21.0.4+7', 'libraries', 'mods']) fs.mkdirSync(path.join(source, name), { recursive: true });
   for (const name of ['forge-1.20.1-47.4.10-installer.jar', 'run.bat', 'run.sh', 'setup.bat', 'user_jvm_args.txt']) fs.writeFileSync(path.join(source, name), 'x');
   fs.writeFileSync(path.join(source, 'mods', 'minecraft_obs_bridge-2.4.7.jar'), 'old');
   const put = (name, text) => { const file = path.join(dir, name); fs.writeFileSync(file, text); return file; };

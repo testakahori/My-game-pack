@@ -10,7 +10,8 @@ function prepareServerTemplate(source, destination, modJar, displayJar, obsJar) 
   if (modJar && (!fs.existsSync(modJar) || !fs.statSync(modJar).isFile())) throw new Error(`Build the current BridgeMod first: ${modJar}`);
   if (displayJar && (!fs.existsSync(displayJar) || !fs.statSync(displayJar).isFile())) throw new Error(`Build the current DisplayMod first: ${displayJar}`);
   if (obsJar && (!fs.existsSync(obsJar) || !fs.statSync(obsJar).isFile())) throw new Error(`Build the current ObsMod first: ${obsJar}`);
-  const directories = ["jdk-21.0.4+7", "libraries", "mods", "GiftStream_Pack"];
+  // GiftStream_Pack（古いデータパック）は配らない。サーバーフォルダーの直下では Minecraft に読まれず、中身もほかが受け持っている（2026-10-30 ユーザーの決定）。
+  const directories = ["jdk-21.0.4+7", "libraries", "mods"];
   const files = [`forge-${FORGE_VERSION}-installer.jar`, "run.bat", "run.sh", "setup.bat", "user_jvm_args.txt"];
   for (const name of [...directories, ...files]) {
     const src = path.join(source, name);
