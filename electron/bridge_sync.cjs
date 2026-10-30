@@ -13,7 +13,7 @@ const { writeFileDurable } = require("../bridge/safe_json_file.cjs");
 // サーバーの子プロセスとポートの稼働は、あとで main で作られるので、呼ばれたときに読む関数で受け取る。
 function createBridgeSync({
   app, process, appDir, BrowserWindow, runProc, readAppConfig, writeAppConfig, getBridgeBatDir, getServerTemplatePath,
-  gameProfiles, gameProfileOperation, assertGameProfileIdle, serverChild, isServerPortOpen,
+  gameProfiles, gameProfileOperation, assertGameProfileIdle, serverChild, isServerPortOpen, clearEulerCredentials = () => {},
 }) {
   // --------------------
   // Bridge: resources → serverFolder/bridge へ差分同期
@@ -615,6 +615,13 @@ function createBridgeSync({
       const dst = path.join(targetFolder, "bridge");
       const dstConfigPath = path.join(dst, "config.minecraft.json");
       const hadUserConfig = fs.existsSync(dstConfigPath);
+      // 新しい保存先（BRIDGE の設定がまだ無い所）では、写す前に「前の記録を消すのがまだ」の印を置く。設定は下の写しで作られるので、
+      // 途中で止まってやり直すと設定があり「入れ直し」に見える。印を見て、やり直しでも消す（PR #176 レビュー 重要1）。
+      const accountResetMarker = path.join(dst, ".account-reset-pending");
+      if (!hadUserConfig) {
+        fs.mkdirSync(dst, { recursive: true });
+        fs.writeFileSync(accountResetMarker, "");
+      }
       const result = await copyBridgeDifferential(src, dst, { forceHeavy: true, preserveUserFiles: true });
       await ensureBridgeRuntimeReady(dst, result.stats);
       await writeBridgeSyncMarker(dst, await getBridgeRuntimeSignature(dst), result.stats);
@@ -636,7 +643,17 @@ function createBridgeSync({
       // 過去バージョンでセットアップされたフォルダを再利用しても mod jar を最新に揃える
       await refreshBridgeModJar(targetFolder);
 
-      return { ok: true, dst, stats: result.stats };
+      // 新しい保存先を作ったときは、この PC に残っていた前の記録を空にする。マイクラID と Euler Stream の API キー。知らない人の ID やキーを出さない
+      // （2026-10-30 ユーザーの決定「新しい保存先では空にする」）。画面が覚えていた TikTok ユーザー名は、返す newFolder を見て画面が消す。
+      // 失敗しうる処理を全部終えてから消し、印を外す。同じ保存先への入れ直しでは消さない。
+      const newFolder = fs.existsSync(accountResetMarker) && fs.existsSync(dstConfigPath);
+      if (newFolder) {
+        writeAppConfig({ minecraftPlayerName: "" }, { forgetPrevious: true });
+        try { clearEulerCredentials(); } catch (e) { console.warn("[bridge:extractTo] API key clear failed:", e?.message || e); }
+        fs.rmSync(accountResetMarker, { force: true });
+      }
+
+      return { ok: true, dst, stats: result.stats, newFolder };
     });
 
     // --------------------

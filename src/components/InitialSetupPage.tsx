@@ -4,6 +4,7 @@ import setupBeforeHeroImage from "../../assets/初期セットアップ完了前
 import setupBeforeForgeImage from "../../assets/初期セットアップ完了前02.png";
 import setupBeforeEnvImage from "../../assets/初期セットアップ完了前03.png";
 import { ipcErrorMessage } from "../lib/ipcError";
+import { forgetRememberedTikTokUser } from "../lib/rememberedAccounts";
 
 type Props = {
   setupComplete: boolean;
@@ -298,7 +299,8 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
       return false;
     }
 
-    if (targetFolder) await api.bridgeExtractTo(targetFolder);
+    // 新しい保存先なら、画面が覚えていた TikTok ユーザー名を消す（マイクラID・API キーは main が消す。2026-10-30）。
+    if (targetFolder) forgetRememberedTikTokUser(await api.bridgeExtractTo(targetFolder));
     await api.serverPropsWrite({ "enable-command-block": "true" });
     await api.appConfigWrite({
       serverFolder: targetFolder,
@@ -452,7 +454,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
       await api.appConfigWrite({ serverFolder: targetFolder });
       const status = await api.serverCheckSetupComplete();
       if (!status.complete) throw new Error(`このフォルダには準備が必要です: ${(status.missing || ["サーバー環境"]).join("、")}。「環境構築をする」から準備できます。`);
-      await api.bridgeExtractTo(targetFolder);
+      forgetRememberedTikTokUser(await api.bridgeExtractTo(targetFolder));
       await api.appConfigWrite({ setupComplete: true, setupRequiredByInstall: false });
       onSetupComplete();
     } catch (e: any) {
@@ -468,7 +470,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
       const picked = await api.dialogPickFolder("使用するMinecraftサーバーフォルダを選択");
       if (picked.canceled || !picked.path) return;
       await saveServerFolder(picked.path);
-      await api.bridgeExtractTo(picked.path);
+      forgetRememberedTikTokUser(await api.bridgeExtractTo(picked.path));
       setVerifyMsg("サーバーフォルダを設定しました。");
     } catch (e: any) {
       setErrorMsg(`サーバーフォルダの設定に失敗しました: ${setupError(e)}`);
