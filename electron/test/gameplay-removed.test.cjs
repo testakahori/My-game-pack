@@ -69,10 +69,10 @@ test('FeatureEngine と bridge/feature_engine.js は無い。RANDOM の重みは
 });
 
 test('BRIDGE: ギフト・いいね・フォロー・コメント・つなぎ直し・配信終了・テスト発火は、ゲームの数え方を通さない', () => {
+  // 消した識別子だけを見る（関係のない注釈やログの言葉では落とさない。PR #177 レビュー 軽い7）。
   const source = read('bridge/index.js');
-  assert.doesNotMatch(source, /gameplay|emitFeature|startPoll|finishPoll|recordGift|recordLikes|recordFollow|recordComment|startStream|topGifter|lastRoomId|followCount|feature:/);
-  assert.doesNotMatch(source, /コンボ|マイルストーン|時限倍率|上位者|ゲームの数え方|投票/, '注釈とログの文にも残さない');
-  assert.doesNotMatch(source, /case "poll"/);
+  assert.doesNotMatch(source, /\b(FeatureEngine|featureEngine|liveFeatureEngine|gameplayConfig|emitFeature|startPoll|finishPoll|topGifter|recordGift|recordLikes|recordFollow|recordComment|startStream|lastRoomId)\b/);
+  assert.doesNotMatch(source, /values\.gameplay|action\.followCount|case "poll"/);
 });
 
 test('テスト発火: コンボ・いいねとフォローのマイルストーン・コメントコマンド・コメント投票の種類は無く、ほかの種類は残す', () => {
@@ -91,8 +91,10 @@ test('テスト発火: コンボ・いいねとフォローのマイルストー
   for (const type of ['combo', 'milestone', 'poll']) run.step({ historyType: type, commandFile: 'x.txt', count: 1 });
   run.step({ historyType: 'comment', commandFile: 'x.txt', count: 1 });
   assert.deepEqual(run.steps.map(step => step.label), ['イベント', 'イベント', 'イベント', 'コメント']);
-  const fire = read('bridge/test_fire.cjs');
-  assert.doesNotMatch(fire, /マイルストーン|コメントコマンド|ゲームの数え方|投票/, '案内の文にも残さない');
+  // 案内の文（当てはまらないとき・無効の割り当て）にも、消した仕掛けを書かない。
+  for (const type of ['like', 'follow', 'comment']) assert.doesNotMatch(noMatchNote(type), /マイルストーン|コメントコマンド/, type);
+  const disabled = testEventActions({ type: 'mapped_gift', giftId: '1', count: 1 }, { mappedGiftIds: new Set(['1']), disabledGiftIds: new Set(['1']) });
+  assert.doesNotMatch(disabled.notes.join(''), /ゲームの数え方/);
 });
 
 test('古い gameplay が残っている設定でも、BRIDGE は起動して今の設定のとおりだけ送り、配信中の保存も読み直す', async t => {
