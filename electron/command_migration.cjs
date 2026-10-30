@@ -21,7 +21,10 @@ function migrateCommandReferences(config) {
     }
     return next;
   }
-  return visit(config);
+  const next = visit(config);
+  // 演出・ゲーム性設定（options.gameplay）は仕掛けごとなくした。古い設定に残った分は読まずに放っておく（書き換えない。2026-10-30）。
+  if (Object.hasOwn(config?.options || {}, "gameplay")) next.options.gameplay = config.options.gameplay;
+  return next;
 }
 
 function migrateRetiredCommands(bridgeDir) {

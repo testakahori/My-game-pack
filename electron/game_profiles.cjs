@@ -13,8 +13,11 @@ const { GAMES, RESERVED_MOD_IDS, gameOfCommand, isGameCommandFile, isGameModId, 
 // ゲームの初期マップ（games.json の maps）の入れ替え（埋め立て PR3）。
 const { MAP_SWITCH_DIR, hasWorld, mapPlaces, ensureMapBackup, stageMap, worldAllowed, dedicatedOnly, notDedicated, ownMapOf, planMapChange, journalMap, applyMapSwap, restoreMapSwap } = require('./game_maps.cjs');
 const { levelNameOf } = require('./server_properties.cjs');
+// 'milestones'・'combos' は、どこも書いていない名前だったので外した（2026-10-30）。
 const PROFILE_KEYS = ['mappings', 'likeEvents', 'unmappedGiftEvent', 'shareEvent', 'followEvent', 'memberEvent',
   'roulette', 'deathRoulette', 'commentGifts'];
+// ゲーム別に持つ項目だけを取り出す。options（古い設定に残った演出・ゲーム性設定 options.gameplay を含む）は読まない（2026-10-30）。
+const profileOf = config => Object.fromEntries(PROFILE_KEYS.filter(k => Object.hasOwn(config, k)).map(k => [k, config[k]]));
 const hash = data => crypto.createHash('sha256').update(data).digest('hex');
 const writeJson = (file, value) => atomicWrite(file, JSON.stringify(value, null, 2));
 // 切り替えの記録（profiles.json）とギフト設定は、壊れても消えないように読み書きする
@@ -146,7 +149,7 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     const current = state();
     // ギフト設定が壊れていても投げない（アプリの設定の保存・ゲームの一覧・設定のバックアップから戻す操作を止めない。設計書 6.4）。
     const config = peekJsonFile(configPath()) || {};
-    return { active: current.active, saikutuMigrationNeeded: saikutu.hasLegacy(config), displayBundled: Boolean(displayJar()), obsBundled: Boolean(obsJar()), applied: (config.gameProfile || 'common') === current.active && current.appliedFormat === 3 && JSON.stringify(current.appliedRoots) === JSON.stringify([path.resolve(serverRoot()), path.resolve(clientRoot())]), serverMods: path.join(serverRoot(), 'mods'), clientMods: path.join(clientRoot(), 'mods'), recoveryRequired: fs.existsSync(journalFile()),
+    return { active: current.active, saikutuMigrationNeeded: saikutu.hasLegacy(profileOf(config)), displayBundled: Boolean(displayJar()), obsBundled: Boolean(obsJar()), applied: (config.gameProfile || 'common') === current.active && current.appliedFormat === 3 && JSON.stringify(current.appliedRoots) === JSON.stringify([path.resolve(serverRoot()), path.resolve(clientRoot())]), serverMods: path.join(serverRoot(), 'mods'), clientMods: path.join(clientRoot(), 'mods'), recoveryRequired: fs.existsSync(journalFile()),
       mapResettable: mapResettable(current.active),
       games: games.map(g => ({ ...g, installed: g.id === 'common' || Boolean(current.packages[g.id]) || bundledPackages().some(p => p.id === g.id), selected: current.active === g.id })) };
   }
@@ -331,7 +334,7 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     const next = clone(current);
     // 読めなかったギフト設定（写し・雛形で埋めたもの）で、今のゲームの保存済みの設定を上書きしない。
     // options はゲームによらない（送り方・ポートなど）ので写さない。演出・ゲーム性設定（options.gameplay）は仕掛けごとなくした（2026-10-30）。
-    if (!unreadable) next.profiles[current.active] = Object.fromEntries(PROFILE_KEYS.filter(k => Object.hasOwn(config, k)).map(k => [k, config[k]]));
+    if (!unreadable) next.profiles[current.active] = profileOf(config);
     // Preserve the complete previous profile, and carry its bindings into mining on first selection.
     for (const [profileId, profile] of Object.entries(next.profiles)) {
       if (saikutu.hasLegacy(profile)) {

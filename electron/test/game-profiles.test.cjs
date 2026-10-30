@@ -343,6 +343,18 @@ test('採掘は同梱パックから選べて既存のギフト・ルーレッ�
   await x.api.activate('saikutu'); assert.equal(JSON.parse(fs.readFileSync(x.config)).mappings[1].repeat,5);
   const saved = JSON.parse(fs.readFileSync(path.join(x.storage,'profiles.json'))); assert.equal(saved.legacySaikutuProfiles.common.mappings[1].commandFile,'otosiana.txt');
 });
+// 演出・ゲーム性設定（options.gameplay）は仕掛けごとなくしたので、採掘の引き継ぎの案内でも古い gameplay の中は見ない（2026-10-30。PR #177 レビュー 軽い1）。
+// 前は gameplay の中の otosiana.txt で、「保存」を押しても案内が出たままになった（「保存」が整理するのはゲーム別の設定の項目だけ）。
+test('採掘の引き継ぎの案内: 古い options.gameplay の中に採掘へ移したコマンドがあっても出さず、割り当てにあれば出す', t => {
+  const x = fixture(t);
+  const config = JSON.parse(fs.readFileSync(x.config));
+  config.options = { ...config.options, gameplay: { likeMilestones: [{ threshold: 10, commandFile: 'otosiana.txt' }], commentCommands: { '!x': { commandFile: 'give_haste.txt' } } } };
+  fs.writeFileSync(x.config, JSON.stringify(config));
+  assert.equal(x.api.list().saikutuMigrationNeeded, false);
+  config.mappings.push({ giftId: 'rose', commandFile: 'otosiana.txt', repeat: 1 });
+  fs.writeFileSync(x.config, JSON.stringify(config));
+  assert.equal(x.api.list().saikutuMigrationNeeded, true, '割り当てにあれば出す');
+});
 test('あとから採掘へ移したコマンドの引き継ぎでも、前の引き継ぎの退避を上書きしない（2026-10-12）', async t => {
   let folder;
   const x = fixture(t, { bundledPackages: () => folder ? [{ id:'saikutu',folder }] : [] });

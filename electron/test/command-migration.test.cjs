@@ -52,6 +52,28 @@ test('暗闇地獄とペット召喚だけを削除し、暗黒と愛犬の割�
  const next=migrateCommandReferences(input);assert.deepEqual(next.mappings,[{commandFile:'darkness.txt'},{commandFile:'wolf.txt'}]);assert.deepEqual(next.shareEvent,{enabled:false,commandFile:''});assert.equal(input.mappings.length,4);
 });
 
+// 演出・ゲーム性設定（options.gameplay）は仕掛けごとなくした。古い設定に残った分は読まずに放っておく（書き換えない。2026-10-30。PR #177 レビュー 軽い1）。
+test("廃止コマンドの書き換え: 古い options.gameplay の中は書き換えず、割り当てとほかの options は今までどおり", () => {
+  const gameplay = { combo: { levels: [{ count: 2, commandFile: "husk01.txt" }, { count: 5, commandFile: "tornado.txt" }] },
+    likeMilestones: [{ threshold: 10, commandFile: "seichi_donut.txt" }], commentCommands: { "!x": { commandFile: "petsummon.txt" } } };
+  const input = { mappings: [{ giftId: "1", commandFile: "husk01.txt" }], options: { giftCooldownMs: 300, gameplay } };
+  const before = JSON.stringify(input);
+  const next = migrateCommandReferences(input);
+  assert.deepEqual(next.mappings, [{ giftId: "1", commandFile: "husk.txt" }]);
+  assert.deepEqual(next.options, { giftCooldownMs: 300, gameplay: JSON.parse(before).options.gameplay });
+  assert.equal(JSON.stringify(input), before, "元の設定は変えない");
+});
+
+test("コマンド移行: 古い options.gameplay にだけ廃止コマンドがあるときは、書き換えもバックアップもしない", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "command-migration-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const raw = JSON.stringify({ mappings: [{ giftId: "a", commandFile: "zombie.txt" }], options: { gameplay: { combo: { levels: [{ count: 2, commandFile: "husk01.txt" }] } } } });
+  fs.writeFileSync(path.join(root, "config.minecraft.json"), raw);
+  migrateRetiredCommands(root);
+  assert.equal(fs.readFileSync(path.join(root, "config.minecraft.json"), "utf8"), raw);
+  assert.equal(fs.existsSync(path.join(root, "retired-command-backups")), false);
+});
+
 // ギフト設定が読めないあいだも、初期セットアップのやり直し・アップデートのあとの BRIDGE の更新を止めない（PR3 の最後のレビューの軽い 2）。
 test("コマンド移行: ギフト設定が読めなければ何もしない", t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "command-migration-"));
