@@ -14,7 +14,7 @@ const { GAMES, RESERVED_MOD_IDS, gameOfCommand, isGameCommandFile, isGameModId, 
 const { MAP_SWITCH_DIR, hasWorld, mapPlaces, ensureMapBackup, stageMap, worldAllowed, dedicatedOnly, notDedicated, ownMapOf, planMapChange, journalMap, applyMapSwap, restoreMapSwap } = require('./game_maps.cjs');
 const { levelNameOf } = require('./server_properties.cjs');
 const PROFILE_KEYS = ['mappings', 'likeEvents', 'unmappedGiftEvent', 'shareEvent', 'followEvent', 'memberEvent',
-  'roulette', 'deathRoulette', 'commentGifts', 'milestones', 'combos'];
+  'roulette', 'deathRoulette', 'commentGifts'];
 const hash = data => crypto.createHash('sha256').update(data).digest('hex');
 const writeJson = (file, value) => atomicWrite(file, JSON.stringify(value, null, 2));
 // 切り替えの記録（profiles.json）とギフト設定は、壊れても消えないように読み書きする
@@ -29,7 +29,7 @@ function stateProblem(value) {
 }
 const clone = value => JSON.parse(JSON.stringify(value));
 // 指定したゲーム以外のゲーム専用コマンド（game_<一覧のゲーム>_*.txt）を使う割り当てを外す。game_mode_on.txt などは共通のコマンドなので残す。
-// 文字列で書いたコメントコマンド・投票の選択肢も外す（切り替えの確かめはそれも数える。処理のコピー PR6）。
+// 文字列で書いたコマンドも外す（前はコメントコマンド・投票の選択肢を文字列で書けた。処理のコピー PR6）。
 function withoutOtherGameCommands(value, gameId) {
   const other = file => { const game = gameOfCommand(file); return game !== null && game !== gameId; };
   // .txt を書いていない文字列も、切り替えの確かめと BRIDGE は .txt を付けて数えるので外す（PR6 の最終レビュー）。
@@ -330,8 +330,8 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
     const oldNames = fs.existsSync(commandDir) ? fs.readdirSync(commandDir).filter(isGameCommandFile) : [];
     const next = clone(current);
     // 読めなかったギフト設定（写し・雛形で埋めたもの）で、今のゲームの保存済みの設定を上書きしない。
-    if (!unreadable) next.profiles[current.active] = { ...Object.fromEntries(PROFILE_KEYS.filter(k => Object.hasOwn(config, k)).map(k => [k, config[k]])),
-      options: { gameplay: clone(config.options?.gameplay || {}) } };
+    // options はゲームによらない（送り方・ポートなど）ので写さない。演出・ゲーム性設定（options.gameplay）は仕掛けごとなくした（2026-10-30）。
+    if (!unreadable) next.profiles[current.active] = Object.fromEntries(PROFILE_KEYS.filter(k => Object.hasOwn(config, k)).map(k => [k, config[k]]));
     // Preserve the complete previous profile, and carry its bindings into mining on first selection.
     for (const [profileId, profile] of Object.entries(next.profiles)) {
       if (saikutu.hasLegacy(profile)) {
@@ -373,10 +373,9 @@ function createGameProfiles({ storage, serverRoot, clientRoot, configPath, bridg
         fs.renameSync(path.join(slot, 'next'), mods);
       }
       for (const key of PROFILE_KEYS) delete config[key];
-      // Gameplay milestones/combo/poll also contain command bindings; other options stay shared.
-      const { options: profileOptions, ...bindings } = destination;
+      // 前の版は options.gameplay をゲーム別に写していた。profiles.json に残った options は外し、今の options（送り方・ポートなど）を上書きしない（2026-10-30）。
+      const { options: _oldProfileOptions, ...bindings } = destination;
       Object.assign(config, bindings);
-      config.options = { ...config.options, gameplay: profileOptions?.gameplay || {} };
       config.gameProfile = id;
       for (const name of oldNames) fs.unlinkSync(path.join(commandDir, name));
       for (const [name, text] of Object.entries(gameFiles)) atomicWrite(path.join(commandDir, name), text);

@@ -71,6 +71,17 @@ test('保存済みの設定を更新のときに1回だけ直す: 直す前に�
   assert.equal(x.dialogs.length, 1, '直したものがなければ知らせない');
 });
 
+// 演出・ゲーム性設定（options.gameplay）は仕掛けごとなくした（2026-10-30）。古い設定に残っていても読まずに放っておく。
+// 前は gameplay の中の無いコマンドで、gameplay の欄が無い画面からの保存まで止まった（PR #174 のレビューの重要1）。
+test('BRIDGE の設定の保存: 古い options.gameplay に無いコマンド・使えない名前が残っていても止めず、gameplay は消さずに書く', async t => {
+  const x = setup(t);
+  const current = await x.invoke('config:read');
+  const gameplay = { combo: { levels: [{ count: 2, commandFile: 'missing.txt', repeat: 500 }] }, likeMilestones: [{ threshold: -1, commandFile: 'ネコ.txt' }],
+    followMilestones: [{ threshold: 3, commandFile: 'missing.txt' }], commentCommands: { '!x': 'missing.txt' }, poll: { enabled: true, options: { 1: 'missing.txt' } } };
+  await x.invoke('config:write', { ...current, options: { ...current.options, gameplay } });
+  assert.deepEqual(JSON.parse(fs.readFileSync(x.configPath, 'utf8')).options.gameplay, gameplay);
+});
+
 test('TikTok ID の保存: 形が正しくない ID は止め、@ や大文字は入力のまま保存する（使う所で整える。2026-10-18 設計書の 9）', async t => {
   const x = setup(t);
   const current = await x.invoke('config:read');

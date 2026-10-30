@@ -154,8 +154,9 @@ test("配信前チェック: 接続・一覧の新鮮さ・コマンド・音声
   write(giftsMetaPath, { username: " @AkahoriDouma ", generatedAt: new Date().toISOString() });
   assert.equal((await runPreflight(deps)).checks.find(row => row.id === "gifts").status, "ok");
   // 参照の数え方は command_files.cjs の commandFileRefs の1か所（処理のコピー PR5）。BRIDGE が動かすものだけを数える。
-  write(p.config, { ...cfg, options: { gameplay: { commentCommands: { "!猫": "missing.txt" } } } });
-  assert.match((await runPreflight(deps)).checks.find(row => row.id === "commands").detail, /missing\.txt/, "文字列で書いたコメントコマンドも数える");
+  // 演出・ゲーム性設定（options.gameplay）は仕掛けごとなくしたので、古い設定に残っていても数えない（2026-10-30。PR #174 のレビューの重要1）。
+  write(p.config, { ...cfg, options: { ...cfg.options, gameplay: { commentCommands: { "!猫": "missing.txt" }, combo: { levels: [{ count: 2, commandFile: "missing.txt" }] } } } });
+  assert.equal((await runPreflight(deps)).checks.find(row => row.id === "commands").status, "ok", "古い gameplay の中の無いコマンドで止めない");
   write(p.config, { ...cfg, mappings: [{ giftId: "1", commandFile: "missing.txt", enabled: false }, ...cfg.mappings], roulette: { items: [{ commandFile: "missing.txt" }] } });
   assert.equal((await runPreflight(deps)).checks.find(row => row.id === "commands").status, "ok", "無効の割り当て・有効にしていないルーレットは数えない");
   write(p.config, { ...cfg, tiktokUsername: "foo-bar" });

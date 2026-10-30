@@ -14,11 +14,7 @@ test('BridgeMODと同じ規則でコマンドファイル名を判定する', ()
 });
 
 const config = (extra = {}) => ({
-  tiktokUsername: 'fixture', options: { commandTransport: 'bridge_mod', gameplay: {
-    combo: { levels: [{ count: 10, commandFile: 'combo ネコ.txt' }] },
-    likeMilestones: [{ threshold: 1000, commandFile: 'ok.txt' }],
-    commentCommands: { '!猫': 'ねこ.txt' }, poll: { enabled: true, options: { 1: { commandFile: 'ok.txt' } } },
-  } },
+  tiktokUsername: 'fixture', options: { commandTransport: 'bridge_mod' },
   mappings: [{ giftId: '5655', name: 'バラ', commandFile: 'ネコ.txt' }],
   likeEvents: [{ threshold: 10, commandFile: 'cod.txt' }],
   followEvent: { commandFile: 'tnt - コピー.txt' },
@@ -32,9 +28,9 @@ test('アプリの保存では、新しく割り当てた使えない名前を�
   const result = validateForSave(config(), { previous: [null] });
   assert.equal(result.ok, false);
   const text = result.errors.join('\n');
-  for (const where of ['ギフト割り当て（バラ）', 'フォロー', 'ルーレット項目（当たり）', 'コンボ（10連）', 'コメントコマンド（「!猫」）']) assert.ok(text.includes(where), where);
+  for (const where of ['ギフト割り当て（バラ）', 'フォロー', 'ルーレット項目（当たり）']) assert.ok(text.includes(where), where);
   assert.ok(!text.includes('いいね（10いいねごと）'));
-  assert.equal(commandFileRefs(config()).length, 9);
+  assert.equal(commandFileRefs(config()).length, 5);
   // RCON はファイルを直接読むので名前の制限は掛けない。
   assert.equal(validateForSave(config({ options: { commandTransport: 'rcon' } }), { previous: [null] }).ok, true);
 });
@@ -46,17 +42,15 @@ test('無効にしてある設定は、Bridgeと同じく発火しないので�
     roulette: { enabled: false, items: [{ commandFile: 'あたり.txt' }] },
     deathRoulette: { items: [{ commandFile: 'あたり.txt' }] },
     commentGifts: { enabled: true, rules: [{ enabled: false, match: 'x', commandFile: 'ねこ.txt' }] },
-    options: { commandTransport: 'bridge_mod', gameplay: { poll: { enabled: false, options: { 1: 'ねこ.txt' } } } },
   });
   assert.deepEqual(commandFileRefs(disabled), []);
   assert.equal(validateForSave(disabled, { previous: [null] }).ok, true);
-  // コンボ・ルーレット項目は Bridge が enabled を見ずに発火するので、enabled:false でも数える。
+  // ルーレット項目は Bridge が enabled を見ずに発火するので、enabled:false でも数える。
   // ギフト割り当ては、無効なら BRIDGE も動かさない（設計書 10。処理のコピー PR5）ので数えない。
   const ignoredFlag = config({ mappings: [{ enabled: false, giftId: '1', name: 'ハート', commandFile: 'ねこ.txt' }],
-    roulette: { enabled: true, items: [{ enabled: false, label: '外れ', commandFile: 'あたり.txt' }] },
-    options: { commandTransport: 'bridge_mod', gameplay: { combo: { levels: [{ enabled: false, count: 5, commandFile: 'ねこ.txt' }] } } } });
+    roulette: { enabled: true, items: [{ enabled: false, label: '外れ', commandFile: 'あたり.txt' }] } });
   const where = commandFileRefs(ignoredFlag).map(ref => ref.where);
-  for (const expected of ['ルーレット項目（外れ）', 'コンボ（5連）']) assert.ok(where.includes(expected), expected);
+  assert.ok(where.includes('ルーレット項目（外れ）'));
   assert.ok(!where.includes('ギフト割り当て（ハート）'), '無効のギフト割り当ては数えない');
   // ルーレットは BRIDGE が真の値なら回す（index.js の rouletteCfg?.enabled）ので、手で書いた 1 でも数える（PR5 の最終レビュー）。
   assert.ok(commandFileRefs({ roulette: { enabled: 1, items: [{ label: '当たり', commandFile: 'a.txt' }] } }).some(ref => ref.where === 'ルーレット項目（当たり）'));

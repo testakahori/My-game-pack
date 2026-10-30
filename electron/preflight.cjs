@@ -40,7 +40,7 @@ async function runPreflight(deps) {
   const rconOk = props["enable-rcon"] === "true" && Boolean(props["rcon.password"]) && props["rcon.password"] === cfg.rcon?.password && Number(props["rcon.port"] || 25575) === Number(cfg.rcon?.port || CONFIG_DEFAULTS.rcon.port);
   add("rcon", "RCON設定", rconOk ? "ok" : usesRcon ? "error" : "warn", rconOk ? "サーバーとBridgeの設定が一致しています。" : "RCONの有効化・ポート・パスワードの一致を確認してください。", "setup");
   // 数えるのは BRIDGE が動かしうる参照だけ（command_files.cjs の commandFileRefs の1か所。処理のコピー PR5）。
-  // 文字列で書いたコメントコマンド・投票も数え、無効の割り当て・有効にしていないルーレットなどは数えない。
+  // 無効の割り当て・有効にしていないルーレットなどと、古い設定に残った演出・ゲーム性設定（options.gameplay）は数えない。
   const refs = new Set(commandFileRefs(cfg).map(ref => ref.commandFile));
   const missing = [...refs].filter(name => !validCommand(ensureTxt(name)) || !fs.existsSync(path.join(deps.commandsDir, ensureTxt(name))));
   // UTF-8 でない txt（Shift_JIS など）は、BRIDGE は U+FFFD に変えて読み、BridgeMOD は読めない（処理のコピー PR7）。
