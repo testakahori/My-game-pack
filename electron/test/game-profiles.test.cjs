@@ -422,6 +422,27 @@ test('採掘のプロフィールを初めて作るとき、共通の game_mode_
   assert.deepEqual(mining.mappings.map(m => m.commandFile), ['game_mode_on.txt', 'game_saikutu_give_haste.txt']);
 });
 
+// 文字列だけでコマンドを書けたのは演出・ゲーム性設定（コメントコマンド・投票の選択肢）だけだったので、文字列を外す分かれ道は消した（2026-10-30。PR #177 レビュー 軽い4）。
+// 外すのは commandFile がほかのゲームのコマンドの項目（.txt なし・大文字も）だけ。名前やコメントの文字が、たまたまゲームのコマンドの名前に似ていても外さない。
+test('採掘のプロフィールを初めて作るとき、ほかのゲームのコマンドの項目は外し、それに似た名前・コメントの文字は残す', async t => {
+  let folder;
+  const x = fixture(t, { bundledPackages: () => folder ? [{ id:'saikutu',folder }] : [] });
+  await x.api.install(x.pack('umetate'));
+  folder = x.pack('saikutu');
+  const file = path.join(folder,'game.json'), manifest = JSON.parse(fs.readFileSync(file));
+  manifest.bridgeEventApi = 1; manifest.commands = [{ key:'give_haste',title:'採掘速度上昇',command:'saikutu give_haste {Count} {ListenerName}' }];
+  fs.writeFileSync(file,JSON.stringify(manifest));
+  await x.api.activate('umetate');
+  const umetate = JSON.parse(fs.readFileSync(x.config));
+  umetate.mappings = [{ giftId:'rose',name:'game_umetate_fill',commandFile:'zombie.txt',repeat:1 }, { giftId:'pass',commandFile:'give_haste.txt',repeat:1 }, { giftId:'fill',commandFile:'GAME_UMETATE_FILL',repeat:1 }];
+  umetate.commentGifts = { enabled:true, rules:[{ enabled:true,match:'game_umetate_fill',commandFile:'zombie.txt' }] };
+  fs.writeFileSync(x.config,JSON.stringify(umetate));
+  await x.api.activate('saikutu');
+  const mining = JSON.parse(fs.readFileSync(x.config));
+  assert.deepEqual(mining.mappings.map(m => [m.giftId, m.name, m.commandFile]), [['rose', 'game_umetate_fill', 'zombie.txt'], ['pass', undefined, 'game_saikutu_give_haste.txt']]);
+  assert.equal(mining.commentGifts.rules[0].match, 'game_umetate_fill');
+});
+
 // ゲームの切り替えで入れ替える（消す）のは、パックが作れる名前（大文字小文字は区別しない）だけ（PR6 の最終レビュー）。
 test('ゲームの切り替え: 大文字のゲームのファイルは入れ替え、手で作った . や - のある名前は消さない', async t => {
   const x = fixture(t), pack = x.pack('run'); await x.api.install(pack); await x.api.activate('run');

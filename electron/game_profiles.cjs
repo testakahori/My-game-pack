@@ -32,11 +32,11 @@ function stateProblem(value) {
 }
 const clone = value => JSON.parse(JSON.stringify(value));
 // 指定したゲーム以外のゲーム専用コマンド（game_<一覧のゲーム>_*.txt）を使う割り当てを外す。game_mode_on.txt などは共通のコマンドなので残す。
-// 文字列で書いたコマンドも外す（前はコメントコマンド・投票の選択肢を文字列で書けた。処理のコピー PR6）。
+// 外すのは commandFile を持つ項目だけ（.txt を書いていない名前・大文字も、BRIDGE は .txt を付けて読むので外す。PR6 の最終レビュー）。
+// 文字列だけでコマンドを書けたのは演出・ゲーム性設定（コメントコマンド・投票の選択肢）だけだった。仕掛けごとなくしたので、
+// 文字列を外す分かれ道も消した（名前・コメントの文字がゲームのコマンドの名前に似ていると外していた。2026-10-30）。
 function withoutOtherGameCommands(value, gameId) {
   const other = file => { const game = gameOfCommand(file); return game !== null && game !== gameId; };
-  // .txt を書いていない文字列も、切り替えの確かめと BRIDGE は .txt を付けて数えるので外す（PR6 の最終レビュー）。
-  if (typeof value === 'string') return other(value) ? undefined : value;
   if (!value || typeof value !== 'object') return value;
   if (other(value.commandFile)) return undefined;
   if (Array.isArray(value)) return value.map(item => withoutOtherGameCommands(item, gameId)).filter(item => item !== undefined);
