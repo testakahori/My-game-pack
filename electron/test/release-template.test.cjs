@@ -8,8 +8,9 @@ const { prepareServerTemplate } = require("../../scripts/prepare-server-template
 test("公開テンプレート: ワールド・プレイヤー・パスワード・設定・ログ・古いデータパック・作業の道具のフォルダーを含めない", t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "release-template-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const source = path.join(root, "source"), target = path.join(root, "template");
-  fs.mkdirSync(source);
+  // 元のサーバーの親に .claude があっても、外すのは元のサーバーより下の .omc・.claude だけ（PR #169 レビュー 軽い3）。
+  const source = path.join(root, ".claude", "source"), target = path.join(root, "template");
+  fs.mkdirSync(source, { recursive: true });
   for (const name of ["jdk-21.0.4+7", "libraries", "mods", "GiftStream_Pack", "world", "bridge", "logs"]) {
     fs.mkdirSync(path.join(source, name)); fs.writeFileSync(path.join(source, name, "fixture"), "data");
   }
@@ -20,7 +21,7 @@ test("公開テンプレート: ワールド・プレイヤー・パスワード
   fs.writeFileSync(path.join(source, "run.bat"), "java @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt nogui");
   fs.writeFileSync(path.join(source, "setup.bat"), "java -jar forge-1.20.1-47.3.0-installer.jar --installServer");
   // 作業の道具（.omc・.claude）が写すフォルダーの中で動くと、記録のフォルダーができる（2026-10-30 に本物のサーバーで起きた。PR #168 レビュー 軽い2）。
-  for (const dir of ["mods/.omc/state", "libraries/.claude", "jdk-21.0.4+7/.omc"]) {
+  for (const dir of ["mods/.omc/state", "libraries/.claude", "jdk-21.0.4+7/.omc", "libraries/org/.OMC/deep"]) {
     fs.mkdirSync(path.join(source, dir), { recursive: true }); fs.writeFileSync(path.join(source, dir, "note.json"), "{}");
   }
   const currentMod = path.join(root, "bridgemod-1.3.0.jar");
@@ -39,7 +40,8 @@ test("公開テンプレート: ワールド・プレイヤー・パスワード
   assert.match(fs.readFileSync(path.join(source, "run.bat"), "utf8"), /47\.3\.0/);
   // GiftStream_Pack はサーバーフォルダーの直下では Minecraft に読まれず、中身もほかが受け持っているので配らない（2026-10-30 ユーザーの決定）。
   for (const name of ["world", "bridge", "logs", "GiftStream_Pack", "RCON_password.txt", "server.properties", "usercache.json", "ops.json"]) assert.equal(fs.existsSync(path.join(target, name)), false, name);
-  for (const dir of ["mods/.omc", "libraries/.claude", "jdk-21.0.4+7/.omc"]) assert.equal(fs.existsSync(path.join(target, dir)), false, dir);
-  assert.equal(fs.existsSync(path.join(target, "mods", "fixture")), true);
+  for (const dir of ["mods/.omc", "libraries/.claude", "jdk-21.0.4+7/.omc", "libraries/org/.OMC"]) assert.equal(fs.existsSync(path.join(target, dir)), false, dir);
+  for (const dir of ["mods", "libraries", "jdk-21.0.4+7"]) assert.equal(fs.existsSync(path.join(target, dir, "fixture")), true, `${dir} の中身は写す`);
+  assert.equal(fs.existsSync(path.join(target, "libraries", "org")), true, "道具のフォルダーの横にあるものは写す");
   assert.throws(() => prepareServerTemplate(source, target), /already exists/);
 });

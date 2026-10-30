@@ -9,14 +9,15 @@
 // - txt 内の {ListenerName} を投げた人の表示名に置換（ゲーム別に安全化）
 // - 7DTD の txt 内は {PlayerId} も置換可能（config.target.telnet.playerId）
 //
-// [ADD] 全ギフト共通タイトル表示
+// [ADD] 全ギフト共通タイトル表示（Minecraftのみ）
 // - txt 先頭のメタ: "# TITLE: 猫ちゃん登場" を読み取る
-// - ギフト発火時、実コマンドの前に title の命令を前置き（Minecraftのみ）
+// - BridgeMOD 経由（アプリが作る設定の commandTransport "bridge_mod"）：announce の印を渡すだけ。
+//   BridgeMOD が、コマンドが動いたときに DisplayMOD で1回だけ出す（BridgeMod.java の DisplayLink.show）。
+// - RCON 経由：実コマンドの前に title の命令を前置き
 //   title @a title {"text":"<TITLE>"} / title @a subtitle {"text":"<投げ主名>"}
+//   連打ギフトで毎回タイトルを出すと煩い場合：options.announceEveryRepeat を false に（RCON 経由だけ効く）。
 // - 前はデータパックの関数を呼んでいたが、今は使わない（データパックも配っていない。PR #168）。
-//   設定の announceFunction・announceStorage は、古い設定ファイルの形を変えないよう名前だけ残っている。
-//
-// 連打ギフトで毎回タイトルを出すと煩い場合：下の options.announceEveryRepeat を false に。
+//   設定の announceFunction・announceStorage は、古い設定ファイルの形を変えないよう名前だけ残っている（bridge/live_config.cjs）。
 
 "use strict";
 

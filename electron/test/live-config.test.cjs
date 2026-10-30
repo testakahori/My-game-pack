@@ -18,10 +18,13 @@ test('すぐ効かせる値: 今の BRIDGE と同じ式で作る（既定値と�
 
 // タイトルは BRIDGE が title の命令を直接送って出す。前に呼んでいたデータパックの関数（gift_stream:_announce）はもう配っていない（PR #168）。
 // 設定の announceFunction・announceStorage は、古い設定ファイルの形を変えないよう名前だけ残し、BRIDGE は使わない（記録にも出さない。PR #168 レビュー 軽い3）。
-test('タイトルの表示: BRIDGE はデータパックの関数と storage の名前を使わない', () => {
+// 落ちたときに index.js 全体を出さないよう、assert.equal と短い説明で確かめる（PR #169 レビュー 軽い2）。
+test('タイトルの表示: BRIDGE はデータパックの関数と storage の名前を使わず、起動の記録にも出さない', () => {
   const index = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', '..', 'bridge', 'index.js'), 'utf8');
-  assert.doesNotMatch(index, /ANNOUNCE_FUNCTION|ANNOUNCE_STORAGE/);
-  assert.doesNotMatch(index, /gift_?stream:/);
+  const logs = index.split(/\r?\n/).filter(line => line.includes('[Bridge] Announce'));
+  assert.equal(logs.length, 2, '起動の記録のタイトルの行（Announce・AnnounceEveryRepeat）');
+  for (const line of logs) assert.equal(/func=|storage=|announce(Function|Storage)/.test(line), false, line.trim());
+  assert.equal(/ANNOUNCE_FUNCTION|ANNOUNCE_STORAGE|\.announce(Function|Storage)\b|gift_?stream:/.test(index), false, 'データパックの関数と storage の名前を使わない');
 });
 
 // 既定値は bridge/config_defaults.json の1か所（処理のコピー PR4）。前の BRIDGE は commandsDir が無いと commands を見ていた。
