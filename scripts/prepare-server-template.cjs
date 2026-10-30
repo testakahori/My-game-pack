@@ -18,8 +18,11 @@ function prepareServerTemplate(source, destination, modJar, displayJar, obsJar) 
     if (!fs.existsSync(src)) throw new Error(`Server build resource missing: ${name}`);
   }
   fs.mkdirSync(destination, { recursive: true });
+  // 作業の道具（.omc・.claude）の記録のフォルダーも配らない。写すフォルダーの中で道具が動くとできる（2026-10-30。PR #168 レビュー 軽い2）。
+  // package.json の build.files と extraResources（bridge）でも同じ名前を外している。名前を足すときは両方を直す（PR #169 レビュー 軽い6）。
+  const shipped = src => !/\.(log|bak)$/i.test(src) && !path.relative(source, src).split(path.sep).some(part => /^\.(omc|claude)$/i.test(part));
   for (const name of [...directories, ...files]) {
-    fs.cpSync(path.join(source, name), path.join(destination, name), { recursive: true, filter: src => !/\.(log|bak)$/i.test(src) });
+    fs.cpSync(path.join(source, name), path.join(destination, name), { recursive: true, filter: shipped });
   }
   // A retained 47.3.x launcher must not silently start the old Forge after an upgrade.
   for (const name of ["run.bat", "run.sh", "setup.bat"]) {

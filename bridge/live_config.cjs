@@ -23,6 +23,7 @@ function liveOptions(options) {
     logUnknownGifts: !!(o.logUnknownGifts ?? d.logUnknownGifts),
     mutedUsers: Array.isArray(o.mutedUsers) ? o.mutedUsers : [],
     ttsNgWords: (Array.isArray(o.ttsNgWords) ? o.ttsNgWords : []).map(value => String(value).trim()).filter(Boolean),
+    // 古い設定ファイルの形のために残す。BRIDGE は読まない（タイトルの出し方は bridge/index.js の頭のコメント。PR #169）。
     announceFunction: String(o.announceFunction || d.announceFunction).trim(),
     announceStorage: String(o.announceStorage || d.announceStorage).trim(),
     announceEveryRepeat: (o.announceEveryRepeat ?? d.announceEveryRepeat) !== false,
