@@ -33,7 +33,8 @@ test("公開テンプレート: ワールド・プレイヤー・パスワード
   assert.match(fs.readFileSync(path.join(target, "run.bat"), "utf8"), /1\.20\.1-47\.4\.10\/win_args/);
   assert.match(fs.readFileSync(path.join(target, "setup.bat"), "utf8"), /forge-1\.20\.1-47\.4\.10-installer/);
   assert.match(fs.readFileSync(path.join(source, "run.bat"), "utf8"), /47\.3\.0/);
-  for (const name of ["world", "bridge", "logs", "RCON_password.txt", "server.properties", "usercache.json", "ops.json"]) assert.equal(fs.existsSync(path.join(target, name)), false, name);
+  // GiftStream_Pack はサーバーフォルダーの直下では Minecraft に読まれず、中身もほかが受け持っているので配らない（2026-10-30 ユーザーの決定）。
+  for (const name of ["world", "bridge", "logs", "GiftStream_Pack", "RCON_password.txt", "server.properties", "usercache.json", "ops.json"]) assert.equal(fs.existsSync(path.join(target, name)), false, name);
   assert.equal(fs.existsSync(path.join(target, "mods", "fixture")), true);
   assert.throws(() => prepareServerTemplate(source, target), /already exists/);
 });
