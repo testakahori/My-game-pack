@@ -131,3 +131,15 @@ test('古い gameplay が残っている設定でも、BRIDGE は起動して今
   await bridge.until(() => bridge.requests.some(x => x.key === 'zombie'), 'gift after reload');
   assert.deepEqual(bridge.requests.map(x => [x.key, x.count]), [['zombie', 1]]);
 });
+
+test('画面: テスト発火に消した5つの種類・投票番号・フォローの何人目の欄は無く、ほかの種類は残す。開発用の見本にも gameplay は無い', () => {
+  const panel = read('src/components/EventTestPanel.tsx');
+  for (const type of REMOVED_TEST_TYPES) assert.doesNotMatch(panel, new RegExp(`'${type}'`), type);
+  assert.doesNotMatch(panel, /pollOption|followCount|何人目|投票|マイルストーン|コンボ|コメントコマンド/);
+  for (const type of ['gift', 'mapped_gift', 'unmapped_gift', 'like', 'comment', 'death', 'share', 'member', 'follow', 'roulette']) {
+    assert.match(panel, new RegExp(`\\['${type}', '`), type);
+  }
+  const testEvent = read('src/types/electron.d.ts').split('\n').find(line => line.includes('testEvent: (event:'));
+  assert.doesNotMatch(testEvent, /pollOption|followCount/);
+  assert.doesNotMatch(read('src/lib/devApiMock.ts'), /gameplay/);
+});

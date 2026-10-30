@@ -29,9 +29,9 @@ test('手順ごとに、その手順の結果だけを見て出し、同じ結�
 });
 
 test('同じ内容（見出し・コマンド・回数・結果）の手順が続くときは1行にまとめる（ギフト100個で100行にしない）', () => {
-  const steps = [1, 2, 3].map(() => ({ label: 'バラ', commandFile: 'zombie.txt', count: 5 })).concat([{ label: 'コンボ', commandFile: 'combo.txt', count: 1 }]);
+  const steps = [1, 2, 3].map(() => ({ label: 'バラ', commandFile: 'zombie.txt', count: 5 })).concat([{ label: 'フォロー', commandFile: 'thanks.txt', count: 1 }]);
   const fired = steps.map((_, stepIndex) => ({ stepIndex, state: 'delivered', message: accepted }));
-  assert.deepEqual(stepLines(steps, fired), ['バラ → zombie.txt ×5 / BridgeMOD が受け付けました（×3回）', 'コンボ → combo.txt ×1 / BridgeMOD が受け付けました']);
+  assert.deepEqual(stepLines(steps, fired), ['バラ → zombie.txt ×5 / BridgeMOD が受け付けました（×3回）', 'フォロー → thanks.txt ×1 / BridgeMOD が受け付けました']);
   assert.deepEqual(stepLines(steps.slice(0, 2), fired.slice(0, 1)), ['バラ → zombie.txt ×5 / BridgeMOD が受け付けました', 'バラ → zombie.txt ×5 / 未送信'], '結果が違えばまとめない');
   assert.deepEqual(stepLines(undefined, undefined), []);
 });
@@ -52,7 +52,8 @@ test('テスト発火の画面: BRIDGE が止まっていると押せず理由�
   assert.match(panel, /: !bridgeRunning \? <p className="ops-test-note" role="status">BRIDGE を起動すると試せます。<\/p> : null\}/);
   assert.match(panel, /stepLines\(result\.steps, result\.fired\)\.map\(\(line, i\) => <p key=\{i\}>\{line\}<\/p>\)/);
   assert.doesNotMatch(panel, /result\.fired\?\.\[i\]/);
-  assert.match(panel, /本番と同じく、元のギフト・いいね・フォロー・コメントの設定も一緒に動きます。/);
+  // コンボ・マイルストーン・コメントコマンドの種類だけに出していた文は、種類ごと消した（2026-10-30）。
+  assert.doesNotMatch(panel, /本番と同じく、元のギフト・いいね・フォロー・コメントの設定も一緒に動きます。/);
   assert.match(panel, /条件確認・発火には BRIDGE の起動が必要です（本番と同じ処理で試します）。/);
   assert.match(read('src/components/OperationsPage.tsx'), /<EventTestPanel onTested=\{refresh\} bridgeRunning=\{bridgeProcess\.running === true\} gameReady=\{gameReady\} \/>/);
 });
