@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { createBridgeSync } = require('../bridge_sync.cjs');
 
-function setup(t, { packaged = true, appConfig = () => ({}) } = {}) {
+function setup(t, { packaged = true, appConfig = () => ({}), clearEulerCredentials = () => {} } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-sync-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const resources = path.join(root, 'resources'), server = path.join(root, 'server');
@@ -32,10 +32,10 @@ function setup(t, { packaged = true, appConfig = () => ({}) } = {}) {
     getBridgeBatDir: () => path.join(server, 'bridge'),
     getServerTemplatePath: () => path.join(resources, 'server', 'Douma_Craft'),
     gameProfiles: {}, gameProfileOperation: async action => action(), assertGameProfileIdle: () => {},
-    serverChild: () => null, isServerPortOpen: async () => false,
+    serverChild: () => null, isServerPortOpen: async () => false, clearEulerCredentials,
   });
   bridgeSync.register({ handle: (name, fn) => handlers.set(name, fn) });
-  return { resources, server, ran, sent, bridgeSync, config: () => config, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
+  return { resources, server, ran, sent, bridgeSync, config: () => config, patchConfig: patch => { config = { ...config, ...patch }; }, invoke: (name, ...args) => handlers.get(name)({}, ...args) };
 }
 
 test('BRIDGE の実行環境: 開発版は何もしない。配布版で zip から展開するときは main から受け取った runProc で tar を動かし、進み具合を画面へ知らせる', async t => {
@@ -70,4 +70,51 @@ test('アプリ更新後の BRIDGE の同期: 違う版なら写して版を記�
   assert.deepEqual([x.invoke('bridge:syncStatus').state, x.invoke('bridge:syncStatus').phase], ['current', 'skipped']);
   const other = setup(t);
   assert.equal(other.invoke('bridge:syncStatus').state, 'idle', '別に作ったものの同期の状態は変わらない');
+});
+
+// 新しい保存先（BRIDGE の設定がまだ無い所）を作ったときだけ、この PC に残っていた前の記録を空にする（2026-10-30 ユーザーの決定「新しい保存先では空にする」・API キーも「消す」）。
+// 前は、開発版と同じ %APPDATA% に残っていたマイクラID・API キーが、入れたばかりのアプリに出ていた。画面が覚えていた TikTok ユーザー名は、返す freshConfig を見て画面が消す。
+test('BRIDGE の展開: 新しい保存先ではマイクラID と API キーを消して印を返す。同じ保存先への入れ直し・開発版では消さない', async t => {
+  let cleared = 0;
+  const x = setup(t, { appConfig: () => ({ minecraftPlayerName: 'Douma_Akahori' }), clearEulerCredentials: () => { cleared += 1; } });
+  const src = path.join(x.resources, 'bridge');
+  fs.mkdirSync(path.join(src, 'node'), { recursive: true });
+  fs.writeFileSync(path.join(src, 'index.js'), '// bridge');
+  fs.writeFileSync(path.join(src, 'index.bundle.cjs'), '// bundle');
+  fs.writeFileSync(path.join(src, 'node', 'node.exe'), 'node');
+  fs.writeFileSync(path.join(src, 'bridge-runtime-manifest.json'), JSON.stringify({ runtimeKind: 'bundle', nodeExeBytes: 4 }));
+  fs.writeFileSync(path.join(src, 'config.minecraft.json'), JSON.stringify({ tiktokUsername: 'smile09351', rcon: { password: 'dev-secret' } }));
+  const first = await x.invoke('bridge:extractTo', x.server);
+  assert.equal(first.freshConfig, true);
+  assert.equal(x.config().minecraftPlayerName, '');
+  assert.equal(cleared, 1, 'API キーを消す');
+  const written = JSON.parse(fs.readFileSync(path.join(x.server, 'bridge', 'config.minecraft.json'), 'utf8'));
+  assert.deepEqual([written.tiktokUsername, written.rcon.password], ['', '']);
+  x.patchConfig({ minecraftPlayerName: 'Steve' });
+  const again = await x.invoke('bridge:extractTo', x.server);
+  assert.equal(again.freshConfig, false);
+  assert.equal(x.config().minecraftPlayerName, 'Steve', '同じ保存先への入れ直しでは消さない');
+  assert.equal(cleared, 1);
+  let devCleared = 0;
+  const dev = setup(t, { packaged: false, appConfig: () => ({ minecraftPlayerName: 'Steve' }), clearEulerCredentials: () => { devCleared += 1; } });
+  assert.deepEqual(await dev.invoke('bridge:extractTo', dev.server), { ok: true, skipped: true });
+  assert.deepEqual([dev.config().minecraftPlayerName, devCleared], ['Steve', 0], '開発版では何もしない');
+});
+
+test('BRIDGE の展開: API キーを消せなくても、セットアップは止めない（マイクラID は消す）', async t => {
+  const x = setup(t, { appConfig: () => ({ minecraftPlayerName: 'Douma_Akahori' }), clearEulerCredentials: () => { throw new Error('APIキーを削除できませんでした。'); } });
+  const src = path.join(x.resources, 'bridge');
+  fs.mkdirSync(path.join(src, 'node'), { recursive: true });
+  fs.writeFileSync(path.join(src, 'index.bundle.cjs'), '// bundle');
+  fs.writeFileSync(path.join(src, 'node', 'node.exe'), 'node');
+  fs.writeFileSync(path.join(src, 'bridge-runtime-manifest.json'), JSON.stringify({ runtimeKind: 'bundle', nodeExeBytes: 4 }));
+  fs.writeFileSync(path.join(src, 'config.minecraft.json'), JSON.stringify({ tiktokUsername: 'x' }));
+  const result = await x.invoke('bridge:extractTo', x.server);
+  assert.equal(result.freshConfig, true);
+  assert.equal(x.config().minecraftPlayerName, '');
+});
+
+test('BRIDGE の展開: main は API キーを消す関数を渡す', () => {
+  const main = fs.readFileSync(path.resolve(__dirname, '../main.cjs'), 'utf8');
+  assert.match(main, /clearEulerCredentials: \(\) => eulerCredentials\.clear\(\)/);
 });

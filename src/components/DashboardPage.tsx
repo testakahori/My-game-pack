@@ -11,6 +11,7 @@ import type { PauseView } from "../lib/disruptionPause";
 import { toRepeat } from "../lib/integerInput";
 import { ipcErrorMessage } from "../lib/ipcError";
 import { isValidTikTokId, normalizeTikTokId, sameTikTokId } from "../lib/tiktokId";
+import { TIKTOK_USER_STORAGE_KEY } from "../lib/rememberedAccounts";
 // 既定値は BRIDGE と同じ表（bridge/config_defaults.json。処理のコピー PR4）。
 import CONFIG_DEFAULTS from "../../bridge/config_defaults.json";
 
@@ -50,7 +51,8 @@ type BridgeProcessStatus = {
   } | null;
 };
 
-const LS_TIKTOK_USER = "mc_tiktok_username_unified_v1";
+// 覚えておく所の名前は初期セットアップと同じ1か所（新しい保存先では消す。2026-10-30）。
+const LS_TIKTOK_USER = TIKTOK_USER_STORAGE_KEY;
 const LS_MAPPINGS    = "mc_tiktok_mappings_unified_v1";
 const WORLD_PREFIX   = "haihu_world";
 

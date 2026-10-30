@@ -13,7 +13,7 @@ const { writeFileDurable } = require("../bridge/safe_json_file.cjs");
 // サーバーの子プロセスとポートの稼働は、あとで main で作られるので、呼ばれたときに読む関数で受け取る。
 function createBridgeSync({
   app, process, appDir, BrowserWindow, runProc, readAppConfig, writeAppConfig, getBridgeBatDir, getServerTemplatePath,
-  gameProfiles, gameProfileOperation, assertGameProfileIdle, serverChild, isServerPortOpen,
+  gameProfiles, gameProfileOperation, assertGameProfileIdle, serverChild, isServerPortOpen, clearEulerCredentials = () => {},
 }) {
   // --------------------
   // Bridge: resources → serverFolder/bridge へ差分同期
@@ -633,10 +633,18 @@ function createBridgeSync({
         }
       }
 
+      // 新しい保存先（BRIDGE の設定がまだ無い所）を作ったときは、この PC に残っていた前の記録を空にする。マイクラID と Euler Stream の API キー。
+      // 画面が覚えていた TikTok ユーザー名は、返す freshConfig を見て画面が消す。同じ保存先への入れ直しでは消さない（2026-10-30 ユーザーの決定）。
+      const freshConfig = !hadUserConfig && fs.existsSync(dstConfigPath);
+      if (freshConfig) {
+        writeAppConfig({ minecraftPlayerName: "" });
+        try { clearEulerCredentials(); } catch (e) { console.warn("[bridge:extractTo] API key clear failed:", e?.message || e); }
+      }
+
       // 過去バージョンでセットアップされたフォルダを再利用しても mod jar を最新に揃える
       await refreshBridgeModJar(targetFolder);
 
-      return { ok: true, dst, stats: result.stats };
+      return { ok: true, dst, stats: result.stats, freshConfig };
     });
 
     // --------------------
