@@ -7,9 +7,9 @@ const CONFIG_VERSION = 2;
 
 const list = value => (Array.isArray(value) ? value : []);
 const isItem = value => !!value && typeof value === "object" && !Array.isArray(value);
-const entries = value => (isItem(value) ? Object.entries(value) : []);
 
 // 回数を書ける所すべて。あとで有効にされるので、enabled は見ない。
+// 演出・ゲーム性設定（options.gameplay）は仕掛けごとなくしたので並べない。古い設定に残っていても直さず消さない（2026-10-30）。
 function repeatTargets(config) {
   const targets = [];
   const add = (where, item) => { if (isItem(item)) targets.push({ where, item }); };
@@ -19,24 +19,14 @@ function repeatTargets(config) {
   for (const item of list(config?.roulette?.items)) add(`ルーレット項目（${item?.label || item?.commandFile}）`, item);
   for (const item of list(config?.deathRoulette?.items)) add(`デスルーレット項目（${item?.label || item?.commandFile}）`, item);
   for (const rule of list(config?.commentGifts?.rules)) add(`コメントギフト（「${rule?.match ?? ""}」）`, rule);
-  const gameplay = isItem(config?.options?.gameplay) ? config.options.gameplay : {};
-  for (const level of list(gameplay.combo?.levels)) add(`コンボ（${level?.count ?? "?"}連）`, level);
-  for (const m of list(gameplay.likeMilestones)) add(`いいねマイルストーン（${m?.threshold ?? "?"}）`, m);
-  for (const m of list(gameplay.followMilestones)) add(`フォローマイルストーン（${m?.threshold ?? "?"}）`, m);
-  // 文字列だけで書いたコメントコマンド・投票の選択肢は回数を持たない（1回）。
-  for (const [text, command] of entries(gameplay.commentCommands)) add(`コメントコマンド（「${text}」）`, command);
-  for (const [key, option] of entries(gameplay.poll?.options)) add(`コメント投票（!${key}）`, option);
   return targets;
 }
 
-// いいね・フォローの閾値を書ける所。
+// いいねの閾値を書ける所。
 function thresholdTargets(config) {
   const targets = [];
   const add = (where, item) => { if (isItem(item)) targets.push({ where, item }); };
   for (const ev of list(config?.likeEvents)) add(`いいね（${ev?.threshold ?? "?"}いいねごと）`, ev);
-  const gameplay = isItem(config?.options?.gameplay) ? config.options.gameplay : {};
-  for (const m of list(gameplay.likeMilestones)) add(`いいねマイルストーン（${m?.threshold ?? "?"}）`, m);
-  for (const m of list(gameplay.followMilestones)) add(`フォローマイルストーン（${m?.threshold ?? "?"}）`, m);
   return targets;
 }
 

@@ -5,11 +5,10 @@ const { testEventActions, createTestRun, noMatchNote } = require('../../bridge/t
 
 const mapped = { mappedGiftIds: new Set(['1']) };
 
-test('設定済みギフト N 個は、同じ視聴者の連打として1個ずつ通し、最後の1個で連打を終える。コンボも同じ', () => {
+test('設定済みギフト N 個は、同じ視聴者の連打として1個ずつ通し、最後の1個で連打を終える', () => {
   const { actions } = testEventActions({ type: 'mapped_gift', giftId: '1', count: 3, listenerName: '検証' }, mapped);
   assert.deepEqual(actions.map(a => [a.kind, a.data.giftId, a.data.repeatCount, a.data.repeatEnd, a.data.nickname]),
     [['gift', '1', 1, 0, '検証'], ['gift', '1', 2, 0, '検証'], ['gift', '1', 3, 1, '検証']]);
-  assert.equal(testEventActions({ type: 'combo', giftId: '1', count: 1 }, mapped).actions.length, 1);
 });
 
 test('無効の割り当てのギフトは、本番と同じく通したうえで「割り当ては無効です」と知らせる（処理のコピー PR5）', () => {
@@ -30,19 +29,18 @@ test('割当のない ID（設定済みギフト）・割当のある ID（未�
 });
 
 test('いいねは入力の前回・今回の累計をそのまま渡し、今回が前回より少なければ止める', () => {
-  const { actions, notes } = testEventActions({ type: 'like_milestone', previousLikes: 300, likeCount: 900 }, mapped);
-  assert.deepEqual(actions.map(a => [a.kind, a.progress]), [['like', { previousTotal: 300, total: 900, local: false }]]);
+  const { actions, notes } = testEventActions({ type: 'like', previousLikes: 300, likeCount: 900 }, mapped);
+  assert.deepEqual(actions.map(a => [a.kind, a.progress]), [['like', { previousTotal: 300, total: 900 }]]);
   assert.match(notes.join(''), /累計300→900/);
   assert.throws(() => testEventActions({ type: 'like', previousLikes: 100, likeCount: 1 }, mapped), /前回以上/);
 });
 
-test('フォロー・コメント・死亡・ルーレット・投票・シェア・訪問・コマンド直接の入れ方', () => {
+test('フォロー・コメント・死亡・ルーレット・シェア・訪問・コマンド直接の入れ方', () => {
   const one = input => testEventActions({ listenerName: '検証', ...input }, mapped).actions[0];
-  assert.deepEqual([one({ type: 'follow_milestone', followCount: 5 }).kind, one({ type: 'follow', followCount: 5 }).followCount], ['follow', 5]);
-  assert.deepEqual(one({ type: 'comment_command', comment: ' !heal ' }).data, { nickname: '検証', comment: '!heal' });
+  assert.deepEqual(one({ type: 'follow' }), { kind: 'follow', data: { nickname: '検証' } });
+  assert.deepEqual(one({ type: 'comment', comment: ' !heal ' }).data, { nickname: '検証', comment: '!heal' });
   assert.deepEqual(one({ type: 'death', deaths: 3 }).status, { type: 'death', deaths: 3, player: '検証' });
   assert.equal(one({ type: 'roulette' }).kind, 'roulette');
-  assert.deepEqual([one({ type: 'poll', pollOption: ' 2 ' }).kind, one({ type: 'poll', pollOption: ' 2 ' }).option], ['poll', '2']);
   assert.equal(one({ type: 'share' }).kind, 'share');
   assert.equal(one({ type: 'member' }).kind, 'member');
   assert.deepEqual([one({ type: 'gift', commandFile: 'qa', count: 7 }).commandFile, one({ type: 'gift', commandFile: 'qa.txt', count: 7 }).count], ['qa.txt', 7]);

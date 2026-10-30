@@ -15,7 +15,7 @@ const fs = require("fs");
 const path = require("path");
 
 const bridge = require("../index.js");
-const { FeatureEngine, parseWeightedList, chooseWeighted } = require("../feature_engine.js");
+const { parseWeightedList, chooseWeighted } = require("../weighted_choice.cjs");
 const { validateBridgeConfig } = require("../config_schema.js");
 const { RestartPolicy } = require("../../electron/restart_policy.cjs");
 
@@ -138,40 +138,8 @@ async function main() {
     assert.strictEqual(problems.length, 0, "\n    " + problems.join("\n    "));
   });
 
-  await ok("FeatureEngine: RANDOM重み・コンボ・マイルストーン・コメント", () => {
-    const emitted = [];
-    const engine = new FeatureEngine({
-      combo: { windowMs: 10000, levels: [{ count: 3, commandFile: "boss.txt" }] },
-      likeMilestones: [{ threshold: 100, commandFile: "like_boss.txt" }],
-      followMilestones: [{ threshold: 2, commandFile: "follow_boss.txt" }],
-      commentCommands: { "!攻撃": { commandFile: "zombie.txt", repeat: 2 } },
-    }, event => emitted.push(event));
+  await ok("RANDOM の重み: 重みの割合で選ぶ", () => {
     assert.strictEqual(chooseWeighted(parseWeightedList("heal.txt*1,tnt.txt*9"), () => 0).commandFile, "heal.txt");
-    engine.recordGift({ giftId: "1", sender: "alice", commandFile: "zombie.txt", count: 3 });
-    engine.recordLikes(100, "alice");
-    engine.recordFollow("alice");
-    engine.recordFollow("bob");
-    engine.recordComment("!攻撃", "alice");
-    assert.deepStrictEqual(emitted.map(x => x.commandFile),
-      ["boss.txt", "like_boss.txt", "follow_boss.txt", "zombie.txt"]);
-  });
-
-  await ok("FeatureEngine: 時間窓を越えた独立コンボは同じレベルを再発火", () => {
-    const emitted = [];
-    const engine = new FeatureEngine({
-      combo: { windowMs: 10000, levels: [{ count: 3, commandFile: "boss.txt" }] },
-    }, event => emitted.push(event));
-    const originalNow = Date.now;
-    let now = 1_000_000;
-    try {
-      Date.now = () => now;
-      engine.recordGift({ giftId: "1", sender: "alice", commandFile: "zombie.txt", count: 3 });
-      now += 10_001;
-      engine.recordGift({ giftId: "1", sender: "alice", commandFile: "zombie.txt", count: 3 });
-    } finally {
-      Date.now = originalNow;
-    }
-    assert.deepStrictEqual(emitted.map(x => x.commandFile), ["boss.txt", "boss.txt"]);
   });
 
   await ok("config schema: 誤設定を具体的に検出", () => {

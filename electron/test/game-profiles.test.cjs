@@ -54,17 +54,31 @@ test('ゲーム選択は両側をBridgeMODと選択ゲームだけにし、旧MO
 });
 
 // ゲーム別に保存した設定（profiles.json）も「古い設定を読み込む所」。戻すときに保存済みの設定と同じ直しを通す（PR3 の最終レビュー）。
-test('ゲームの切り替え: 更新前に保存したゲーム別の設定（回数 2.5・"3"）は、戻すときに直して書く', async t => {
+test('ゲームの切り替え: 更新前に保存したゲーム別の設定（回数 2.5）は、戻すときに直して書く', async t => {
   const x = fixture(t); await x.api.install(x.pack('umetate'));
   await x.api.activate('umetate');
   const stateFile = path.join(x.storage, 'profiles.json');
   const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
   state.profiles.common.mappings = [{ giftId: '1', name: 'rose', commandFile: 'zombie.txt', repeat: 2.5 }];
-  state.profiles.common.options = { gameplay: { combo: { levels: [{ count: 5, commandFile: 'zombie.txt', repeat: '3' }] } } };
   fs.writeFileSync(stateFile, JSON.stringify(state));
   await x.api.activate('common');
   const config = JSON.parse(fs.readFileSync(x.config, 'utf8'));
-  assert.deepEqual([config.mappings[0].repeat, config.options.gameplay.combo.levels[0].repeat, config.configVersion], [3, 3, 2]);
+  assert.deepEqual([config.mappings[0].repeat, config.configVersion], [3, 2]);
+});
+
+// 演出・ゲーム性設定（options.gameplay）は仕掛けごとなくした（2026-10-30）。options はゲーム別に写さず、戻すときにも書かない。
+// 前の版が profiles.json に写した options は外して戻す（外さないと、送り方・ポートなどの options を丸ごと上書きする）。
+test('ゲームの切り替え: options はゲーム別に写さず、古いゲーム別の設定に残った options（gameplay）は確かめにも今の options にも使わない', async t => {
+  const x = fixture(t); await x.api.install(x.pack('umetate'));
+  await x.api.activate('umetate');
+  const stateFile = path.join(x.storage, 'profiles.json');
+  const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  assert.equal(Object.hasOwn(state.profiles.common, 'options'), false, 'ゲーム別の設定に options を写さない');
+  state.profiles.common.options = { gameplay: { commentCommands: { '!x': 'missing.txt' }, combo: { levels: [{ count: 2, commandFile: 'missing.txt' }] } } };
+  fs.writeFileSync(stateFile, JSON.stringify(state));
+  const before = JSON.parse(fs.readFileSync(x.config, 'utf8')).options;
+  await x.api.activate('common');
+  assert.deepEqual(JSON.parse(fs.readFileSync(x.config, 'utf8')).options, before, '無いコマンドで止めず、options もそのまま');
 });
 
 test('片側の入替失敗で両MODフォルダ・選択中ゲーム・設定をロールバックする', async t => {
@@ -85,16 +99,18 @@ test('ゲーム更新で保存済みのコマンドが欠ける場合は切替�
 });
 
 // 参照の数え方は command_files.cjs の commandFileRefs の1か所（処理のコピー PR5）。BRIDGE が動かすものだけを確かめる。
-test('ゲームの切り替えも同じ参照の数え方: 文字列のコメントコマンドが無ければ止め、無効の割り当ては見ない', async t => {
+// 演出・ゲーム性設定（options.gameplay）は仕掛けごとなくしたので、古い設定に残っていても数えない（2026-10-30。PR #174 のレビューの重要1）。
+test('ゲームの切り替えも同じ参照の数え方: 無いコマンドの割り当てがあれば止め、無効の割り当てと古い gameplay は見ない', async t => {
   const x = fixture(t), pack = x.pack('run'); await x.api.install(pack); await x.api.activate('run');
   const config = JSON.parse(fs.readFileSync(x.config));
   config.mappings = [{ giftId: '1', commandFile: 'missing.txt', repeat: 1, enabled: false }];
+  config.options = { ...config.options, gameplay: { commentCommands: { '!x': 'missing.txt' }, likeMilestones: [{ threshold: 10, commandFile: 'missing.txt' }] } };
   fs.writeFileSync(x.config, JSON.stringify(config));
   await x.api.activate('run');
   const next = JSON.parse(fs.readFileSync(x.config));
-  next.options = { ...next.options, gameplay: { commentCommands: { '!x': 'missing.txt' } } };
+  next.mappings = [{ giftId: '1', commandFile: 'missing', repeat: 1 }];
   fs.writeFileSync(x.config, JSON.stringify(next));
-  await assert.rejects(x.api.activate('run'), /保存済みの設定で使うコマンドがありません: missing\.txt/);
+  await assert.rejects(x.api.activate('run'), /保存済みの設定で使うコマンドがありません: missing。/);
 });
 
 test('個数引数がないゲームコマンドは回数分実行する形式で登録する', async t => {
@@ -327,6 +343,18 @@ test('採掘は同梱パックから選べて既存のギフト・ルーレッ�
   await x.api.activate('saikutu'); assert.equal(JSON.parse(fs.readFileSync(x.config)).mappings[1].repeat,5);
   const saved = JSON.parse(fs.readFileSync(path.join(x.storage,'profiles.json'))); assert.equal(saved.legacySaikutuProfiles.common.mappings[1].commandFile,'otosiana.txt');
 });
+// 演出・ゲーム性設定（options.gameplay）は仕掛けごとなくしたので、採掘の引き継ぎの案内でも古い gameplay の中は見ない（2026-10-30。PR #177 レビュー 軽い1）。
+// 前は gameplay の中の otosiana.txt で、「保存」を押しても案内が出たままになった（「保存」が整理するのはゲーム別の設定の項目だけ）。
+test('採掘の引き継ぎの案内: 古い options.gameplay の中に採掘へ移したコマンドがあっても出さず、割り当てにあれば出す', t => {
+  const x = fixture(t);
+  const config = JSON.parse(fs.readFileSync(x.config));
+  config.options = { ...config.options, gameplay: { likeMilestones: [{ threshold: 10, commandFile: 'otosiana.txt' }], commentCommands: { '!x': { commandFile: 'give_haste.txt' } } } };
+  fs.writeFileSync(x.config, JSON.stringify(config));
+  assert.equal(x.api.list().saikutuMigrationNeeded, false);
+  config.mappings.push({ giftId: 'rose', commandFile: 'otosiana.txt', repeat: 1 });
+  fs.writeFileSync(x.config, JSON.stringify(config));
+  assert.equal(x.api.list().saikutuMigrationNeeded, true, '割り当てにあれば出す');
+});
 test('あとから採掘へ移したコマンドの引き継ぎでも、前の引き継ぎの退避を上書きしない（2026-10-12）', async t => {
   let folder;
   const x = fixture(t, { bundledPackages: () => folder ? [{ id:'saikutu',folder }] : [] });
@@ -376,7 +404,7 @@ test('埋め立て・RUN のプロフィールから採掘のプロフィール�
 });
 
 // ゲーム専用の判定は bridge/game_commands.cjs の1か所（処理のコピー PR6）。前は /^game_[a-z0-9]+_/ で、共通の game_mode_on.txt も外していた。
-test('採掘のプロフィールを初めて作るとき、共通の game_mode_on.txt は残し、文字列で書いたほかのゲームのコマンドも外す', async t => {
+test('採掘のプロフィールを初めて作るとき、共通の game_mode_on.txt は残す', async t => {
   let folder;
   const x = fixture(t, { bundledPackages: () => folder ? [{ id:'saikutu',folder }] : [] });
   await x.api.install(x.pack('umetate'));
@@ -388,13 +416,31 @@ test('採掘のプロフィールを初めて作るとき、共通の game_mode_
   fs.writeFileSync(path.join(x.server, 'bridge/commands/minecraft/game_mode_on.txt'), 'say mode\n');
   const umetate = JSON.parse(fs.readFileSync(x.config));
   umetate.mappings = [{ giftId:'rose',commandFile:'game_mode_on.txt',repeat:1 }, { giftId:'pass',commandFile:'give_haste.txt',repeat:1 }];
-  // .txt を書いていない文字列も、切り替えの確かめと BRIDGE は .txt を付けて数えるので外す（PR6 の最終レビュー）。
-  umetate.options = { ...umetate.options, gameplay: { commentCommands: { '!x': 'game_umetate_fill.txt', '!y': 'game_umetate_fill' } } };
   fs.writeFileSync(x.config,JSON.stringify(umetate));
   await x.api.activate('saikutu');
   const mining = JSON.parse(fs.readFileSync(x.config));
   assert.deepEqual(mining.mappings.map(m => m.commandFile), ['game_mode_on.txt', 'game_saikutu_give_haste.txt']);
-  assert.deepEqual(mining.options.gameplay.commentCommands, {});
+});
+
+// 文字列だけでコマンドを書けたのは演出・ゲーム性設定（コメントコマンド・投票の選択肢）だけだったので、文字列を外す分かれ道は消した（2026-10-30。PR #177 レビュー 軽い4）。
+// 外すのは commandFile がほかのゲームのコマンドの項目（.txt なし・大文字も）だけ。名前やコメントの文字が、たまたまゲームのコマンドの名前に似ていても外さない。
+test('採掘のプロフィールを初めて作るとき、ほかのゲームのコマンドの項目は外し、それに似た名前・コメントの文字は残す', async t => {
+  let folder;
+  const x = fixture(t, { bundledPackages: () => folder ? [{ id:'saikutu',folder }] : [] });
+  await x.api.install(x.pack('umetate'));
+  folder = x.pack('saikutu');
+  const file = path.join(folder,'game.json'), manifest = JSON.parse(fs.readFileSync(file));
+  manifest.bridgeEventApi = 1; manifest.commands = [{ key:'give_haste',title:'採掘速度上昇',command:'saikutu give_haste {Count} {ListenerName}' }];
+  fs.writeFileSync(file,JSON.stringify(manifest));
+  await x.api.activate('umetate');
+  const umetate = JSON.parse(fs.readFileSync(x.config));
+  umetate.mappings = [{ giftId:'rose',name:'game_umetate_fill',commandFile:'zombie.txt',repeat:1 }, { giftId:'pass',commandFile:'give_haste.txt',repeat:1 }, { giftId:'fill',commandFile:'GAME_UMETATE_FILL',repeat:1 }];
+  umetate.commentGifts = { enabled:true, rules:[{ enabled:true,match:'game_umetate_fill',commandFile:'zombie.txt' }] };
+  fs.writeFileSync(x.config,JSON.stringify(umetate));
+  await x.api.activate('saikutu');
+  const mining = JSON.parse(fs.readFileSync(x.config));
+  assert.deepEqual(mining.mappings.map(m => [m.giftId, m.name, m.commandFile]), [['rose', 'game_umetate_fill', 'zombie.txt'], ['pass', undefined, 'game_saikutu_give_haste.txt']]);
+  assert.equal(mining.commentGifts.rules[0].match, 'game_umetate_fill');
 });
 
 // ゲームの切り替えで入れ替える（消す）のは、パックが作れる名前（大文字小文字は区別しない）だけ（PR6 の最終レビュー）。
@@ -415,21 +461,19 @@ test('bridgeコマンド名が共通MODと重なるゲームは変更前に拒�
 });
 
 
-test('全イベント設定をゲーム別に復元し、ゲームプレイ内の個数・送信条件も混ぜない', async t => {
+test('全イベント設定をゲーム別に復元し、個数・送信条件も混ぜない', async t => {
   const x = fixture(t); await x.api.install(x.pack('saikutu'));
   await x.api.activate('common');
   const common = JSON.parse(fs.readFileSync(x.config));
   const simple = { commandFile: 'cod.txt', repeat: 2, enabled: true };
   Object.assign(common, { likeEvents: [{ ...simple, threshold: 100 }], unmappedGiftEvent: simple, followEvent: simple, memberEvent: simple,
     roulette: { items: [simple] }, deathRoulette: { items: [simple] }, commentGifts: { rules: [{ ...simple, match: 'hi' }] } });
-  common.options.gameplay = { likeMilestones: [{ ...simple, threshold: 1000 }] };
   fs.writeFileSync(x.config, JSON.stringify(common));
   await x.api.activate('saikutu');
   const mining = JSON.parse(fs.readFileSync(x.config));
-  assert.deepEqual(mining.mappings, []); assert.deepEqual(mining.options.gameplay, {});
+  assert.deepEqual(mining.mappings, []);
   assert.equal(mining.options.giftCooldownMs, 300);
   mining.deathRoulette = { items: [{ commandFile: 'game_saikutu_fill.txt', repeat: 3 }] };
-  mining.options.gameplay = { likeMilestones: [{ commandFile: 'game_saikutu_fill.txt', threshold: 2000 }] };
   fs.writeFileSync(x.config, JSON.stringify(mining));
   await x.api.activate('common'); assert.deepEqual(JSON.parse(fs.readFileSync(x.config)), common);
   await x.api.activate('saikutu'); assert.deepEqual(JSON.parse(fs.readFileSync(x.config)), mining);

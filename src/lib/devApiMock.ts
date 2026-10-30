@@ -56,7 +56,6 @@ if (import.meta.env.DEV && !win.mygamepack) {
       likeBatchWindowMs: 1200,
       maxLikeCatchUpPerEvent: 5,
       maxCommandsPerGift: 200,
-      gameplay: { combo: { windowMs: 10000, levels: [] } },
     },
   };
 

@@ -7,7 +7,7 @@ const { commandFileProblem, ensureTxt, sameCommandFile } = require("./command_fi
 const { gameOfCommand, publicCommandKey } = require("./game_commands.cjs");
 const { isRouletteCommand } = require("./roulette.cjs");
 const { COMMAND_COOLDOWN_MAX_MS } = require("./event_rules.cjs");
-const { weightOf } = require("./feature_engine.js");
+const { weightOf } = require("./weighted_choice.cjs");
 const { isResourceId } = require("./minecraft_ids.cjs");
 
 // text はファイルの中身。読めなかったときは null（題名はファイル名、分類と説明文は空）。

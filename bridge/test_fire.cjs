@@ -4,8 +4,8 @@
 const { safeDisplayName } = require('./tiktok_events.cjs');
 const { ensureTxt } = require('./command_files.cjs');
 
-const TYPES = new Set(['gift', 'mapped_gift', 'unmapped_gift', 'like', 'share', 'follow', 'member', 'comment', 'death',
-  'roulette', 'combo', 'like_milestone', 'follow_milestone', 'comment_command', 'poll']);
+// 演出・ゲーム性設定を仕掛けごとなくしたので、その種類（combo・like_milestone・follow_milestone・comment_command・poll）も消した（2026-10-30）。
+const TYPES = new Set(['gift', 'mapped_gift', 'unmapped_gift', 'like', 'share', 'follow', 'member', 'comment', 'death', 'roulette']);
 
 function commandName(value) {
   const name = String(value || '').trim();
@@ -31,14 +31,14 @@ function testEventActions(input, { mappedGiftIds = new Set(), disabledGiftIds = 
   if (type === 'gift') {
     actions.push({ kind: 'direct', commandFile: commandName(input.commandFile), count: integer(input, 'count', 1, 1, 100), data: data() });
   }
-  if (type === 'mapped_gift' || type === 'combo') {
+  if (type === 'mapped_gift') {
     const giftId = String(input.giftId ?? '').trim();
     const count = integer(input, 'count', 1, 1, 100);
     if (!mappedGiftIds.has(giftId)) notes.push('このギフトIDには割当がありません。未設定ギフトのテストを使用してください。');
     // 同じ視聴者の連打として1個ずつ処理する（本番の連打と同じ）。最後の1個で連打の終わり。
     else {
-      // 無効の割り当ては本番と同じく通す（コマンドは動かさず、ゲームの数え方にだけ入る。処理のコピー PR5）。
-      if (disabledGiftIds.has(giftId)) notes.push('このギフトの割り当ては無効です（enabled: false）。コマンドは動かさず、ゲームの数え方にだけ入ります。');
+      // 無効の割り当ては本番と同じく通す（コマンドは動かさず、クールダウン・連打には入る。処理のコピー PR5）。
+      if (disabledGiftIds.has(giftId)) notes.push('このギフトの割り当ては無効です（enabled: false）。コマンドは動かしません。');
       for (let i = 1; i <= count; i++) actions.push({ kind: 'gift', data: data({ giftId, repeatCount: i, repeatEnd: i === count ? 1 : 0 }) });
     }
   }
@@ -48,18 +48,15 @@ function testEventActions(input, { mappedGiftIds = new Set(), disabledGiftIds = 
     if (mappedGiftIds.has(giftId)) notes.push('このIDは設定済みです。割当のないギフトIDを指定してください。');
     else actions.push({ kind: 'gift', data: data({ giftId, repeatCount: 1, repeatEnd: 1 }) });
   }
-  if (type === 'like' || type === 'like_milestone') {
+  if (type === 'like') {
     const total = integer(input, 'likeCount', 100, 0, 1000000);
     const previousTotal = integer(input, 'previousLikes', 0, 0, 1000000);
     if (total < previousTotal) throw new Error('今回の累計いいねは前回以上にしてください。');
-    actions.push({ kind: 'like', data: data(), progress: { previousTotal, total, local: false } });
+    actions.push({ kind: 'like', data: data(), progress: { previousTotal, total } });
     notes.push(`累計${previousTotal}→${total}として判定。本番のいいね数は変更しません。`);
   }
-  if (type === 'share' || type === 'member') actions.push({ kind: type, data: data() });
-  if (type === 'follow' || type === 'follow_milestone') {
-    actions.push({ kind: 'follow', data: data(), followCount: integer(input, 'followCount', 1, 1, 1000000) });
-  }
-  if (type === 'comment' || type === 'comment_command') {
+  if (type === 'share' || type === 'member' || type === 'follow') actions.push({ kind: type, data: data() });
+  if (type === 'comment') {
     const comment = String(input.comment || '').trim().slice(0, 500);
     if (!comment) throw new Error('テストするコメントを入力してください。');
     actions.push({ kind: 'chat', data: data({ comment }) });
@@ -67,36 +64,27 @@ function testEventActions(input, { mappedGiftIds = new Set(), disabledGiftIds = 
   }
   if (type === 'death') actions.push({ kind: 'death', status: { type: 'death', deaths: integer(input, 'deaths', 1, 0, 1000000), player: sender } });
   if (type === 'roulette') actions.push({ kind: 'roulette', data: data() });
-  if (type === 'poll') {
-    actions.push({ kind: 'poll', data: data(), option: String(input.pollOption ?? '').trim() });
-    notes.push('選択肢の当選後の発火を確認します。実際の投票待ち時間は省略します。');
-  }
   return { sender, actions, notes };
 }
 
 const NO_MATCH = {
   gift: '送るものがありません。',
   mapped_gift: 'このギフトの割り当てから送るものがありません。',
-  combo: 'このギフトの割り当てから送るものがありません。',
   unmapped_gift: '未設定ギフトの設定が無効または未設定です。',
-  like: 'この累計で届くいいねの設定・いいねマイルストーンがありません。',
-  like_milestone: 'この累計で届くいいねの設定・いいねマイルストーンがありません。',
+  like: 'この累計で届くいいねの設定がありません。',
   share: 'シェアの設定が無効または未設定です。',
   member: '訪問の設定が無効または未設定です。',
-  follow: 'フォローの設定が無効または未設定で、この人数で届くフォローマイルストーンもありません。',
-  follow_milestone: 'フォローの設定が無効または未設定で、この人数で届くフォローマイルストーンもありません。',
-  comment: 'このコメントに一致するコメントギフト・コメントコマンドがありません。',
-  comment_command: 'このコメントに一致するコメントギフト・コメントコマンドがありません。',
+  follow: 'フォローの設定が無効または未設定です。',
+  comment: 'このコメントに一致するコメントギフトがありません。',
   death: 'デスルーレットが無効か、死亡回数が「〇回ごと」の条件に届いていません。',
   roulette: 'ルーレットが無効です。イベント設定②で有効にして保存してください。',
-  poll: '投票が無効か、この番号の選択肢がありません。',
 };
 function noMatchNote(type) {
   return NO_MATCH[type] || '条件に一致する有効な設定がありません。';
 }
 
 const LABELS = { gift: 'ギフト', like: 'いいね', share: 'シェア', follow: 'フォロー', member: '訪問', comment: 'コメント',
-  milestone: 'マイルストーン', combo: 'コンボ', poll: 'コメント投票', roulette: 'ルーレット', death_roulette: 'デスルーレット' };
+  roulette: 'ルーレット', death_roulette: 'デスルーレット' };
 // .txt の付け外しは command_files.cjs の1か所（2026-10-18）。
 const txt = name => ensureTxt(name);
 const ACCEPTED = 'BridgeMOD が受け付けました';

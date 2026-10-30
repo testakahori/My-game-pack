@@ -14,12 +14,12 @@ test('確かめは1つ: アプリと BRIDGE は同じ関数を使う', () => {
   assert.equal(validateBridgeConfig(base()).ok, true, '回数を書いていない割り当てはエラーにしない');
 });
 
-test('回数・閾値: 1〜100 の整数・1 以上の整数でなければエラー（無効な項目も、ゲームの設定も）。書いていなければよい', () => {
+test('回数・閾値: 1〜100 の整数・1 以上の整数でなければエラー（無効な項目も）。書いていなければよい', () => {
   const result = validateBridgeConfig(base({
     mappings: [{ giftId: '1', name: 'A', commandFile: 'a.txt', repeat: '3' }, { giftId: '2', name: 'B', commandFile: 'a.txt', repeat: 2.5 },
       { giftId: '3', name: 'C', commandFile: 'a.txt', repeat: 0 }, { giftId: '4', name: 'D', commandFile: 'a.txt', repeat: 101 }, { giftId: '5', name: 'E', commandFile: 'a.txt', repeat: 100 }],
     likeEvents: [{ threshold: 0, commandFile: 'a.txt', enabled: false }, { threshold: 1.5, commandFile: 'a.txt' }, { threshold: 1000000, commandFile: 'a.txt', repeat: 1 }],
-    options: { gameplay: { combo: { levels: [{ count: 5, commandFile: 'a.txt', repeat: 500 }] }, followMilestones: [{ threshold: -1, commandFile: 'a.txt' }] } },
+    commentGifts: { rules: [{ match: 'gg', commandFile: 'a.txt', repeat: 500 }] },
   }));
   assert.equal(result.ok, false);
   assert.deepEqual(result.errors, [
@@ -27,10 +27,9 @@ test('回数・閾値: 1〜100 の整数・1 以上の整数でなければエ�
     'ギフト割り当て（B）の回数は 1〜100 の整数で指定してください（今は 2.5）',
     'ギフト割り当て（C）の回数は 1〜100 の整数で指定してください（今は 0）',
     'ギフト割り当て（D）の回数は 1〜100 の整数で指定してください（今は 101）',
-    'コンボ（5連）の回数は 1〜100 の整数で指定してください（今は 500）',
+    'コメントギフト（「gg」）の回数は 1〜100 の整数で指定してください（今は 500）',
     'いいね（0いいねごと）の閾値は 1 以上の整数で指定してください（今は 0）',
     'いいね（1.5いいねごと）の閾値は 1 以上の整数で指定してください（今は 1.5）',
-    'フォローマイルストーン（-1）の閾値は 1 以上の整数で指定してください（今は -1）',
   ]);
 });
 

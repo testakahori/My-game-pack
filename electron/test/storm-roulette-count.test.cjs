@@ -29,7 +29,7 @@ test('ルーレットを回す回数は、送られた回数（数でなけれ�
   assert.equal(rouletteSpins('5'), 5);
   assert.equal(rouletteSpins(100000), 100000, '上限はない');
   for (const value of [0, -2, undefined, null, 'x', NaN]) assert.equal(rouletteSpins(value), 1, String(value));
-  assert.equal(rouletteSpins(1.5), 2, '時限倍率の端数は四捨五入');
+  assert.equal(rouletteSpins(1.5), 2, '端数は四捨五入');
 });
 
 test('Bridge のルーレットは来た順にまとめて回し、当たりは回す直前にその時の設定で決める（2026-10-12 ユーザーの決定）', () => {

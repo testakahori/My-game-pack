@@ -55,16 +55,16 @@ test('保存済みの設定を直す: 回数は四捨五入して1〜100、閾�
   const original = { mappings: [{ giftId: '1', name: 'バラ', commandFile: 'a.txt', repeat: '3' }, { giftId: '2', name: 'b', commandFile: 'a.txt', repeat: 500 }],
     likeEvents: [{ threshold: 0, commandFile: 'a.txt', repeat: 2.5, enabled: false }],
     shareEvent: { commandFile: 'a.txt', repeat: 'x' },
-    options: { gameplay: { combo: { levels: [{ count: 5, commandFile: 'a.txt', repeat: 0 }] }, commentCommands: { '!c': { commandFile: 'a.txt', repeat: 7.4 }, '!s': 'a.txt' } } } };
+    commentGifts: { rules: [{ match: 'c', commandFile: 'a.txt', repeat: 7.4 }] } };
   const before = JSON.stringify(original);
   const { config, changes } = migrateBridgeConfig(original);
   assert.equal(JSON.stringify(original), before, '元の設定は変えない');
   assert.deepEqual([config.mappings[0].repeat, config.mappings[1].repeat, config.likeEvents[0].repeat, config.likeEvents[0].threshold, config.shareEvent.repeat,
-    config.options.gameplay.combo.levels[0].repeat, config.options.gameplay.commentCommands['!c'].repeat, config.options.gameplay.commentCommands['!s']], [3, 100, 3, 1, 1, 1, 7, 'a.txt']);
+    config.commentGifts.rules[0].repeat], [3, 100, 3, 1, 1, 7]);
   assert.ok(changes.includes('ギフト割り当て（バラ）の回数 "3" → 3'));
   assert.ok(changes.includes('いいね（0いいねごと）の閾値 0 → 1'));
   assert.ok(changes.includes('いいね（0いいねごと）の回数 2.5 → 3'));
-  assert.equal(changes.length, 7, changes.join('\n'));
+  assert.equal(changes.length, 6, changes.join('\n'));
   assert.deepEqual(migrateBridgeConfig(config).changes, [], '直したものはもう直さない');
   assert.equal(config.configVersion, CONFIG_VERSION);
   assert.equal(CONFIG_VERSION, 2);
@@ -86,7 +86,7 @@ test('保存済みの設定を直す: オブジェクトでないものは直さ
   }
 });
 
-test('回数と閾値の対象: 無効の項目・ゲームの設定も含めてすべて並べ、場所の名前は commandFileRefs と同じ', () => {
+test('回数と閾値の対象: 無効の項目も含めてすべて並べ、場所の名前は commandFileRefs と同じ。古い gameplay は並べない', () => {
   const config = {
     mappings: [{ name: 'バラ', commandFile: 'a.txt' }],
     likeEvents: [{ threshold: 100, commandFile: 'a.txt', enabled: false }],
@@ -104,12 +104,11 @@ test('回数と閾値の対象: 無効の項目・ゲームの設定も含めて
   assert.deepEqual(repeatTargets(config).map(t => t.where), [
     'ギフト割り当て（バラ）', 'いいね（100いいねごと）', 'シェア', 'フォロー', '訪問', '未設定ギフト',
     'ルーレット項目（雷）', 'ルーレット項目（b.txt）', 'デスルーレット項目（罠）', 'コメントギフト（「gg」）',
-    'コンボ（5連）', 'いいねマイルストーン（100）', 'フォローマイルストーン（10）', 'コメントコマンド（「!creeper」）', 'コメント投票（!1）',
   ]);
-  assert.deepEqual(thresholdTargets(config).map(t => t.where), ['いいね（100いいねごと）', 'いいねマイルストーン（100）', 'フォローマイルストーン（10）']);
+  assert.deepEqual(thresholdTargets(config).map(t => t.where), ['いいね（100いいねごと）']);
   assert.equal(repeatTargets(config)[0].item, config.mappings[0], '項目そのものを返す（直す・確かめる側が値を読む）');
   assert.deepEqual(repeatTargets(null), []);
-  assert.deepEqual(repeatTargets({ mappings: 'x', options: { gameplay: { combo: { levels: {} } } } }), [], '形が違うものは飛ばす');
+  assert.deepEqual(repeatTargets({ mappings: 'x', likeEvents: {}, roulette: { items: 3 } }), [], '形が違うものは飛ばす');
 });
 
 // 入力された TikTok ID の文（空なら「入力してください」、形が正しくなければ設定の確かめと同じ文）は tiktok_id.cjs の1か所（PR9 の最後のレビュー）。

@@ -36,74 +36,59 @@ async function bothWays(bridge, input, sendLive, liveCount) {
   return { result, fromTest, fromLive: events(bridge) };
 }
 
-test('いいね: 追いつき上限で省かず、100未満の閾値はアナウンスなし。マイルストーンが先（本番と同じ）', async t => {
+// 演出・ゲーム性設定（マイルストーン・時限モード・コンボ・コメントコマンド・投票）は、2026-10-30 に仕掛けごとなくした。
+test('いいね: 追いつき上限で省かず、100未満の閾値はアナウンスなし（本番と同じ）', async t => {
   const bridge = await startBridgeFixture(t, {
-    commands: { cod: 'say cod\n', boss: 'say boss\n', mile: 'say mile\n' },
+    commands: { cod: 'say cod\n', boss: 'say boss\n' },
     config: {
       likeEvents: [{ enabled: true, threshold: 10, commandFile: 'cod.txt', repeat: 1 }, { enabled: true, threshold: 100, commandFile: 'boss.txt', repeat: 1 }],
-      options: { gameplay: { likeMilestones: [{ threshold: 50, commandFile: 'mile.txt' }] } },
     },
   });
   const { result, fromTest, fromLive } = await bothWays(bridge, { type: 'like', previousLikes: 0, likeCount: 100 },
-    () => bridge.emit('WebcastLikeMessage', { count: 100, total: '100' }), 3);
+    () => bridge.emit('WebcastLikeMessage', { count: 100, total: '100' }), 2);
   assert.deepEqual(sorted(fromTest), sorted([
     { type: 'like', key: 'cod', count: 10, announce: false, listenerName: '視聴者' },
     { type: 'like', key: 'boss', count: 1, announce: true, listenerName: '視聴者' },
-    { type: 'other', key: 'mile', count: 1, announce: true, listenerName: '視聴者' },
   ]), '10いいねごとは10回（以前のテスト発火は追いつき上限で5回）');
   assert.deepEqual(sorted(fromLive), sorted(fromTest));
-  assert.deepEqual(result.steps.map(step => step.commandFile), ['mile.txt', 'cod.txt', 'boss.txt'], 'マイルストーンが先、いいねの設定があと');
-  assert.deepEqual(result.fired.map(row => row.state), ['delivered', 'delivered', 'delivered']);
-  assert.ok(history(bridge).filter(row => row.source === 'test').every(row => ['like', 'milestone'].includes(row.type)), 'テストの行は本番と同じ種類名');
+  assert.deepEqual(result.steps.map(step => step.commandFile), ['cod.txt', 'boss.txt']);
+  assert.deepEqual(result.fired.map(row => row.state), ['delivered', 'delivered']);
+  assert.ok(history(bridge).filter(row => row.source === 'test').every(row => row.type === 'like'), 'テストの行は本番と同じ種類名');
 });
 
-test('設定済みギフト3個: 本番の連打と同じく1個ずつ送り、時限倍率のあとの回数を四捨五入する。コンボも同じ', async t => {
+test('設定済みギフト3個: 本番の連打と同じく1個ずつ送る', async t => {
   const bridge = await startBridgeFixture(t, {
-    commands: { zombie: 'say zombie\n', combo: 'say combo\n' },
-    config: {
-      mappings: [{ giftId: '1', name: 'バラ', commandFile: 'zombie.txt', repeat: 3 }],
-      options: { gameplay: { timedMode: { enabled: true, start: '00:00', end: '24:00', multiplier: 1.5 },
-        combo: { windowMs: 10000, levels: [{ count: 10, commandFile: 'combo.txt' }] } } },
-    },
+    commands: { zombie: 'say zombie\n' },
+    config: { mappings: [{ giftId: '1', name: 'バラ', commandFile: 'zombie.txt', repeat: 3 }] },
   });
   const gift = (repeatCount, repeatEnd) => bridge.emit('WebcastGiftMessage', { giftId: '1', gift: { name: 'バラ' }, repeatCount, repeatEnd });
   const { result, fromTest, fromLive } = await bothWays(bridge, { type: 'mapped_gift', giftId: '1', count: 3 },
-    async () => { await gift(1, 0); await gift(2, 0); await gift(3, 1); }, 4);
-  assert.deepEqual(fromTest.filter(x => x.key === 'zombie').map(x => [x.type, x.count, x.announce]),
-    [['gift', 5, true], ['gift', 5, true], ['gift', 5, true]], '3回×1.5倍＝4.5回 → 5回を、ギフト1個ごとに');
-  assert.deepEqual(fromTest.filter(x => x.key === 'combo').map(x => [x.type, x.count, x.announce]), [['other', 1, true]]);
+    async () => { await gift(1, 0); await gift(2, 0); await gift(3, 1); }, 3);
+  assert.deepEqual(fromTest.map(x => [x.key, x.type, x.count, x.announce]),
+    [['zombie', 'gift', 3, true], ['zombie', 'gift', 3, true], ['zombie', 'gift', 3, true]], '割り当ての3回を、ギフト1個ごとに');
   assert.deepEqual(sorted(fromLive), sorted(fromTest));
   assert.equal(result.steps.filter(step => step.label === 'バラ').length, 3);
 });
 
-test('フォロー: フォローマイルストーンが先、フォローの設定があと（本番と同じ）', async t => {
+test('フォロー: フォローの設定を本番と同じ要求で送る', async t => {
   const bridge = await startBridgeFixture(t, {
-    commands: { fan: 'say fan\n', thanks: 'say thanks\n' },
-    config: { followEvent: { enabled: true, commandFile: 'thanks.txt', repeat: 1 },
-      options: { gameplay: { followMilestones: [{ threshold: 3, commandFile: 'fan.txt' }] } } },
+    commands: { thanks: 'say thanks\n' },
+    config: { followEvent: { enabled: true, commandFile: 'thanks.txt', repeat: 1 } },
   });
   const follow = () => bridge.emit('WebcastSocialMessage', { common: social('pm_main_follow_message'), action: '1' });
-  const { fromTest, fromLive } = await bothWays(bridge, { type: 'follow_milestone', followCount: 3 },
-    async () => { await follow(); await follow(); await follow(); }, 4);
-  assert.deepEqual(fromTest, [
-    { type: 'other', key: 'fan', count: 1, announce: true, listenerName: '視聴者' },
-    { type: 'other', key: 'thanks', count: 1, announce: true, listenerName: '視聴者' },
-  ]);
-  assert.deepEqual(fromLive.slice(-2), fromTest, '本番の3人目と同じ要求・同じ順番');
+  const { fromTest, fromLive } = await bothWays(bridge, { type: 'follow' }, follow, 1);
+  assert.deepEqual(fromTest, [{ type: 'other', key: 'thanks', count: 1, announce: true, listenerName: '視聴者' }]);
+  assert.deepEqual(fromLive, fromTest, '本番のフォローと同じ要求');
 });
 
-test('コメント: コメントコマンドが先、コメントギフトがあと（本番と同じ）', async t => {
+test('コメント: コメントギフトを本番と同じ要求で送る', async t => {
   const bridge = await startBridgeFixture(t, {
-    commands: { heal: 'say heal\n', gifted: 'say gifted\n' },
-    config: { commentGifts: { enabled: true, rules: [{ enabled: true, match: '!heal', commandFile: 'gifted.txt', repeat: 2 }] },
-      options: { gameplay: { commentCommands: { '!heal': 'heal.txt' } } } },
+    commands: { gifted: 'say gifted\n' },
+    config: { commentGifts: { enabled: true, rules: [{ enabled: true, match: '!heal', commandFile: 'gifted.txt', repeat: 2 }] } },
   });
   const { fromTest, fromLive } = await bothWays(bridge, { type: 'comment', comment: '!heal' },
-    () => bridge.emit('WebcastChatMessage', { content: '!heal' }), 2);
-  assert.deepEqual(fromTest, [
-    { type: 'other', key: 'heal', count: 1, announce: true, listenerName: '視聴者' },
-    { type: 'other', key: 'gifted', count: 2, announce: true, listenerName: '視聴者' },
-  ]);
+    () => bridge.emit('WebcastChatMessage', { content: '!heal' }), 1);
+  assert.deepEqual(fromTest, [{ type: 'other', key: 'gifted', count: 2, announce: true, listenerName: '視聴者' }]);
   assert.deepEqual(fromLive, fromTest);
 });
 
@@ -318,39 +303,33 @@ test('設定: 保存した直後でも新しいイベント設定と options で
   assert.ok(reconnect.notes.some(note => note.includes('TikTok IDは、BRIDGE を起動し直すまで')), reconnect.notes.join(' / '));
 });
 
-test('死亡と投票: デスルーレットは「N回ごと」で回し、投票はその番号を当選させる。条件に届かなければ理由を書く', async t => {
+test('死亡: デスルーレットは「N回ごと」で回す。条件に届かなければ理由を書く', async t => {
   const bridge = await startBridgeFixture(t, {
     commands: { qa: 'say qa\n' },
-    config: { deathRoulette: { enabled: true, everyDeaths: 3, items: [{ commandFile: 'qa.txt', label: 'QA', weight: 1, repeat: 5 }] },
-      options: { gameplay: { poll: { enabled: true, options: { '1': 'qa.txt', '2': { commandFile: 'qa.txt', repeat: 3 } } } } } },
+    config: { deathRoulette: { enabled: true, everyDeaths: 3, items: [{ commandFile: 'qa.txt', label: 'QA', weight: 1, repeat: 5 }] } },
   });
   const miss = await bridge.testEvent({ type: 'death', deaths: 2 });
   assert.match(miss.notes.join(''), /デスルーレット/);
   const hit = await bridge.testEvent({ type: 'death', deaths: 3, listenerName: 'Steve' });
   assert.equal(hit.steps[0].label, 'デスルーレット');
   assert.deepEqual(events(bridge), [{ type: 'other', key: 'qa', count: 5, announce: false, listenerName: 'Steve' }]);
-  bridge.requests.length = 0;
-  await bridge.testEvent({ type: 'poll', pollOption: '2' });
-  assert.deepEqual(events(bridge), [{ type: 'other', key: 'qa', count: 3, announce: true, listenerName: 'コメント投票' }]);
-  const none = await bridge.testEvent({ type: 'poll', pollOption: '9' });
-  assert.match(none.notes.join(''), /投票が無効か、この番号の選択肢がありません/);
 });
 
-test('テスト発火は本番の状態（いいねの累計・マイルストーン）に触らない', async t => {
+test('テスト発火は本番の状態（いいねの累計）に触らない', async t => {
   const bridge = await startBridgeFixture(t, {
-    commands: { mile: 'say mile\n' },
-    config: { options: { gameplay: { likeMilestones: [{ threshold: 50, commandFile: 'mile.txt' }] } } },
+    commands: { cod: 'say cod\n' },
+    config: { likeEvents: [{ enabled: true, threshold: 50, commandFile: 'cod.txt', repeat: 1 }] },
   });
   await bridge.emit('WebcastLikeMessage', { count: 10, total: '10' });
   await bridge.wait(200);
-  const tested = await bridge.testEvent({ type: 'like_milestone', previousLikes: 0, likeCount: 100 });
-  assert.deepEqual(tested.fired.map(row => row.state), ['delivered'], 'テストではマイルストーン50が出る');
+  const tested = await bridge.testEvent({ type: 'like', previousLikes: 0, likeCount: 100 });
+  assert.deepEqual(tested.fired.map(row => row.state), ['delivered'], 'テストでは 50いいねごと が出る');
   bridge.requests.length = 0;
   await bridge.emit('WebcastLikeMessage', { count: 30, total: '40' });
   await bridge.wait(300);
   assert.deepEqual(events(bridge), [], '本番の累計は10→40（テストの100で進めていない）');
   await bridge.emit('WebcastLikeMessage', { count: 20, total: '60' });
-  await eventually(bridge, () => events(bridge).some(x => x.key === 'mile'), '本番のマイルストーン50は本番で1回出る');
+  await eventually(bridge, () => events(bridge).some(x => x.key === 'cod'), '本番の 50いいね は本番で1回出る');
 });
 
 test('RANDOM の割り当ては送るときと同じく抽選し、選ばれたものを書く（条件だけ確認でも）', async t => {

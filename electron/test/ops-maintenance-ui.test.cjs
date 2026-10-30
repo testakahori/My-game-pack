@@ -1,6 +1,6 @@
 // 運用センターの「設定復元・更新」と「詳細設定」（2026-10-30 ユーザーの決定）。
 // - 「設定復元・更新」の更新の手順の3行を消す。
-// - 「詳細設定」（演出・ゲーム性設定の JSON）はタブごと消す。今の設定（options.gameplay）は、ほかのタブで保存しても消さずに残す。
+// - 「詳細設定」（演出・ゲーム性設定の JSON）はタブごと消す。演出・ゲーム性設定は仕掛けごとなくした（古い設定に残った options.gameplay は読まずに放っておく）。
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -30,24 +30,22 @@ test('運用センター: 「設定復元・更新」の更新の手順の3行�
   assert.match(ops, /アプリをアンインストールする必要はありません。設定とMAPはそのまま引き継ぎます。/);
 });
 
-test('運用センターの保存: 演出・ゲーム性設定（gameplay）は保存のときの最新のものを残し、このページの値で上書きしない', () => {
+test('運用センターの保存: 保存のときに読んだ最新の設定に、このページの options を重ねる', () => {
   const { opsConfigToSave } = loadTs('opsConfig.ts');
-  const latest = { tiktokUsername: 'a', mappings: [1], options: { giftCooldownMs: 300, gameplay: { combo: { windowMs: 10000 } }, logUnknownGifts: true } };
-  const next = opsConfigToSave(latest, { giftCooldownMs: 500, gameplay: { stale: true } });
-  assert.deepEqual(next.options.gameplay, { combo: { windowMs: 10000 } });
+  const latest = { tiktokUsername: 'a', mappings: [1], options: { giftCooldownMs: 300, logUnknownGifts: true } };
+  const next = opsConfigToSave(latest, { giftCooldownMs: 500 });
   assert.equal(next.options.giftCooldownMs, 500, 'このページで変えた値は書く');
   assert.equal(next.options.logUnknownGifts, true, 'このページに無い値は残す');
   assert.equal(next.tiktokUsername, 'a'); assert.deepEqual(next.mappings, [1]);
-  assert.equal('gameplay' in opsConfigToSave({ options: {} }, { gameplay: { stale: true } }).options, false, '最新に無ければ足さない');
+  assert.deepEqual(opsConfigToSave({}, undefined).options, {}, 'options が無くても落ちない');
   assert.match(ops, /opsConfigToSave\(latest, cfg\.options\)/);
 });
 
-// gameplay を外す決め方は1か所（src/lib/opsConfig.ts）。保存と、未保存かどうかの比べの両方で使う（PR #174 レビュー 軽い2）。
-test('運用センター：未保存かどうかの比べも、保存と同じ決め方で gameplay を外す', () => {
-  const { withoutGameplay } = loadTs('opsConfig.ts');
-  assert.deepEqual(withoutGameplay({ giftCooldownMs: 300, gameplay: { combo: {} } }), { giftCooldownMs: 300 });
-  assert.deepEqual(withoutGameplay(undefined), {});
-  assert.match(ops, /JSON\.stringify\(\{ options: withoutGameplay\(cfg\.options\) \}\)/);
-  assert.match(ops, /JSON\.stringify\(\{ options: withoutGameplay\(bridgeConfig\.options\) \}\)/);
+// 演出・ゲーム性設定を仕掛けごとなくしたので、gameplay を外す決め方（withoutGameplay。PR #174 レビュー 軽い2）も消した（2026-10-30）。
+test('運用センター：未保存かどうかは、このページの options をそのまま比べる', () => {
+  assert.equal('withoutGameplay' in loadTs('opsConfig.ts'), false);
+  assert.doesNotMatch(ops, /withoutGameplay|gameplay/);
+  assert.match(ops, /JSON\.stringify\(\{ options: cfg\.options \|\| \{\} \}\)/);
+  assert.match(ops, /JSON\.stringify\(\{ options: bridgeConfig\.options \|\| \{\} \}\)/);
   assert.doesNotMatch(ops, /const pageOptions = /, 'ページに写しを持たない');
 });

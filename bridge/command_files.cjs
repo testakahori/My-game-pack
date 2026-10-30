@@ -82,7 +82,8 @@ function commandFileProblem(commandFile, { explorerHint = true } = {}) {
 
 // 設定の中で、Bridge が実際に発火しうるコマンドファイルの参照を、画面に出す名前付きで列挙する。
 // 無効にしてある設定は Bridge も実行しないので数えない。どれが enabled を見るかは bridge/index.js・
-// event_rules.cjs・feature_engine.js・roulette.cjs と同じにする（見ないものは enabled:false でも数える）。
+// event_rules.cjs・roulette.cjs と同じにする（見ないものは enabled:false でも数える）。
+// 演出・ゲーム性設定（options.gameplay）は仕掛けごとなくしたので数えない。古い設定に残っていても読まずに放っておく（2026-10-30）。
 // 参照の数え方はこの1つ（設定の確かめ・配信前チェック・ゲームの候補の確かめ・ゲームの切り替え。処理のコピー PR5）。
 function commandFileRefs(config) {
   const refs = [];
@@ -92,7 +93,7 @@ function commandFileRefs(config) {
     if (String(commandFile ?? "").trim()) refs.push({ where, commandFile: String(commandFile).trim() });
   };
   const list = value => (Array.isArray(value) ? value : []);
-  // 無効のギフト割り当ては BRIDGE も動かさない（数えるのはゲームの数え方だけ。2026-10-22 ユーザーの決定）。
+  // 無効のギフト割り当ては BRIDGE も動かさない（2026-10-22 ユーザーの決定）。
   for (const m of list(config?.mappings)) add(`ギフト割り当て（${m?.name || m?.giftId || "名前なし"}）`, m, { honorsEnabled: true });
   for (const ev of list(config?.likeEvents)) add(`いいね（${ev?.threshold ?? "?"}いいねごと）`, ev, { honorsEnabled: true });
   for (const [key, label] of [["shareEvent", "シェア"], ["followEvent", "フォロー"], ["memberEvent", "訪問"], ["unmappedGiftEvent", "未設定ギフト"]]) {
@@ -107,15 +108,6 @@ function commandFileRefs(config) {
   }
   if (config?.commentGifts?.enabled === true) {
     for (const rule of list(config.commentGifts.rules)) add(`コメントギフト（「${rule?.match ?? ""}」）`, rule, { honorsEnabled: true });
-  }
-  // コンボ・マイルストーン・コメントコマンドは有効フラグを見ずに発火する（FeatureEngine）。投票だけは enabled を見る。
-  const gameplay = config?.options?.gameplay || {};
-  for (const level of list(gameplay.combo?.levels)) add(`コンボ（${level?.count ?? "?"}連）`, level);
-  for (const m of list(gameplay.likeMilestones)) add(`いいねマイルストーン（${m?.threshold ?? "?"}）`, m);
-  for (const m of list(gameplay.followMilestones)) add(`フォローマイルストーン（${m?.threshold ?? "?"}）`, m);
-  for (const [text, command] of Object.entries(gameplay.commentCommands || {})) add(`コメントコマンド（「${text}」）`, command);
-  if (gameplay.poll?.enabled) {
-    for (const [key, option] of Object.entries(gameplay.poll.options || {})) add(`コメント投票（!${key}）`, option);
   }
   return refs;
 }

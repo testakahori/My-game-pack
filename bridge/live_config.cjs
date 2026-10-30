@@ -29,7 +29,6 @@ function liveOptions(options) {
     announceEveryRepeat: (o.announceEveryRepeat ?? d.announceEveryRepeat) !== false,
     announceEnabled: (o.announceEnabled ?? d.announceEnabled) !== false,
     protection: o.protection || { enabled: false },
-    gameplay: o.gameplay || {},
   };
 }
 
