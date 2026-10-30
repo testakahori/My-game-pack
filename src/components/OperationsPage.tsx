@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import EventTestPanel from "./EventTestPanel";
 import WorldSavesPanel from "./WorldSavesPanel";
 import SettingsBackupsPanel from "./SettingsBackupsPanel";
@@ -6,6 +6,7 @@ import ListInput from "./ListInput";
 import ObsIntegrationSettings from "./ObsIntegrationSettings";
 import { COMMA_ONLY, hasJapaneseComma } from "../lib/listInput";
 import { useUnsavedChanges } from "../UnsavedChanges";
+import { opsConfigToSave, withoutGameplay } from "../lib/opsConfig";
 // 既定値は BRIDGE と同じ表（bridge/config_defaults.json。処理のコピー PR4）。
 import CONFIG_DEFAULTS from "../../bridge/config_defaults.json";
 
@@ -147,17 +148,16 @@ export default function OperationsPage({ onRestored, gameReady }: { onRestored: 
   const [appCfg, setAppCfg] = useState<any>({});
   const [serverProps, setServerProps] = useState<Record<string, string>>({});
   const [stats, setStats] = useState<Stats>(defaultStats);
-  const [gameplayText, setGameplayText] = useState("{}");
   const [bridgeProcess, setBridgeProcess] = useState<any>({ running: false, restartCount: 0 });
   const [bridgeSync, setBridgeSync] = useState<any>({ state: "idle" });
   const [opsTab, setOpsTab] = useState("map");
   const [showHistory, setShowHistory] = useState(false);
   const [now, setNow] = useState(new Date());
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState("");
   const [saving, setSaving] = useState(false);
   const [savedSnapshot, setSavedSnapshot] = useState("");
-  const currentSnapshot = JSON.stringify({ options: cfg.options || {}, gameplayText });
+  // options.gameplay（コンボ・いいねやフォローの節目など）は画面で直さないので、未保存かどうかにも入れない（2026-10-30。src/lib/opsConfig.ts）。
+  const currentSnapshot = JSON.stringify({ options: withoutGameplay(cfg.options) });
   // このページの動作設定だけの未保存。帯の「変更を保存」はこれを保存するので、OBS 連携の欄（自分の保存ボタンを持つ）の未保存では出さない（PR3 の最後のレビュー 重要2）。
   const opsDirty = Boolean(savedSnapshot) && currentSnapshot !== savedSnapshot;
   useUnsavedChanges(opsDirty, saving);
@@ -203,8 +203,7 @@ export default function OperationsPage({ onRestored, gameReady }: { onRestored: 
       setCfg(bridgeConfig);
       setAppCfg(appConfigValue);
       setServerProps(propsValue);
-      setGameplayText(JSON.stringify(bridgeConfig?.options?.gameplay || {}, null, 2));
-      if (config.status === "fulfilled" && appConfig.status === "fulfilled") setSavedSnapshot(JSON.stringify({ options: bridgeConfig.options || {}, gameplayText: JSON.stringify(bridgeConfig?.options?.gameplay || {}, null, 2) }));
+      if (config.status === "fulfilled" && appConfig.status === "fulfilled") setSavedSnapshot(JSON.stringify({ options: withoutGameplay(bridgeConfig.options) }));
     });
 
     refresh();
@@ -220,8 +219,6 @@ export default function OperationsPage({ onRestored, gameReady }: { onRestored: 
   const latestAt = history[0]?.at;
   const worldName = parseWorldName(serverProps["level-name"] || appCfg.world || cfg.world);
   const serverFolderLabel = tailPath(appCfg.serverFolder);
-  const jsonLineCount = gameplayText.split(/\r?\n/).length;
-  const jsonBytes = new Blob([gameplayText]).size;
 
   const setOption = (key: string, value: any) => {
     setCfg((valueBefore: any) => ({
@@ -237,14 +234,12 @@ export default function OperationsPage({ onRestored, gameReady }: { onRestored: 
     if (saving) return;
     setSaving(true);
     try {
-      const gameplay = JSON.parse(gameplayText);
       const latest = await api.configRead();
-      const next = { ...latest, options: { ...(latest.options || {}), ...(cfg.options || {}), gameplay } };
+      const next = opsConfigToSave(latest, cfg.options);
       const validation = await api.configValidate(next);
       if (!validation.ok) throw new Error(validation.errors.join("\n"));
       await api.configWrite(next);
       setSavedSnapshot(currentSnapshot);
-      setLastSavedAt(new Date().toISOString());
       setNotice(validation.warnings?.length ? `保存しました: ${validation.warnings.join(" / ")}` : "運用設定を保存しました");
       await refresh();
     } catch (error: any) {
@@ -274,39 +269,6 @@ export default function OperationsPage({ onRestored, gameReady }: { onRestored: 
       setNotice(`ログクリア失敗: ${error?.message || String(error)}`);
     }
   };
-
-  const formatGameplayJson = () => {
-    try {
-      setGameplayText(JSON.stringify(JSON.parse(gameplayText), null, 2));
-      setNotice("JSONを整形しました");
-    } catch (error: any) {
-      setNotice(`JSON整形失敗: ${error?.message || String(error)}`);
-    }
-  };
-
-  // bridge/feature_engine.js が解釈する options.gameplay の記入例
-  const GAMEPLAY_EXAMPLE = {
-    combo: {
-      windowMs: 10000,
-      levels: [{ count: 5, commandFile: "tnt.txt", repeat: 1 }],
-    },
-    likeMilestones: [{ threshold: 100, commandFile: "cod.txt", repeat: 3 }],
-    followMilestones: [{ threshold: 5, commandFile: "heal.txt", repeat: 1 }],
-    commentCommands: { "!creeper": { commandFile: "creeper.txt", repeat: 1 } },
-    timedMode: { enabled: false, start: "21:00", end: "23:00", multiplier: 2 },
-  };
-
-  const insertGameplayExample = () => {
-    const current = gameplayText.replace(/\s/g, "");
-    if (current && current !== "{}" && !window.confirm("現在のJSONを記入例で置き換えます。よろしいですか？")) return;
-    setGameplayText(JSON.stringify(GAMEPLAY_EXAMPLE, null, 2));
-    setNotice("記入例を貼り付けました。必要な項目だけ残して保存してください");
-  };
-
-  const gameplayJsonError = useMemo(() => {
-    try { JSON.parse(gameplayText); return null; }
-    catch (error: any) { return error?.message || "invalid JSON"; }
-  }, [gameplayText]);
 
   return (
     <div className="operations-page ops-page">
@@ -383,7 +345,7 @@ export default function OperationsPage({ onRestored, gameReady }: { onRestored: 
         <CreeperSignal />
       </OpsPanel>
 
-      <nav className="studio-ops-tabs" aria-label="運用センターのメニュー">{[["map", "MAPセーブ・ロード"], ["test", "イベントテスト"], ["safety", "動作設定"], ["maintenance", "設定復元・更新"], ["advanced", "詳細設定"]].map(([id, label]) => <button key={id} aria-pressed={opsTab === id} onClick={() => setOpsTab(id)}>{label}</button>)}{opsDirty && <button className="studio-ops-save" disabled={saving} onClick={save}>変更を保存</button>}</nav>
+      <nav className="studio-ops-tabs" aria-label="運用センターのメニュー">{[["map", "MAPセーブ・ロード"], ["test", "イベントテスト"], ["safety", "動作設定"], ["maintenance", "設定復元・更新"]].map(([id, label]) => <button key={id} aria-pressed={opsTab === id} onClick={() => setOpsTab(id)}>{label}</button>)}{opsDirty && <button className="studio-ops-save" disabled={saving} onClick={save}>変更を保存</button>}</nav>
       <div hidden={opsTab !== "map"}><WorldSavesPanel active={opsTab === "map"} /></div>
       <div hidden={opsTab !== "test"}><EventTestPanel onTested={refresh} bridgeRunning={bridgeProcess.running === true} gameReady={gameReady} /></div>
       <div className="ops-main-grid" hidden={opsTab !== "safety"}>
@@ -443,46 +405,6 @@ export default function OperationsPage({ onRestored, gameReady }: { onRestored: 
       </div>
 
       <div className="ops-bottom-grid">
-        <div hidden={opsTab !== "advanced"}><OpsPanel className="ops-json-card">
-          <div className="ops-card-topline">
-            <div className="ops-panel-heading">
-              <span className="ops-panel-icon ops-panel-icon--violet">☷</span>
-              <div>
-                <h2>演出・ゲーム性設定</h2>
-                <p>コンボ、マイルストーン、コメントコマンド、時限モードをJSONで設定します（上級者向け）。</p>
-              </div>
-            </div>
-            <button type="button" className="ops-small-button" onClick={formatGameplayJson}>整形</button>
-          </div>
-          <details className="ops-json-help">
-            <summary>📖 書き方ガイド（設定できる項目と記入例）</summary>
-            <ul>
-              <li><b>combo</b> — 同じギフトが windowMs ミリ秒以内に連続し、合計数が levels の count に達すると commandFile を repeat 回発動</li>
-              <li><b>likeMilestones</b> — 配信中の累計いいねが threshold に到達した瞬間に1回発動</li>
-              <li><b>followMilestones</b> — 配信中の新規フォローが threshold 人目に達したら発動</li>
-              <li><b>commentCommands</b> — コメント本文が完全一致したら発動（例：「!creeper」）</li>
-              <li><b>timedMode</b> — start〜end の時間帯だけギフトのコンボ集計を multiplier 倍にする</li>
-            </ul>
-            <p>commandFile はイベント設定と同じ bridge/commands/minecraft/ 内のtxtファイル名です。使わない項目は書かなくてOK（空の {"{}"} のままでも問題ありません）。</p>
-            <pre>{JSON.stringify(GAMEPLAY_EXAMPLE, null, 2)}</pre>
-            <button type="button" className="ops-small-button" onClick={insertGameplayExample}>この記入例をエディタに貼り付け</button>
-          </details>
-          <textarea
-            value={gameplayText}
-            onChange={(event) => setGameplayText(event.target.value)}
-            spellCheck={false}
-            placeholder={'空でOK。設定するときは上の「書き方ガイド」の記入例を参照してください。'}
-          />
-          <div className="ops-json-status">
-            {gameplayJsonError
-              ? <span>⚠ JSON <b className="bad">エラー</b></span>
-              : <span>✅ JSON <b>正常</b></span>}
-            <span>最終保存: {lastSavedAt ? fmtClock(new Date(lastSavedAt)) : "未保存"}</span>
-            <span>{jsonLineCount} 行 / {(jsonBytes / 1024).toFixed(1)} KB</span>
-          </div>
-        </OpsPanel>
-
-        </div>
         <div hidden={opsTab !== "maintenance"}><SettingsBackupsPanel onRestored={onRestored} gameReady={gameReady} /><OpsPanel className="ops-update-card">
           <div className="ops-card-topline">
             <div>
@@ -494,11 +416,6 @@ export default function OperationsPage({ onRestored, gameReady }: { onRestored: 
             <span><small>現在のバージョン</small><b className="ok">{appVersion || "確認中…"}</b></span>
             <span><small>更新方法</small><b>配布されたインストーラーで更新</b></span>
           </div>
-          <ol>
-            <li>設定を保存し、BRIDGE・サーバー・Minecraftを停止します。</li>
-            <li>このアプリを終了し、配布者から受け取った最新版のインストーラーを実行します。</li>
-            <li>現在と同じインストール先を選び、完了後にアプリを起動します。</li>
-          </ol>
           <p>アプリをアンインストールする必要はありません。設定とMAPはそのまま引き継ぎます。</p>
         </OpsPanel>
       </div>

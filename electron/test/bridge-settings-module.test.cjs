@@ -159,6 +159,16 @@ test('コマンド txt: 選んでいるゲームのコマンドだけを出し�
   assert.equal(x.invoke('bridge:commands:readMeta').find(row => row.name === 'my_cmd.txt').title, '自作');
 });
 
+// いいね・フォローとルーレット・コメントの選ぶ欄も分類ごとに並べるので、候補（bridge:commands:list）にも分類を届ける。分類の無いコマンドの形は変えない（2026-10-30）。
+test('コマンド txt: 候補の一覧に分類（# CATEGORY:）を入れる。分類の無いものには入れない', async t => {
+  const x = setup(t);
+  await x.invoke('bridge:commands:write', { filename: 'helper_cmd.txt', content: '# TITLE: 助け\n# CATEGORY: お助け系\nsay hi\n' });
+  await x.invoke('bridge:commands:write', { filename: 'plain_cmd.txt', content: '# TITLE: ふつう\nsay hi\n' });
+  const rows = x.invoke('bridge:commands:list');
+  assert.deepEqual(rows.find(row => row.name === 'helper_cmd.txt'), { name: 'helper_cmd.txt', title: '助け', category: 'お助け系' });
+  assert.deepEqual(rows.find(row => row.name === 'plain_cmd.txt'), { name: 'plain_cmd.txt', title: 'ふつう' });
+});
+
 // ゲーム専用の判定は bridge/game_commands.cjs の1か所（処理のコピー PR6）。チャットの名前もアプリが付けて画面へ渡す。
 test('コマンド txt: ゲーム専用の名前は大文字でも書かず、game_mode_on.txt のような共通の名前は書ける。一覧にチャットの名前を付ける', async t => {
   const x = setup(t);

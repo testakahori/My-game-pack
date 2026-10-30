@@ -15,7 +15,7 @@ export type GameStatus = {
   mapResettable?: boolean;
   // maps：初期マップ（あれば TOP に「マップを初期化」を出す）。resetMapOnSwitch：ほかのゲームから切り替えたときにマップを初期に戻す（埋め立て）。
   // selectable：false なら配信ホームの選択肢に出さない（サバイバル。2026-10-29）。bridge/games.json のまま届く。
-  games: { id: string; name: string; modName: string; installed: boolean; maps?: string[]; resetMapOnSwitch?: boolean; selectable?: boolean }[];
+  games: { id: string; name: string; modName: string; installed: boolean; maps?: string[]; resetMapOnSwitch?: boolean; selectable?: boolean; preparing?: boolean }[];
 };
 export type MinecraftLocationCandidate = {
   path: string; modsPath: string; sources: string[]; profiles: { name: string; version: string }[];
@@ -94,7 +94,7 @@ declare global {
       // invalidName: BridgeMOD が拒否する名前（日本語・空白・.txt が2つなど）。割り当てて保存すると理由付きで止まる。invalidReason はその直し方の文。
       // roulette: ルーレットを回すコマンド（roulette.txt。大文字小文字を問わない）。一覧や項目の候補からは除く。
       bridgeCommandsReadMeta: () => Promise<Array<{ name: string; title: string; category: string; description?: string; chatKey?: string; invalidName?: boolean; invalidReason?: string; roulette?: boolean }>>;
-      bridgeCommandsList: () => Promise<Array<{ name: string; title: string; invalidName?: boolean; invalidReason?: string; roulette?: boolean }>>;
+      bridgeCommandsList: () => Promise<Array<{ name: string; title: string; category?: string; invalidName?: boolean; invalidReason?: string; roulette?: boolean }>>;
       // TXT 作成の確かめ。filename は .txt を付けた保存の名前、commands はコマンドの行、exists は同じ名前のファイルがあるか（保存は上書き）。
       bridgeCommandsCheck: (draft: { filename: string; content: string }) => Promise<{ filename: string; commands: string[]; problems: string[]; exists: boolean }>;
       testEvent: (event: { type: string; preview?: boolean; listenerName?: string; commandFile?: string; giftId?: string; count?: number; previousLikes?: number; likeCount?: number; deaths?: number; followCount?: number; comment?: string; pollOption?: string }) => Promise<{ ok: boolean; message: string; preview?: boolean; matched?: boolean; bridgeStopped?: boolean; notes?: string[]; steps?: Array<{ label: string; commandFile: string; count: number; type?: string; roulette?: boolean }>; fired?: Array<{ stepIndex?: number; commandFile?: string; count?: number; state?: 'delivered' | 'pending' | 'failed' | 'discarded'; message: string }> }>;
