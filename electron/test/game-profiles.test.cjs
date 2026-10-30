@@ -161,6 +161,62 @@ test('BridgeMOD同期はDOUMAMODを削除せず退避し、他のMODを保持す
   assert.equal(fs.readdirSync(path.join(x.server, '.mygamepack-retired-mods')).length, 1);
 });
 
+// 環境構築・Forge のインストール・版が上がったあとの起動のたびに、今使っている jar の写しが退避先にたまっていた（2026-10-30 ユーザーの決定：最新の jar は退避しない）。
+test('BridgeMOD同期: 同じ名前・同じ中身の jar がそろっていれば退避しない（押すたびに写しをためない）', t => {
+  const x = fixture(t), mods = path.join(x.server, 'mods');
+  fs.rmSync(path.join(mods, 'doumacmd-old.jar'));
+  fs.copyFileSync(x.bridge, path.join(mods, 'bridgemod-1.3.4.jar'));
+  replaceCommonMod(x.bridge, x.server);
+  replaceCommonMod(x.bridge, x.server);
+  assert.equal(fs.existsSync(path.join(x.server, '.mygamepack-retired-mods')), false);
+  assert.deepEqual(fs.readdirSync(mods).sort(), ['bridgemod-1.3.4.jar', 'other.jar']);
+  assert.deepEqual(fs.readFileSync(path.join(mods, 'bridgemod-1.3.4.jar')), fs.readFileSync(x.bridge));
+});
+
+test('BridgeMOD同期: 最新の jar がそろっていても、古い版とサーバー直下の残りは退避する', t => {
+  const x = fixture(t), mods = path.join(x.server, 'mods');
+  fs.copyFileSync(x.bridge, path.join(mods, 'bridgemod-1.3.4.jar'));
+  fs.writeFileSync(path.join(mods, 'bridgemod-1.3.3.jar'), jar('bridgemod'));
+  fs.writeFileSync(path.join(x.server, 'bridgemod-1.0.0.jar'), 'root leftover');
+  replaceCommonMod(x.bridge, x.server);
+  assert.deepEqual(fs.readdirSync(mods).sort(), ['bridgemod-1.3.4.jar', 'other.jar']);
+  const retired = path.join(x.server, '.mygamepack-retired-mods'), [slot] = fs.readdirSync(retired);
+  assert.deepEqual(fs.readdirSync(path.join(retired, slot, 'mods')).sort(), ['bridgemod-1.3.3.jar', 'doumacmd-old.jar']);
+  assert.deepEqual(fs.readdirSync(path.join(retired, slot, 'root')), ['bridgemod-1.0.0.jar']);
+});
+
+// 残すと同じ MOD が2つ並び、Forge が起動しない。
+test('BridgeMOD同期: 名前の違う同じ MOD は、中身が同じでも退避する', t => {
+  const x = fixture(t), mods = path.join(x.server, 'mods');
+  fs.copyFileSync(x.bridge, path.join(mods, 'bridgemod-1.3.4.jar'));
+  fs.copyFileSync(x.bridge, path.join(mods, 'handmade-bridge.jar'));
+  replaceCommonMod(x.bridge, x.server);
+  assert.deepEqual(fs.readdirSync(mods).sort(), ['bridgemod-1.3.4.jar', 'other.jar']);
+  const retired = path.join(x.server, '.mygamepack-retired-mods'), [slot] = fs.readdirSync(retired);
+  assert.deepEqual(fs.readdirSync(path.join(retired, slot, 'mods')).sort(), ['doumacmd-old.jar', 'handmade-bridge.jar']);
+});
+
+test('BridgeMOD同期: 同じ名前でも中身が違えば、退避して置き直す', t => {
+  const x = fixture(t), mods = path.join(x.server, 'mods');
+  fs.writeFileSync(path.join(mods, 'bridgemod-1.3.4.jar'), 'broken');
+  replaceCommonMod(x.bridge, x.server);
+  assert.deepEqual(fs.readFileSync(path.join(mods, 'bridgemod-1.3.4.jar')), fs.readFileSync(x.bridge));
+  const retired = path.join(x.server, '.mygamepack-retired-mods'), [slot] = fs.readdirSync(retired);
+  assert.equal(fs.readFileSync(path.join(retired, slot, 'mods', 'bridgemod-1.3.4.jar'), 'utf8'), 'broken');
+});
+
+// 前は、書く前に止まったとき（ウイルス対策が jar をつかんでいて退避できない、など）にも mods の同じ名前の jar を消していた。
+test('BridgeMOD同期: 退避の途中で止まっても、元からある同じ名前の jar は消さない', t => {
+  const x = fixture(t), mods = path.join(x.server, 'mods');
+  fs.writeFileSync(path.join(mods, 'bridgemod-1.3.4.jar'), 'broken');
+  fs.writeFileSync(path.join(x.server, 'bridgemod-1.0.0.jar'), 'root leftover');
+  t.mock.method(fs, 'renameSync', () => { throw new Error('locked'); });
+  assert.throws(() => replaceCommonMod(x.bridge, x.server), /locked/);
+  t.mock.restoreAll();
+  assert.equal(fs.readFileSync(path.join(mods, 'bridgemod-1.3.4.jar'), 'utf8'), 'broken');
+  assert.equal(fs.readFileSync(path.join(x.server, 'bridgemod-1.0.0.jar'), 'utf8'), 'root leftover');
+});
+
 module.exports = { jar };
 
 test('表示MODを独立jarで両側に配置し、共通表示あり／なしをゲームコマンドごとに保存する', async t => {
