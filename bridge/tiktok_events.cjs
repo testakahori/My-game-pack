@@ -129,8 +129,8 @@ function createLikeCounter() {
       if (derived && lastTotal == null) localCount = true;
       else if (!derived) localCount = false;
       lastTotal = total;
-      // local: total が配信の累計ではなく、つないでからの数（配信の累計がまだ届いていない）。
-      return { previousTotal, total, received: total - previousTotal, local: localCount };
+      // 前は local（つないでからの数で数えているか）も返していた。読んでいたのはいいねのマイルストーンだけなので外した（2026-10-30）。
+      return { previousTotal, total, received: total - previousTotal };
     },
   };
 }

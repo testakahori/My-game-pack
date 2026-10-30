@@ -52,7 +52,7 @@ function testEventActions(input, { mappedGiftIds = new Set(), disabledGiftIds = 
     const total = integer(input, 'likeCount', 100, 0, 1000000);
     const previousTotal = integer(input, 'previousLikes', 0, 0, 1000000);
     if (total < previousTotal) throw new Error('今回の累計いいねは前回以上にしてください。');
-    actions.push({ kind: 'like', data: data(), progress: { previousTotal, total, local: false } });
+    actions.push({ kind: 'like', data: data(), progress: { previousTotal, total } });
     notes.push(`累計${previousTotal}→${total}として判定。本番のいいね数は変更しません。`);
   }
   if (type === 'share' || type === 'member' || type === 'follow') actions.push({ kind: type, data: data() });

@@ -30,7 +30,7 @@ test('割当のない ID（設定済みギフト）・割当のある ID（未�
 
 test('いいねは入力の前回・今回の累計をそのまま渡し、今回が前回より少なければ止める', () => {
   const { actions, notes } = testEventActions({ type: 'like', previousLikes: 300, likeCount: 900 }, mapped);
-  assert.deepEqual(actions.map(a => [a.kind, a.progress]), [['like', { previousTotal: 300, total: 900, local: false }]]);
+  assert.deepEqual(actions.map(a => [a.kind, a.progress]), [['like', { previousTotal: 300, total: 900 }]]);
   assert.match(notes.join(''), /累計300→900/);
   assert.throws(() => testEventActions({ type: 'like', previousLikes: 100, likeCount: 1 }, mapped), /前回以上/);
 });
