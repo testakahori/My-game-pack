@@ -42,8 +42,8 @@ function commentExtras(rule) {
 }
 // BridgeMOD（HTTP）で送る設定か。判定は command_files.cjs の1か所にまとめ、ここからも同じものを出す（PR #74 レビュー）。
 const { isBridgeModTransport } = require('./command_files.cjs');
-// 時限倍率（例：1.5倍）を掛けたあとのギフトの回数。小数は四捨五入する（BridgeMOD は小数の回数を拒否する）。
-// 本番の Bridge とテスト発火で同じ丸め方をする（PR #85 レビュー）。
+// ギフトの回数。小数は四捨五入する（BridgeMOD は小数の回数を拒否する）。前は時限モードの倍率で小数になった。
+// 2026-10-30 に時限モードをなくしたあとも、守りとして本番の Bridge とテスト発火で同じ丸め方をする（PR #85 レビュー）。
 function giftTimes(amount) {
   const times = Math.round(Number(amount));
   return Number.isFinite(times) && times >= 1 ? times : 1;

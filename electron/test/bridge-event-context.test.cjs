@@ -10,7 +10,7 @@ const body = name => {
   assert.ok(start >= 0, 'missing ' + name);
   return source.slice(start, source.indexOf('\n  }\n', start));
 };
-const HANDLERS = ['handleGift', 'handleLikeProgress', 'handleShare', 'handleFollow', 'handleMember', 'handleChat', 'handleDeath', 'emitFeature'];
+const HANDLERS = ['handleGift', 'handleLikeProgress', 'handleShare', 'handleFollow', 'handleMember', 'handleChat', 'handleDeath'];
 
 test('本番の TikTok のイベントは、liveContext を渡して同じ処理を呼ぶ', () => {
   for (const [event, handler] of [['gift', 'handleGift'], ['share', 'handleShare'], ['follow', 'handleFollow'], ['member', 'handleMember'], ['chat', 'handleChat']]) {
@@ -18,15 +18,12 @@ test('本番の TikTok のイベントは、liveContext を渡して同じ処理
   }
   assert.match(source, /handleLikeProgress\(liveContext, data, progress\);/);
   assert.match(source, /onBridgeModWsMessage = \(status\) => handleDeath\(liveContext, status\);/);
-  // ゲームの設定は配信中に保存したらすぐ効く値（gameplayConfig）を渡す（2026-10-18 処理のコピー PR2）。
-  assert.match(source, /const featureEngine = new FeatureEngine\(gameplayConfig, feature => emitFeature\(liveContext, feature\)\);/);
   assert.match(source, /dispatch: event => dispatchBridgeEvent\(liveContext, "like:" \+ event\.commandFile, event\),/);
 });
 
 test('処理の中では、状態と送り先を ctx から使う（本番の状態を直接さわらない）', () => {
   for (const name of HANDLERS) {
     const text = body(name);
-    assert.doesNotMatch(text, /(?<!ctx\.)featureEngine\./, name + ': featureEngine は ctx から');
     assert.doesNotMatch(text, /(?<!ctx\.)\b(lastExecAt|streakLastCount|commentGiftLastAt)\b/, name + ': 記録は ctx から');
     assert.doesNotMatch(text, /isDuplicateEvent\(|queueLikeEventBatched\(|sendBridgeExec\(|recordDeliveryRejection\(/, name + ': 送り先は ctx から');
   }

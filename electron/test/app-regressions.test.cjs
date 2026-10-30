@@ -463,6 +463,20 @@ test('配布: 初期セットアップの BRIDGE の展開は、同梱の BRIDGE
   assert.equal(second.stats.removedFiles, 1);
 });
 
+// 演出・ゲーム性設定（FeatureEngine）は仕掛けごとなくし、bridge/feature_engine.js も配らない（2026-10-30）。配信者の保存先に写した古いものは消す。
+test('配布: BRIDGE を写すとき、もう配らない feature_engine.js を配信者の保存先から消す（配布版）', async t => {
+  const app = loadApp(t);
+  app.usePackagedPaths();
+  packagedBridgeResources(app);
+  const target = path.join(app.root, 'target');
+  await app.invoke('bridge:extractTo', target);
+  const old = path.join(target, 'bridge', 'feature_engine.js');
+  fs.writeFileSync(old, '// old');
+  const second = await app.invoke('bridge:extractTo', target);
+  assert.equal(fs.existsSync(old), false);
+  assert.equal(second.stats.removedFiles, 1);
+});
+
 // 前の版の配布物に紛れていた開発機の _op.txt（開発者のマイクラIDを OP にする中身）は、配信者が OP 付与をしていなければ残っていて、
 // OP の人がチャットで /bridge _op 1 と打つと、開発者が配信者のサーバーで OP になる。中身が開発者の行のときだけ消す
 // （配信者の ID の _op.txt は残す。OP 付与は付けるたびに書き直す。2026-10-29 ユーザーの決定）。

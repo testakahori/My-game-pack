@@ -48,6 +48,8 @@ function createBridgeSync({
     "commands/minecraft/husk01.txt",
     "commands/minecraft/give_blindness.txt",
     "commands/minecraft/petsummon.txt",
+    // 演出・ゲーム性設定（FeatureEngine）は仕掛けごとなくした（2026-10-30）。RANDOM の重みは weighted_choice.cjs へ移した。
+    "feature_engine.js",
   ];
   // 前の版の配布物に紛れていた開発機のファイル。中身が同じときだけ消す（配信者が書いたものは残す）。
   // _op.txt は開発者のマイクラIDを OP にする中身で、配信者が OP 付与をしていなければ残っていた。OP 付与は付けるたびに書き直すので、

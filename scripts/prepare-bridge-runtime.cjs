@@ -42,7 +42,7 @@ function assertExists(p, label) {
 }
 
 assertExists(path.join(bridgeDir, "index.js"), "Bridge index.js");
-assertExists(path.join(bridgeDir, "feature_engine.js"), "Bridge feature_engine.js");
+assertExists(path.join(bridgeDir, "weighted_choice.cjs"), "Bridge weighted_choice.cjs");
 assertExists(path.join(bridgeDir, "config_schema.js"), "Bridge config_schema.js");
 assertExists(path.join(bridgeDir, "node_modules"), "Bridge node_modules");
 assertExists(nodeExeSrc, "Bridge node.exe (or Windows Node 20+ used for this build)");

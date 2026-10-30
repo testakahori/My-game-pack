@@ -16,25 +16,12 @@ test('BridgeMOD 経路の判定は1か所（送り方の名前の一覧を2か�
   assert.equal(commandFiles.usesBridgeModTransport({ target: { type: 'other' }, options: { commandTransport: 'bridge_mod' } }), false);
 });
 
-test('時限倍率で回数が小数になったら、四捨五入して整数で送る（BridgeMOD は小数を拒否する）', async t => {
-  const bridge = await startBridgeFixture(t, {
-    commands: { zombie: '# TITLE: zombie\nsay test\n' },
-    config: {
-      mappings: [{ giftId: '1', name: 'バラ', commandFile: 'zombie.txt', repeat: 3 }],
-      // 一日中（0:00〜24:00）1.5倍。時限倍率は options.gameplay.timedMode から読む。
-      options: { gameplay: { timedMode: { enabled: true, start: '00:00', end: '24:00', multiplier: 1.5 } } },
-    },
-  });
-  await bridge.emit('WebcastGiftMessage', { giftId: '1', gift: { name: 'g1' }, repeatCount: 1, repeatEnd: 1 });
-  await bridge.until(() => bridge.requests.some(x => x.key === 'zombie'), 'gift');
-  assert.deepEqual(bridge.requests.filter(x => x.key === 'zombie').map(x => x.count), [5], '3回×1.5倍＝4.5回 → 5回');
-});
-
-test('時限倍率のあとの回数は、本番もテスト発火も同じ関数（giftTimes）で四捨五入する（PR #85 レビュー）', () => {
+// 時限モード（回数が小数になった）は 2026-10-30 に演出・ゲーム性設定ごとなくした。giftTimes は守りとして残す。
+test('ギフトの回数は、本番もテスト発火も同じ関数（giftTimes）で四捨五入する（PR #85 レビュー）', () => {
   assert.equal(eventRules.giftTimes(4.5), 5);
   assert.equal(eventRules.giftTimes(1.2), 1);
   assert.equal(eventRules.giftTimes(NaN), 1);
-  assert.match(read('bridge/index.js'), /times = giftTimes\(ctx\.featureEngine\.recordGift\(/, '本番も同じ関数で丸める');
+  assert.match(read('bridge/index.js'), /times = giftTimes\(times\);/, '本番も同じ関数で丸める');
 });
 
 test('運用の統計は、回数0の行（音・粒子だけ失敗）を1回と数えない（PR #85 レビュー）', () => {

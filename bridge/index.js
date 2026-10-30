@@ -40,7 +40,6 @@ const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require(
 const { commandFileProblem, ensureTxt, bridgeCommandKey } = require("./command_files.cjs");
 const { parseCommandText } = require("./command_text.cjs");
 const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("./bridge_mod_token.cjs");
-const { FeatureEngine } = require("./feature_engine");
 const { parseWeightedList, chooseWeighted, weightOf } = require("./weighted_choice.cjs");
 const { COMMAND_COOLDOWN_MAX_MS, boundedInt, enabledCommand, matchingCommentRules, deathRouletteMatches, deathRouletteEvery, likeRuleProgress, commentExtras, isBridgeModTransport, giftTimes } = require("./event_rules.cjs");
 const { normalizeTikTokEvent, getStableSender, getSenderIdentity, isPreConnectionEvent: beforeConnection, createLikeCounter, createMuteMatcher } = require("./tiktok_events.cjs");
@@ -1017,22 +1016,13 @@ async function main() {
   // 式は live_config.cjs の1か所。起動のときと設定の再読込（reloadDynamicConfig）の両方で applyLiveOptions を通す。
   // 既定値は bridge/config_defaults.json の1か所（新しい設定の雛形・運用センターの表示も同じものを読む）。
   let giftCooldownMs, maxCommandsPerGift, maxLikeCatchUpPerEvent, rconQueueWarnSize, likeBatchWindowMs, streakTtlMs, logUnknownGifts, isMutedUser, ttsNgWords,
-    announceEveryRepeat, announceEnabled, gameplayConfig;
-  // 配信の FeatureEngine（作ったあとに入る）。ゲームの設定は作り直さず config を入れ替え、いいねの累計・連打・上位者を保つ。
-  let liveFeatureEngine = null;
+    announceEveryRepeat, announceEnabled;
   // muteMatcher は再読込が先に作っておいたもの（作るときの失敗で半分だけ入れ替わらないように）。
   function applyLiveOptions(values, muteMatcher = createMuteMatcher(values.mutedUsers)) {
     ({ giftCooldownMs, maxCommandsPerGift, maxLikeCatchUpPerEvent, rconQueueWarnSize, likeBatchWindowMs, streakTtlMs, logUnknownGifts, ttsNgWords,
       announceEveryRepeat, announceEnabled } = values);
     isMutedUser = muteMatcher;
     runtimeProtection = values.protection;
-    gameplayConfig = values.gameplay;
-    if (liveFeatureEngine) {
-      const pollWasEnabled = liveFeatureEngine.config?.poll?.enabled === true;
-      liveFeatureEngine.config = gameplayConfig;
-      // 投票は起動のときに始める。配信中に投票を有効にして保存したら、その場で始める（PR2 の最終レビュー）。
-      if (!pollWasEnabled && !liveFeatureEngine.poll) liveFeatureEngine.startPoll();
-    }
   }
   applyLiveOptions(liveOptions(options));
   // つなぎ方（TikTok ID・送り方・BridgeMOD・RCON・コマンドの場所）は起動したときの値のまま動く。再読込で違えば、再起動を案内する。
@@ -1289,8 +1279,6 @@ async function main() {
   const likeCounter = createLikeCounter();
   // 配信が終わってから次につながるまでは、いいねを使わない（配信のあとに妨害を起こさない。2026-10-14）。
   let likesClosed = false;
-  // 前につないだ配信の番号。別の配信につないだかを見分ける。
-  let lastRoomId = null;
   let connectedAt = 0;
   let tiktokConnectLoop = null;
   let tiktokReconnectTimer = null;
@@ -1478,24 +1466,6 @@ async function main() {
     sendExtras: (extras, sender) => { sendBridgeExec(bridgeMod, extras, sender).catch(() => {}); },
     rejected: (event, error) => recordDeliveryRejection(event, error),
   };
-  const featureEngine = new FeatureEngine(gameplayConfig, feature => emitFeature(liveContext, feature));
-  liveFeatureEngine = featureEngine; // 再読込はこの config を入れ替える（applyLiveOptions）。
-  liveContext.featureEngine = featureEngine;
-
-  function emitFeature(ctx, feature) {
-    if (!feature?.commandFile) return;
-    if (!bridgeMod) {
-      console.warn(`[Feature] ${feature.type} skipped: BridgeMod transport is required`);
-      return;
-    }
-    const listenerName = feature.type === "combo"
-      ? (ctx.featureEngine.topGifter() || feature.sender) : feature.sender;
-    dispatchBridgeEvent(ctx, `feature:${feature.type}`, {
-      type: "other", historyType: feature.type || "other", commandFile: feature.commandFile,
-      count: boundedInt(feature.count, 1, 100, 1),
-      listenerName: listenerName || "viewer", announce: true, label: feature.label,
-    }, { priority: 8 });
-  }
 
   // デスルーレット：Mod からの death 通知（WS）で発動
   onBridgeModWsMessage = (status) => handleDeath(liveContext, status);
@@ -1556,11 +1526,6 @@ async function main() {
         connectedAt = Date.now();
         likeCounter.reset();
         likesClosed = false;
-        // 別の配信につないだら、マイルストーンを0から数え直す（同じ配信へのつなぎ直しでは続きから）。
-        // 最初の接続では数え直さない（つなぐ途中に届いたフォローを消さない。PR #96 レビュー）。
-        const roomId = String(state.roomId || "");
-        if (lastRoomId !== null && roomId !== lastRoomId) featureEngine.startStream();
-        lastRoomId = roomId;
         recordStream('connect', tiktokUsername, state.roomId);
         console.log(`[TikTok] Connected. roomId=${state.roomId}`);
         console.log(`[Bridge] connectedAt: ${connectedAt}`);
@@ -1616,7 +1581,6 @@ async function main() {
   // 接続待ちの間にも全イベントリスナーと終了処理を先に登録する。
   // 接続成功直後のコメントを取りこぼさず、配信前でもSIGINTで正常終了できる。
   void ensureTikTokConnected();
-  featureEngine.startPoll();
 
   // イベントの createTime（秒）が接続前なら無視する
   function isPreConnectionEvent(data) {
@@ -1732,9 +1696,8 @@ async function main() {
       return;
     }
 
-    // 無効の割り当て（enabled: false）は、そのコマンドを動かさず、未設定ギフトにも回さない。クールダウン・連打・
-    // ゲームの数え方（上位者・コンボ・時限倍率）は今までどおり通す。RANDOM の抽選はせず、その txt の見出しも読まない
-    // （2026-10-22 ユーザーの決定。処理のコピー PR5）。
+    // 無効の割り当て（enabled: false）は、そのコマンドを動かさず、未設定ギフトにも回さない。クールダウン・連打は今までどおり通す。
+    // RANDOM の抽選はせず、その txt の見出しも読まない（2026-10-22 ユーザーの決定。処理のコピー PR5）。
     const disabled = mapping.enabled === false;
     const randomized = disabled ? { mapping, meta: {} } : resolveRandomizedMapping(mapping, ctx.log);
     if (ctx.run && randomized.mapping !== mapping) ctx.run.notice(`ランダム選択: ${randomized.mapping.commandFile}（実行ごとに抽選）`);
@@ -1763,11 +1726,10 @@ async function main() {
 
     let times = delta * baseRepeat;
     if (times <= 0) return; // 連打終了通知は追加ギフトではない（送信時の最小1への丸めも避ける）。
-    // 時限倍率（例：1.5倍）で小数になったら四捨五入する。BridgeMOD は小数の回数を拒否し、ギフトが丸ごと消えていた。
-    // 無効の割り当てはコマンドを渡さない。コマンドのないコンボの段は、割り当てのコマンドの代わりに何も撃たない（emitFeature が飛ばす）。
-    times = giftTimes(ctx.featureEngine.recordGift({ giftId, sender, commandFile: disabled ? "" : mapping.commandFile, count: times }));
+    // 回数は整数で送る（BridgeMOD は小数の回数を拒否する）。giftTimes は守りとして通す（2026-10-30）。
+    times = giftTimes(times);
     if (disabled) {
-      ctx.log(`[Gift] (disabled) id=${giftId} name="${giftName}" from=${sender}${repeatText} 割り当ては無効です（ゲームの数え方にだけ入れます）`);
+      ctx.log(`[Gift] (disabled) id=${giftId} name="${giftName}" from=${sender}${repeatText} 割り当ては無効です（コマンドは動かしません）`);
       return;
     }
 
@@ -1875,7 +1837,6 @@ async function main() {
     const sender = getStableSender(data);
     const text = String(data.comment || "").trim();
     if (!text) return;
-    ctx.featureEngine.recordComment(text, sender);
 
     // コメントギフト（イベント設定②）：設定した文字列を含むコメントでコマンド発動。
     // TTS の有効/無効とは独立して動く。
@@ -1960,8 +1921,6 @@ async function main() {
   // 配信が終わったら、まだ実行していないいいね分を捨てる（2026-10-14 ユーザーの決定。配信のあとも妨害が続かないように）。
   // 捨てるのは、まとめ送りの待ち・送信の待ち（再送の待ちを含む）・BridgeMOD の待ちの3か所。配信中のいいね・ギフト・テスト発火は変えない。
   onTikTok("streamEnd", async () => {
-    // 次につなぐのは次の配信。配信の番号が同じに見えても、マイルストーンを0から数え直す（PR #96 レビュー）。
-    featureEngine.startStream();
     if (!bridgeMod) return;
     // 配信終了のあとに届いたいいね（同じ通知のまとまりに残っていた分など）も、次につながるまで使わない（PR #94 レビュー）。
     likesClosed = true;
@@ -1992,13 +1951,12 @@ async function main() {
     if (!progress) return;
     handleLikeProgress(liveContext, data, progress);
   });
-  // いいねの累計が分かったあとの処理（マイルストーン → いいねの設定）。テスト発火は入力の累計で同じ処理を通す（2026-10-16）。
+  // いいねの累計が分かったあとの処理（いいねの設定）。テスト発火は入力の累計で同じ処理を通す（2026-10-16）。
   function handleLikeProgress(ctx, data, progress) {
     const { total, previousTotal } = progress;
     if (previousTotal === 0 || likeEvents.some(ev => enabledCommand(ev) && Math.floor(total / Number(ev.threshold)) > Math.floor(previousTotal / Number(ev.threshold)))) {
       ctx.log(`[Like:RAW] total=${total} previous=${previousTotal} count=${data.likeCount ?? '(none)'} from=${getStableSender(data)}`);
     }
-    ctx.featureEngine.recordLikes(total, getStableSender(data), previousTotal, progress.local);
     for (const ev of likeEvents) {
       if (ev.enabled === false || !ev.commandFile || !ev.threshold) continue;
       const thresh = boundedInt(ev.threshold, 1, 1000000, 10);
@@ -2130,7 +2088,6 @@ async function main() {
     if (isPreConnectionEvent(data)) return; // 接続前のバックログをスキップ
     if (isMuted(data, ctx.log)) return;
     const sender = getStableSender(data);
-    ctx.featureEngine.recordFollow(sender);
     if (!enabledCommand(followEvent)) return;
     const mapping = { commandFile: ensureTxt(followEvent.commandFile), name: "フォロー" };
     const followRepeat = boundedInt(followEvent.repeat ?? 1, 1, 100, 1);
@@ -2228,7 +2185,7 @@ async function main() {
   // テスト発火（アプリの「イベントテスト」）
   // --------------------
   // 本番と同じ処理・同じ送る列を、本番とは別の新しい状態で通す（2026-10-16 ユーザーの決定）。
-  // 本番の状態（クールダウン・連打・コンボ・いいねとフォローの累計）には触らない。
+  // 本番の状態（クールダウン・連打・いいねの累計）には触らない。
   const TEST_FIRE_WAIT_MS = boundedInt(process.env.BRIDGE_TEST_FIRE_WAIT_MS ?? 10000, 100, 60000, 10000);
   // テスト発火のログは、行頭に [Test] を付けて本番の行と見分ける。
   const testLog = (...args) => console.log("[Test]", ...args);
@@ -2252,7 +2209,6 @@ async function main() {
       // まとめ送りは待たずに、処理を通し終えたらすぐ送る（まとめ方は本番と同じ）。
       flushLikes: () => { const flush = flushLikes; flushLikes = null; if (flush) flush(); },
     };
-    ctx.featureEngine = new FeatureEngine(gameplayConfig, feature => emitFeature(ctx, feature));
     ctx.queueLike = createLikeBatcher({
       windowMs: () => likeBatchWindowMs, schedule: flush => { flushLikes = flush; return flush; },
       prepare: run.preview ? (event => event) : prepareGameEvent,
@@ -2280,23 +2236,13 @@ async function main() {
       case "like": return handleLikeProgress(ctx, action.data, action.progress);
       case "share": return handleShare(ctx, action.data);
       case "member": return handleMember(ctx, action.data);
-      case "follow":
-        // 新しいフォローを「入力の人数」人目として数える。
-        ctx.featureEngine.followCount = action.followCount - 1;
-        return handleFollow(ctx, action.data);
+      case "follow": return handleFollow(ctx, action.data);
       case "chat": return handleChat(ctx, action.data);
       case "death": return handleDeath(ctx, action.status);
       case "roulette":
         if (!rouletteCfg?.enabled) return;
         return dispatchBridgeEvent(ctx, "test:roulette", { type: "other", historyType: "roulette", commandFile: "roulette.txt",
           count: 1, listenerName: sender, announce: false });
-      case "poll": {
-        const poll = ctx.featureEngine.config.poll;
-        if (!poll?.enabled || !poll.options?.[action.option]) return;
-        ctx.featureEngine.startPoll();
-        ctx.featureEngine.recordComment(`!${action.option}`, sender);
-        return ctx.featureEngine.finishPoll();
-      }
     }
   }
 

@@ -61,7 +61,6 @@
       "!**/.claude",
       "!**/.claude/**",
       "bridge/roulette.cjs",
-      "bridge/feature_engine.js",
       "bridge/weighted_choice.cjs",
       "bridge/event_rules.cjs",
       "bridge/command_files.cjs",

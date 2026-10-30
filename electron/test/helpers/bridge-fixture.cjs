@@ -53,7 +53,8 @@ async function startBridgeFixture(t, { commands = {}, commandsFolder = 'commands
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ tiktokUsername: 'fixture', ...config,
     options: { commandsDir: 'commands', commandTransport: 'bridge_mod', bridgeModHost: '127.0.0.1', bridgeModPort: server.address().port,
       likeBatchWindowMs: 100, ...(config.options || {}) } }));
-  let connection, roomId = 'fixture-room';
+  let connection;
+  const roomId = 'fixture-room';
   class FixtureConnection extends TikTokLiveConnection {
     constructor(...args) { super(...args); connection = this; }
     async connect() { return { roomId }; }
@@ -115,7 +116,6 @@ async function startBridgeFixture(t, { commands = {}, commandsFolder = 'commands
     await connection.processDecodedData({ type, data: proto[type].decode(proto[type].encode(message).finish()) });
   };
   // 仮想の TikTok 接続そのもの。配信終了（streamEnd）など、メッセージを通らないイベントを出すときに使う。
-  // setRoomId は、次につなぎ直したときの配信の番号（別の配信につないだことにする）。
   // アプリのテスト発火と同じ問い合わせを送り、返事を待つ（ルーレットの演出は1回2秒ほどかかる）。
   let testId = 0;
   const testEvent = async input => {
@@ -126,7 +126,7 @@ async function startBridgeFixture(t, { commands = {}, commandsFolder = 'commands
     assert.ok(reply, 'Timed out: test event ' + id);
     return reply.result;
   };
-  return { dir, requests, logs, speech, emit, until, wait, testEvent, connection: () => connection, setRoomId: id => { roomId = id; } };
+  return { dir, requests, logs, speech, emit, until, wait, testEvent, connection: () => connection };
 }
 
 module.exports = { startBridgeFixture };
