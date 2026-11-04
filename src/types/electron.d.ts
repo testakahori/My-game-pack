@@ -108,6 +108,8 @@ declare global {
       streamSessionStart: (title?: string) => Promise<StreamSession>;
       streamSessionEnd: (id: string, endedAt?: string) => Promise<StreamSession>;
       giftPanelSavePng: (dataUrl: string, filename: string) => Promise<{ canceled: boolean; path?: string }>;
+      // ギフト設定の「全ページを保存」：フォルダーを1回選び、ページごとの PNG を書く（同じ名前があれば上書きか別の名前かを聞く）。
+      giftPanelSavePngs: (files: Array<{ dataUrl: string; filename: string }>) => Promise<{ canceled: true } | { canceled: false; folder: string; paths: string[] }>;
       windowMinimize: () => void;
       windowMaximizeToggle: () => void;
       windowClose: () => void;

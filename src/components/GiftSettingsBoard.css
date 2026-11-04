@@ -1,0 +1,934 @@
+/* ギフト設定の3列（2026-11-05 ユーザーの決定）：① ギフトを選ぶ → ② 実行内容を設定 → ③ 登録済みギフト（6 × 9 の一覧・PNG）。
+   文字の大きさは組み立てで +3px される（scripts/postcss-font-size-offset.cjs・src/lib/fontSizeOffset.json）。ここには「見せたい大きさ − 3」の px を書く。
+   ③ の一覧の中（.gift-board-sheet の中）の文字は、PNG と同じ割合で縮めるので cqw で書く（cqw には +3px は足されない。PNG の px ÷ 1080 × 100）。
+   .page-surface の button・input の決まりより強くするため、.gift-steps から書く。 */
+
+.gift-steps {
+  display: grid;
+  grid-template-columns: minmax(320px, 390px) minmax(280px, 330px) minmax(360px, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.gift-steps .gift-step {
+  position: relative;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgba(44, 137, 232, 0.62);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(39, 216, 255, 0.07), transparent 46%),
+    linear-gradient(180deg, rgba(7, 24, 48, 0.97), rgba(3, 12, 27, 0.98));
+  box-shadow: 0 0 22px rgba(24, 217, 255, 0.07), inset 0 0 30px rgba(31, 135, 255, 0.05);
+}
+
+.gift-steps .gift-step-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.gift-steps .gift-step-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  color: #f2f7ff;
+  font-size: 14px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+/* 見出しの番号は白い丸。 */
+.gift-steps .gift-step-heading h2 > span {
+  display: grid;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  background: #f2f7ff;
+  color: #061428;
+  font-size: 10px;
+  font-weight: 900;
+  box-shadow: 0 0 10px rgba(39, 216, 255, 0.35);
+}
+
+.gift-steps .gift-step-tool {
+  flex: none;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(73, 140, 200, 0.55);
+  border-radius: 8px;
+  background: rgba(5, 17, 35, 0.8);
+  color: #b6cde3;
+  font-size: 9px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.gift-steps .gift-step-tool:hover:not(:disabled) {
+  border-color: #27d8ff;
+  color: #ecfcff;
+}
+
+.gift-steps .gift-step-tool:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+/* ── ① ギフトを選ぶ ── 列の高さは右の列にそろえ、タイルの欄だけを縦に動かす。 */
+.gift-steps .gift-pick {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  gap: 10px;
+}
+
+.gift-steps .gift-pick-search,
+.gift-steps .gift-pick-sort,
+.gift-steps .gift-edit-search {
+  position: relative;
+  display: block;
+}
+
+.gift-steps .gift-pick-search > i,
+.gift-steps .gift-edit-search > i,
+.gift-steps .gift-pick-sort > span {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 12px;
+  transform: translateY(-50%);
+  color: #6f8cab;
+  font-size: 9px;
+  pointer-events: none;
+}
+
+.gift-steps .gift-pick-sort > span {
+  color: #7fe9ff;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.gift-steps .gift-pick-search input,
+.gift-steps .gift-pick-sort select,
+.gift-steps .gift-edit-search input,
+.gift-steps .gift-edit-field select {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 12px 0 34px;
+  border: 1px solid;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 700;
+  outline: none;
+}
+
+.gift-steps .gift-edit-field select {
+  padding-left: 12px;
+}
+
+.gift-steps .gift-pick-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(81, 118, 163, 0.35);
+  border-radius: 10px;
+  background: rgba(1, 8, 21, 0.8);
+}
+
+.gift-steps .gift-pick-filters button {
+  display: flex;
+  min-width: 0;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #a5b9ce;
+  font-size: 9px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.gift-steps .gift-pick-filters button em {
+  color: #6f87a0;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.gift-steps .gift-pick-filters button:hover:not(.is-active) {
+  color: #e2eefa;
+}
+
+.gift-steps .gift-pick-filters button.is-active {
+  background: linear-gradient(135deg, #0a8fb8, #14c4ea);
+  color: #ffffff;
+  box-shadow: 0 0 14px rgba(24, 217, 255, 0.35);
+}
+
+.gift-steps .gift-pick-filters button.is-active em {
+  color: #e6fbff;
+}
+
+.gift-steps .gift-pick-error {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(185, 28, 28, 0.45);
+  border-radius: 9px;
+  background: rgba(127, 29, 29, 0.35);
+  color: #fecaca;
+  font-size: 8px;
+  overflow-wrap: anywhere;
+}
+
+/* 中身の高さで列を伸ばさない（contain: size）。列の残りをうめて、はみ出す分は縦に動かす。 */
+.gift-steps .gift-pick-scroll {
+  flex: 1 1 0;
+  min-height: 360px;
+  margin: 0 -6px;
+  padding: 2px 6px 8px;
+  overflow-y: auto;
+  contain: size;
+  scrollbar-color: #16c9eb rgba(3, 14, 29, 0.9);
+  scrollbar-width: thin;
+}
+
+.gift-steps .gift-pick-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.gift-steps .gift-pick-tile {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 9px 4px 7px;
+  border: 1px solid rgba(70, 110, 160, 0.42);
+  border-radius: 10px;
+  background: linear-gradient(160deg, rgba(14, 34, 62, 0.92), rgba(6, 16, 33, 0.96));
+  color: #dbe7f4;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+
+.gift-steps .gift-pick-tile:hover {
+  border-color: rgba(39, 216, 255, 0.62);
+}
+
+.gift-steps .gift-pick-tile.is-selected {
+  border-color: #27d8ff;
+  background: linear-gradient(160deg, rgba(10, 82, 122, 0.78), rgba(6, 20, 44, 0.96));
+  box-shadow: 0 0 0 1px #27d8ff, 0 0 16px rgba(39, 216, 255, 0.5), inset 0 0 12px rgba(39, 216, 255, 0.14);
+}
+
+.gift-steps .gift-pick-art {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+}
+
+.gift-steps .gift-pick-art > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.gift-steps .gift-pick-tile > b {
+  width: 100%;
+  overflow: hidden;
+  font-size: 8px;
+  font-weight: 800;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gift-steps .gift-pick-tile > small {
+  color: #7fe9ff;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+/* 設定済みは右上に緑の ✓。 */
+.gift-steps .gift-pick-badge {
+  position: absolute;
+  z-index: 1;
+  top: 4px;
+  right: 4px;
+}
+
+.gift-steps .gift-pick-check {
+  display: grid;
+  width: 19px;
+  height: 19px;
+  place-items: center;
+  border: 2px solid #04101f;
+  border-radius: 50%;
+  background: #16b46c;
+  color: #ffffff;
+  font-size: 8px;
+  font-weight: 900;
+  box-shadow: 0 0 8px rgba(53, 232, 161, 0.6);
+}
+
+.gift-steps .gift-pick-empty {
+  display: flex;
+  min-height: 120px;
+  align-items: center;
+  justify-content: center;
+  color: #8197ad;
+  font-size: 9px;
+  text-align: center;
+}
+
+.gift-steps .gift-pick-pagination {
+  padding: 12px 0 0;
+}
+
+.gift-steps .gift-pick-toast {
+  position: absolute;
+  z-index: 3;
+  bottom: 18px;
+  left: 50%;
+  padding: 7px 16px;
+  border: 1px solid rgba(39, 216, 255, 0.45);
+  border-radius: 999px;
+  background: rgba(3, 12, 27, 0.95);
+  color: #e6fbff;
+  font-size: 9px;
+  font-weight: 800;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* ── ② 実行内容を設定 ── */
+.gift-steps .gift-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gift-steps .gift-edit-gift {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  padding: 4px 0 2px;
+  text-align: center;
+}
+
+.gift-steps .gift-edit-ring {
+  display: grid;
+  width: 116px;
+  height: 116px;
+  margin-bottom: 8px;
+  place-items: center;
+  border: 2px solid #2bdcff;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(45, 151, 255, 0.25), rgba(5, 14, 31, 0.96) 68%);
+  box-shadow: 0 0 24px rgba(45, 220, 255, 0.5), 0 0 0 6px rgba(39, 216, 255, 0.08), inset 0 0 18px rgba(155, 55, 255, 0.22);
+}
+
+.gift-steps .gift-edit-ring > img {
+  width: 84px;
+  height: 84px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 11px rgba(44, 214, 255, 0.35));
+}
+
+.gift-steps .gift-edit-gift > b {
+  max-width: 100%;
+  color: #f4f8ff;
+  font-size: 13px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.gift-steps .gift-edit-gift > small {
+  color: #5fe0ff;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.gift-steps .gift-edit-fields {
+  display: grid;
+  gap: 10px;
+}
+
+.gift-steps .gift-edit-field {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.gift-steps .gift-edit-field > span:first-child,
+.gift-steps .gift-edit-repeat label {
+  color: #a3b8cd;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+/* 選ぶ欄の項目は、前と同じ太字（PR #174 レビュー 軽い5）。見出し（【分類】）は index.css の黄色の決まりのまま。 */
+.gift-steps .gift-edit-command,
+.gift-steps .gift-edit-command optgroup.command-optgroup option {
+  font-weight: 800;
+}
+
+.gift-steps .gift-edit-repeat > span:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.gift-steps .gift-edit-repeat small {
+  color: #6f87a0;
+  font-size: 8px;
+}
+
+.gift-steps .gift-edit-stepper {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 46px;
+}
+
+.gift-steps .gift-edit-stepper button,
+.gift-steps .gift-edit-stepper input {
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid rgba(78, 114, 159, 0.5);
+  background: #08152a;
+  color: #dce7f4;
+  text-align: center;
+}
+
+.gift-steps .gift-edit-stepper button {
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.gift-steps .gift-edit-stepper button:first-child {
+  border-radius: 9px 0 0 9px;
+}
+
+.gift-steps .gift-edit-stepper button:last-child {
+  border-radius: 0 9px 9px 0;
+}
+
+.gift-steps .gift-edit-stepper button:hover:not(:disabled) {
+  border-color: #27d8ff;
+  color: #ffffff;
+}
+
+.gift-steps .gift-edit-stepper input {
+  padding: 0;
+  border-inline: 0;
+  border-radius: 0;
+  font-size: 12px;
+  font-weight: 900;
+  appearance: textfield;
+}
+
+.gift-steps .gift-edit-empty {
+  margin: 0;
+  color: #f6c76a;
+  font-size: 8px;
+}
+
+.gift-steps .gift-edit-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(39, 216, 255, 0.35);
+  border-radius: 10px;
+  background: rgba(6, 30, 58, 0.72);
+}
+
+.gift-steps .gift-edit-summary__icon {
+  display: grid;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 9px;
+  background: rgba(1, 8, 21, 0.85);
+  color: #92a1ad;
+}
+
+.gift-steps .gift-edit-summary__icon .minecraft-command-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.gift-steps .gift-edit-summary p {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 7px;
+  margin: 0;
+  color: #eaf4ff;
+  font-size: 10px;
+}
+
+.gift-steps .gift-edit-summary p b {
+  overflow-wrap: anywhere;
+}
+
+.gift-steps .gift-edit-summary p i {
+  color: #27d8ff;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.gift-steps .gift-edit-summary p em {
+  color: #7fe9ff;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.gift-steps .gift-edit-ref {
+  color: #5d7590;
+  font-size: 7px;
+  overflow-wrap: anywhere;
+}
+
+.gift-steps .gift-edit-ref code {
+  color: #26d8ff;
+}
+
+/* 「この内容で登録」：薄紫のグラデーションの大きなボタン。 */
+.gift-steps .gift-edit-save {
+  width: 100%;
+  min-height: 52px;
+  border: 1px solid rgba(225, 208, 255, 0.85);
+  border-radius: 12px;
+  background: linear-gradient(135deg, #c4b5ff, #9f8cf7 55%, #c8a2ff);
+  color: #170f3a;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  box-shadow: 0 0 22px rgba(170, 140, 255, 0.45), inset 0 1px rgba(255, 255, 255, 0.4);
+  transition: filter 0.15s, box-shadow 0.15s;
+}
+
+.gift-steps .gift-edit-save:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow: 0 0 30px rgba(170, 140, 255, 0.6), inset 0 1px rgba(255, 255, 255, 0.45);
+}
+
+.gift-steps .gift-edit-save:disabled {
+  opacity: 0.45;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.gift-steps .gift-edit-notice,
+.gift-steps .gift-edit-disabled-note,
+.gift-steps .gift-edit-message {
+  margin: 0;
+  font-size: 8px;
+  line-height: 1.6;
+}
+
+.gift-steps .gift-edit-notice {
+  color: #c2b2de;
+}
+
+.gift-steps .gift-edit-disabled-note {
+  color: #fca5a5;
+  font-weight: 700;
+}
+
+.gift-steps .gift-edit-message--ok {
+  color: #3de7a4;
+}
+
+.gift-steps .gift-edit-message--error {
+  color: #ff7785;
+}
+
+/* ── ③ 登録済みギフト ── */
+.gift-steps .gift-board {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gift-steps .gift-board-heading {
+  align-items: flex-start;
+}
+
+.gift-steps .gift-board-heading h2 em {
+  margin-left: 2px;
+  color: #7fe9ff;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.gift-steps .gift-board-heading p {
+  margin: 4px 0 0 33px;
+  color: #7d93ab;
+  font-size: 8px;
+}
+
+.gift-steps .gift-board-save,
+.gift-steps .gift-board-save-all {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 14px;
+  border: 1px solid #27d8ff;
+  border-radius: 9px;
+  background: rgba(4, 30, 52, 0.72);
+  color: #bff6ff;
+  font-size: 9px;
+  font-weight: 900;
+  white-space: nowrap;
+  box-shadow: 0 0 12px rgba(39, 216, 255, 0.25);
+}
+
+.gift-steps .gift-board-save:hover:not(:disabled),
+.gift-steps .gift-board-save-all:hover:not(:disabled) {
+  background: rgba(10, 72, 104, 0.82);
+  color: #ffffff;
+}
+
+.gift-steps .gift-board-save:disabled,
+.gift-steps .gift-board-save-all:disabled {
+  opacity: 0.45;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.gift-steps .gift-board-save-all {
+  width: 100%;
+  min-height: 40px;
+  border-color: rgba(39, 216, 255, 0.6);
+}
+
+.gift-steps .gift-board-hint {
+  margin: 0;
+  color: #a3b8cd;
+  font-size: 8px;
+  line-height: 1.6;
+}
+
+/* 1ページの一覧（PNG と同じ 9:16）。高さが画面に収まるよう、幅を画面の高さで抑える。 */
+.gift-steps .gift-board-sheet {
+  width: min(100%, calc((100vh - 150px) * 9 / 16));
+  margin: 0 auto;
+  overflow: hidden;
+  aspect-ratio: 9 / 16;
+  container-type: inline-size;
+  border-radius: 10px;
+  background:
+    radial-gradient(ellipse at 50% 7.8%, rgba(39, 216, 255, 0.16), transparent 62%),
+    linear-gradient(180deg, #0b2042, #040d1e);
+  box-shadow: 0 0 26px rgba(39, 216, 255, 0.16);
+  font-family: "Yu Gothic", "Meiryo", sans-serif;
+}
+
+/* 余白（padding）と、見出しの帯・マスの高さの割合は RegisteredGiftBoard が src/lib/giftBoard.ts の boardLayout から書く。 */
+.gift-steps .gift-board-page {
+  position: relative;
+  display: grid;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+/* 外の枠（余白の真ん中。PNG と同じ）。 */
+.gift-steps .gift-board-page::before {
+  position: absolute;
+  inset: 2.5cqw;
+  border: 0.28cqw solid rgba(39, 216, 255, 0.8);
+  border-radius: 2.4cqw;
+  box-shadow: 0 0 2cqw rgba(39, 216, 255, 0.45), inset 0 0 2cqw rgba(39, 216, 255, 0.12);
+  content: "";
+  pointer-events: none;
+}
+
+.gift-steps .gift-board-title {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.gift-steps .gift-board-title h3 {
+  display: flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 2.4cqw;
+  margin: 0;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 6.667cqw;
+  font-weight: 900;
+  text-shadow: 0 0 1.8cqw rgba(39, 216, 255, 0.65);
+  white-space: nowrap;
+}
+
+.gift-steps .gift-board-title h3 img {
+  flex: none;
+  width: 9.259cqw;
+  height: 9.259cqw;
+  border-radius: 2cqw;
+}
+
+/* ◀▶ は画面だけ（PNG には「1 / 2」だけを書く）。 */
+.gift-steps .gift-board-pager {
+  position: absolute;
+  top: -1.6cqw;
+  right: -0.6cqw;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gift-steps .gift-board-pager button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(39, 216, 255, 0.75);
+  border-radius: 50%;
+  background: rgba(4, 30, 52, 0.9);
+  color: #bff6ff;
+  font-size: 7px;
+}
+
+.gift-steps .gift-board-pager button:hover:not(:disabled) {
+  background: rgba(10, 72, 104, 0.95);
+  color: #ffffff;
+}
+
+.gift-steps .gift-board-pager button:disabled {
+  opacity: 0.35;
+}
+
+.gift-steps .gift-board-pager span {
+  min-width: 34px;
+  color: #bff6ff;
+  font-size: 8px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.gift-steps .gift-board-grid {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-rows: repeat(9, minmax(0, 1fr));
+  border: 0.28cqw solid #27d8ff;
+  background: rgba(6, 26, 54, 0.72);
+}
+
+.gift-steps .gift-board-grid[hidden] {
+  display: none;
+}
+
+.gift-steps .gift-board-cell {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+  border-right: 0.19cqw solid rgba(39, 216, 255, 0.4);
+  border-bottom: 0.19cqw solid rgba(39, 216, 255, 0.4);
+  outline: none;
+}
+
+.gift-steps .gift-board-cell:nth-child(6n) {
+  border-right: 0;
+}
+
+.gift-steps .gift-board-cell:nth-last-child(-n + 6) {
+  border-bottom: 0;
+}
+
+.gift-steps .gift-board-cell.is-filled {
+  cursor: grab;
+}
+
+.gift-steps .gift-board-cell.is-filled:hover,
+.gift-steps .gift-board-cell.is-filled:focus-visible {
+  background: rgba(39, 216, 255, 0.1);
+}
+
+/* 編集中のギフト（真ん中の列に出ているもの）。 */
+.gift-steps .gift-board-cell.is-editing {
+  background: rgba(10, 82, 122, 0.5);
+  box-shadow: inset 0 0 0 2px #27d8ff, inset 0 0 18px rgba(39, 216, 255, 0.4);
+}
+
+.gift-steps .gift-board-cell.is-dragging {
+  opacity: 0.35;
+}
+
+/* ドラッグしたギフトを落とせる場所。 */
+.gift-steps .gift-board-cell.is-drop {
+  background: rgba(255, 209, 102, 0.14);
+  box-shadow: inset 0 0 0 2px #ffd166;
+}
+
+/* マスの中の場所は PNG と同じ（src/lib/giftBoard.ts の BOARD_CELL_TEXT。マス 162 × 180 の px を 1080 で割った cqw）。 */
+.gift-steps .gift-board-art {
+  display: grid;
+  flex: none;
+  width: 8.148cqw;
+  height: 8.148cqw;
+  margin-top: 1.111cqw;
+  place-items: center;
+}
+
+.gift-steps .gift-board-art > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.gift-steps .gift-board-art > i,
+.gift-steps .gift-board-cell > b {
+  display: flex;
+  max-width: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  line-height: 1.15;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.gift-steps .gift-board-art > i {
+  height: 100%;
+  color: rgba(190, 214, 240, 0.85);
+  font-style: normal;
+  font-weight: 800;
+}
+
+.gift-steps .gift-board-cell > b {
+  height: 4.259cqw;
+  margin-top: 0.37cqw;
+  color: #ffffff;
+  font-weight: 900;
+}
+
+.gift-steps .gift-board-cell > small {
+  display: flex;
+  height: 2.407cqw;
+  align-items: center;
+  color: #62e6ff;
+  font-size: 2.315cqw;
+  font-weight: 800;
+}
+
+.gift-steps .gift-board-disabled {
+  position: absolute;
+  z-index: 1;
+  top: 2px;
+  left: 2px;
+}
+
+/* ✖ はマウスを載せたときだけ出す（キーボードで選んだときも出す。クリックで選んだだけでは出さない）。PNG には描かない。 */
+.gift-steps .gift-board-remove {
+  position: absolute;
+  z-index: 2;
+  top: 2px;
+  right: 2px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  background: rgba(220, 38, 38, 0.95);
+  color: #ffffff;
+  font-size: 7px;
+  font-weight: 900;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+
+.gift-steps .gift-board-cell:hover .gift-board-remove,
+.gift-steps .gift-board-cell:focus-visible .gift-board-remove,
+.gift-steps .gift-board-remove:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.gift-steps .gift-board-cell.is-dragging .gift-board-remove {
+  opacity: 0;
+}
+
+.gift-steps .gift-board-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #a3b8cd;
+  font-size: 8px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.gift-steps .gift-board-status:empty {
+  display: none;
+}
+
+.gift-steps .gift-board-status .is-error {
+  color: #ff8a96;
+}
+
+.gift-steps .gift-board-status .is-ok {
+  color: #3de7a4;
+}
+
+.gift-steps .gift-board-status button {
+  margin-left: 6px;
+  border: 0;
+  background: none;
+  color: #7fe9ff;
+  font-size: 8px;
+  font-weight: 800;
+  text-decoration: underline;
+}
+
+.gift-steps .gift-board-note {
+  color: #6f87a0;
+  font-size: 7px;
+  line-height: 1.6;
+}
+
+/* 狭い画面では ① と ② を並べ、③ をその下に全幅で。 */
+@media (max-width: 1300px) {
+  .gift-steps {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .gift-steps .gift-board {
+    grid-column: 1 / -1;
+  }
+}

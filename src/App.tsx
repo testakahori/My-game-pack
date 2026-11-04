@@ -230,7 +230,8 @@ const App: React.FC = () => {
           )}
 
           {/* GiftSettingsPage は独自に Header（タブ）を持つため p-0 */}
-          {activePage === AppPage.GIFTS && gameReady && <GiftSettingsPage onOpenImageEditor={() => navigateTo(AppPage.IMAGE_EDITOR)} />}
+          {/* ゲームの名前は、登録済みギフトの一覧の見出し「<ゲーム名> ギフト一覧」に使う（2026-11-05）。 */}
+          {activePage === AppPage.GIFTS && gameReady && <GiftSettingsPage gameName={gameStatus?.games.find(game => game.id === gameStatus.active)?.name} onOpenImageEditor={() => navigateTo(AppPage.IMAGE_EDITOR)} />}
           {activePage === AppPage.IMAGE_EDITOR && <div className="page-pad p-6"><ImageEditorPage /></div>}
 
           {activePage === AppPage.EVENTS && gameReady && (

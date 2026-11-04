@@ -27,33 +27,35 @@ function loadMappingEditor() {
 const row = (giftId, extra = {}) => ({ id: 'row-' + giftId, giftId, name: 'ギフト' + giftId, commandFile: 'heal.txt', repeat: 1, commandSetLabel: 'heal.txt', ...extra });
 const count = (html, text) => html.split(text).length - 1;
 
-test('ギフト設定の一覧と編集: 無効の割り当てのカードと、編集中の無効のギフトに印を出す', () => {
+test('ギフト設定の編集: 編集中の無効のギフトに印を出す（登録済みの一覧のマスの印は gift-board.test.cjs）', () => {
   globalThis.window = { mygamepack: {}, addEventListener() {}, removeEventListener() {} };
   const { MappingEditor, UnsavedChangesProvider } = loadMappingEditor();
   const render = props => renderToString(React.createElement(UnsavedChangesProvider, null, React.createElement(MappingEditor, props)));
   const mappings = [row('5655', { enabled: false }), row('1')];
   const html = render({ mappings, defaultGiftId: '5655', defaultGiftName: 'バラ' });
-  assert.equal(count(html, '無効（動きません）'), 2, '登録済みのカード（無効の1つ）と、編集中のギフト');
+  // 登録済みの一覧は右の列（RegisteredGiftBoard）に移した（2026-11-05 ユーザーの決定）。ここは編集中のギフトの印だけ。
+  assert.equal(count(html, '無効（動きません）'), 1, '編集中のギフト');
   assert.match(html, /保存しても無効のままです/);
-  // 登録済みのカードの名前（<b>）は狭く、はみ出すと「…」になるので、印は名前の中に置かず、カードの横幅いっぱいの行に置く（PR8 の最後のレビュー）。
-  // 前は名前の後ろに置き、ふつうのウィンドウ幅では印が「…」に置き換わって見えなかった。
+  // 名前（<b>）ははみ出すと「…」になるので、印は名前の中に置かない（PR8 の最後のレビュー）。
   assert.doesNotMatch(html, /<b>[^<]*<span class="gift-disabled-mark/, '印が名前の中にある');
-  assert.match(html, /<div class="gift-route-disabled"><span class="gift-disabled-mark/);
-  assert.match(read('src/index.css'), /\.gift-route-disabled \{[^}]*grid-column: 1 \/ -1;/);
   const enabledOnly = render({ mappings: [row('1')], defaultGiftId: '1' });
   assert.equal(count(enabledOnly, '無効（動きません）'), 0);
   assert.doesNotMatch(enabledOnly, /保存しても無効のままです/);
 });
 
 test('カタログ・プレビュー・画像作成: 無効の割り当てに印を出し、パネルの絵には描かない', () => {
-  for (const file of ['src/components/GiftsGridSection.tsx', 'src/components/GiftSettingsPage.tsx', 'src/components/ImageEditorPage.tsx']) {
+  // 選んだギフトの見本（前の GiftSettingsPage の右の欄）は、真ん中の列（MappingEditor）にまとめた（2026-11-05）。
+  for (const file of ['src/components/GiftsGridSection.tsx', 'src/components/MappingEditor.tsx', 'src/components/ImageEditorPage.tsx']) {
     const source = read(file);
     assert.match(source, /<DisabledMappingMark\b/, file + ' が印を出していない');
     assert.match(source, /isDisabledMapping\(|disabledGiftIds\(/, file + ' が無効の見分け方を使っていない');
   }
   assert.match(read('src/components/GiftsGridSection.tsx'), /<DisabledMappingMark compact/, 'カタログのタイルは小さい印');
+  // 登録済みの一覧のマスも小さい印。無効の見分けは src/lib/giftBoard.ts の boardItems（2026-11-05）。
+  assert.match(read('src/components/RegisteredGiftBoard.tsx'), /<DisabledMappingMark compact/, '登録済みの一覧のマスは小さい印');
+  assert.match(read('src/lib/giftBoard.ts'), /isDisabledMapping\(/);
   assert.match(read('src/components/ImageEditorPage.tsx'), /fromConfigMappings\(/, '画像作成も割り当てを同じ形で読む（giftId の空白を除き、enabled を落とさない）');
-  for (const file of ['src/lib/giftPanel.ts', 'src/lib/giftPanelCanvas.ts']) {
+  for (const file of ['src/lib/giftPanel.ts', 'src/lib/giftPanelCanvas.ts', 'src/lib/giftBoardCanvas.ts']) {
     assert.doesNotMatch(read(file), /DisabledMappingMark|DISABLED_MAPPING_MARK|無効（動きません）/, file + '（パネルの絵）に印を描かない');
   }
   // 画像作成（PR8 の最後のレビュー）：カードのギフト名は mappingGiftName。「設定済みをまとめて追加」は無効のギフトを入れない（ユーザーの決定 10-23。パネルの絵は視聴者に見せる）。

@@ -99,14 +99,15 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
 
 // main.cjs を仕事ごとのファイルに分けても、ipc の窓口は1つも増やさず減らさない（2026-10-17 設計書 docs/superpowers/specs/2026-10-17-main-split-design.md）。
 // 仕事として窓口を足す・消すときは、その PR でこの一覧も直す。
-const IPC_HANDLE_CHANNELS = ["app:config:read","app:config:write","app:version","bridge:commands:check","bridge:commands:list","bridge:commands:openFolder","bridge:commands:readMeta","bridge:commands:write","bridge:dir","bridge:extractTo","bridge:launch","bridge:logs","bridge:processStatus","bridge:restart","bridge:root","bridge:stop","bridge:syncStatus","clipboard:writeText","config:giftMapping:save","config:mappings:write","config:path","config:read","config:validate","config:write","dialog:pickFile","dialog:pickFolder","euler:clear","euler:openPortal","euler:save","euler:status","folder:open","games:activate","games:clientFolder","games:clientFolders","games:install","games:list","games:recover","games:refreshMods","games:resetMap","games:selectClientFolder","giftTemplate:apply","giftTemplate:cancel","giftTemplate:open","giftTemplate:save","gifts:openFolder","gifts:openHtml","gifts:read","gifts:update","gv:gifts:copyPngDataUrl","gv:gifts:fetchImageBase64","gv:gifts:openFolder","gv:gifts:openHtml","gv:gifts:read","gv:gifts:update","gv:settings:read","gv:settings:write","image:saveGiftPanel","minecraft:grantOp","minecraft:launch","minecraft:status","mod:pause","mod:resume","mod:status","mod:testEvent","obs:get","obs:set","operations:earnings:save","operations:history","operations:history:clear","operations:stats","operations:stats:export","operations:streamStats","preflight:run","presets:list","presets:load","presets:save","server:checkSetupComplete","server:command","server:copyTemplate","server:copyTemplateStatus","server:datapack:deployNightVision","server:forgeClientStatus","server:forgeInstall","server:forgeInstall:atPath","server:gamerules:apply","server:logs","server:processStatus","server:props:read","server:props:write","server:rconpassword:read","server:setup","server:setup:atPath","server:setup:status","server:start","server:stop","server:worlds:list","settings:backups:create","settings:backups:list","settings:backups:restore","setup:inspectEnvironment","stream:session:end","stream:session:start","stream:session:status","tiktok:liveStatus","tts:checkEngine","tts:getSpeakers","tts:launchEngine","tts:settings:read","tts:settings:write","tts:test","updater:check","updater:install","updater:status","world:backup","world:saves:list","world:saves:load","world:saves:save"];
+const IPC_HANDLE_CHANNELS = ["app:config:read","app:config:write","app:version","bridge:commands:check","bridge:commands:list","bridge:commands:openFolder","bridge:commands:readMeta","bridge:commands:write","bridge:dir","bridge:extractTo","bridge:launch","bridge:logs","bridge:processStatus","bridge:restart","bridge:root","bridge:stop","bridge:syncStatus","clipboard:writeText","config:giftMapping:save","config:mappings:write","config:path","config:read","config:validate","config:write","dialog:pickFile","dialog:pickFolder","euler:clear","euler:openPortal","euler:save","euler:status","folder:open","games:activate","games:clientFolder","games:clientFolders","games:install","games:list","games:recover","games:refreshMods","games:resetMap","games:selectClientFolder","giftTemplate:apply","giftTemplate:cancel","giftTemplate:open","giftTemplate:save","gifts:openFolder","gifts:openHtml","gifts:read","gifts:update","gv:gifts:copyPngDataUrl","gv:gifts:fetchImageBase64","gv:gifts:openFolder","gv:gifts:openHtml","gv:gifts:read","gv:gifts:update","gv:settings:read","gv:settings:write","image:saveGiftPanel","image:saveGiftPanels","minecraft:grantOp","minecraft:launch","minecraft:status","mod:pause","mod:resume","mod:status","mod:testEvent","obs:get","obs:set","operations:earnings:save","operations:history","operations:history:clear","operations:stats","operations:stats:export","operations:streamStats","preflight:run","presets:list","presets:load","presets:save","server:checkSetupComplete","server:command","server:copyTemplate","server:copyTemplateStatus","server:datapack:deployNightVision","server:forgeClientStatus","server:forgeInstall","server:forgeInstall:atPath","server:gamerules:apply","server:logs","server:processStatus","server:props:read","server:props:write","server:rconpassword:read","server:setup","server:setup:atPath","server:setup:status","server:start","server:stop","server:worlds:list","settings:backups:create","settings:backups:list","settings:backups:restore","setup:inspectEnvironment","stream:session:end","stream:session:start","stream:session:status","tiktok:liveStatus","tts:checkEngine","tts:getSpeakers","tts:launchEngine","tts:settings:read","tts:settings:write","tts:test","updater:check","updater:install","updater:status","world:backup","world:saves:list","world:saves:load","world:saves:save"];
 const IPC_ON_CHANNELS = ["window:close", "window:maximizeToggle", "window:minimize"];
 
-test('ipc の窓口の一覧は、main.cjs を分けても変わらない（117個と、ウィンドウの3個。117個目は埋め立て PR3 の games:resetMap）', t => {
+test('ipc の窓口の一覧は、main.cjs を分けても変わらない（118個と、ウィンドウの3個。118個目はギフト設定の全ページを保存 image:saveGiftPanels）', t => {
   const app = loadApp(t);
   // 運営ログインの3つ（auth:status・auth:login・auth:logout）は、ログインをなくしたので消した（2026-10-24 ユーザーの決定）。
   // OBS 連携の2つ（obs:get・obs:set）を足した（2026-10-25）。
-  assert.equal(IPC_HANDLE_CHANNELS.length, 117);
+  // ギフト設定の「全ページを保存」（image:saveGiftPanels）を足した（2026-11-05）。
+  assert.equal(IPC_HANDLE_CHANNELS.length, 118);
   assert.deepEqual(app.channels(), [...IPC_HANDLE_CHANNELS].sort());
   assert.deepEqual(app.onChannels(), IPC_ON_CHANNELS);
 });
@@ -367,6 +368,18 @@ test('ギフト案内画像の保存: PNG だけを、選んだ場所に保存�
   assert.deepEqual(plainJson(await app.invoke('image:saveGiftPanel', { dataUrl: 'data:image/png;base64,' + png, filename: 'panel.png' })), { canceled: false, path: savePath });
   assert.deepEqual([...fs.readFileSync(savePath)].slice(0, 8), [137, 80, 78, 71, 13, 10, 26, 10]);
   await assert.rejects(app.invoke('image:saveGiftPanel', { dataUrl: 'data:image/jpeg;base64,AAAA' }), /PNG画像のデータが不正です。/);
+});
+
+// ギフト設定の「全ページを保存」：フォルダーを1回選び、ページごとの PNG を書く（2026-11-05 ユーザーの決定）。
+test('ギフト一覧の画像の保存: 選んだフォルダーに、ページごとの PNG を書く', async t => {
+  let folder;
+  const app = loadApp(t, undefined, undefined, { showOpenDialog: async () => ({ canceled: false, filePaths: [folder] }) });
+  folder = app.root;
+  const dataUrl = 'data:image/png;base64,' + Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0]).toString('base64');
+  const result = plainJson(await app.invoke('image:saveGiftPanels', { files: [{ dataUrl, filename: '採掘 ギフト一覧_1.png' }, { dataUrl, filename: '採掘 ギフト一覧_2.png' }] }));
+  assert.deepEqual(result, { canceled: false, folder, paths: [path.join(folder, '採掘 ギフト一覧_1.png'), path.join(folder, '採掘 ギフト一覧_2.png')] });
+  assert.deepEqual([...fs.readFileSync(result.paths[1])].slice(0, 8), [137, 80, 78, 71, 13, 10, 26, 10]);
+  await assert.rejects(app.invoke('image:saveGiftPanels', { files: [{ dataUrl: 'data:image/jpeg;base64,AAAA', filename: 'a.png' }] }), /PNG画像のデータが不正です。/);
 });
 
 // BridgeMOD の認証の失敗の文言とサーバーのログは、bridge_mod_client から main・server_process へ渡す（main.cjs の分割 PR5）。

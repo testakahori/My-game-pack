@@ -7,11 +7,13 @@ import MappingEditor from "./MappingEditor";
 import CommandSetManager from "./CommandSetManager";
 import GiftsGridSection from "./GiftsGridSection";
 import ImageEditorPage from "./ImageEditorPage";
-import MinecraftCommandIcon from "./MinecraftCommandIcon";
+import RegisteredGiftBoard from "./RegisteredGiftBoard";
+import type { CmdFile } from "./MappingEditor";
 import { useUnsavedGuard } from "../UnsavedChanges";
-import { fromConfigMappings, isDisabledMapping, removedPickedGift, toConfigMappings } from "../lib/giftMappingRows";
+import { fromConfigMappings, removedPickedGift, toConfigMappings } from "../lib/giftMappingRows";
 import { normalizeTikTokId } from "../lib/tiktokId";
-import DisabledMappingMark from "./DisabledMappingMark";
+import { dropOnBoard, type CatalogGift } from "../lib/giftBoard";
+import "./GiftSettingsBoard.css";
 
 const LS_ACTIVE_TAB   = "mc_bridge_active_tab_v1";
 const LS_MAPPINGS     = "mc_tiktok_mappings_unified_v1";
@@ -51,11 +53,15 @@ function configToGiftMappings(cfg: any): GiftMapping[] {
   return fromConfigMappings(cfg, uuid);
 }
 
-const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpenImageEditor }) => {
+// gameName は登録済みギフトの一覧の見出し「<ゲーム名> ギフト一覧」に使う（2026-11-05 ユーザーの決定。選んだゲームで変わる）。
+const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void; gameName?: string }> = ({ onOpenImageEditor, gameName }) => {
   const { confirmDiscard } = useUnsavedGuard();
   const [activeTab, setActiveTab]       = useState<AppTab>(AppTab.MAPPINGS);
   const [mappings, setMappings]         = useState<GiftMapping[]>([]);
   const [commandSets, setCommandSets]   = useState<CommandSet[]>([]);
+  // 右の列のマスに出すギフトの画像（左の列が読んだカタログ）と、コマンドの名前（真ん中の列が読んだ一覧）。
+  const [catalogGifts, setCatalogGifts] = useState<CatalogGift[]>([]);
+  const [commandFiles, setCommandFiles] = useState<CmdFile[]>([]);
   const [pickedGiftId, setPickedGiftId]         = useState<string | undefined>(undefined);
   const [pickedGiftName, setPickedGiftName]     = useState<string | undefined>(undefined);
   const [pickedGiftImage, setPickedGiftImage]   = useState<string | null | undefined>(undefined);
@@ -167,6 +173,12 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
       .then(() => { if (removedPickedGift(pickedGiftIdRef.current, removedGiftId, mappingsRef.current)) clearPickedGift(); })
       .catch(() => {});
   }, [commitMappings, confirmDiscard]);
+  // 登録済みギフトの並べ替え（ギフトのあるマスへ落とすと入れ替え、空いたマスへ落とすと最後へ。src/lib/giftBoard.ts）。
+  // 並び順は設定の mappings の順として保存する（アプリを閉じても残る。2026-11-05 ユーザーの決定）。
+  const moveMapping = useCallback((fromId: string, toId: string | null) => {
+    if (dropOnBoard(mappingsRef.current, fromId, toId) === mappingsRef.current) return;
+    void commitMappings(p => [...dropOnBoard(p, fromId, toId)]).catch(() => {});
+  }, [commitMappings]);
 
   const handlePickGift = useCallback((gid: string, gname: string, image?: string | null, diamonds?: number) => {
     // 何も選んでいないとき（ページを開いた直後・✖ で編集中のギフトを消した後・テンプレートの前）は、カタログが最初のギフトを選ぶだけなので確かめない。
@@ -178,48 +190,19 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
     setPickedGiftDiamonds(diamonds);
   }, [pickedGiftId, confirmDiscard]);
 
-  const pickedMapping = useMemo(
-    () => mappings.find((mapping) => String(mapping.giftId) === String(pickedGiftId)),
-    [mappings, pickedGiftId]
-  );
-
   const tabContent = useMemo(() => {
     if (activeTab === AppTab.COMMAND_SETS) return <CommandSetManager />;
 
     if (activeTab === AppTab.MAPPINGS) {
+      // 3列：① ギフトを選ぶ → ② 実行内容を設定（「この内容で登録」）→ ③ 登録済みギフト（6 × 9 の一覧・PNG）。2026-11-05 ユーザーの決定。
       return (
-        <div className="gift-settings-page gift-design-page page-surface max-w-none mx-auto space-y-4">
-          <div className="gift-design-top">
-            <div className="gift-design-catalog">
-              <GiftsGridSection
-                selectedGiftId={pickedGiftId}
-                mappings={mappings}
-                onPickGift={handlePickGift}
-              />
-            </div>
-            <aside className="gift-design-preview">
-              <div className="gift-preview-art">
-                {pickedGiftImage ? <img src={pickedGiftImage} alt={pickedGiftName || "選択中ギフト"} /> : null}
-                <i>✦</i><b>✦</b>
-              </div>
-              <div className="gift-preview-heading">
-                <h2>{pickedGiftName || "ギフトを選択"}</h2>
-                <em>{!pickedGiftId ? "未選択" : pickedMapping ? "設定済み" : "未設定"}</em>
-                {/* 「設定済み」の札の中に入れず、横に並べる（PR8 の最後のレビュー）。 */}
-                {isDisabledMapping(pickedMapping) ? <DisabledMappingMark /> : null}
-              </div>
-              <p>コスト: <strong>{pickedGiftId && pickedGiftDiamonds !== undefined ? `💎 ${pickedGiftDiamonds}` : "—"}</strong></p>
-              <div className="gift-preview-route">
-                <small>ルートプレビュー</small>
-                <div>
-                  <span>{pickedMapping?.commandFile ? <MinecraftCommandIcon command={pickedMapping.commandFile} /> : <i className="fa-solid fa-circle-question" aria-hidden="true" />}</span>
-                  <b>{pickedMapping?.commandSetLabel || pickedMapping?.commandFile || "コマンド未設定"}</b>
-                  {pickedMapping && <em>× {pickedMapping.repeat ?? 1}回</em>}
-                </div>
-              </div>
-            </aside>
-          </div>
-
+        <div className="gift-steps page-surface">
+          <GiftsGridSection
+            selectedGiftId={pickedGiftId}
+            mappings={mappings}
+            onPickGift={handlePickGift}
+            onGiftsLoaded={setCatalogGifts}
+          />
           <MappingEditor key={editorRevision}
             mappings={mappings}
             commandSets={commandSets}
@@ -231,8 +214,17 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
             defaultGiftDiamonds={pickedGiftDiamonds}
             onAdd={addMapping}
             onUpdate={updateMapping}
-            onRemove={removeMapping}
+            onCommandFilesLoaded={setCommandFiles}
+          />
+          <RegisteredGiftBoard
+            mappings={mappings}
+            gifts={catalogGifts}
+            commandFiles={commandFiles}
+            gameName={gameName}
+            selectedGiftId={pickedGiftId}
             onPickGift={handlePickGift}
+            onRemove={removeMapping}
+            onMove={moveMapping}
           />
         </div>
       );
@@ -253,8 +245,8 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
     pickedGiftImage,
     pickedGiftDiamonds,
     handlePickGift,
-    pickedMapping,
-    addMapping, updateMapping, removeMapping,
+    catalogGifts, commandFiles, gameName,
+    addMapping, updateMapping, removeMapping, moveMapping,
   ]);
 
   return (
