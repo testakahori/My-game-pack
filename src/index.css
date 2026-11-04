@@ -788,7 +788,8 @@
 
 .cockpit-log p {
   display: grid;
-  grid-template-columns: 13px 70px 1fr;
+  /* 印（●）の列は 16px。文字を +3px にしたら（2026-11-04）13px では ● がはみ出し、後ろの文字にくっついた。 */
+  grid-template-columns: 16px 70px 1fr;
   align-items: center;
   min-height: 24px;
   margin: 0;
@@ -2246,6 +2247,12 @@ body,
   background: var(--mgp-bg-deep);
 }
 
+/* 大きさを一度も決めていない文字の大きさ（ブラウザの初期値と同じ 16px）。組み立てで文字を N px 大きくするときに、これにも足す（scripts/postcss-font-size-offset.cjs）。
+   html や :root に書かない：rem の基準が変わり、箱の大きさまで変わる。 */
+body {
+  font-size: 16px;
+}
+
 button,
 input,
 select,
@@ -3106,7 +3113,7 @@ button:disabled {
 .events-like-status span {
   color: #b4c3d2;
   font-size: 8px;
-  /* 文字を +2px にしたら（2026-11-04）、切り替えの横の欄に入り切らず「有／効」と折り返した。 */
+  /* 文字を大きくしたら（2026-11-04）、切り替えの横の欄に入り切らず「有／効」と折り返した。 */
   white-space: nowrap;
 }
 
@@ -6708,7 +6715,7 @@ button.tts-status-card:hover {
 .setup-server-meta-v2 b {
   color: #2cf1a1;
   font-size: 13px;
-  /* 下の段の値は2列にまたがる。前は値の幅で左の列が広がり、文字を +2px にしたら（2026-11-04）見出しの列が細くなって「サーバー／状態」と折り返した。 */
+  /* 下の段の値は2列にまたがる。前は値の幅で左の列が広がり、文字を大きくしたら（2026-11-04）見出しの列が細くなって「サーバー／状態」と折り返した。 */
   grid-column: 1 / -1;
 }
 
