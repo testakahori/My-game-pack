@@ -129,8 +129,9 @@ const MappingEditor: React.FC<Props> = (props) => {
   }, []);
 
   useEffect(() => {
-    if (typeof props.defaultGiftId === "string")   setGiftId(props.defaultGiftId);
-    if (typeof props.defaultGiftName === "string") setGiftName(props.defaultGiftName);
+    // 選択を外したとき（✖ で編集中のギフトを消した。2026-11-04）は、消したギフトを残さず空にする。
+    setGiftId(props.defaultGiftId ?? "");
+    setGiftName(props.defaultGiftName ?? "");
     const selected = mappings.find(mapping => String(mapping.giftId) === props.defaultGiftId);
     const file = selected?.commandFile || "";
     const times = toRepeat(selected?.repeat ?? 1);

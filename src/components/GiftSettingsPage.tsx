@@ -9,7 +9,7 @@ import GiftsGridSection from "./GiftsGridSection";
 import ImageEditorPage from "./ImageEditorPage";
 import MinecraftCommandIcon from "./MinecraftCommandIcon";
 import { useUnsavedGuard } from "../UnsavedChanges";
-import { fromConfigMappings, isDisabledMapping, toConfigMappings } from "../lib/giftMappingRows";
+import { fromConfigMappings, isDisabledMapping, removedPickedGift, toConfigMappings } from "../lib/giftMappingRows";
 import { normalizeTikTokId } from "../lib/tiktokId";
 import DisabledMappingMark from "./DisabledMappingMark";
 
@@ -66,7 +66,11 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
   const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
   const [saveError, setSaveError] = useState("");
   const [editorRevision, setEditorRevision] = useState(0);
-  const resetEditor = () => { setPickedGiftId(undefined); setPickedGiftName(undefined); setPickedGiftImage(undefined); setPickedGiftDiamonds(undefined); setEditorRevision(n => n + 1); };
+  const pickedGiftIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => { pickedGiftIdRef.current = pickedGiftId; }, [pickedGiftId]);
+  // 選択を外すと、カタログ（GiftsGridSection）がページを開いたときと同じく最初のギフトを選び直す。
+  const clearPickedGift = () => { setPickedGiftId(undefined); setPickedGiftName(undefined); setPickedGiftImage(undefined); setPickedGiftDiamonds(undefined); };
+  const resetEditor = () => { clearPickedGift(); setEditorRevision(n => n + 1); };
 
   // config.minecraft.json に保存できた時だけ画面へ反映する。
   // Bridge は fs.watch でホットリロードするため、保存は即反映される。
@@ -157,11 +161,17 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void }> = ({ onOpen
     commitMappings(p => p.map(x => x.id === id ? { ...x, ...updated } : x)), [commitMappings]);
   const removeMapping = useCallback((id: string) => {
     if (!confirmDiscard()) return;
-    void commitMappings(p => p.filter(x => x.id !== id)).catch(() => {});
+    const removedGiftId = String(mappingsRef.current.find(x => x.id === id)?.giftId ?? "").trim();
+    // 編集中のギフトを消したら選択を外す（src/lib/giftMappingRows.ts の removedPickedGift。2026-11-04 ユーザーの決定）。
+    void commitMappings(p => p.filter(x => x.id !== id))
+      .then(() => { if (removedPickedGift(pickedGiftIdRef.current, removedGiftId, mappingsRef.current)) clearPickedGift(); })
+      .catch(() => {});
   }, [commitMappings, confirmDiscard]);
 
   const handlePickGift = useCallback((gid: string, gname: string, image?: string | null, diamonds?: number) => {
-    if (gid === pickedGiftId || !confirmDiscard()) return;
+    // 何も選んでいないとき（ページを開いた直後・✖ で編集中のギフトを消した後・テンプレートの前）は、カタログが最初のギフトを選ぶだけなので確かめない。
+    // 前は ✖ の確認の直後に「保存されていない変更があります」がもう1回出て、キャンセルすると「ギフト未選択」のまま止まった（2026-11-04 レビュー 重要1）。
+    if (gid === pickedGiftId || (pickedGiftId !== undefined && !confirmDiscard())) return;
     setPickedGiftId(gid);
     setPickedGiftName(gname);
     setPickedGiftImage(image);

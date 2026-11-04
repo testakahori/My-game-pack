@@ -56,3 +56,14 @@ test('ギフト設定の画面: giftId の前後の空白を除いて読み、�
   assert.equal(rows[0].name, 'バラ');
   assert.equal(toConfigMappings([{ ...rows[0], giftId: ' 5655 ' }])[0].giftId, '5655');
 });
+
+// 編集中のギフトの割り当てを ✖ で消したら、選択を外す（2026-11-04 ユーザーの決定「選択を外す」）。
+// 前は消したギフトが未設定のまま選ばれて残り、期限切れのギフトでもコマンドを選んで保存すると、また登録された。
+test('ギフト設定の画面: 編集中のギフトを消したときだけ選択を外す', () => {
+  const { removedPickedGift } = loadLib('giftMappingRows.ts');
+  assert.equal(removedPickedGift('5655', '5655', [{ giftId: '1' }]), true, '編集中のギフトを消した');
+  assert.equal(removedPickedGift('1', '5655', [{ giftId: '1' }]), false, 'ほかのギフトを消した');
+  assert.equal(removedPickedGift(undefined, '5655', []), false, '何も選んでいない');
+  assert.equal(removedPickedGift('5655', '5655', [{ giftId: ' 5655 ' }]), false, '同じギフトの行がまだ残っている');
+  assert.equal(removedPickedGift(' 5655 ', '5655', []), true, '選んだ ID に空白が残っていても同じギフト');
+});
