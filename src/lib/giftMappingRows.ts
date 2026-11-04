@@ -47,6 +47,13 @@ export function mappingGiftName(mapping: { giftId?: unknown; name?: unknown }, c
   return (name && name !== giftId ? name : "") || catalogName || giftId;
 }
 
+// ✖ で消した割り当てが、編集中のギフトのものだったか（2026-11-04 ユーザーの決定「選択を外す」）。消したあとに残った行で決める。
+// 前は消したギフトが未設定のまま選ばれて残り、期限切れのギフトでもコマンドを選んで保存すると、また登録された。
+export function removedPickedGift(pickedGiftId: string | undefined, removedGiftId: string, remaining: ReadonlyArray<{ giftId?: unknown }>): boolean {
+  // 選んだ ID も空白を除いて比べる（設定を読めなかったときの予備の localStorage の行は、空白が残っていることがある）。
+  return Boolean(removedGiftId) && pickedGiftId?.trim() === removedGiftId && !remaining.some((m) => String(m.giftId ?? "").trim() === removedGiftId);
+}
+
 // 画面の行を設定の mappings へ（保存する4項目と、無効のときだけ enabled: false）。
 export function toConfigMappings(list: GiftMapping[]): object[] {
   return list.map((m) => ({
