@@ -3106,6 +3106,8 @@ button:disabled {
 .events-like-status span {
   color: #b4c3d2;
   font-size: 8px;
+  /* 文字を +2px にしたら（2026-11-04）、切り替えの横の欄に入り切らず「有／効」と折り返した。 */
+  white-space: nowrap;
 }
 
 .events-like-actions {
@@ -6706,6 +6708,8 @@ button.tts-status-card:hover {
 .setup-server-meta-v2 b {
   color: #2cf1a1;
   font-size: 13px;
+  /* 下の段の値は2列にまたがる。前は値の幅で左の列が広がり、文字を +2px にしたら（2026-11-04）見出しの列が細くなって「サーバー／状態」と折り返した。 */
+  grid-column: 1 / -1;
 }
 
 .setup-env-row-v2 {
