@@ -14,6 +14,8 @@ import { isValidTikTokId, normalizeTikTokId, sameTikTokId } from "../lib/tiktokI
 import { TIKTOK_USER_STORAGE_KEY } from "../lib/rememberedAccounts";
 // 既定値は BRIDGE と同じ表（bridge/config_defaults.json。処理のコピー PR4）。
 import CONFIG_DEFAULTS from "../../bridge/config_defaults.json";
+// 画面のコードに直接書いた文字の大きさにも、CSS と同じ分を足す（scripts/postcss-font-size-offset.cjs）。
+import FONT_SIZE_OFFSET from "../lib/fontSizeOffset.json";
 
 type RunState = "stopped" | "starting" | "running" | "error";
 type LogType  = "info" | "ok" | "error" | "warn";
@@ -1023,7 +1025,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
               style={{
                 minHeight: 30, padding: "0 12px", borderRadius: 9, whiteSpace: "nowrap",
                 border: "1px solid rgba(39,216,255,0.5)", background: "rgba(7,50,73,0.75)",
-                color: "#d5f2ff", fontSize: 11, fontWeight: 800,
+                color: "#d5f2ff", fontSize: 11 + FONT_SIZE_OFFSET.px, fontWeight: 800,
               }}
             >
               {mcIdBusy ? "付与中…" : "OP権限を付与"}

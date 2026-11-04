@@ -9,6 +9,8 @@ import { useUnsavedChanges } from "../UnsavedChanges";
 import { opsConfigToSave } from "../lib/opsConfig";
 // 既定値は BRIDGE と同じ表（bridge/config_defaults.json。処理のコピー PR4）。
 import CONFIG_DEFAULTS from "../../bridge/config_defaults.json";
+// 画面のコードに直接書いた文字の大きさにも、CSS と同じ分を足す（scripts/postcss-font-size-offset.cjs）。
+import FONT_SIZE_OFFSET from "../lib/fontSizeOffset.json";
 
 type ModStatus = {
   online: boolean;
@@ -311,7 +313,7 @@ export default function OperationsPage({ onRestored, gameReady }: { onRestored: 
               title="失敗＝実行したコマンド1行単位の空振り（対象プレイヤー不在・セレクタ不一致など）。ギフトの取りこぼしではありません。"
             ><small>失敗 ⓘ</small><b className="bad">{status.failed || stats.failed || 0}</b></span>
           </div>
-          <p style={{ margin: "4px 0 0", fontSize: 10, color: "#77899f" }}>
+          <p style={{ margin: "4px 0 0", fontSize: 10 + FONT_SIZE_OFFSET.px, color: "#77899f" }}>
             ※「失敗」はコマンド1行単位の空振り（プレイヤー不在時の演出コマンド等）で、ギフト不発の数ではありません。
           </p>
 
