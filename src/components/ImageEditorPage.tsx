@@ -4,12 +4,18 @@ import type { GiftAssignment } from '../types/electron';
 import { useUnsavedChanges, useUnsavedGuard } from '../UnsavedChanges';
 import { applyPanelTemplate, cardColors, clamp, createPanel, normalizePanel, panelFilename, panelId, panelLayout, readPanelLibrary, PANEL_STORAGE_KEY, TEMPLATES, TONES, toneForCategory, type PanelCard, type PanelDesign, type PanelLibrary } from '../lib/giftPanel';
 import { drawGiftPanel, type PanelImages } from '../lib/giftPanelCanvas';
+import { dropCard, fitPanel, placeCards, slotRect } from '../lib/panelSlots';
+import { canvasFontMeasure, DEFAULT_PANEL_FONT, FONT_PROBE_TEXT, installedPanelFonts, isFontInstalled, panelFont, panelFontFace, PANEL_FONTS } from '../lib/panelFonts';
 import { commandFileStem, findCommandFile } from '../lib/commandFiles';
 import { disabledGiftIds, fromConfigMappings, mappingGiftName } from '../lib/giftMappingRows';
 import DisabledMappingMark from './DisabledMappingMark';
+import { CardTextSettings, PanelTextSettings } from './PanelTextControls';
+import { usePanelCardDrag } from './usePanelCardDrag';
 
 type Gift = { id: number; name: string; diamond_count: number; image?: string | null };
 type Meta = { name: string; title: string; category: string };
+// 一覧のギフト。画像に追加したときに枠の番号（slot）が付く。
+type SourceCard = Omit<PanelCard, 'slot'>;
 type History = { past: PanelDesign[]; present: PanelDesign; future: PanelDesign[] };
 type Action = { type: 'edit' | 'replace'; value: PanelDesign } | { type: 'undo' } | { type: 'redo' };
 function historyReducer(state: History, action: Action): History {
@@ -28,11 +34,6 @@ function NumberField({ label, value, min, max, onChange }: { label: string; valu
 }
 function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (color: string) => void }) {
   return <label className="panel-color-field"><input type="color" aria-label={label} value={value} onChange={e => onChange(e.target.value)} /><span>{label}</span><small>{value.toUpperCase()}</small></label>;
-}
-function fitCards(design: PanelDesign, cards: PanelCard[]) {
-  const columns = Math.max(design.columns, Math.ceil(cards.length / 8));
-  const rows = Math.max(design.rows, Math.ceil(cards.length / columns));
-  return { ...design, cards, columns, rows, height: Math.min(2160, Math.round(design.height / design.rows * rows)) };
 }
 const EMPTY_MAPPINGS: GiftMapping[] = [];
 
@@ -60,6 +61,7 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
   const [notice, setNotice] = useState('');
   const [drawError, setDrawError] = useState('');
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const cache = useRef(new Map<string, { status: 'loading' | 'ready' | 'error'; image?: HTMLImageElement }>());
   const [imageTick, setImageTick] = useState(0);
   const alive = useRef(true);
@@ -94,7 +96,7 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
   }, [reload]);
   // 無効の割り当て（設定ファイルで enabled: false）のギフト。一覧の項目にだけ印を出し、パネルの絵には描かない（処理のコピー PR8）。
   const disabledIds = useMemo(() => disabledGiftIds(savedMappings), [savedMappings]);
-  const mappedCards = useMemo(() => savedMappings.filter(m => m.commandFile).map((m, i): PanelCard => {
+  const mappedCards = useMemo(() => savedMappings.filter(m => m.commandFile).map((m, i): SourceCard => {
     const gift = gifts.find(g => String(g.id) === String(m.giftId));
     // 同じコマンドかは .txt の有無・大文字小文字を問わない（src/lib/commandFiles.ts。処理のコピー PR8）。
     const meta = findCommandFile(metadata, m.commandFile);
@@ -103,7 +105,7 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
       repeat: m.repeat || 1, category: meta?.category || '', tone: toneForCategory(meta?.category || '') };
   }), [savedMappings, gifts, metadata]);
   const available = useMemo(() => {
-    const cards = source === 'mapped' ? mappedCards : gifts.map((g): PanelCard => mappedCards.find(c => c.giftId === String(g.id)) || {
+    const cards = source === 'mapped' ? mappedCards : gifts.map((g): SourceCard => mappedCards.find(c => c.giftId === String(g.id)) || {
       id: 'gift-' + g.id, giftId: String(g.id), giftName: g.name, image: g.image || null, title: g.name, repeat: 1, category: '', tone: 'other',
     });
     const query = search.trim().toLocaleLowerCase();
@@ -145,29 +147,41 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
     catch (e) { setDrawError('プレビューを描画できません: ' + String(e)); }
   }, [design, images]);
   const layout = panelLayout(design);
+  // この PC にある文字の形だけを選べるようにする（2026-11-05 ユーザーの決定）。
+  const fonts = useMemo(() => { const measure = canvasFontMeasure(); return measure ? installedPanelFonts(measure) : PANEL_FONTS; }, []);
+  const fontMissing = !fonts.some(f => f.id === design.font);
   const urls = [...new Set(design.cards.map(c => c.image).filter((url): url is string => Boolean(url)))];
   const pending = urls.filter(url => !cache.current.has(url) || cache.current.get(url)?.status === 'loading').length;
   const failed = urls.filter(url => cache.current.get(url)?.status === 'error');
-  const selectedIndex = design.cards.findIndex(c => c.id === selected);
-  const card = design.cards[selectedIndex];
+  const card = design.cards.find(c => c.id === selected);
   const updateCard = (value: Partial<PanelCard>) => patch({ cards: design.cards.map(c => c.id === selected ? { ...c, ...value } : c) });
+  // 外したカードの枠は空いたまま（詰めない）。カードは枠の番号（slot）の順に並ぶ（2026-11-05）。
   const removeCard = (id: string) => { patch({ cards: design.cards.filter(c => c.id !== id) }); if (selected === id) setSelected(null); };
-  const moveCard = (fromId: string, to: number) => {
-    const from = design.cards.findIndex(c => c.id === fromId);
-    if (from < 0 || to < 0 || to >= design.cards.length || from === to) return;
-    const next = [...design.cards]; const [moved] = next.splice(from, 1); next.splice(to, 0, moved);
-    patch({ cards: next });
+  const moveCard = (id: string, slot: number) => commit(dropCard(design, id, slot));
+  const { drag, bind: bindDrag, consumeClick } = usePanelCardDrag(wrapRef, layout, design.columns, design.rows, moveCard);
+  const dragCard = drag ? design.cards.find(c => c.id === drag.id) : undefined;
+  const dropKind = !drag || drag.target === drag.from ? 'same' : design.cards.some(c => c.slot === drag.target) ? 'swap' : 'move';
+  const cellStyle = (slot: number): React.CSSProperties => {
+    const r = slotRect(layout, design.columns, slot);
+    return { left: r.x / layout.width * 100 + '%', top: r.y / layout.height * 100 + '%', width: r.width / layout.width * 100 + '%', height: r.height / layout.height * 100 + '%' };
   };
-  const addCards = (cards: PanelCard[]) => {
+  const addCards = (cards: SourceCard[]) => {
     const next = cards.slice(0, 96 - design.cards.length).map(c => ({ ...c, id: panelId() }));
     if (!next.length) return;
-    commit(fitCards(design, [...design.cards, ...next])); setSelected(next[0].id);
+    commit(placeCards(design, next)); setSelected(next[0].id);
   };
   const exportPng = async () => {
-    if (exporting || pending || failed.length || layout.overflow || !design.cards.length) return;
+    if (exporting || pending || failed.length || layout.overflow || !design.cards.length || fontMissing) return;
     setExporting(true); setNotice('');
     try {
+      // 選んだ文字の形を読み込んでから描く。描く直前にもこの PC で使えるか確かめ、使えなければ黙って別の形で保存しない（2026-11-05）。
+      const face = panelFontFace(design.font);
+      await document.fonts.load(`${face.weight} ${design.fontSize}px ${face.stack}`, FONT_PROBE_TEXT);
       await document.fonts.ready;
+      const measure = canvasFontMeasure();
+      if (design.font !== DEFAULT_PANEL_FONT && measure && !isFontInstalled(panelFont(design.font).families, measure)) {
+        setNotice('文字の形「' + panelFont(design.font).label + '」がこのPCで使えません。別の文字の形を選んでから保存してください。'); return;
+      }
       const cleanCanvas = document.createElement('canvas');
       drawGiftPanel(cleanCanvas, design, images);
       const result = await window.mygamepack.giftPanelSavePng(cleanCanvas.toDataURL('image/png'), panelFilename(design));
@@ -188,24 +202,25 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
     dispatch({ type: 'replace', value: createPanel() }); setSelected(null); setNotice('');
   };
   const cardInspector = card ? <section className="panel-inspector" aria-label="選択したカードの編集">
-          <div className="panel-inspector-heading"><div><b>{selectedIndex + 1}. {card.giftName}</b><small>文字・色・並び順を編集</small></div><div className="panel-inline-actions">
-            <button className="studio-icon-button" aria-label="カードを前へ移動" disabled={selectedIndex <= 0} onClick={() => moveCard(card.id, selectedIndex - 1)}><i className="fa-solid fa-arrow-left" /></button>
-            <button className="studio-icon-button" aria-label="カードを後ろへ移動" disabled={selectedIndex === design.cards.length - 1} onClick={() => moveCard(card.id, selectedIndex + 1)}><i className="fa-solid fa-arrow-right" /></button>
+          <div className="panel-inspector-heading"><div><b>{card.slot + 1}. {card.giftName}</b><small>文字・色・並び順を編集</small></div><div className="panel-inline-actions">
+            <button className="studio-icon-button" aria-label="カードを前へ移動" disabled={card.slot <= 0} onClick={() => moveCard(card.id, card.slot - 1)}><i className="fa-solid fa-arrow-left" /></button>
+            <button className="studio-icon-button" aria-label="カードを後ろへ移動" disabled={card.slot + 1 >= layout.slots} onClick={() => moveCard(card.id, card.slot + 1)}><i className="fa-solid fa-arrow-right" /></button>
             <button className="studio-quiet" onClick={() => removeCard(card.id)}><i className="fa-regular fa-trash-can" />削除</button>
           </div></div>
           <p className="panel-hint">以下は画像の表示だけを変更します。</p>
           <div className="panel-inspector-fields"><label className="panel-field"><span>効果名・表示する文字</span><textarea rows={2} maxLength={120} value={card.title} onChange={e => updateCard({ title: e.target.value })} /></label><NumberField label="表示する回数" value={card.repeat} min={1} max={9999} onChange={repeat => updateCard({ repeat })} /><label className="panel-field"><span>内容のグループ</span><select value={card.tone} onChange={e => updateCard({ tone: e.target.value as PanelCard['tone'] })}>{TONES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}</select></label></div>
           <div className="panel-card-colors"><span>このカードの色</span>{TONES.map(t => <button key={t.id} className="panel-swatch" style={{ background: design.palette[t.id] }} aria-label={t.label + 'の色にする'} onClick={() => updateCard({ color: design.palette[t.id] })} />)}
-            <input type="color" aria-label="カードの自由な色" value={cardColors(design, card).accent} onChange={e => updateCard({ color: e.target.value })} /><button className="studio-quiet" onClick={() => updateCard({ color: undefined, textColor: undefined })}>自動配色に戻す</button>
-            <label className="panel-check"><input type="checkbox" checked={Boolean(card.textColor)} onChange={e => updateCard({ textColor: e.target.checked ? cardColors(design, card).text : undefined })} />文字色を指定</label>{card.textColor && <input type="color" aria-label="カードの文字色" value={card.textColor} onChange={e => updateCard({ textColor: e.target.value })} />}
+            <input type="color" aria-label="カードの自由な色" value={cardColors(design, card).accent} onChange={e => updateCard({ color: e.target.value })} /><button className="studio-quiet" onClick={() => updateCard({ color: undefined, textColor: undefined, outlineColor: undefined })}>自動配色に戻す</button>
+            <label className="panel-check"><input type="checkbox" checked={Boolean(card.textColor)} onChange={e => updateCard({ textColor: e.target.checked ? cardColors(design, card).text : undefined })} />文字色を指定</label>{card.textColor && <input type="color" aria-label="カードの文字色" value={card.textColor} onChange={e => updateCard({ textColor: e.target.value.toUpperCase() })} />}
           </div>
+          <CardTextSettings design={design} card={card} update={updateCard} />
         </section> : <p className="panel-hint">プレビューのカードを選ぶと、表示する文字や色を編集できます。</p>;
   return <div className="panel-studio">
     <header className="studio-page-heading">
       <div><h1>配信画像<span className="studio-tag">OBS用 PNG</span></h1><p>ギフトの楽しさを、ひと目で伝えよう。</p></div>
       <div className="panel-heading-actions">
         <span className={'panel-save-state' + (storageError ? ' is-error' : '')}><i className={'fa-solid ' + (storageError ? 'fa-circle-exclamation' : 'fa-check')} />{storageError ? '保存を確認' : '画像の編集は自動保存'}</span>
-        <button className="studio-primary" disabled={!design.cards.length || Boolean(pending || failed.length || layout.overflow || drawError || exporting)} onClick={() => void exportPng()}><i className="fa-solid fa-download" />{exporting ? '保存中…' : 'PNGを保存'}</button>
+        <button className="studio-primary" disabled={!design.cards.length || Boolean(pending || failed.length || layout.overflow || drawError || exporting || fontMissing)} onClick={() => void exportPng()}><i className="fa-solid fa-download" />{exporting ? '保存中…' : 'PNGを保存'}</button>
       </div>
     </header>
     {storageError && <div className="studio-alert" role="alert">{storageError}{recoveryRequired && <button onClick={() => {
@@ -237,7 +252,7 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
           <ColorField label="カードの背景" value={design.background} onChange={background => patch({ background })} />
           {design.colorMode === 'category' && <div className="panel-palette">{TONES.map(t => <ColorField key={t.id} label={t.label} value={design.palette[t.id]} onChange={color => patch({ palette: { ...design.palette, [t.id]: color } })} />)}</div>}
           <div className="panel-field-row"><NumberField label="列" value={design.columns} min={1} max={12} onChange={columns => patch({ columns })} /><NumberField label="段" value={design.rows} min={1} max={8} onChange={rows => patch({ rows })} /></div>
-          <label className="panel-field"><span>文字サイズ <b>{design.fontSize}px</b></span><input type="range" min={10} max={96} value={design.fontSize} onChange={e => patch({ fontSize: Number(e.target.value) })} /></label>
+          <PanelTextSettings design={design} fonts={fonts} patch={patch} />
           <details className="panel-details"><summary>サイズ・余白を細かく調整</summary><div className="panel-field-row"><NumberField label="幅 px" value={design.width} min={360} max={3840} onChange={width => patch({ width })} /><NumberField label="一覧の高さ px" value={design.height} min={120} max={2160} onChange={height => patch({ height })} /></div>
             <div className="panel-field-row"><NumberField label="間隔" value={design.gap} min={0} max={32} onChange={gap => patch({ gap })} /><NumberField label="外側の余白" value={design.padding} min={4} max={80} onChange={padding => patch({ padding })} /></div>
             <NumberField label="角の丸み" value={design.radius} min={0} max={32} onChange={radius => patch({ radius })} />
@@ -257,28 +272,28 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
           {preview !== 'image' && <div className="panel-placement"><span>配置イメージ</span><button aria-pressed={position === 'top'} onClick={() => setPosition('top')}>上に置く</button><button aria-pressed={position === 'bottom'} onClick={() => setPosition('bottom')}>下に置く</button><small>PNGには含まれません</small></div>}
           <div className={'panel-preview-stage is-' + preview}>
             <div className={'panel-scene is-' + preview + ' position-' + position}>
-              <div className="panel-canvas-wrap" style={{ aspectRatio: layout.width + '/' + layout.height }}>
+              <div ref={wrapRef} className={'panel-canvas-wrap' + (drag ? ' is-dragging' : '')} style={{ aspectRatio: layout.width + '/' + layout.height }}>
                 <canvas ref={canvasRef} aria-label="ギフト案内画像のプレビュー" />
-                {design.cards.slice(0, layout.slots).map((c, i) => <div key={c.id} className="panel-card-target" style={{
-                  left: (layout.padding + i % design.columns * (layout.cardWidth + layout.gap)) / layout.width * 100 + '%',
-                  top: (layout.headingHeight + layout.padding + Math.floor(i / design.columns) * (layout.cardHeight + layout.gap)) / layout.height * 100 + '%',
-                  width: layout.cardWidth / layout.width * 100 + '%', height: layout.cardHeight / layout.height * 100 + '%',
-                }}><button className={'panel-card-hit' + (selected === c.id ? ' is-selected' : '')} aria-label={(i + 1) + '番 ' + c.giftName + 'の表示を編集'} aria-pressed={selected === c.id} onClick={() => { setSelected(c.id); setControls('card'); }} /><button className="panel-card-remove" aria-label={(i + 1) + '番 ' + c.giftName + 'を画像から外す'} title="画像から外す" disabled={exporting} onClick={() => removeCard(c.id)}>×</button></div>)}
+                {drag && Array.from({ length: layout.slots }, (_, slot) => slot).filter(slot => !design.cards.some(c => c.slot === slot)).map(slot => <div key={'empty-' + slot} className="panel-empty-slot" style={cellStyle(slot)} />)}
+                {design.cards.filter(c => c.slot < layout.slots).map(c => <div key={c.id} className={'panel-card-target' + (drag?.id === c.id ? ' is-drag-source' : '')} style={cellStyle(c.slot)}><button className={'panel-card-hit' + (selected === c.id ? ' is-selected' : '')} aria-label={(c.slot + 1) + '番 ' + c.giftName + 'の表示を編集'} aria-pressed={selected === c.id} {...(exporting ? {} : bindDrag(c.id, c.slot))} onClick={() => { if (consumeClick()) return; setSelected(c.id); setControls('card'); }} /><button className="panel-card-remove" aria-label={(c.slot + 1) + '番 ' + c.giftName + 'を画像から外す'} title="画像から外す" disabled={exporting} onClick={() => removeCard(c.id)}>×</button></div>)}
+                {drag && drag.target !== null && <div className={'panel-drop-indicator is-' + dropKind} style={cellStyle(drag.target)}><span>{dropKind === 'same' ? '元の場所' : dropKind === 'swap' ? '入れ替え' : 'ここへ移動'}</span></div>}
+                {drag && dragCard && <div className="panel-drag-ghost" style={{ left: drag.x, top: drag.y }}>{dragCard.image && <img src={dragCard.image} alt="" />}<span>{dragCard.title.trim() || dragCard.giftName}</span></div>}
                 {!design.cards.length && <div className="panel-empty"><i className="fa-solid fa-layer-group" /><h3>あなたの配信に、ひと目でわかる案内を。</h3><p>テンプレートを選んで、ギフトを追加しましょう。</p><button className="studio-primary" disabled={!mappedCards.length || loading} onClick={addMapped}>設定済みギフトをまとめて追加</button><small>または下の一覧から1つずつ選べます</small></div>}
               </div>
               {preview !== 'image' && <div className="panel-game-placeholder"><i className="fa-solid fa-video" /><span>ゲーム映像・カメラのスペース</span><small>{preview === 'vertical' ? '9 : 16' : '16 : 9'}</small></div>}
             </div>
           </div>
-          <div className="panel-preview-footer"><span><i className="fa-solid fa-border-none" />余白は透明</span><span>{design.cards.length}枚 / {layout.slots}枠</span><span>カードを選んで表示を編集</span></div>
+          <div className="panel-preview-footer"><span><i className="fa-solid fa-border-none" />余白は透明</span><span>{design.cards.length}枚 / {layout.slots}枠</span><span>クリックで編集・ドラッグで入れ替え</span></div>
         </div>
-        {(pending > 0 || failed.length > 0 || drawError || layout.overflow > 0) && <div className="studio-alert" role="status">
+        {(pending > 0 || failed.length > 0 || drawError || layout.overflow > 0 || fontMissing) && <div className="studio-alert" role="status">
           {pending > 0 && <p>ギフト画像を読み込み中… 残り{pending}枚</p>}
           {failed.length > 0 && <p>{failed.length}枚の画像を読み込めませんでした。<button onClick={retryImages}>画像を再読み込み</button></p>}
           {drawError && <p>{drawError}</p>}
-          {layout.overflow > 0 && <p>{layout.overflow}枚が枠に入りません。すべて入るまで保存を止めています。<button onClick={() => commit(fitCards(design, design.cards))}>すべて収まるように調整</button></p>}
+          {layout.overflow > 0 && <p>{layout.overflow}枚が枠に入りません。すべて入るまで保存を止めています。<button onClick={() => commit(fitPanel(design))}>すべて収まるように調整</button></p>}
+          {fontMissing && <p>文字の形「{panelFont(design.font).label}」がこのPCにありません（いまは游ゴシックで表示）。別の文字の形を選ぶまで保存を止めています。<button onClick={() => patch({ font: DEFAULT_PANEL_FONT })}>游ゴシックに戻す</button></p>}
         </div>}
 
-        {design.cards.length > 0 && <div className="panel-order"><div className="panel-order-heading"><span>並び順 <small>ドラッグで入れ替え</small></span><button className="studio-quiet" onClick={() => { patch({ cards: [] }); setSelected(null); }}>すべて外す</button></div><div className="panel-order-strip">{design.cards.map((c, i) => <button key={c.id} className={selected === c.id ? 'is-selected' : ''} aria-label={(i + 1) + '番のカードを選択'} draggable onDragStart={() => { dragId.current = c.id; }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (dragId.current) moveCard(dragId.current, i); dragId.current = null; }} onDragEnd={() => { dragId.current = null; }} onClick={() => { setSelected(c.id); setControls('card'); }}><small>{i + 1}</small>{c.image && <img src={c.image} alt="" loading="lazy" />}<span>{c.title}</span></button>)}</div></div>}
+        {design.cards.length > 0 && <div className="panel-order"><div className="panel-order-heading"><span>並び順 <small>ドラッグで入れ替え</small></span><button className="studio-quiet" onClick={() => { patch({ cards: [] }); setSelected(null); }}>すべて外す</button></div><div className="panel-order-strip">{design.cards.map(c => <button key={c.id} className={selected === c.id ? 'is-selected' : ''} aria-label={(c.slot + 1) + '番のカードを選択'} draggable onDragStart={() => { dragId.current = c.id; }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (dragId.current) moveCard(dragId.current, c.slot); dragId.current = null; }} onDragEnd={() => { dragId.current = null; }} onClick={() => { setSelected(c.id); setControls('card'); }}><small>{c.slot + 1}</small>{c.image && <img src={c.image} alt="" loading="lazy" />}<span>{c.title}</span></button>)}</div></div>}
         <section className="panel-library">
           <div className="panel-library-heading"><div className="panel-section-label"><span>02</span><h2>画像に使うギフト</h2></div><button className="studio-quiet" onClick={addMapped} disabled={!mappedCards.length || design.cards.length >= 96 || loading}>設定済みをまとめて追加</button></div>
           <div className="panel-library-tools"><div className="panel-segments"><button aria-pressed={source === 'mapped'} onClick={() => setSource('mapped')}>設定済み {mappedCards.length}</button><button aria-pressed={source === 'all'} onClick={() => setSource('all')}>すべて {gifts.length}</button></div><label className="panel-search"><i className="fa-solid fa-magnifying-glass" /><input aria-label="画像に使うギフトを検索" placeholder="ギフト名・効果名で検索" value={search} onChange={e => setSearch(e.target.value)} /></label></div>
