@@ -165,6 +165,13 @@ test('配布: 開発機に残った _op.txt・ゲームのコマンドの写し�
   assert.ok(commands.includes('_gamerules.txt') && commands.length > 10, 'bridge/commands/minecraft のコマンドを見ている');
   for (const name of commands) assert.equal(ships('commands/minecraft/' + name), true, `${name} は配布物に入れる`);
   assert.equal(ships('games.json'), true);
+  // アプリから使われていない開発用のファイルも配らない（2026-11-05 ユーザーの決定「3つとも配らない」。リポジトリには残す）。
+  for (const file of ['telnet_test.js', 'ui_server.js', 'bridge起動.bat']) {
+    assert.ok(fs.existsSync(path.join(root, 'bridge', file)), `${file} がリポジトリにある（無くなったらこの確かめも外す）`);
+    assert.equal(ships(file), false, `${file} は配布物に入れない`);
+  }
+  // BRIDGE の起動に使う本体は配る（bridge_sync.cjs が写し終えたかの確かめに index.js を使う）。
+  assert.equal(ships('index.js'), true);
   // アプリ本体（files）の側にも、開発の道具の記録は入れない。
   const appFiles = shipsFrom(root, build.files);
   for (const file of ['electron/.omc/state/a.json', 'electron/.claude/settings.local.json']) assert.equal(appFiles(file), false, `${file} は配布物に入れない`);

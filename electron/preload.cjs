@@ -121,7 +121,7 @@ contextBridge.exposeInMainWorld("mygamepack", {
   // Minecraftランチャー/ゲーム本体の稼働検知
   minecraftStatus: () => ipcRenderer.invoke("minecraft:status"),
 
-  // bridge起動.bat を起動（別ウィンドウ）
+  // BRIDGE を起動（main が node で直接起動する。bridge起動.bat は使わない）
   bridgeLaunch: () => ipcRenderer.invoke("bridge:launch"),
 
   // Bridge 停止
