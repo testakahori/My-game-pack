@@ -364,6 +364,39 @@
 .panel-card-remove:hover {background:#bd314b;transform:scale(1.08);}
 .panel-card-remove:focus-visible {outline:2px solid white;outline-offset:2px;}
 .panel-card-remove:disabled {opacity:.5;cursor:wait;}
+/* 枠の中のドラッグ（2026-11-05）。文字の大きさは組み立てで +3px される（scripts/postcss-font-size-offset.cjs）ので、ここは 3px 小さく書く。 */
+.panel-canvas-wrap {user-select:none;}
+.panel-canvas-wrap.is-dragging, .panel-canvas-wrap.is-dragging .panel-card-hit {cursor:grabbing;}
+.panel-card-target.is-drag-source .panel-card-hit {background:#0c111aa8;box-shadow:inset 0 0 0 2px #73c5ff;}
+.panel-card-target.is-drag-source .panel-card-remove {display:none;}
+.panel-empty-slot {position:absolute;pointer-events:none;box-sizing:border-box;border:2px dashed #9fb3d27a;border-radius:6px;}
+.panel-drop-indicator {position:absolute;pointer-events:none;z-index:2;box-sizing:border-box;display:flex;align-items:flex-start;justify-content:center;border:3px solid #ffd54a;border-radius:6px;background:#ffd54a33;box-shadow:0 0 0 2px #000a,0 0 18px #ffd54a99;}
+.panel-drop-indicator span {margin-top:6px;padding:3px 10px;border-radius:999px;background:#ffd54a;color:#1d1600;font-size:9px;font-weight:800;white-space:nowrap;box-shadow:0 2px 6px #0008;}
+.panel-drop-indicator.is-move {border-style:dashed;border-color:#69dfd0;background:#69dfd033;box-shadow:0 0 0 2px #000a,0 0 18px #69dfd099;}
+.panel-drop-indicator.is-move span {background:#69dfd0;color:#06231f;}
+.panel-drop-indicator.is-same {border-color:#9aa8bf;background:transparent;box-shadow:none;}
+.panel-drop-indicator.is-same span {background:#9aa8bf;color:#111826;}
+.panel-drag-ghost {position:absolute;pointer-events:none;z-index:3;transform:translate(-50%,-115%);display:flex;align-items:center;gap:6px;max-width:220px;padding:5px 10px 5px 6px;border:1px solid #8fb8ff;border-radius:8px;background:#1d2840f0;color:#eef3ff;font-size:9px;font-weight:700;white-space:nowrap;box-shadow:0 8px 20px #000a;}
+.panel-drag-ghost img {width:26px;height:26px;object-fit:contain;flex-shrink:0;}
+.panel-drag-ghost span {overflow:hidden;text-overflow:ellipsis;}
+/* 文字の設定（2026-11-05） */
+.panel-font-list {display:flex;flex-direction:column;gap:2px;max-height:214px;overflow:auto;padding:3px;border:1px solid #2d3850;border-radius:7px;background:#0e1522;scrollbar-width:thin;}
+.panel-font-list button {display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;padding:6px 9px;border:1px solid transparent;border-radius:5px;color:#d5def0;text-align:left;}
+.panel-font-list button>span {font-size:13px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.panel-font-list button small {flex-shrink:0;font-size:8px;color:#8ea0bc;}
+.panel-font-list button:hover:not(:disabled) {background:#1a2436;}
+.panel-font-list button[aria-pressed=true] {background:#37304b;border-color:#8d74b8;color:#f6efff;}
+.panel-font-list button:disabled {cursor:default;opacity:.75;}
+.panel-font-list button:disabled small {color:#ffc589;}
+.panel-swatch-row {display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
+.panel-swatch[aria-pressed=true], .panel-swatch-row input[type=color].is-chosen {outline:2px solid #fff;outline-offset:2px;}
+.panel-auto-chip {padding:4px 10px;border:1px solid #40506a;border-radius:999px;color:#b9c6da;font-size:9px;}
+.panel-auto-chip[aria-pressed=true] {background:#3c3150;border-color:#86709e;color:#ecddff;}
+.panel-card-text {display:flex;flex-direction:column;gap:9px;border-top:1px solid #373448;padding-top:12px;margin-top:14px;font-size:10px;color:#a5aec3;}
+.panel-size-stepper {display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.panel-size-stepper b {min-width:58px;display:flex;flex-direction:column;align-items:center;line-height:1.3;color:#e5dcff;font-size:11px;}
+.panel-size-stepper b small {font-size:8px;font-weight:400;color:#8f9ab3;}
+.panel-size-stepper .studio-quiet {font-size:10px;min-height:28px;padding:5px 7px;}
 .gift-template-tools {margin:0 24px;padding:16px 18px;background:#172331;border:1px solid #354357;border-radius:12px;display:flex;flex-direction:column;gap:9px;}
 .gift-template-toolbar {display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;}
 .gift-template-toolbar b {font-size:13px;display:flex;align-items:center;gap:9px;color:#e4edf7;}

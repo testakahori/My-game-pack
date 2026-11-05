@@ -1,11 +1,18 @@
 /** Serializable editing state. It never writes Minecraft gift assignments. */
+import { DEFAULT_PANEL_FONT, PANEL_FONTS } from './panelFonts';
+import { neededSlots, normalizeSlots, slotOf } from './panelSlots';
+
 export type PanelTone = 'attack' | 'help' | 'trick' | 'other';
 export type PanelTemplate = 'compact' | 'light' | 'neon';
+// slot は枠の番号、fontScale は全体の文字サイズに対する % （無ければ全体と同じ）、outlineColor はこのカードだけの縁取りの色（2026-11-05）。
 export type PanelCard = {
   id: string; giftId: string; giftName: string; image: string | null;
-  title: string; repeat: number; category: string; tone: PanelTone;
-  color?: string; textColor?: string;
+  title: string; repeat: number; category: string; tone: PanelTone; slot: number;
+  color?: string; textColor?: string; fontScale?: number; outlineColor?: string;
 };
+// font は文字の形（src/lib/panelFonts.ts の id）。textColor は全体の文字色（無ければ自動）。
+// outline は縁取り：auto はいままでどおり（白い文字と見出しだけ暗く縁取る）、none は縁取らない、color は outlineColor で縁取る。outlineWidth は文字の大きさの %（2026-11-05）。
+export type PanelOutline = 'auto' | 'none' | 'color';
 export type PanelDesign = {
   id: string; name: string; template: PanelTemplate; cards: PanelCard[];
   columns: number; rows: number; width: number; height: number;
@@ -14,7 +21,15 @@ export type PanelDesign = {
   colorMode: 'uniform' | 'category'; colorTarget: 'border' | 'background';
   accent: string; background: string; palette: Record<PanelTone, string>;
   showRepeat: boolean; outerFrame: boolean;
+  font: string; textColor?: string; outline: PanelOutline; outlineColor: string; outlineWidth: number;
 };
+export const OUTLINE_WIDTH = 8;
+export const AUTO_OUTLINE_COLOR = '#08090D';
+export const FONT_SCALE_MIN = 30, FONT_SCALE_MAX = 300;
+export const TEXT_SWATCHES = [
+  { label: '白', color: '#FFFFFF' }, { label: '黒', color: '#000000' }, { label: '黄', color: '#FFEB3B' },
+  { label: '赤', color: '#FF3B5C' }, { label: '青', color: '#2F80ED' }, { label: '緑', color: '#22C55E' }, { label: '紫', color: '#9B59F6' },
+];
 export type PanelLibrary = { version: 1; activeId: string; designs: PanelDesign[] };
 export const PANEL_STORAGE_KEY = 'mygamepack_obs_panels_v1';
 export const TONES: { id: PanelTone; label: string; color: string }[] = [
@@ -51,31 +66,39 @@ export function createPanel(template: PanelTemplate = 'compact'): PanelDesign {
     background: light ? '#F8FAFC' : neon ? '#211D31' : '#252830',
     palette: Object.fromEntries(TONES.map(t => [t.id, t.color])) as Record<PanelTone, string>,
     showRepeat: true, outerFrame: true,
+    font: DEFAULT_PANEL_FONT, outline: 'auto', outlineColor: '#FFFFFF', outlineWidth: OUTLINE_WIDTH,
   };
 }
+// 見た目を切り替えても文字の形は保つ。文字色・縁取りはテンプレートの地の色に合わせて自動に戻す（2026-11-05）。
+// 空いた枠があっても、いちばん後ろのカードまで入る列・段にする。
 export function applyPanelTemplate(design: PanelDesign, template: PanelTemplate): PanelDesign {
   const next = createPanel(template);
-  const columns = Math.max(next.columns, Math.ceil(design.cards.length / 8));
-  const rows = Math.max(next.rows, Math.ceil(design.cards.length / columns));
+  const needed = neededSlots(design.cards);
+  const columns = Math.max(next.columns, Math.ceil(needed / 8));
+  const rows = Math.max(next.rows, Math.ceil(needed / columns));
   return { ...next, id: design.id, name: design.name, cards: design.cards, headline: design.headline,
     columns, rows, height: Math.min(2160, next.height / next.rows * rows), palette: design.palette,
-    colorMode: design.colorMode, colorTarget: design.colorTarget };
+    colorMode: design.colorMode, colorTarget: design.colorTarget, font: design.font };
 }
 export function normalizePanel(input: unknown): PanelDesign {
   const v = input && typeof input === 'object' ? input as Partial<PanelDesign> : {};
   const template = TEMPLATES.some(t => t.id === v.template) ? v.template! : 'compact';
   const base = createPanel(template);
   const ids = new Set<string>();
-  const cards = (Array.isArray(v.cards) ? v.cards : []).slice(0, 96).filter(c => c && typeof c === 'object').map(c => {
+  // 枠の番号が無い前の版のデータは、並び順どおりの枠に入る（見た目は前と同じ）。
+  const cards = normalizeSlots((Array.isArray(v.cards) ? v.cards : []).slice(0, 96).filter(c => c && typeof c === 'object').map(c => {
     let id = str(c.id, 100) || panelId(); if (ids.has(id)) id = panelId(); ids.add(id);
     const tone = TONES.some(t => t.id === c.tone) ? c.tone : toneForCategory(str(c.category, 80));
+    const fontScale = c.fontScale == null ? 100 : clamp(c.fontScale, FONT_SCALE_MIN, FONT_SCALE_MAX, 100);
     return { id, giftId: str(c.giftId, 100), giftName: str(c.giftName, 100, 'ギフト'),
       image: typeof c.image === 'string' && /^https?:\/\//i.test(c.image) ? c.image.slice(0, 4096) : null,
-      title: str(c.title, 120), repeat: clamp(c.repeat, 1, 9999, 1), category: str(c.category, 80), tone,
+      title: str(c.title, 120), repeat: clamp(c.repeat, 1, 9999, 1), category: str(c.category, 80), tone, slot: c.slot,
       ...(c.color ? { color: color(c.color, base.accent) } : {}),
       ...(c.textColor ? { textColor: color(c.textColor, '#FFFFFF') } : {}),
+      ...(fontScale !== 100 ? { fontScale } : {}),
+      ...(c.outlineColor ? { outlineColor: color(c.outlineColor, '#FFFFFF') } : {}),
     };
-  });
+  }));
   return { ...base, id: str(v.id, 100) || base.id, name: str(v.name, 60, base.name), cards,
     columns: template === 'neon' && v.columns === 4 && v.rows === 2 ? 6 : clamp(v.columns, 1, 12, base.columns), rows: clamp(v.rows, 1, 8, base.rows),
     width: clamp(v.width, 360, 3840, base.width), height: template === 'neon' && v.columns === 4 && v.rows === 2 && v.height === 560 ? 420 : clamp(v.height, 120, 2160, base.height),
@@ -86,6 +109,11 @@ export function normalizePanel(input: unknown): PanelDesign {
     accent: color(v.accent, base.accent), background: template === 'compact' && ['#000000', '#141414'].includes(String(v.background).toLowerCase()) ? base.background : color(v.background, base.background),
     palette: Object.fromEntries(TONES.map(t => [t.id, color(v.palette?.[t.id], t.color)])) as Record<PanelTone, string>,
     showRepeat: v.showRepeat !== false, outerFrame: v.outerFrame !== false,
+    // 文字の設定が無い前の版のデータは、標準の文字の形・自動の文字色・自動の縁取り（いままでの見た目）になる。
+    font: PANEL_FONTS.some(f => f.id === v.font) ? v.font! : DEFAULT_PANEL_FONT,
+    ...(v.textColor ? { textColor: color(v.textColor, '#FFFFFF') } : {}),
+    outline: v.outline === 'none' || v.outline === 'color' ? v.outline : 'auto',
+    outlineColor: color(v.outlineColor, base.outlineColor), outlineWidth: clamp(v.outlineWidth, 2, 40, OUTLINE_WIDTH),
   };
 }
 export function readPanelLibrary(raw: string | null): PanelLibrary {
@@ -103,7 +131,20 @@ export function cardColors(design: PanelDesign, card: PanelCard) {
   const background = design.colorTarget === 'background' ? accent : design.background;
   const rgb = background.slice(1).match(/../g)!.map(v => parseInt(v, 16) / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4);
   const luminance = rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722;
-  return { accent, background, text: card.textColor || (luminance > .179 ? '#101522' : '#FFFFFF') };
+  return { accent, background, text: card.textColor || design.textColor || (luminance > .179 ? '#101522' : '#FFFFFF') };
+}
+/** カードの文字の大きさ（枠に収まらなければ描くときにさらに小さくなる）。 */
+export function cardFontSize(design: PanelDesign, card: PanelCard): number {
+  return card.fontScale ? design.fontSize * card.fontScale / 100 : design.fontSize;
+}
+export type TextOutline = { color: string; width: number } | null;
+/** 文字の縁取り。カードの指定 → 全体の指定の順。自動はいままでどおり、白い効果名（#FFFFFF）と見出しだけ暗く縁取る（ギフト名は縁取らない）。 */
+export function textOutline(design: PanelDesign, kind: 'label' | 'name' | 'headline', fill: string, card?: PanelCard): TextOutline {
+  const width = design.outlineWidth;
+  if (card?.outlineColor) return { color: card.outlineColor, width };
+  if (design.outline === 'none') return null;
+  if (design.outline === 'color') return { color: design.outlineColor, width };
+  return kind === 'headline' || (kind === 'label' && fill === '#FFFFFF') ? { color: AUTO_OUTLINE_COLOR, width } : null;
 }
 export function panelLayout(design: PanelDesign) {
   const titleLines = design.headline.trim() ? design.headline.split('\n').slice(0, 3) : [];
@@ -113,8 +154,10 @@ export function panelLayout(design: PanelDesign) {
   const gap = Math.min(design.gap, (design.width - padding * 2) / (design.columns * 3), (design.height - padding * 2) / (design.rows * 3));
   const cardWidth = (design.width - padding * 2 - gap * (design.columns - 1)) / design.columns;
   const cardHeight = (design.height - padding * 2 - gap * (design.rows - 1)) / design.rows;
+  // 入らないカードは、枠の番号が列 × 段より後ろのもの（空いた枠があってよい。2026-11-05）。
+  const slots = design.columns * design.rows;
   return { width: design.width, height: design.height + headingHeight, headingHeight, titleLines, padding, gap, cardWidth, cardHeight,
-    slots: design.columns * design.rows, overflow: Math.max(0, design.cards.length - design.columns * design.rows) };
+    slots, overflow: design.cards.filter((c, i) => slotOf(c, i) >= slots).length };
 }
 export function panelFilename(design: PanelDesign) {
   const name = design.name.trim().replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').replace(/[. ]+$/, '').slice(0, 60) || 'ギフト案内';
