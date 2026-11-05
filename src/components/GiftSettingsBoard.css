@@ -774,6 +774,12 @@
   background: rgba(39, 216, 255, 0.1);
 }
 
+/* キーボードで選んでいるマスを枠で見せる（背景の色だけでは分かりにくかった。2026-11-05 レビュー）。 */
+.gift-steps .gift-board-cell.is-filled:focus-visible {
+  outline: 2px solid #7fe9ff;
+  outline-offset: -2px;
+}
+
 /* 編集中のギフト（真ん中の列に出ているもの）。 */
 .gift-steps .gift-board-cell.is-editing {
   background: rgba(10, 82, 122, 0.5);

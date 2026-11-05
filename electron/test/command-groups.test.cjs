@@ -74,8 +74,10 @@ test('検索で絞る：名前・タイトル・説明で、大文字小文字�
 
 // ギフト設定の選ぶ欄は、前から項目が太字（.gift-command-stage select の 800）。見出しを付けても項目の太さは前のまま（PR #174 レビュー 軽い5）。
 // 「現在の設定」も、ほかの見出しと同じ黄色の見出しにする（軽い6）。
+// 2026-11-05 にギフト設定を3列に作り直したので、見るのは新しい真ん中の列の選ぶ欄（GiftSettingsBoard.css の .gift-edit-command）。
 test('ギフト設定：項目は前と同じ太字のまま、「現在の設定」も黄色の見出し', () => {
-  const css = fs.readFileSync(path.resolve(__dirname, '../../src/index.css'), 'utf8');
-  assert.match(css, /\.gift-command-stage select optgroup\.command-optgroup option \{[^}]*font-weight: 800;/);
+  const css = fs.readFileSync(path.resolve(__dirname, '../../src/components/GiftSettingsBoard.css'), 'utf8');
+  assert.match(css, /\.gift-steps \.gift-edit-command optgroup\.command-optgroup option \{[^}]*font-weight: 800;/);
+  assert.match(source('components/MappingEditor.tsx'), /className="gift-edit-command"/, '真ん中の列の選ぶ欄にこの決まりが届く');
   assert.match(source('components/MappingEditor.tsx'), /<optgroup label="現在の設定" className="command-optgroup">/);
 });

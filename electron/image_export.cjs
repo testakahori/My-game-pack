@@ -27,6 +27,8 @@ async function saveGiftPanelPng(dialog, input) {
 }
 
 const MAX_PAGES = 50;
+// 全ページを合わせた大きさの上限（1枚 1080 × 1920 はふつう数 MB。フォルダーを選ばせる前に全部を持つので抑える。2026-11-05 レビュー）。
+const MAX_TOTAL_BYTES = 200 * 1024 * 1024;
 
 async function exists(file) {
   try { await fs.access(file); return true; } catch { return false; }
@@ -36,6 +38,9 @@ async function exists(file) {
 async function writePng(folder, name, buffer, overwrite) {
   if (overwrite) {
     const target = path.join(folder, name);
+    // 同じ名前がリンク（シンボリックリンク・ジャンクション）なら、リンクの先に書かない（2026-11-05 レビュー）。
+    const info = await fs.lstat(target).catch(() => null);
+    if (info?.isSymbolicLink()) throw new Error(`「${name}」はリンクなので上書きしません。別の名前で保存してください。`);
     await fs.writeFile(target, buffer);
     return target;
   }
@@ -55,6 +60,7 @@ async function saveGiftPanelPngs(dialog, input) {
   if (!files.length) throw new Error('保存するPNG画像がありません。');
   if (files.length > MAX_PAGES) throw new Error(`PNG画像が多すぎます（${MAX_PAGES}枚まで）。`);
   const pages = files.map((file, index) => ({ buffer: pngBuffer(file?.dataUrl), name: safePngName(file?.filename, `gift_list_${index + 1}.png`) }));
+  if (pages.reduce((sum, page) => sum + page.buffer.length, 0) > MAX_TOTAL_BYTES) throw new Error('PNG画像が大きすぎます。');
   const names = pages.map(page => page.name.toLowerCase());
   if (new Set(names).size !== names.length) throw new Error('同じ名前のPNG画像が重なっています。');
   const picked = await dialog.showOpenDialog({ title: 'ギフト一覧の画像を保存するフォルダーを選ぶ', buttonLabel: 'このフォルダーに保存', properties: ['openDirectory', 'createDirectory'] });
@@ -74,7 +80,12 @@ async function saveGiftPanelPngs(dialog, input) {
     overwrite = answer.response === 0;
   }
   const paths = [];
-  for (const page of pages) paths.push(await writePng(folder, page.name, page.buffer, overwrite));
+  try {
+    for (const page of pages) paths.push(await writePng(folder, page.name, page.buffer, overwrite));
+  } catch (error) {
+    // 途中で書けなくなったら（空き容量・権限）、何枚目まで書けたかを伝える（2026-11-05 レビュー）。
+    throw new Error(`${pages.length}枚のうち${paths.length}枚を保存したところで止まりました: ${error?.message || String(error)}`);
+  }
   return { canceled: false, folder, paths };
 }
 

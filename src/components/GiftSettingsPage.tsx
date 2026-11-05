@@ -149,6 +149,8 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void; gameName?: st
   const commitMappings = useCallback((change: (previous: GiftMapping[]) => GiftMapping[]) => {
     const task = saveQueue.current.catch(() => {}).then(async () => {
       const next = change(mappingsRef.current);
+      // 変わらなければ保存しない（順番を待つあいだに前の保存で同じ並びになった並べ替えなど。2026-11-05 レビュー）。
+      if (next === mappingsRef.current) return;
       try {
         await persistMappingsToConfig(next);
         mappingsRef.current = next;
@@ -177,7 +179,7 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void; gameName?: st
   // 並び順は設定の mappings の順として保存する（アプリを閉じても残る。2026-11-05 ユーザーの決定）。
   const moveMapping = useCallback((fromId: string, toId: string | null) => {
     if (dropOnBoard(mappingsRef.current, fromId, toId) === mappingsRef.current) return;
-    void commitMappings(p => [...dropOnBoard(p, fromId, toId)]).catch(() => {});
+    void commitMappings(p => { const next = dropOnBoard(p, fromId, toId); return next === p ? p : [...next]; }).catch(() => {});
   }, [commitMappings]);
 
   const handlePickGift = useCallback((gid: string, gname: string, image?: string | null, diamonds?: number) => {

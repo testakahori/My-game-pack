@@ -115,8 +115,10 @@ export function fitBoardText(text: string, width: number, height: number, prefer
     for (const letter of text) {
       if (current && measure(current + letter, size) > width) {
         // 行の頭が「！」などになるときは、前の行の最後の1文字も次の行へ送る。
-        const carry = NO_LINE_START.includes(letter) && current.length > 1 ? current.slice(-1) : "";
-        lines.push(carry ? current.slice(0, -1) : current);
+        // 1文字ずつに分けてから送る（絵文字を2つに割らないように。2026-11-05 レビュー）。
+        const letters = [...current];
+        const carry = NO_LINE_START.includes(letter) && letters.length > 1 ? letters[letters.length - 1] : "";
+        lines.push(carry ? letters.slice(0, -1).join("") : current);
         current = carry;
       }
       current += letter;
@@ -138,6 +140,14 @@ export function fitBoardText(text: string, width: number, height: number, prefer
     }
   }
   return wrapped ?? { size: min, lines: wrap(min) };
+}
+
+/**
+ * PNG に描くマス。無効の割り当て（設定ファイルで enabled: false）は載せず、そのページの中で詰める
+ * （2026-11-05 ユーザーの決定。動かないギフトを視聴者に見せない。配信画像の 10-23 の決定と同じ）。画面の一覧には印付きで残す。
+ */
+export function boardPngItems<T extends { disabled: boolean }>(pageItems: readonly T[]): T[] {
+  return pageItems.filter(item => !item.disabled);
 }
 
 /** ページの中の index 番目（0〜53）のマスの位置。 */

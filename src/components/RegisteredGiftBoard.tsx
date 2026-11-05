@@ -8,7 +8,7 @@ import type { GiftMapping } from "../types";
 // アイコンは data URL で読む（file:// の画像を canvas に描くと、PNG に書き出せなくなることがあるため）。
 import appIcon from "../../assets/app-icon.png?inline";
 import DisabledMappingMark from "./DisabledMappingMark";
-import { boardFilename, boardItems, boardLayout, boardPageCount, boardPageItems, boardPageOf, boardTitle, clampBoardPage, fitBoardText, BOARD_CELL_TEXT, BOARD_CELLS, BOARD_FONT, type BoardCommand, type BoardItem, type CatalogGift } from "../lib/giftBoard";
+import { boardFilename, boardItems, boardLayout, boardPageCount, boardPageItems, boardPageOf, boardPngItems, boardTitle, clampBoardPage, fitBoardText, BOARD_CELL_TEXT, BOARD_CELLS, BOARD_FONT, type BoardCommand, type BoardItem, type CatalogGift } from "../lib/giftBoard";
 import { drawGiftBoard } from "../lib/giftBoardCanvas";
 import { createGiftImageCache, loadImage } from "../lib/giftImageCache";
 import { ipcErrorMessage } from "../lib/ipcError";
@@ -57,10 +57,14 @@ export default function RegisteredGiftBoard({ mappings, gifts, commandFiles, gam
   const cqw = (px: number) => `${(px / layout.width * 100).toFixed(3)}cqw`;
   const textWidth = layout.cellWidth - BOARD_CELL_TEXT.inset;
 
-  // 選んだギフト（と、登録して増えたギフト）のあるページを開く。並べ替えだけでは開き直さない。
+  // 選んだギフト（と、登録して増えたギフト）のあるページを開く。並べ替えと ✖ で消したときは開き直さない
+  // （前は ✖ のたびに編集中のギフトのページへ戻り、2ページ目でいくつも消すのに毎回 ▶ を押し直した。2026-11-05 レビュー）。
   const selectedIndex = items.findIndex(item => item.giftId === selectedGiftId);
+  const shown = useRef<{ selected?: string; count: number }>({ count: 0 });
   useEffect(() => {
-    if (selectedIndex >= 0) setPage(boardPageOf(selectedIndex));
+    const before = shown.current;
+    shown.current = { selected: selectedGiftId, count: items.length };
+    if (selectedIndex >= 0 && (before.selected !== selectedGiftId || items.length > before.count)) setPage(boardPageOf(selectedIndex));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedGiftId, items.length]);
 
@@ -98,11 +102,14 @@ export default function RegisteredGiftBoard({ mappings, gifts, commandFiles, gam
   }));
   const [, setImageTick] = useState(0);
   useEffect(() => cache.subscribe(() => setImageTick(value => value + 1)), [cache]);
-  const allUrls = useMemo(() => [...new Set(items.map(item => item.image).filter((url): url is string => Boolean(url)))], [items]);
+  // PNG に描くのは無効の割り当てを除いたマス（boardPngItems）。絵を取りに行くのもそれだけ。
+  const pngPages = useMemo(() => pages.map(boardPngItems), [pages]);
+  const allUrls = useMemo(() => [...new Set(pngPages.flat().map(item => item.image).filter((url): url is string => Boolean(url)))], [pngPages]);
   useEffect(() => { cache.request(allUrls); }, [cache, allUrls]);
   const all = cache.summary(allUrls);
-  const pageItems = pages[current - 1] ?? [];
-  const thisPage = cache.summary(pageItems.map(item => item.image));
+  const pngPageItems = pngPages[current - 1] ?? [];
+  const thisPage = cache.summary(pngPageItems.map(item => item.image));
+  const disabledCount = items.length - pngPages.reduce((sum, list) => sum + list.length, 0);
   const [icon, setIcon] = useState<HTMLImageElement | null>(null);
   useEffect(() => { let alive = true; loadImage(appIcon).then(image => { if (alive) setIcon(image); }, () => {}); return () => { alive = false; }; }, []);
 
@@ -110,27 +117,30 @@ export default function RegisteredGiftBoard({ mappings, gifts, commandFiles, gam
   const [notice, setNotice] = useState<Notice | null>(null);
   const renderPage = (number: number) => {
     const canvas = document.createElement("canvas");
-    drawGiftBoard(canvas, { title, page: number, pageCount, items: pages[number - 1] ?? [], icon }, all.images);
+    drawGiftBoard(canvas, { title, page: number, pageCount, items: pngPages[number - 1] ?? [], icon }, all.images);
     return canvas.toDataURL("image/png");
   };
+  // 絵が取れなかったギフト（ネットの不調・リンク切れ）は、絵の場所にギフトの名前を描いて保存する（2026-11-05 ユーザーの決定）。前は1枚でも取れないと保存できなかった。
+  const missingText = (count: number) => count ? ` ${count}枚は絵が取れず、名前で描きました（「画像を再読み込み」で取り直せます）。` : "";
   const savePage = async () => {
-    if (saving || !pageItems.length || thisPage.pending || thisPage.failed.length) return;
+    if (saving || !pngPageItems.length || thisPage.pending) return;
     setSaving(true); setNotice(null);
     try {
       await document.fonts.ready;
       const result = await window.mygamepack.giftPanelSavePng(renderPage(current), boardFilename(gameName, current));
-      setNotice(result.canceled ? { type: "ok", text: "保存をやめました。" } : { type: "ok", text: `${current}ページ目をPNGに保存しました。${result.path ? " " + result.path : ""}` });
+      setNotice(result.canceled ? { type: "ok", text: "保存をやめました。" } : { type: "ok", text: `${current}ページ目をPNGに保存しました。${result.path ? " " + result.path : ""}${missingText(thisPage.failed.length)}` });
     } catch (error) { setNotice({ type: "error", text: "PNGを保存できませんでした: " + ipcErrorMessage(error) }); }
     finally { setSaving(false); }
   };
   const saveAll = async () => {
-    if (saving || !items.length || all.pending || all.failed.length) return;
+    if (saving || !pngPages.some(list => list.length) || all.pending) return;
     setSaving(true); setNotice(null);
     try {
       await document.fonts.ready;
-      const files = pages.map((_, i) => ({ dataUrl: renderPage(i + 1), filename: boardFilename(gameName, i + 1) }));
+      // 無効の割り当てだけのページ（描くマスが無い）は保存しない。ページの番号は画面と同じ。
+      const files = pngPages.flatMap((list, i) => list.length ? [{ dataUrl: renderPage(i + 1), filename: boardFilename(gameName, i + 1) }] : []);
       const result = await window.mygamepack.giftPanelSavePngs(files);
-      setNotice(result.canceled === false ? { type: "ok", text: `${result.paths.length}枚のPNGを保存しました。${result.folder}` } : { type: "ok", text: "保存をやめました。" });
+      setNotice(result.canceled === false ? { type: "ok", text: `${result.paths.length}枚のPNGを保存しました。${result.folder}${missingText(all.failed.length)}` } : { type: "ok", text: "保存をやめました。" });
     } catch (error) { setNotice({ type: "error", text: "PNGを保存できませんでした: " + ipcErrorMessage(error) }); }
     finally { setSaving(false); }
   };
@@ -154,7 +164,8 @@ export default function RegisteredGiftBoard({ mappings, gifts, commandFiles, gam
         aria-pressed={editing}
         onClick={pick}
         onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); pick(); } }}
-        onDragStart={event => { dragId.current = item.id; setDragging(item.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", item.id); }}
+        // 渡す種類はこの一覧だけのもの（text/plain だと、検索の欄に落としたときに ID が入った。2026-11-05 レビュー）。
+        onDragStart={event => { dragId.current = item.id; setDragging(item.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("application/x-mygamepack-gift-board", item.id); }}
         onDragEnd={endDrag}
         onDragOver={dragOver(key)} onDragLeave={() => setDropTarget(value => value === key ? null : value)} onDrop={dropOn(item.id)}
       >
@@ -177,7 +188,7 @@ export default function RegisteredGiftBoard({ mappings, gifts, commandFiles, gam
           <p>一覧を画像として保存（PNG・1080 × 1920）</p>
         </div>
         <button type="button" className="gift-board-save" onClick={() => void savePage()}
-          disabled={saving || !pageItems.length || thisPage.pending > 0 || thisPage.failed.length > 0}>
+          disabled={saving || !pngPageItems.length || thisPage.pending > 0}>
           <i className="fa-solid fa-download" aria-hidden="true" />{saving ? "保存中…" : "このページを保存"}
         </button>
       </header>
@@ -207,12 +218,13 @@ export default function RegisteredGiftBoard({ mappings, gifts, commandFiles, gam
 
       <div className="gift-board-status" role="status">
         {loadingCount > 0 && <span>PNG用のギフト画像を読み込み中… 残り{loadingCount}枚</span>}
-        {failedCount > 0 && <span className="is-error">{failedCount}枚の画像を読み込めませんでした。<button type="button" onClick={() => cache.retryFailed(allUrls)}>画像を再読み込み</button></span>}
+        {failedCount > 0 && <span className="is-error">{failedCount}枚の画像を読み込めませんでした（保存すると、絵の代わりに名前を描きます）。<button type="button" onClick={() => cache.retryFailed(allUrls)}>画像を再読み込み</button></span>}
+        {disabledCount > 0 && <span>設定ファイルで無効にしたギフト（{disabledCount}件）は、PNGには載せません。</span>}
         {notice && <span className={notice.type === "error" ? "is-error" : "is-ok"}>{notice.text}</span>}
       </div>
 
       <button type="button" className="gift-board-save-all" onClick={() => void saveAll()}
-        disabled={saving || !items.length || loadingCount > 0 || failedCount > 0}>
+        disabled={saving || !pngPages.some(list => list.length) || loadingCount > 0}>
         <i className="fa-solid fa-images" aria-hidden="true" />全{items.length}件（{pageCount}ページ）をPNGに保存
       </button>
       <small className="gift-board-note">フォルダーを選ぶと「{boardFilename(gameName, 1)}」「…_2.png」のようにページごとに保存します。マスはドラッグで並べ替え、マウスを載せると出る ✖ で消せます。</small>

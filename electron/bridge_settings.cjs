@@ -42,6 +42,17 @@ function createBridgeSettings({
     try { return JSON.parse(fs.readFileSync(getConfigPath(), "utf8")); } catch { return null; }
   }
 
+  // ギフトの割り当ての並び順だけが変わったか（ギフト設定の一覧のドラッグ。2026-11-05）。
+  // 自動のバックアップは新しい方から30個だけ残るので、並べ替えのたびに作ると、それより前の戻し先が押し出されて消えた（2026-11-05 レビュー 重要1）。
+  function onlyMappingOrderChanged(savedJson, next) {
+    let saved;
+    try { saved = JSON.parse(savedJson); } catch { return false; }
+    if (!Array.isArray(saved?.mappings) || !Array.isArray(next?.mappings) || saved.mappings.length !== next.mappings.length) return false;
+    const rows = list => list.map(row => JSON.stringify(row)).sort();
+    if (JSON.stringify(rows(saved.mappings)) !== JSON.stringify(rows(next.mappings))) return false;
+    return JSON.stringify({ ...saved, mappings: null }) === JSON.stringify({ ...next, mappings: null });
+  }
+
   function writeBridgeConfig(nextConfig, { alsoKnown = [] } = {}) {
     assertGameProfileIdle();
     assertGameCommands(nextConfig, selectableCommandNames(), gameProfiles.list());
@@ -61,7 +72,8 @@ function createBridgeSettings({
     const json = JSON.stringify(merged, null, 2);
     if (json.length > 2_000_000) throw new Error("Config too large.");
 
-    if (fs.readFileSync(configPath, "utf8") !== json) settingsBackups.create("automatic");
+    const savedJson = fs.readFileSync(configPath, "utf8");
+    if (savedJson !== json && !onlyMappingOrderChanged(savedJson, merged)) settingsBackups.create("automatic");
     // 書く前の中身を前の正しい状態の写しにする（壊れていれば壊れたファイルとして残す。設定ファイルの PR3）。
     writeWithLastGood(configPath, json, { now });
     return { ok: true };

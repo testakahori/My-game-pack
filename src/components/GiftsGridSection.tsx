@@ -220,7 +220,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
                 >
                   {/* 設定済みは右上に緑の ✓（無効の割り当ては「無効」の印）。 */}
                   {isDisabled ? <span className="gift-pick-badge"><DisabledMappingMark compact /></span>
-                    : isSet ? <span className="gift-pick-badge gift-pick-check" aria-label="設定済み">✓</span> : null}
+                    : isSet ? <span className="gift-pick-badge gift-pick-check" role="img" aria-label="設定済み">✓</span> : null}
                   <span className="gift-pick-art">
                     {g.image ? <img src={g.image} alt="" loading="lazy" decoding="async" /> : null}
                   </span>

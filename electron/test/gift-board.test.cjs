@@ -218,6 +218,28 @@ test('PNG に描くもの: 見出し・アイコン・マスだけ。✖・無�
   assert.match(canvas, /fitBoardText\(/);
   assert.match(component, /giftPanelSavePngs\(files\)/, '全ページはフォルダーを1回選んで保存');
   assert.match(component, /giftPanelSavePng\(renderPage\(current\), boardFilename\(gameName, current\)\)/);
-  // 並び順は設定の mappings の順として保存する（GiftSettingsPage の commitMappings）。
-  assert.match(read('src/components/GiftSettingsPage.tsx'), /commitMappings\(p => \[\.\.\.dropOnBoard\(p, fromId, toId\)\]\)/);
+  // 並び順は設定の mappings の順として保存する（GiftSettingsPage の commitMappings）。変わらなければ保存しない（2026-11-05 レビュー）。
+  const page = read('src/components/GiftSettingsPage.tsx');
+  assert.match(page, /commitMappings\(p => \{ const next = dropOnBoard\(p, fromId, toId\); return next === p \? p : \[\.\.\.next\]; \}\)/);
+  assert.match(page, /if \(next === mappingsRef\.current\) return;/);
+  // PNG には無効の割り当てを載せない。絵が取れなかったギフトがあっても保存できる（名前で描く。2026-11-05 ユーザーの決定）。
+  assert.match(component, /pages\.map\(boardPngItems\)/);
+  assert.match(component, /items: pngPages\[number - 1\]/);
+  assert.doesNotMatch(component, /failed\.length > 0\}|failedCount > 0\}>/, '絵が取れなくても保存のボタンを止めない');
+  assert.doesNotMatch(component, /setData\("text\/plain"/, '検索の欄に落としても ID が入らない');
+});
+
+test('PNG に載せるマス: 無効の割り当ては載せず、そのページの中で詰める', () => {
+  const items = [{ id: 'a', disabled: false }, { id: 'b', disabled: true }, { id: 'c', disabled: false }];
+  assert.deepEqual(board.boardPngItems(items).map(item => item.id), ['a', 'c']);
+  assert.deepEqual(board.boardPngItems([]), []);
+});
+
+test('文字の収め方: 折り返しで絵文字を2つに割らない（2026-11-05 レビュー）', () => {
+  const measure = (text, size) => [...text].length * size;
+  // 幅 120 は 20px で6文字。「！」の前の🌹を次の行へ送るときに、前は🌹を半分に割った。
+  const fit = board.fitBoardText('あいうえお🌹！', 120, 46, 32, measure, 20);
+  assert.deepEqual(fit.lines, ['あいうえお', '🌹！']);
+  assert.ok(fit.lines.every(line => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(line)), JSON.stringify(fit.lines));
+  assert.equal(fit.lines.join(''), 'あいうえお🌹！');
 });
