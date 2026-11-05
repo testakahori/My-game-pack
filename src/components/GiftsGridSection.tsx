@@ -1,9 +1,11 @@
 // src/components/GiftsGridSection.tsx
+// ギフト設定の左の列「① ギフトを選ぶ」（2026-11-05 ユーザーの決定で3列に組み直した）。クリックで選ぶと、真ん中の列の上に出る。
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { GiftMapping } from "../types";
 import { isDisabledMapping } from "../lib/giftMappingRows";
 import { normalizeTikTokId } from "../lib/tiktokId";
 import { ipcErrorMessage } from "../lib/ipcError";
+import type { CatalogGift } from "../lib/giftBoard";
 import DisabledMappingMark from "./DisabledMappingMark";
 
 type Gift = { id: number; name: string; diamond_count: number; image?: string | null };
@@ -20,9 +22,11 @@ type Props = {
   selectedGiftId?: string;
   mappings: GiftMapping[];
   onPickGift: (giftId: string, giftName: string, image?: string | null, diamonds?: number) => void;
+  // 読んだギフトの一覧を渡す（右の列のマスにギフトの画像を出すため）。
+  onGiftsLoaded?: (gifts: CatalogGift[]) => void;
 };
 
-const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGift }) => {
+const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGift, onGiftsLoaded }) => {
   const [loading, setLoading]           = useState(false);
   const [err, setErr]                   = useState<string | null>(null);
   const [gifts, setGifts]               = useState<Gift[]>([]);
@@ -60,6 +64,7 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
 
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => getApi()?.onGiftsUpdated?.(() => { void reload(); }), [reload]);
+  useEffect(() => { onGiftsLoaded?.(gifts); }, [gifts, onGiftsLoaded]);
 
   const onUpdate = async () => {
     setLoading(true);
@@ -134,116 +139,69 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
   const visibleGifts = filtered.slice(pageStart, pageStart + GIFTS_PER_PAGE);
 
   return (
-    <div className="gift-catalog-panel relative bg-gray-800 border border-gray-700 rounded-3xl shadow-xl overflow-hidden">
+    <section className="gift-step gift-pick" aria-labelledby="gift-pick-title">
+      <header className="gift-step-heading">
+        <h2 id="gift-pick-title"><span>1</span>ギフトを選ぶ</h2>
+        <button type="button" className="gift-step-tool" onClick={onUpdate} disabled={loading}
+          title={meta ? `${new Date(meta.generatedAt).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} に更新` : undefined}>
+          {loading ? "更新中…" : "↻ 更新"}
+        </button>
+      </header>
 
-      {/* ── ヘッダー ── */}
-      <div className="gift-catalog-head px-5 pt-5 pb-4 space-y-3">
-        {/* タイトル行 */}
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <div className="text-base font-black text-white">❶ ギフトを選ぶ</div>
-            <div className="text-[11px] text-gray-500 mt-0.5">クリックで選択 → 下の編集パネルに反映</div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {meta && (
-              <span className="text-[10px] text-gray-600 hidden sm:block">
-                {new Date(meta.generatedAt).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 更新
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={onUpdate}
-              disabled={loading}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
-                loading ? "bg-gray-700 text-gray-500 cursor-not-allowed" : "bg-cyan-700 hover:bg-cyan-600 text-white"
-              }`}
-            >
-              {loading ? "更新中…" : "🔄 更新"}
-            </button>
-          </div>
-        </div>
+      <label className="gift-pick-search">
+        <i className="fa-solid fa-magnifying-glass" aria-hidden="true" />
+        <input
+          aria-label="ギフト名で検索"
+          value={q}
+          onChange={(e) => { setQ(e.target.value); setPage(1); }}
+          placeholder="ギフト名で検索"
+        />
+      </label>
 
-        {/* フィルタータブ + 検索 + ソート */}
-        <div className="gift-catalog-toolbar flex items-center gap-3 flex-wrap">
-          {/* フィルタータブ（主役） */}
-          <div className="flex items-center bg-gray-900/60 rounded-xl p-1 gap-1">
-            {([
-              { key: "all",   label: "すべて",   count: uniqueGifts.length },
-              { key: "set",   label: "設定済み", count: setCount },
-              { key: "unset", label: "未設定",   count: unsetCount },
-            ] as { key: StatusFilter; label: string; count: number }[]).map(({ key, label, count }) => {
-              const isActive = statusFilter === key;
-              const activeColor =
-                key === "set"   ? "bg-emerald-700 text-white shadow-sm" :
-                key === "unset" ? "bg-red-800 text-white shadow-sm" :
-                                  "bg-cyan-700 text-white shadow-sm";
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => { setStatusFilter(key); setPage(1); }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                    isActive ? activeColor : "text-gray-400 hover:text-gray-200"
-                  }`}
-                >
-                  {label}
-                  <span className={`ml-1.5 text-[10px] font-black ${
-                    isActive ? "opacity-80" : "text-gray-600"
-                  }`}>
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* 検索 */}
-          <div className="relative flex-1 min-w-[140px] max-w-[200px]">
-            <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-[10px]" />
-            <input
-              value={q}
-              onChange={(e) => { setQ(e.target.value); setPage(1); }}
-              placeholder="検索"
-              className="w-full bg-gray-900 border border-gray-700 rounded-xl pl-7 pr-3 py-2 text-xs text-gray-100 outline-none focus:ring-2 focus:ring-cyan-500/50"
-            />
-          </div>
-
-          {/* ソート */}
-          <select
-            value={sort}
-            onChange={(e) => { setSort(e.target.value as typeof sort); setPage(1); }}
-            className="bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-xs text-gray-100 outline-none focus:ring-2 focus:ring-cyan-500/30"
+      <div className="gift-pick-filters" role="group" aria-label="設定の状態で絞る">
+        {([
+          { key: "all",   label: "すべて",   count: uniqueGifts.length },
+          { key: "set",   label: "設定済み", count: setCount },
+          { key: "unset", label: "未設定",   count: unsetCount },
+        ] as { key: StatusFilter; label: string; count: number }[]).map(({ key, label, count }) => (
+          <button
+            key={key}
+            type="button"
+            aria-pressed={statusFilter === key}
+            className={statusFilter === key ? "is-active" : ""}
+            onClick={() => { setStatusFilter(key); setPage(1); }}
           >
-            <option value="costAsc">💎 低→高</option>
-            <option value="costDesc">💎 高→低</option>
-            <option value="nameAsc">名前 A→Z</option>
-          </select>
-
-          <div className="text-[10px] text-gray-600">
-            {filtered.length ? pageStart + 1 : 0}–{pageStart + visibleGifts.length} / {filtered.length} 件表示
-          </div>
-        </div>
+            {label}<em>{count}</em>
+          </button>
+        ))}
       </div>
 
-      {/* エラー */}
-      {err && (
-        <div className="mx-5 mb-3 px-3 py-2 bg-red-900/40 border border-red-700/40 rounded-xl text-[10px] text-red-300 break-all">
-          ❌ {err}
-        </div>
-      )}
+      <label className="gift-pick-sort">
+        <span aria-hidden="true">⇅</span>
+        <select
+          aria-label="並べ方"
+          value={sort}
+          onChange={(e) => { setSort(e.target.value as typeof sort); setPage(1); }}
+        >
+          <option value="costAsc">価格の安い順</option>
+          <option value="costDesc">価格の高い順</option>
+          <option value="nameAsc">名前順</option>
+        </select>
+      </label>
 
-      {/* ── ギフトグリッド ── */}
-      <div className="gift-grid-scroll px-5 pb-5 overflow-y-auto">
+      {err && <p className="gift-pick-error" role="alert">❌ {err}</p>}
+
+      <div className="gift-pick-scroll">
         {filtered.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-gray-500 text-xs text-center">
+          <div className="gift-pick-empty">
             {loading
               ? "読み込み中…"
               : uniqueGifts.length === 0
-              ? "「🔄 更新」ボタンでギフト一覧を取得してください"
+              ? "「↻ 更新」ボタンでギフト一覧を取得してください"
               : "該当するギフトがありません"}
           </div>
         ) : (
-          <div className="grid grid-cols-10 gap-2">
+          <div className="gift-pick-grid">
             {visibleGifts.map((g) => {
               const id = String(g.id);
               const isSelected = id === selectedGiftId;
@@ -256,69 +214,34 @@ const GiftsGridSection: React.FC<Props> = ({ selectedGiftId, mappings, onPickGif
                   key={g.id}
                   type="button"
                   onClick={() => handleGiftClick(g)}
-                  title={`${g.name} (💎${g.diamond_count})`}
-                  className={`gift-tile relative flex flex-col items-center gap-1 p-2 rounded-xl transition-all border group ${
-                    isSelected
-                      ? "bg-cyan-900/70 border-cyan-400 ring-2 ring-cyan-400/40 shadow-lg shadow-cyan-900/50 scale-105"
-                      : isSet
-                      ? "bg-emerald-950/20 border-emerald-800/40 hover:border-emerald-600/60 hover:scale-105 hover:bg-emerald-950/40"
-                      : "bg-red-950/10 border-red-900/30 hover:border-red-700/50 hover:scale-105 hover:bg-red-950/20"
-                  }`}
+                  title={`${g.name} (💎${g.diamond_count})${isSet ? "・設定済み" : ""}`}
+                  aria-pressed={isSelected}
+                  className={`gift-pick-tile${isSelected ? " is-selected" : ""}${isSet ? " is-set" : ""}`}
                 >
-                  {/* 状態バッジ */}
-                  <div className="absolute -top-1 -right-1 z-10">
-                    {isDisabled ? <DisabledMappingMark compact /> : (
-                    <span className={`text-[7px] px-1 py-0.5 rounded-full font-black border leading-none ${
-                      isSet
-                        ? "bg-emerald-700 text-white border-emerald-600"
-                        : "bg-red-800 text-red-200 border-red-700"
-                    }`}>
-                      {isSet ? "済" : "未"}
-                    </span>
-                    )}
-                  </div>
-
-                  {/* 画像 */}
-                  <div className={`gift-tile-art w-11 h-11 rounded-lg flex items-center justify-center overflow-hidden ${
-                    isSelected ? "bg-cyan-800/40" : "bg-gray-700/60"
-                  }`}>
-                    {g.image ? <img src={g.image} alt="" loading="lazy" decoding="async" className="w-full h-full object-contain" /> : null}
-                  </div>
-
-                  {/* 名前 + コスト */}
-                  <div className="text-center w-full">
-                    <div className={`text-[9px] font-bold truncate leading-tight ${
-                      isSelected ? "text-cyan-200" : "text-gray-300"
-                    }`}>
-                      {g.name}
-                    </div>
-                    <div className={`text-[9px] leading-tight ${
-                      isSelected ? "text-cyan-400" : "text-gray-500"
-                    }`}>
-                      💎{g.diamond_count ?? 0}
-                    </div>
-                  </div>
+                  {/* 設定済みは右上に緑の ✓（無効の割り当ては「無効」の印）。 */}
+                  {isDisabled ? <span className="gift-pick-badge"><DisabledMappingMark compact /></span>
+                    : isSet ? <span className="gift-pick-badge gift-pick-check" role="img" aria-label="設定済み">✓</span> : null}
+                  <span className="gift-pick-art">
+                    {g.image ? <img src={g.image} alt="" loading="lazy" decoding="async" /> : null}
+                  </span>
+                  <b>{g.name}</b>
+                  <small>💎 {g.diamond_count ?? 0}</small>
                 </button>
               );
             })}
           </div>
         )}
         {pageCount > 1 && (
-        <nav className="gift-catalog-pagination pb-4" aria-label="ギフト選択のページ">
+        <nav className="gift-catalog-pagination gift-pick-pagination" aria-label="ギフト選択のページ">
           <button type="button" className="gift-catalog-action" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>前の60件</button>
-          <span>{currentPage} / {pageCount} ページ</span>
+          <span>{currentPage} / {pageCount}</span>
           <button type="button" className="gift-catalog-action" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>次の60件</button>
         </nav>
         )}
       </div>
 
-      {/* トースト */}
-      {toastMsg && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-gray-900 border border-gray-600 text-white px-5 py-2 rounded-full text-xs font-bold shadow-xl pointer-events-none z-20 whitespace-nowrap">
-          {toastMsg}
-        </div>
-      )}
-    </div>
+      {toastMsg && <div className="gift-pick-toast" role="status">{toastMsg}</div>}
+    </section>
   );
 };
 

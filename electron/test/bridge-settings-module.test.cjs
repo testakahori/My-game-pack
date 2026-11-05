@@ -150,6 +150,24 @@ test('BRIDGE の設定の保存: 先にゲームの切り替え中でないか�
   assert.deepEqual(x.calls, ['gameProfileIdle', 'restore:b1']);
 });
 
+// ギフト設定の一覧のドラッグで並び順だけが変わったときは、自動バックアップを作らない（2026-11-05 レビュー 重要1）。
+// 自動バックアップは新しい方から30個だけ残るので、前は並べ替えを30回すると、それより前の戻し先が全部消えた。
+test('BRIDGE の設定の保存: ギフトの割り当ての並び順だけが変わったときは、自動バックアップを作らない', async t => {
+  const x = setup(t);
+  const rose = { giftId: '5655', name: 'バラ', commandFile: 'zombie.txt', repeat: 1 };
+  const heart = { giftId: '7934', name: 'ハートミー', commandFile: 'creeper.txt', repeat: 2 };
+  await x.invoke('config:mappings:write', [rose, heart]);
+  x.calls.length = 0;
+  await x.invoke('config:mappings:write', [heart, rose]);
+  assert.deepEqual(x.calls, ['gameProfileIdle'], '並び順だけではバックアップを作らない');
+  assert.deepEqual(JSON.parse(fs.readFileSync(x.configPath, 'utf8')).mappings.map(m => m.giftId), ['7934', '5655'], '並び順は書く');
+  await x.invoke('config:mappings:write', [heart, { ...rose, repeat: 3 }]);
+  assert.deepEqual(x.calls, ['gameProfileIdle', 'gameProfileIdle', 'backup:automatic'], '中身が変われば作る');
+  x.calls.length = 0;
+  await x.invoke('config:mappings:write', [heart]);
+  assert.deepEqual(x.calls, ['gameProfileIdle', 'backup:automatic'], '消したときも作る');
+});
+
 // TXT 作成の確かめ（処理のコピー PR8）。同じ名前のファイルがあるかは、コマンドの場所の txt 全部と比べる。
 test('コマンド txt: bridge:commands:check は確かめの結果と、同じ名前のファイルがあるかを返す', async t => {
   const x = setup(t);

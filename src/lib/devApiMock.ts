@@ -241,6 +241,11 @@ if (import.meta.env.DEV && !win.mygamepack) {
       const a = document.createElement('a'); a.href = dataUrl; a.download = filename; a.click();
       return { canceled: false };
     },
+    // ブラウザーではフォルダーを選べないので、1枚ずつダウンロードする。
+    giftPanelSavePngs: async (files: Array<{ dataUrl: string; filename: string }>) => {
+      for (const file of files) { const a = document.createElement('a'); a.href = file.dataUrl; a.download = file.filename; a.click(); }
+      return { canceled: false, folder: 'ダウンロード', paths: files.map(file => file.filename) };
+    },
     streamSessionStatus: async () => ({ active: null, monitoring: false, error: '' }),
     streamSessionStart: async (title: string) => {
       const existing = JSON.parse(localStorage.getItem('dev-stream-session') || 'null');

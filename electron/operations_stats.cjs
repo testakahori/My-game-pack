@@ -3,7 +3,7 @@
 const path = require("path");
 const fs = require("fs");
 const { createStreamSessions, streamBuckets } = require("./stream_sessions.cjs");
-const { saveGiftPanelPng } = require("./image_export.cjs");
+const { saveGiftPanelPng, saveGiftPanelPngs } = require("./image_export.cjs");
 const { exportStreamStatsMarkdown } = require("./stats_export.cjs");
 
 // BRIDGE の子プロセスは、あとで main で作られるので、呼ばれたときに読む関数で受け取る。
@@ -98,6 +98,8 @@ function createOperationsStats({ BrowserWindow, dialog, getBridgeBatDir, bridgeC
     ipcMain.handle("stream:session:start", (_event, title) => streamSessions.start(title));
     ipcMain.handle("stream:session:end", (_event, value) => streamSessions.end(value?.id, value?.endedAt));
     ipcMain.handle("image:saveGiftPanel", (_event, value) => saveGiftPanelPng(dialog, value));
+    // ギフト設定の「全ページを保存」：フォルダーを1回選び、ページごとの PNG を書く（2026-11-05）。
+    ipcMain.handle("image:saveGiftPanels", (_event, value) => saveGiftPanelPngs(dialog, value));
 
     ipcMain.handle("operations:history", () => readOperationsHistory());
     ipcMain.handle("operations:history:clear", () => {

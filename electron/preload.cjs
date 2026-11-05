@@ -139,6 +139,8 @@ contextBridge.exposeInMainWorld("mygamepack", {
   streamSessionStart: (title) => ipcRenderer.invoke("stream:session:start", title),
   streamSessionEnd: (id, endedAt) => ipcRenderer.invoke("stream:session:end", { id, endedAt }),
   giftPanelSavePng: (dataUrl, filename) => ipcRenderer.invoke("image:saveGiftPanel", { dataUrl, filename }),
+  // ギフト設定の「全ページを保存」。files は [{ dataUrl, filename }]（2026-11-05）。
+  giftPanelSavePngs: (files) => ipcRenderer.invoke("image:saveGiftPanels", { files }),
   operationsHistory: () => ipcRenderer.invoke("operations:history"),
   operationsHistoryClear: () => ipcRenderer.invoke("operations:history:clear"),
   worldBackup: () => ipcRenderer.invoke("world:backup"),
