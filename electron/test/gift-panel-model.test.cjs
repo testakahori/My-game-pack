@@ -4,10 +4,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const Module = require('node:module');
-const { transformSync } = require('esbuild');
+const { buildSync } = require('esbuild');
 const file = path.resolve(__dirname, '../../src/lib/giftPanel.ts');
 const compiled = new Module(file, module);
-compiled._compile(transformSync(fs.readFileSync(file, 'utf8'), { loader: 'ts', format: 'cjs', target: 'node20' }).code, file);
+// giftPanel.ts は文字の形（panelFonts.ts）と枠の番号（panelSlots.ts）を読み込むので、まとめて組み立てる（2026-11-05）。
+compiled._compile(buildSync({ entryPoints: [file], bundle: true, write: false, platform: 'node', format: 'cjs', target: 'node20', logLevel: 'silent' }).outputFiles[0].text, file);
 const { syncPanelGift, createPanel, normalizePanel, applyPanelTemplate, readPanelLibrary, panelLayout, cardColors, panelFilename } = compiled.exports;
 const card = (i = 0) => ({ id: 'card-' + i, giftId: '5655', giftName: 'バラ', image: 'https://example.com/rose.png', title: '回復', repeat: 1, category: 'お助け系', tone: 'help' });
 
@@ -16,7 +17,8 @@ test('OBS designs round trip independent documents without altering card text, o
   const second = createPanel('light'); second.name = '配信ルール';
   const loaded = readPanelLibrary(JSON.stringify({ version: 1, activeId: second.id, designs: [first, second] }));
   assert.equal(loaded.activeId, second.id);
-  assert.deepEqual(loaded.designs[0].cards, first.cards);
+  // 枠の番号の無い前の版のカードは、並び順どおりの枠（0, 1）に入る（2026-11-05）。
+  assert.deepEqual(loaded.designs[0].cards, first.cards.map((c, slot) => ({ ...c, slot })));
   assert.equal(loaded.designs[1].name, '配信ルール');
   assert.throws(() => readPanelLibrary('{broken'), SyntaxError);
   assert.throws(() => readPanelLibrary('{"version":2,"designs":[]}'), /形式/);
