@@ -195,3 +195,15 @@ test('PNG の文字: 既定はいままでどおり（游ゴシック・白い�
   const r = slotRect(panelLayout(moved), moved.columns, 5);
   assert.equal(label[4], Math.round(r.x + r.width / 2));
 });
+
+// 全体 10px のカードを 30%（3px）にしても、文字は消えずに 5px で描く（2026-11-05 レビュー 重要1）。前は1回も回らず、何も描かなかった。
+// 太い縁取りの2行では、縁を全部の行に描いてから塗る（下の行の縁が上の行の字にかぶらない）。
+test('PNG の文字: とても小さいカードの文字も描き、2行の縁取りは縁 → 塗りの順', () => {
+  const small = panel([card(0, { title: '回復', fontScale: 30 }), card(1, { title: 'ゾンビ' })], { fontSize: 10 });
+  const fills = recordDraw(small).filter(c => c[0] === 'fill');
+  assert.ok(fills.some(c => c[1] === '回復'), '小さくしたカードの効果名が消えた');
+  assert.ok(fills.some(c => c[1] === 'ギフト0'), '小さくしたカードのギフト名が消えた');
+  const twoLines = { ...panel([card(0, { title: '回復', repeat: 10 })]), outline: 'color', outlineColor: '#FFFFFF', outlineWidth: 40 };
+  const kinds = recordDraw(twoLines).filter(c => c[1] === '回復' || c[1] === '×10').map(c => c[0] + ':' + c[1]);
+  assert.deepEqual(kinds, ['stroke:回復', 'stroke:×10', 'fill:回復', 'fill:×10']);
+});

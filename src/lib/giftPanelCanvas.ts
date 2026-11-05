@@ -21,7 +21,8 @@ function wrap(ctx: CanvasRenderingContext2D, text: string, width: number) {
 // 標準の太さ（8）より太い縁取りは、はみ出さないよう、太くした分だけ文字を小さくして収める（標準まではいままでと同じ大きさ。2026-11-05）。
 function text(ctx: CanvasRenderingContext2D, value: string, x: number, y: number, width: number, height: number, preferred: number, fill: string, outline: TextOutline, font: { weight: number; stack: string }) {
   const extra = outline ? Math.max(0, outline.width - OUTLINE_WIDTH) / 100 : 0;
-  let size = Math.min(preferred, height / 1.18), lines: string[] = [];
+  // 5px より小さい指定（全体 10px のカードを 30% にしたとき）も 5px から試す。前は1回も回らず、文字が消えた（2026-11-05 レビュー 重要1）。
+  let size = Math.min(Math.max(preferred, 5), height / 1.18), lines: string[] = [];
   for (; size >= 5; size--) {
     ctx.font = `${font.weight} ${size}px ${font.stack}`; lines = wrap(ctx, value, width - size * extra);
     if (lines.length * size * 1.18 + size * extra <= height && lines.every(line => ctx.measureText(line).width + size * extra <= width)) break;
@@ -31,10 +32,15 @@ function text(ctx: CanvasRenderingContext2D, value: string, x: number, y: number
   const lineHeight = Math.max(5, size) * 1.18;
   const top = y + (height - lines.length * lineHeight) / 2 + lineHeight / 2;
   ctx.save(); ctx.beginPath(); ctx.rect(x - width / 2, y, width, height); ctx.clip();
-  lines.forEach((line, i) => {
-    if (outline) { ctx.strokeStyle = outline.color; ctx.lineWidth = Math.max(2, size * (outline.width / 100)); ctx.strokeText(line, x, top + i * lineHeight); }
-    ctx.fillStyle = fill; ctx.fillText(line, x, top + i * lineHeight);
-  });
+  const stroke = (line: string, i: number) => { ctx.strokeStyle = outline!.color; ctx.lineWidth = Math.max(2, size * (outline!.width / 100)); ctx.strokeText(line, x, top + i * lineHeight); };
+  const paint = (line: string, i: number) => { ctx.fillStyle = fill; ctx.fillText(line, x, top + i * lineHeight); };
+  if (outline && outline.width > OUTLINE_WIDTH) {
+    // 標準より太い縁取りは、縁を全部の行に描いてから塗る（下の行の縁が上の行の字にかぶらないように。2026-11-05 レビュー）。
+    lines.forEach(stroke); lines.forEach(paint);
+  } else {
+    // 標準まではいままでどおり1行ずつ（前の版で保存したデザインの描き方を変えない）。
+    lines.forEach((line, i) => { if (outline) stroke(line, i); paint(line, i); });
+  }
   ctx.restore();
 }
 export function drawGiftPanel(canvas: HTMLCanvasElement, design: PanelDesign, images: PanelImages) {

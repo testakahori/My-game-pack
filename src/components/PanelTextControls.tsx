@@ -38,7 +38,8 @@ export function PanelTextSettings({ design, fonts, patch }: { design: PanelDesig
       {design.outline === 'auto' && <p className="panel-hint">白い文字と見出しを黒く縁取ります。</p>}
       {design.outline === 'color' && <Swatches label="縁取りの色" value={design.outlineColor} onChange={outlineColor => patch({ outlineColor: outlineColor || '#FFFFFF' })} />}
     </div>
-    {design.outline !== 'none' && <label className="panel-field"><span>縁取りの太さ <b>{design.outlineWidth === OUTLINE_WIDTH ? '標準' : design.outlineWidth}</b></span><input type="range" min={2} max={40} value={design.outlineWidth} onChange={e => patch({ outlineWidth: Number(e.target.value) })} /></label>}
+    {/* 全体が「なし」でも、縁取りの色を指定したカードがあれば太さを変えられるようにする（2026-11-05 レビュー）。 */}
+    {(design.outline !== 'none' || design.cards.some(c => c.outlineColor)) && <label className="panel-field"><span>縁取りの太さ <b>{design.outlineWidth === OUTLINE_WIDTH ? '標準' : design.outlineWidth}</b></span><input type="range" min={2} max={40} value={design.outlineWidth} onChange={e => patch({ outlineWidth: Number(e.target.value) })} /></label>}
   </>;
 }
 
