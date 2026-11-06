@@ -18,6 +18,10 @@ const isFile = file => { try { return fs.statSync(file).isFile(); } catch { retu
 // Minecraft のサーバー本体（Mojang）と Forge の部品は配らず、初回の環境構築で Forge のインストーラーが取りに行く（約 70MB。2026-11-06 ユーザーの決定）。
 // 速い回線で1分ほど。遅い回線でも途中で切らないよう、待つ時間を長めにする。
 const INSTALLER_TIMEOUT_MS = 15 * 60 * 1000;
+// 通信が一瞬止まっただけの失敗をやり直す回数と、その間（2026-11-06 レビュー 重要2）。
+const INSTALLER_ATTEMPTS = 3;
+const INSTALLER_RETRY_DELAY_MS = 5000;
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const INSTALLER_PROGRESS = "Minecraft のサーバー本体（Mojang）と Forge の部品をダウンロードしています。インターネットへの接続が必要です。回線によっては数分かかります…";
 // server.properties の読み書きは、ゲームの切り替えのマップの入れ替えと同じもの（埋め立て PR3 で分けた）。
 const { readProperties, mergeProperties } = require("./server_properties.cjs");
@@ -65,7 +69,7 @@ function launchForgeInstaller(root, spawnProcess = spawn) {
   });
 }
 
-async function prepareServerEnvironment(root, { eulaAccepted = false, runInstaller = runProc, generateWorld, ensureStopped = assertSetupPortsAvailable, onProgress = () => {} } = {}) {
+async function prepareServerEnvironment(root, { eulaAccepted = false, runInstaller = runProc, generateWorld, ensureStopped = assertSetupPortsAvailable, onProgress = () => {}, sleep = wait } = {}) {
   if (!eulaAccepted && readProperties(read(path.join(root, "eula.txt"))).eula !== "true") {
     throw new Error("Minecraft利用規約への同意が必要です。");
   }
@@ -83,8 +87,19 @@ async function prepareServerEnvironment(root, { eulaAccepted = false, runInstall
     // The installer can overwrite launchers even if it later fails downloading a library.
     launcherBackup = backupServerLaunchers(root, originalLaunchers);
     onProgress(INSTALLER_PROGRESS);
-    try { await runInstaller(java, [...JAVA_TLS_ARGS, "-jar", jar, "--installServer"], root, { timeoutMs: INSTALLER_TIMEOUT_MS }); }
-    catch { throw new Error(`Minecraft のサーバー本体と Forge の部品をダウンロードできませんでした。インターネットにつながっているか確かめて、もう一度「環境構築をする」を押してください。詳しくは保存先の forge-${FORGE_VERSION}-installer.jar.log に出ています。`); }
+    // 通信が一瞬止まっただけでもインストーラーはやめる（実機で2回に1回あった）。何度動かしても同じ結果になるので、3回まで自動でやり直す（2026-11-06 レビュー 重要2）。
+    let lastError = null;
+    for (let attempt = 1; attempt <= INSTALLER_ATTEMPTS; attempt++) {
+      if (attempt > 1) {
+        onProgress(`ダウンロードが途中で止まったので、やり直しています（${attempt}/${INSTALLER_ATTEMPTS}回目）…`);
+        await sleep(INSTALLER_RETRY_DELAY_MS);
+      }
+      try { await runInstaller(java, [...JAVA_TLS_ARGS, "-jar", jar, "--installServer"], root, { timeoutMs: INSTALLER_TIMEOUT_MS }); lastError = null; break; }
+      catch (error) { lastError = error; }
+    }
+    // ログの名前は保存先で変わる（英数字だけの場所は forge-…-installer.jar.log、日本語や空白を含む場所は installer.log。レビュー 軽い3）。
+    // 本当の理由（Java を起動できない・時間切れなど）も添える（軽い4）。
+    if (lastError) throw new Error(`Minecraft のサーバー本体と Forge の部品をダウンロードできませんでした。インターネットにつながっているか確かめて、もう一度「環境構築をする」を押してください。詳しくは保存先の forge-${FORGE_VERSION}-installer.jar.log または installer.log に出ています。（${lastError?.message || lastError}）`);
     if (missingServerFiles(root).length) throw new Error("Forgeサーバーの必要ファイルが不足しています。環境構築をもう一度実行してください。");
   }
   const launchers = synchronizeServerLaunchers(root, originalLaunchers, launcherBackup);
@@ -117,4 +132,4 @@ async function prepareServerEnvironment(root, { eulaAccepted = false, runInstall
   return { ok: true, ...status, world: world.world };
 }
 
-module.exports = { FORGE_VERSION, JAVA_DIR, EULA_URL, JAVA_TLS_ARGS, INSTALLER_PROGRESS, INSTALLER_TIMEOUT_MS, inspectSetup, inspectForgeClient, launchForgeInstaller, prepareServerEnvironment, missingServerFiles };
+module.exports = { FORGE_VERSION, JAVA_DIR, EULA_URL, JAVA_TLS_ARGS, INSTALLER_PROGRESS, INSTALLER_TIMEOUT_MS, INSTALLER_ATTEMPTS, inspectSetup, inspectForgeClient, launchForgeInstaller, prepareServerEnvironment, missingServerFiles };

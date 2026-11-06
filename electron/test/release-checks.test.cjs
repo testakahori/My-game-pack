@@ -203,6 +203,18 @@ test('作る前の確かめ: コミットしていない変更があれば止め
   assert.match(message, /25 件/);
   assert.match(message, /f19\.js\n- …\n/);
   assert.doesNotMatch(message, /f20\.js/, '多いときは先頭の 20 件だけを並べる');
+  // 開発版が書き換える設定（配る物には入らない）は止める数に入れない。日本語の名前は崩さない（2026-11-06 レビュー 重要1・軽い5）。
+  const calls = [];
+  const fakeGit = (...args) => {
+    calls.push(args.join(' '));
+    if (args.includes('status')) return [' M bridge/config.minecraft.json', ' M bridge/tts-settings.json', ' M docs/手動配布とアプリ更新.md'].join('\n');
+    return args.includes('--short') ? 'ccccccc' : args.includes('--abbrev-ref') ? 'main' : 'c'.repeat(40);
+  };
+  const state = checks.gitState('unused', fakeGit);
+  assert.deepEqual(state.changes, [' M docs/手動配布とアプリ更新.md']);
+  assert.deepEqual(state.devOnly, [' M bridge/config.minecraft.json', ' M bridge/tts-settings.json']);
+  assert.ok(calls.some(call => call.startsWith('-c core.quotepath=false status')), calls.join(' / '));
+  assert.doesNotThrow(() => checks.assertCleanTree({ ...state, changes: [] }, { local: false, allowDirty: false }), '開発用の設定だけなら止めない');
   assert.equal(checks.ALLOW_DIRTY_FLAG, '--allow-dirty');
   assert.equal(checks.ALLOW_DIRTY_ENV, 'MYGAMEPACK_RELEASE_ALLOW_DIRTY');
 });

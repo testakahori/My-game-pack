@@ -132,6 +132,8 @@ async function runRelease({ root, local, allowDirty = false, outDir, run, packag
   // 何から作ったか（manifest の commit）が中身と合うよう、コミットしていない変更があれば止める。
   const state = git();
   checks.assertCleanTree(state, { local, allowDirty });
+  // 開発版が書き換える設定（配る物には入らない）は止めずに知らせる。コミットしないで、git restore で戻す（2026-11-06 レビュー 重要1）。
+  if (state?.devOnly?.length) log(`[release] 開発版が書き換えた設定（配る物には入らない）: ${state.devOnly.map(line => line.slice(3)).join("、")}。コミットせず、git restore で戻してください。`);
   // node_modules が package-lock.json と違うと、違う版の部品が配られる（1.0.48 の tiktok-live-connector）。
   checks.assertDependencies(dependencies());
   const stale = staleMods(root);
@@ -154,7 +156,13 @@ async function runRelease({ root, local, allowDirty = false, outDir, run, packag
   if (!installers.length) throw new Error(`インストーラー（.exe）ができていません：${outDir}\n上に出た electron-builder のエラーを見てください。`);
   const installer = path.join(outDir, installers[0]);
   // 配る物の中身を確かめる。問題があれば、記録（manifest）を書かずに止める。
-  checks.assertOutput(verifyOutput(), installer);
+  // 通らなかったインストーラーは名前を「….rejected.exe」に変え、うっかり配らないようにする（2026-11-06 レビュー 軽い6）。
+  try {
+    checks.assertOutput(verifyOutput(), installer);
+  } catch (error) {
+    try { fs.renameSync(installer, installer.replace(/\.exe$/i, ".rejected.exe")); } catch { /* 名前を変えられなくても、止める理由はそのまま出す */ }
+    throw error;
+  }
   const manifest = checks.releaseManifest({ root, outDir, installer, state, local, allowDirty });
   const manifestFile = checks.writeManifest(outDir, manifest);
   const summary = [

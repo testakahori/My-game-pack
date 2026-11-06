@@ -104,7 +104,13 @@ test("依存ファイル不足: インストーラーの終了を待ち、失敗
   const f = fixture(t);
   fs.unlinkSync(path.join(f.dir, "libraries/test/dependency.jar"));
   assert.deepEqual(missingServerFiles(f.dir), ["libraries/test/dependency.jar"]);
-  await assert.rejects(prepareServerEnvironment(f.dir, { eulaAccepted: true, runInstaller: async () => { throw Error("network failed"); } }), /ダウンロードできませんでした.*インターネット/);
+  // 3回とも失敗したときだけ知らせる。ログの名前は2通り、本当の理由も添える（2026-11-06 レビュー 重要2・軽い3・軽い4）。
+  let failures = 0;
+  const slept = [];
+  await assert.rejects(prepareServerEnvironment(f.dir, { eulaAccepted: true, sleep: async ms => { slept.push(ms); }, runInstaller: async () => { failures++; throw Error("network failed"); } }),
+    /ダウンロードできませんでした.*インターネット.*installer\.jar\.log または installer\.log.*（network failed）/s);
+  assert.equal(failures, 3);
+  assert.deepEqual(slept, [5000, 5000]);
   assert.equal(fs.existsSync(path.join(f.dir, "server.properties")), false);
   let runs = 0;
   const result = await prepareServerEnvironment(f.dir, { eulaAccepted: true, runInstaller: async (java, args, cwd) => {
@@ -117,6 +123,22 @@ test("依存ファイル不足: インストーラーの終了を待ち、失敗
   } });
   assert.equal(result.complete, true);
   assert.equal(runs, 1);
+});
+
+// 通信が一瞬止まって1回目が失敗しても、やり直して通れば環境構築は終わる（実機で2回に1回 Read timed out があった。2026-11-06 レビュー 重要2）。
+test("依存ファイル不足: インストーラーが1回失敗しても、やり直して通れば完了する", async t => {
+  const f = fixture(t);
+  fs.unlinkSync(path.join(f.dir, "libraries/test/dependency.jar"));
+  const progress = [];
+  let runs = 0;
+  const result = await prepareServerEnvironment(f.dir, { eulaAccepted: true, sleep: async () => {}, onProgress: message => progress.push(message), runInstaller: async () => {
+    runs++;
+    if (runs === 1) throw Error("Read timed out");
+    f.write("libraries/test/dependency.jar");
+  } });
+  assert.equal(result.complete, true);
+  assert.equal(runs, 2);
+  assert.ok(progress.some(message => /やり直しています（2\/3回目）/.test(message)), progress.join(" / "));
 });
 
 // 配る雛形には libraries を入れない（Mojang のサーバー本体と対応表を再配布しない。2026-11-06 ユーザーの決定）。

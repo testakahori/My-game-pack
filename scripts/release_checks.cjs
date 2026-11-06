@@ -41,11 +41,19 @@ function gitCommand(root) {
   return (...args) => cp.execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).trimEnd();
 }
 
+// 開発版のアプリが書き換える設定（electron/paths.cjs。起動しただけで configVersion が足される）。配る物からは外しているので、変更があっても止めない
+// （止めると、開発中の TikTok ID や RCON のパスワードを入れたまま「コミットしてから」に従ってしまう。2026-11-06 レビュー 重要1）。
+const DEV_ONLY_FILES = new Set(["bridge/config.minecraft.json", "bridge/tts-settings.json"]);
+
 // どのコミットから作るか。changes は、コミットしていない変更（git で管理しているファイルだけ）の行。git が使えなければ null。
+// 日本語のファイル名を "\343…" にしないよう、core.quotepath を切る（レビュー 軽い5）。
 function gitState(root, git = gitCommand(root)) {
   try {
-    const changes = git("status", "--porcelain", "--untracked-files=no");
-    return { commit: git("rev-parse", "HEAD"), short: git("rev-parse", "--short", "HEAD"), branch: git("rev-parse", "--abbrev-ref", "HEAD"), changes: changes ? changes.split(/\r?\n/) : [] };
+    const lines = git("-c", "core.quotepath=false", "status", "--porcelain", "--untracked-files=no");
+    const all = lines ? lines.split(/\r?\n/) : [];
+    const changes = all.filter(line => !DEV_ONLY_FILES.has(line.slice(3).replace(/^"|"$/g, "")));
+    const devOnly = all.filter(line => !changes.includes(line));
+    return { commit: git("rev-parse", "HEAD"), short: git("rev-parse", "--short", "HEAD"), branch: git("rev-parse", "--abbrev-ref", "HEAD"), changes, devOnly };
   } catch {
     return null;
   }

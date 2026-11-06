@@ -406,6 +406,9 @@ test('リリース: 配る物の確かめで問題が見つかれば止め、記
   await assert.rejects(release.runRelease({ ...quiet, verifyOutput: () => ['配らないファイルが入っています: resources/bridge/telnet_test.js'], root: dir, outDir, run: () => {}, packageInstaller: freshExe(put) }),
     /できたインストーラーに問題があります（1 件）。このインストーラーは配らないでください.*telnet_test\.js/s);
   assert.equal(fs.existsSync(path.join(outDir, '1.2.3-manifest.json')), false);
+  // 通らなかったインストーラーは名前を変え、うっかり配らないようにする（2026-11-06 レビュー 軽い6）。
+  assert.equal(fs.existsSync(path.join(outDir, 'MyGamePack-Setup-1.2.3.exe')), false);
+  assert.equal(fs.existsSync(path.join(outDir, 'MyGamePack-Setup-1.2.3.rejected.exe')), true);
   const summary = await release.runRelease({ ...quiet, root: dir, outDir, run: () => {}, packageInstaller: freshExe(put) });
   const manifest = JSON.parse(fs.readFileSync(path.join(outDir, '1.2.3-manifest.json'), 'utf8'));
   assert.equal(manifest.installer.file, 'MyGamePack-Setup-1.2.3.exe');
