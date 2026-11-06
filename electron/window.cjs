@@ -3,8 +3,9 @@
 const path = require("path");
 const { pathToFileURL } = require("url");
 
-// isBusy は「保存・準備中で閉じられない」とき（初期セットアップ・MAP の作業・サーバーの起動と停止・ゲームの切り替え）に真を返す関数。
-function createAppWindow({ BrowserWindow, session, dialog, shell, appDir, isDev, isBusy }) {
+// isBusy は「保存・準備中で閉じられない」とき（初期セットアップ・MAP の作業・サーバーの起動と停止・ゲームの切り替え・閉じる前の停止）に真を返す関数。
+// onClose は、作業中でないときの close で呼ぶ。動いているサーバーを止めてから終わる（app_quit.cjs。2026-11-06 品質レビュー 重大）。
+function createAppWindow({ BrowserWindow, session, dialog, shell, appDir, isDev, isBusy, onClose = () => {} }) {
   // ELECTRON_DEV=1 のときは付けない（Vite開発や調査が楽）
   // それ以外は付ける（electron:prod / exe）
   function installProdOnlyCsp() {
@@ -56,7 +57,7 @@ function createAppWindow({ BrowserWindow, session, dialog, shell, appDir, isDev,
       },
     });
     win.on("close", event => {
-      if (!isBusy()) return;
+      if (!isBusy()) return onClose(event, win);
       event.preventDefault();
       void dialog.showMessageBox(win, { type: "info", title: "保存・準備中です",
         message: "ワールドと設定を準備しています。保存とサーバー停止が終わるまで、このアプリを開いたままお待ちください。" });

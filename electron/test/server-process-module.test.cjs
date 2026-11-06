@@ -64,6 +64,38 @@ test('サーバーの停止: 保存の完了を待つ間は isStopping() が tru
   assert.equal(x.serverProcess.child(), null);
 });
 
+// アプリを閉じるとき（app_quit.cjs）も、停止の ipc と同じ stopServer で保存して止める（2026-11-06 品質レビュー 重大）。
+test('サーバーの停止（stopServer）: ipc と同じく出どころを残して stop を書き、保存の完了を待つ。子プロセスが無ければ止まっているとして返す', async t => {
+  const x = setup(t);
+  const written = [];
+  const server = Object.assign(new EventEmitter(), { pid: 888, exitCode: null, signalCode: null, stdin: { writable: true, write: text => written.push(text) } });
+  x.serverProcess.attach(server);
+  const stopping = x.serverProcess.stopServer('app:quit');
+  assert.equal(x.serverProcess.isStopping(), true);
+  assert.deepEqual(written, ['stop\n']);
+  assert.ok(x.calls.includes('record:server:app:quit'));
+  await assert.rejects(x.serverProcess.stopServer('app:quit'), /サーバーを起動・停止中です。完了までお待ちください。/);
+  server.exitCode = 0; server.emit('exit', 0);
+  assert.deepEqual(await stopping, { ok: true, graceful: true });
+  assert.equal(x.serverProcess.isStopping(), false);
+  assert.equal(x.serverProcess.child(), null);
+  assert.deepEqual(await x.serverProcess.stopServer('app:quit'), { ok: true, alreadyStopped: true, graceful: true });
+});
+
+// 保存・停止が終わらず、配信者が「強制終了して閉じる」を選んだときだけ使う。cmd.exe だけを止めると孫の java が残る。
+test('サーバーの強制終了（killServer）: taskkill /F /T で run.bat の cmd.exe ごと止め、止まるのを待つ。子プロセスが無ければ何もしない', async t => {
+  const x = setup(t);
+  assert.equal(await x.serverProcess.killServer(), true);
+  assert.deepEqual(x.spawned, []);
+  const server = Object.assign(new EventEmitter(), { pid: 888, exitCode: null, signalCode: null });
+  x.serverProcess.attach(server);
+  const killing = x.serverProcess.killServer();
+  assert.deepEqual(x.spawned.map(([cmd, args, options]) => [cmd, args, options.windowsHide]), [['taskkill.exe', ['/F', '/T', '/PID', '888'], true]]);
+  server.exitCode = 1; server.emit('exit', 1);
+  assert.equal(await killing, true);
+  assert.ok(x.invoke('server:logs').lines.some(line => line.includes('強制終了します（アプリの終了）')));
+});
+
 // OBSMOD はサーバーの起動のときに obs-send.properties を読むので、アプリから起動するたびに、起動の直前にアプリの設定どおりに書く（OBS 連携。2026-10-25）。
 test('サーバーの起動: 起動の直前に、OBS 連携の設定を obs-send.properties に書く（設定を渡さないときは書かない）', async t => {
   const x = setup(t, { obsSend: () => ({ enabled: true, endpoint: 'http://192.168.0.5:3000/event' }) });

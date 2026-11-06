@@ -21,6 +21,7 @@ test('停止の出どころは決まった名前だけを日本語にし、そ�
   assert.equal(stopOriginLabel('euler:bridge-restart'), 'Euler APIキー設定のBRIDGE再起動');
   assert.equal(stopOriginLabel('map:load'), 'MAPの読込');
   assert.equal(stopOriginLabel('console'), 'コンソールコマンドのstop');
+  assert.equal(stopOriginLabel('app:quit'), 'アプリの終了');
   assert.equal(stopOriginLabel(undefined), '出どころの指定なし');
   assert.equal(stopOriginLabel('x'.repeat(5000)), '不明な出どころ');
   assert.equal(stopOriginLabel('toString'), '不明な出どころ', 'Object の持ち物を出どころと見なさない');

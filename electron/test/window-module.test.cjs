@@ -6,7 +6,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { createAppWindow } = require('../window.cjs');
 
-function setup({ isDev = false, busy = false } = {}) {
+function setup({ isDev = false, busy = false, onClose } = {}) {
   const calls = { opened: [], dialogs: [], headers: null, permissionCheck: null, permissionRequest: null, devtools: false, onChannels: new Map() };
   const windowListeners = {}, contentsListeners = {};
   class FakeWindow {
@@ -30,7 +30,7 @@ function setup({ isDev = false, busy = false } = {}) {
   const dialog = { showMessageBox: (_win, options) => { calls.dialogs.push(options.title); return Promise.resolve(); }, showMessageBoxSync: () => 0 };
   const shell = { openExternal: url => { calls.opened.push(url); return Promise.resolve(); } };
   const appDir = path.join(path.parse(process.cwd()).root, 'app', 'electron');
-  const appWindow = createAppWindow({ BrowserWindow: FakeWindow, session, dialog, shell, appDir, isDev, isBusy: () => busy });
+  const appWindow = createAppWindow({ BrowserWindow: FakeWindow, session, dialog, shell, appDir, isDev, isBusy: () => busy, onClose });
   appWindow.register({ on: (name, fn) => calls.onChannels.set(name, fn) });
   return { appWindow, calls, windowListeners, contentsListeners, appDir };
 }
@@ -55,6 +55,20 @@ test('作業中は閉じない（保存・準備中の知らせを出す）。�
     let prevented = false;
     windowListeners.close({ preventDefault: () => { prevented = true; } });
     assert.equal(prevented, busy);
+    assert.deepEqual(calls.dialogs, busy ? ['保存・準備中です'] : []);
+  }
+});
+
+// 作業中でなければ、閉じる前にサーバーを止めるかを onClose（main の app_quit.cjs）に任せる（2026-11-06 品質レビュー 重大）。
+test('作業中でなければ close を onClose にウィンドウと一緒に渡し、onClose が止めれば閉じない。作業中は渡さない', () => {
+  for (const busy of [false, true]) {
+    const seen = [];
+    const { appWindow, calls, windowListeners } = setup({ busy, onClose: (event, win) => { seen.push(win); event.preventDefault(); } });
+    const win = appWindow.createWindow();
+    let prevented = false;
+    windowListeners.close({ preventDefault: () => { prevented = true; } });
+    assert.equal(prevented, true);
+    assert.deepEqual(seen, busy ? [] : [win]);
     assert.deepEqual(calls.dialogs, busy ? ['保存・準備中です'] : []);
   }
 });

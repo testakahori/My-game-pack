@@ -25,9 +25,13 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
   const copiedTexts = [];
   const mainPath = path.resolve(__dirname, "../main.cjs");
   const realRequire = createRequire(mainPath);
+  // app.on の登録（before-quit・will-quit など）と app.quit() の回数を控える（閉じるときにサーバーを止める配線の確かめ。2026-11-06）。
+  const appListeners = new Map();
+  let quitCount = 0;
   const app = {
     isPackaged: false, getPath: () => root, getVersion: () => "test",
-    requestSingleInstanceLock: () => true, whenReady: () => ({ then() {} }), on() {},
+    requestSingleInstanceLock: () => true, whenReady: () => ({ then() {} }), on: (name, fn) => { appListeners.set(name, fn); },
+    quit: () => { quitCount += 1; },
   };
   const requireMock = (name) => {
     if (name === 'child_process') {
@@ -94,6 +98,9 @@ function loadApp(t, run = async () => { throw new Error("unexpected process"); }
     // テスト発火を受ける BRIDGE の代わり（ipc の通り道つきの子プロセス）。
     setBridge: child => { context.fixtureBridge = child; vm.runInContext('bridgeProcess.attach(fixtureBridge);', context); },
     shortenTestEventReply: () => vm.runInContext('bridgeModClient.setTestEventReplyMs(50);', context),
+    // main が app.on で登録した処理と、app.quit() を呼んだ回数。
+    appListener: name => appListeners.get(name),
+    quits: () => quitCount,
   };
 }
 
@@ -114,7 +121,7 @@ test('ipc の窓口の一覧は、main.cjs を分けても変わらない（118�
 
 // main.cjs がモジュールへ渡す「呼ばれたときに読む関数」の配線（main.cjs の分割 PR1 レビュー）。
 // モジュールのテストは代わりの関数を渡すので、main の配線の取り違え（別の変数を読む・1つ抜ける）はここで止める。
-test('配線: サーバーの起動中は保存先を変えず、作業中（5つのどれか）はウィンドウを閉じない', async t => {
+test('配線: サーバーの起動中は保存先を変えず、作業中（6つのどれか）はウィンドウを閉じない', async t => {
   const app = loadApp(t);
   // サーバーの起動中・停止中は server_process.cjs が持つ。main が serverProcess の関数で見ていることを、差し替えて確かめる（main.cjs の分割 PR4）。
   const restore = app.pretend('serverProcess.isStarting', () => true);
@@ -123,7 +130,8 @@ test('配線: サーバーの起動中は保存先を変えず、作業中（5�
   assert.equal(app.evaluate('isAppBusy()'), false);
   // 初期セットアップは setup_ipc.cjs、ゲームの操作は games_ipc.cjs が持つので、下のテストで本当に作業中にして確かめる（main.cjs の分割 PR2）。
   // MAP の作業中は map_operations.cjs、サーバーの起動中・停止中は server_process.cjs の関数を差し替えて確かめる（main.cjs の分割 PR4）。
-  for (const target of ['mapOperations.isBusy', 'serverProcess.isStarting', 'serverProcess.isStopping']) {
+  // 閉じる前に BRIDGE とサーバーを止めている間は app_quit.cjs が持つ（2026-11-06 品質レビュー 重大）。
+  for (const target of ['mapOperations.isBusy', 'serverProcess.isStarting', 'serverProcess.isStopping', 'appQuit.isBusy']) {
     const back = app.pretend(target, () => true);
     assert.equal(app.evaluate('isAppBusy()'), true, target);
     back();
@@ -1376,6 +1384,53 @@ test('停止の記録: BRIDGE停止はサーバーへ stop を書かず、どち
   assert.equal((await stopping).graceful, true);
   assert.ok((await app.invoke('server:logs')).lines.some(line => line.includes('[SERVER] ワールドを保存して停止します（停止パネルの一括停止）')));
   assert.equal(logLines().length, 3);
+});
+
+// × で閉じると、このアプリが起動したサーバー（cmd.exe の孫の java）が保存されずに残っていた（2026-11-06 品質レビュー 重大）。
+// 聞き方・止める順番・止められなかったときは app-quit-module.test.cjs で確かめる。ここは main の app.on と serverProcess・bridgeProcess の配線。
+test('配線: アプリの終了は、このアプリが起動したサーバーを聞いてから保存して止め、BRIDGE だけなら終わる直前に止める。どちらも「アプリの終了」と記録する', async t => {
+  const { EventEmitter } = require('node:events');
+  const asked = [];
+  const app = loadApp(t, undefined, {}, { showMessageBox: async (parent, options) => { asked.push([parent ? 'window' : 'none', options.title]); return { response: 0 }; } });
+  const logFile = path.join(app.root, 'logs', 'stop-requests.log');
+  const logLines = () => fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8').trimEnd().split('\n') : [];
+  const event = () => { const e = { prevented: false, preventDefault() { e.prevented = true; } }; return e; };
+  const settle = async done => { for (let i = 0; i < 200 && !done(); i++) await new Promise(resolve => setImmediate(resolve)); };
+
+  // 何も動いていなければ、聞かずにそのまま終わる。
+  const idle = event(); app.appListener('before-quit')(idle);
+  const idleWill = event(); app.appListener('will-quit')(idleWill);
+  assert.equal(idle.prevented, false); assert.equal(idleWill.prevented, false);
+  assert.deepEqual(asked, []);
+
+  // このアプリが起動したサーバー。stop を受けたら保存して終わる。
+  const writes = [];
+  const server = new EventEmitter();
+  Object.assign(server, { pid: 123456, exitCode: null, signalCode: null,
+    stdin: { writable: true, write: text => { writes.push(text); setImmediate(() => { server.exitCode = 0; server.emit('exit', 0); }); } } });
+  app.setServer(server);
+  const quitting = event(); app.appListener('before-quit')(quitting);
+  assert.equal(quitting.prevented, true);
+  await settle(() => app.quits() > 0);
+  assert.deepEqual(asked, [['window', 'Minecraftサーバーが動いています']]);
+  assert.deepEqual(writes, ['stop\n']);
+  assert.equal(app.quits(), 1);
+  assert.match(logLines().at(-1), /サーバー停止 ← アプリの終了$/);
+  assert.equal(app.evaluate('serverProcess.child()'), null);
+
+  // BRIDGE だけが動いていれば、聞かずに will-quit で止めてから終わる。
+  const bridge = new EventEmitter();
+  Object.assign(bridge, { pid: 23456, connected: true, exitCode: null, signalCode: null,
+    send: (_message, callback) => { callback?.(null); setImmediate(() => { bridge.exitCode = 0; bridge.emit('exit', 0); }); } });
+  app.setBridge(bridge);
+  const closing = event(); app.appListener('before-quit')(closing);
+  assert.equal(closing.prevented, false);
+  const willQuit = event(); app.appListener('will-quit')(willQuit);
+  assert.equal(willQuit.prevented, true);
+  await settle(() => app.quits() > 1);
+  assert.equal(app.quits(), 2);
+  assert.equal(asked.length, 1, 'BRIDGE だけのときは聞かない');
+  assert.match(logLines().at(-1), /BRIDGE停止 ← アプリの終了$/);
 });
 
 test('server startup: 開発版は BridgeMOD にリポジトリのコマンドの置き場所を渡し、インストール版は渡さない', async t => {

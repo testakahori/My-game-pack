@@ -182,6 +182,32 @@ function createServerProcess({
     await assertMapServerStopped();
   }
 
+  // サーバーを保存して止める。停止の ipc と、アプリの終了（app_quit.cjs。2026-11-06 品質レビュー 重大）が使う。
+  async function stopServer(origin) {
+    if (serverStarting || serverStopping) throw new Error("サーバーを起動・停止中です。完了までお待ちください。");
+    const proc = serverProcRef;
+    if (!proc) {
+      if ((await getServerProcessStatus()).running) throw new Error("このアプリを開く前から起動しているサーバーです。起動した画面で stop を実行してください。BRIDGEは単独で停止できます。");
+      return { ok: true, alreadyStopped: true, graceful: true };
+    }
+    serverStopping = true;
+    try {
+      await stopMapServer(origin);
+      return { ok: true, graceful: true };
+    } finally { serverStopping = false; }
+  }
+
+  // アプリの終了で保存・停止が終わらず、配信者が「強制終了して閉じる」を選んだときだけ使う（2026-11-06 品質レビュー 重大）。
+  // run.bat の cmd.exe ごと、孫の java も止める（/T）。止まれば true、5 秒待っても止まらなければ false。
+  async function killServer() {
+    const proc = serverProcRef;
+    if (!proc) return true;
+    appendServerLog("[SERVER] 保存・停止が終わらないため、強制終了します（アプリの終了）");
+    const ended = waitChildExit(proc, 5000);
+    try { spawn("taskkill.exe", ["/F", "/T", "/PID", String(proc.pid)], { windowsHide: true })?.on?.("error", () => {}); } catch {}
+    return ended;
+  }
+
   function setStopWaitMs(ms) { stopWaitMs = ms; }
   // 子プロセスを持たせる（起動の処理と、テストの偽の子プロセスが使う）。
   function attach(child) { serverProcRef = child || null; serverPid = child?.pid || null; }
@@ -201,17 +227,7 @@ function createServerProcess({
     // --------------------
     ipcMain.handle("server:stop", async (_event, origin) => {
       assertMapIdle();
-      if (serverStarting || serverStopping) throw new Error("サーバーを起動・停止中です。完了までお待ちください。");
-      const proc = serverProcRef;
-      if (!proc) {
-        if ((await getServerProcessStatus()).running) throw new Error("このアプリを開く前から起動しているサーバーです。起動した画面で stop を実行してください。BRIDGEは単独で停止できます。");
-        return { ok: true, alreadyStopped: true, graceful: true };
-      }
-      serverStopping = true;
-      try {
-        await stopMapServer(origin);
-        return { ok: true, graceful: true };
-      } finally { serverStopping = false; }
+      return stopServer(origin);
     });
 
     // --------------------
@@ -236,7 +252,7 @@ function createServerProcess({
     ipcMain.handle("server:processStatus", getServerProcessStatus);
   }
 
-  return { child, isStarting, isStopping, attach, appendLog: appendServerLog, startServer, stopMapServer, assertMapServerStopped, getServerProcessStatus, isServerPortOpen, waitChildExit, setStopWaitMs, register };
+  return { child, isStarting, isStopping, attach, appendLog: appendServerLog, startServer, stopServer, killServer, stopMapServer, assertMapServerStopped, getServerProcessStatus, isServerPortOpen, waitChildExit, setStopWaitMs, register };
 }
 
 module.exports = { createServerProcess };
