@@ -5,6 +5,10 @@ on:
     branches: [main]
 permissions:
   contents: read
+# Pushing again to the same pull request cancels the older run (saves CI minutes). Runs on main are never cancelled.
+concurrency:
+  group: verify-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   verify:
     strategy:
@@ -15,42 +19,88 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # Pull requests that only change HANDOFF/ skip the heavy steps but still report this check as passed,
+      # so main can require the checks without blocking documentation-only pull requests.
+      - id: changes
+        shell: bash
+        run: |
+          docs_only=false
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"
+            files=$(git diff --name-only FETCH_HEAD HEAD)
+            if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qvE '^HANDOFF/'; then docs_only=true; fi
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          echo "docs only: $docs_only"
+      - if: steps.changes.outputs.docs_only != 'true'
+        uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: |
             package-lock.json
             bridge/package-lock.json
-      - run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - if: steps.changes.outputs.docs_only != 'true'
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - if: steps.changes.outputs.docs_only != 'true'
+        run: npm ci --ignore-scripts --no-audit --no-fund
         working-directory: bridge
-      - run: npm run verify
+      - if: steps.changes.outputs.docs_only != 'true'
+        run: npm run verify
+      # The real PowerShell test is slow when it runs alongside the other tests, so it runs alone after them.
+      - if: steps.changes.outputs.docs_only != 'true' && runner.os == 'Windows'
+        run: node --test electron/test/minecraft-processes.test.cjs
+        env:
+          MYGAMEPACK_POWERSHELL_TEST: '1'
 
   mod-build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - id: changes
+        shell: bash
+        run: |
+          docs_only=false
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"
+            files=$(git diff --name-only FETCH_HEAD HEAD)
+            if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qvE '^HANDOFF/'; then docs_only=true; fi
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          echo "docs only: $docs_only"
+      - if: steps.changes.outputs.docs_only != 'true'
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
-      - uses: gradle/actions/setup-gradle@v4
-      - run: bash ./gradlew build --no-daemon --max-workers=2
+      - if: steps.changes.outputs.docs_only != 'true'
+        uses: gradle/actions/setup-gradle@v4
+      - if: steps.changes.outputs.docs_only != 'true'
+        run: bash ./gradlew build --no-daemon --max-workers=2
         working-directory: BridgeMod
-      - run: bash ../BridgeMod/gradlew build --no-daemon --max-workers=2
+      - if: steps.changes.outputs.docs_only != 'true'
+        run: bash ../BridgeMod/gradlew build --no-daemon --max-workers=2
         working-directory: DisplayMod
-      - run: bash ../BridgeMod/gradlew build --no-daemon --max-workers=2
+      - if: steps.changes.outputs.docs_only != 'true'
+        run: bash ../BridgeMod/gradlew build --no-daemon --max-workers=2
         working-directory: SaikutuMod
-      - run: bash ../BridgeMod/gradlew build --no-daemon --max-workers=2
+      - if: steps.changes.outputs.docs_only != 'true'
+        run: bash ../BridgeMod/gradlew build --no-daemon --max-workers=2
         working-directory: ObsMod
-      - run: bash ../BridgeMod/gradlew build --no-daemon --max-workers=2
+      - if: steps.changes.outputs.docs_only != 'true'
+        run: bash ../BridgeMod/gradlew build --no-daemon --max-workers=2
         working-directory: UmetateMod
       # The jar source hashes written by Gradle (scripts/jar_inputs.gradle) must match the JS side (scripts/jar_inputs.cjs).
-      - run: node scripts/check-jar-inputs.cjs
-      - run: node scripts/prepare-game-packs.cjs
-      - run: node scripts/test-game-contract.cjs
-      - run: node scripts/test-display-contract.cjs
-      - run: node scripts/test-bridge-contracts.cjs
-      - run: node scripts/test-soutenmon-contracts.cjs
+      - if: steps.changes.outputs.docs_only != 'true'
+        run: node scripts/check-jar-inputs.cjs
+      - if: steps.changes.outputs.docs_only != 'true'
+        run: node scripts/prepare-game-packs.cjs
+      - if: steps.changes.outputs.docs_only != 'true'
+        run: node scripts/test-game-contract.cjs
+      - if: steps.changes.outputs.docs_only != 'true'
+        run: node scripts/test-display-contract.cjs
+      - if: steps.changes.outputs.docs_only != 'true'
+        run: node scripts/test-bridge-contracts.cjs
+      - if: steps.changes.outputs.docs_only != 'true'
+        run: node scripts/test-soutenmon-contracts.cjs
