@@ -6,10 +6,13 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { GAMES } = require("../bridge/game_commands.cjs");
+const { stripPlayer } = require("./level_dat.cjs");
 
 const root = path.resolve(__dirname, "..");
 // 作った人のプレイヤーの記録は配らない（一番上だけ。data/ の下などは地図の中身なので残す）。
 const MAP_EXCLUDES = ["playerdata", "stats", "advancements"];
+// 配らないファイル（どこにあっても）。level.dat_old は level.dat の1つ前の写しで、作った人のプレイヤーの記録（Data.Player）も入っている（2026-11-06 品質レビュー）。
+const MAP_SKIP_FILES = ["level.dat_old", "session.lock"];
 
 function prepareGameMaps(repoRoot = root) {
   return GAMES.filter(game => game.maps?.length).flatMap(game => game.maps.map(name => {
@@ -21,14 +24,21 @@ function prepareGameMaps(repoRoot = root) {
       recursive: true,
       filter: file => {
         const rel = path.relative(source, file);
-        return path.basename(file) !== "session.lock" && !MAP_EXCLUDES.includes(rel.split(path.sep)[0]);
+        return !MAP_SKIP_FILES.includes(path.basename(file)) && !MAP_EXCLUDES.includes(rel.split(path.sep)[0]);
       },
     });
     if (!fs.existsSync(path.join(dest, "level.dat"))) throw new Error(`初期マップ map/${name} を写せませんでした: ${dest}`);
+    // level.dat の作った人のプレイヤーの記録（Data.Player）は、写した側だけから外す。元の map/ は変えない（2026-11-06 品質レビュー）。
+    const levelDat = path.join(dest, "level.dat");
+    const stripped = stripPlayer(fs.readFileSync(levelDat));
+    if (stripped.changed) {
+      fs.writeFileSync(levelDat, stripped.bytes);
+      console.log(`${game.name}の初期マップの level.dat から、作った人のプレイヤーの記録（Data.Player）を外しました`);
+    }
     console.log(`${game.name}の初期マップを準備しました: ${dest}`);
     return dest;
   }));
 }
 
 if (require.main === module) prepareGameMaps();
-module.exports = { MAP_EXCLUDES, prepareGameMaps };
+module.exports = { MAP_EXCLUDES, MAP_SKIP_FILES, prepareGameMaps };

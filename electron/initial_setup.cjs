@@ -15,6 +15,10 @@ const JAVA_TLS_ARGS = process.platform === "win32"
   ? ["-Djavax.net.ssl.trustStoreType=Windows-ROOT", "-Djavax.net.ssl.trustStore=NONE"] : [];
 const read = file => { try { return fs.readFileSync(file, "utf8"); } catch (e) { if (e.code === "ENOENT") return ""; throw e; } };
 const isFile = file => { try { return fs.statSync(file).isFile(); } catch { return false; } };
+// Minecraft のサーバー本体（Mojang）と Forge の部品は配らず、初回の環境構築で Forge のインストーラーが取りに行く（約 70MB。2026-11-06 ユーザーの決定）。
+// 速い回線で1分ほど。遅い回線でも途中で切らないよう、待つ時間を長めにする。
+const INSTALLER_TIMEOUT_MS = 15 * 60 * 1000;
+const INSTALLER_PROGRESS = "Minecraft のサーバー本体（Mojang）と Forge の部品をダウンロードしています。インターネットへの接続が必要です。回線によっては数分かかります…";
 // server.properties の読み書きは、ゲームの切り替えのマップの入れ替えと同じもの（埋め立て PR3 で分けた）。
 const { readProperties, mergeProperties } = require("./server_properties.cjs");
 
@@ -78,8 +82,9 @@ async function prepareServerEnvironment(root, { eulaAccepted = false, runInstall
     if (!isFile(jar)) throw new Error("Forgeインストーラーが見つかりません。環境構築をもう一度実行してください。");
     // The installer can overwrite launchers even if it later fails downloading a library.
     launcherBackup = backupServerLaunchers(root, originalLaunchers);
-    try { await runInstaller(java, [...JAVA_TLS_ARGS, "-jar", jar, "--installServer"], root, { timeoutMs: 300000 }); }
-    catch { throw new Error("Forgeサーバーの準備に失敗しました。通信状態を確認して再試行してください。詳細は保存先のForgeインストールログで確認できます。"); }
+    onProgress(INSTALLER_PROGRESS);
+    try { await runInstaller(java, [...JAVA_TLS_ARGS, "-jar", jar, "--installServer"], root, { timeoutMs: INSTALLER_TIMEOUT_MS }); }
+    catch { throw new Error(`Minecraft のサーバー本体と Forge の部品をダウンロードできませんでした。インターネットにつながっているか確かめて、もう一度「環境構築をする」を押してください。詳しくは保存先の forge-${FORGE_VERSION}-installer.jar.log に出ています。`); }
     if (missingServerFiles(root).length) throw new Error("Forgeサーバーの必要ファイルが不足しています。環境構築をもう一度実行してください。");
   }
   const launchers = synchronizeServerLaunchers(root, originalLaunchers, launcherBackup);
@@ -112,4 +117,4 @@ async function prepareServerEnvironment(root, { eulaAccepted = false, runInstall
   return { ok: true, ...status, world: world.world };
 }
 
-module.exports = { FORGE_VERSION, EULA_URL, JAVA_TLS_ARGS, inspectSetup, inspectForgeClient, launchForgeInstaller, prepareServerEnvironment, missingServerFiles };
+module.exports = { FORGE_VERSION, JAVA_DIR, EULA_URL, JAVA_TLS_ARGS, INSTALLER_PROGRESS, INSTALLER_TIMEOUT_MS, inspectSetup, inspectForgeClient, launchForgeInstaller, prepareServerEnvironment, missingServerFiles };

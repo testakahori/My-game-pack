@@ -177,3 +177,22 @@ test('配布: 開発機に残った _op.txt・ゲームのコマンドの写し�
   for (const file of ['electron/.omc/state/a.json', 'electron/.claude/settings.local.json']) assert.equal(appFiles(file), false, `${file} は配布物に入れない`);
   assert.equal(appFiles('electron/main.cjs'), true);
 });
+
+// 開発の設定（bridge/config.minecraft.json。見本のギフトの割り当て・オンのイベント・版の番号なし）は配らない（2026-11-06 品質レビュー。ユーザーの決定：空の設定を配る）。
+// 配る設定は、prepare:bridge-runtime が build/bridge-bundle に書く空の既定（bridge/config_defaults.cjs の newBridgeConfig）だけ。
+// electron-builder は bridge と build/bridge-bundle を同時に写すので、両方にあるとどちらが残るかが決まらない（1.0.48 では開発の設定が入っていた）。
+test('配布: 開発の設定（bridge/config.minecraft.json）は配らず、build/bridge-bundle の空の既定の設定だけを入れる', () => {
+  const { newBridgeConfig } = require('../../bridge/config_defaults.cjs');
+  const { CONFIG_VERSION } = require('../../bridge/config_migration.cjs');
+  const root = path.resolve(__dirname, '../..');
+  const resources = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).build.extraResources;
+  const ships = shipsFrom(path.join(root, 'bridge'), resources.find(entry => entry.from === 'bridge').filter);
+  assert.equal(ships('config.minecraft.json'), false, '開発の設定は配らない');
+  assert.equal(ships('commands/minecraft/config.minecraft.json'), true, '外すのは bridge の直下の設定だけ');
+  assert.ok(resources.some(entry => entry.from === 'build/bridge-bundle' && entry.to === 'bridge'), '空の設定は build/bridge-bundle から入れる');
+  assert.match(fs.readFileSync(path.join(root, 'scripts/prepare-bridge-runtime.cjs'), 'utf8'), /config\.minecraft\.json[\s\S]*newBridgeConfig\(\)/);
+  const fresh = newBridgeConfig();
+  assert.deepEqual([fresh.mappings, fresh.likeEvents, fresh.tiktokUsername, fresh.rcon.password], [[], [], '', '']);
+  for (const key of ['unmappedGiftEvent', 'shareEvent', 'followEvent', 'memberEvent']) assert.equal(fresh[key].enabled, false, key);
+  assert.equal(fresh.configVersion, CONFIG_VERSION, '今の版の番号を付ける（次の起動で直さない）');
+});

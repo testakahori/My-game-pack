@@ -592,6 +592,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
         <strong>⚠ 注意事項</strong>
         <ul>
           <li>セットアップには数分かかります。</li>
+          <li>環境構築で、Minecraft のサーバー本体（Mojang）と Forge の部品をダウンロードします。インターネットにつないでおいてください。</li>
           <li>Minecraftの利用規約（EULA）を確認し、同意してから構築します。</li>
           <li>既存のサーバーが起動中の場合は先に停止してください。</li>
         </ul>

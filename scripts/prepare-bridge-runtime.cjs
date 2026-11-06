@@ -82,9 +82,11 @@ fs.copyFileSync(
 fs.copyFileSync(nodeExeSrc, nodeExeDst);
 
 // 開発環境の bridge/config.minecraft.json には実データ（本物のTikTokユーザー名・RCONパスワード・
-// 開発機の絶対パスcommandsDir）が入ったまま残っている。electron-builder の extraResources は
-// "bridge" -> "bridge" (生の bridge/ 一式) の後に "build/bridge-bundle" -> "bridge" を上書きコピーするため、
-// ここにクリーンな既定configを書き出しておけば配布物には実データが混入しない。
+// 開発機の絶対パスcommandsDir・見本のギフトの割り当て）が入ったまま残っている。配る物の設定は、ここで書き出す空の既定configだけにする。
+// electron-builder は "bridge" -> "bridge" と "build/bridge-bundle" -> "bridge" を同時に写し、どちらが残るかは決まっていない。
+// 前は開発の設定（見本の割り当て 52 件・イベントがオン・版の番号なし）が配られていたので、package.json の bridge の filter で
+// config.minecraft.json を外し、こちらだけが入るようにした（2026-11-06 品質レビュー。リポジトリの設定は開発版が使うので変えない）。
+// npm run release:win は、配る物の設定がこの既定configと同じかを確かめる（scripts/release_checks.cjs）。
 // （このクリーンconfigには commandsDir が無いが、BRIDGE は書いていなければ commands/minecraft を読む。
 //   初回セットアップの config:write が commandsDir を serverFolder内の絶対パスにしてから Bridge を起動する）
 // 雛形は bridge/config_defaults.cjs の1か所（アプリの electron/paths.cjs と同じ。処理のコピー PR4）。
