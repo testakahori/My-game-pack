@@ -104,7 +104,13 @@ test("依存ファイル不足: インストーラーの終了を待ち、失敗
   const f = fixture(t);
   fs.unlinkSync(path.join(f.dir, "libraries/test/dependency.jar"));
   assert.deepEqual(missingServerFiles(f.dir), ["libraries/test/dependency.jar"]);
-  await assert.rejects(prepareServerEnvironment(f.dir, { eulaAccepted: true, runInstaller: async () => { throw Error("network failed"); } }), /準備に失敗/);
+  // 3回とも失敗したときだけ知らせる。ログの名前は2通り、本当の理由も添える（2026-11-06 レビュー 重要2・軽い3・軽い4）。
+  let failures = 0;
+  const slept = [];
+  await assert.rejects(prepareServerEnvironment(f.dir, { eulaAccepted: true, sleep: async ms => { slept.push(ms); }, runInstaller: async () => { failures++; throw Error("network failed"); } }),
+    /ダウンロードできませんでした.*インターネット.*installer\.jar\.log または installer\.log.*（network failed）/s);
+  assert.equal(failures, 3);
+  assert.deepEqual(slept, [5000, 5000]);
   assert.equal(fs.existsSync(path.join(f.dir, "server.properties")), false);
   let runs = 0;
   const result = await prepareServerEnvironment(f.dir, { eulaAccepted: true, runInstaller: async (java, args, cwd) => {
@@ -117,6 +123,50 @@ test("依存ファイル不足: インストーラーの終了を待ち、失敗
   } });
   assert.equal(result.complete, true);
   assert.equal(runs, 1);
+});
+
+// 通信が一瞬止まって1回目が失敗しても、やり直して通れば環境構築は終わる（実機で2回に1回 Read timed out があった。2026-11-06 レビュー 重要2）。
+test("依存ファイル不足: インストーラーが1回失敗しても、やり直して通れば完了する", async t => {
+  const f = fixture(t);
+  fs.unlinkSync(path.join(f.dir, "libraries/test/dependency.jar"));
+  const progress = [];
+  let runs = 0;
+  const result = await prepareServerEnvironment(f.dir, { eulaAccepted: true, sleep: async () => {}, onProgress: message => progress.push(message), runInstaller: async () => {
+    runs++;
+    if (runs === 1) throw Error("Read timed out");
+    f.write("libraries/test/dependency.jar");
+  } });
+  assert.equal(result.complete, true);
+  assert.equal(runs, 2);
+  assert.ok(progress.some(message => /やり直しています（2\/3回目）/.test(message)), progress.join(" / "));
+});
+
+// 配る雛形には libraries を入れない（Mojang のサーバー本体と対応表を再配布しない。2026-11-06 ユーザーの決定）。
+// 初回の環境構築で Forge のインストーラーが取りに行く。インターネットが要ることを、進み具合の文で知らせる。
+test("配る雛形（libraries なし）: 初回の環境構築でインストーラーがダウンロードし、起動ファイルは雛形のまま", async t => {
+  const f = fixture(t);
+  fs.rmSync(path.join(f.dir, "libraries"), { recursive: true });
+  const runBat = f.read("run.bat");
+  assert.deepEqual(missingServerFiles(f.dir), [`libraries/net/minecraftforge/forge/${FORGE_VERSION}/win_args.txt`, `libraries/net/minecraftforge/forge/${FORGE_VERSION}/forge-${FORGE_VERSION}-server.jar`]);
+  assert.equal(inspectSetup(f.dir).complete, false);
+  const progress = [];
+  let options;
+  const result = await prepareServerEnvironment(f.dir, { eulaAccepted: true, onProgress: message => progress.push(message), runInstaller: async (_java, args, cwd, given) => {
+    options = given;
+    assert.deepEqual(args, [...JAVA_TLS_ARGS, "-jar", path.join(f.dir, `forge-${FORGE_VERSION}-installer.jar`), "--installServer"]);
+    assert.equal(progress.at(-1), setup.INSTALLER_PROGRESS, "ダウンロードの前に知らせる");
+    // 本物のインストーラーは libraries を作り、run.bat を書き直す。
+    f.write(`libraries/net/minecraftforge/forge/${FORGE_VERSION}/win_args.txt`, "-p libraries/test/dependency.jar\n");
+    f.write(`libraries/net/minecraftforge/forge/${FORGE_VERSION}/forge-${FORGE_VERSION}-server.jar`);
+    f.write("libraries/test/dependency.jar");
+    f.write("run.bat", `java @libraries/net/minecraftforge/forge/${FORGE_VERSION}/win_args.txt %*\r\npause\r\n`);
+  } });
+  assert.equal(result.complete, true);
+  assert.match(setup.INSTALLER_PROGRESS, /Mojang/);
+  assert.match(setup.INSTALLER_PROGRESS, /インターネット/);
+  assert.equal(options.timeoutMs, setup.INSTALLER_TIMEOUT_MS);
+  assert.ok(setup.INSTALLER_TIMEOUT_MS >= 10 * 60 * 1000, "遅い回線でも途中で切らない");
+  assert.equal(f.read("run.bat"), runBat, "起動ファイルは雛形のもの（同梱の Java を使う）に戻す");
 });
 
 test("完了判定: 空のlibrariesやrun.batだけでは完了しない", async t => {
@@ -218,7 +268,7 @@ test("Forge再構築: ダウンロード途中で失敗しても以前の起動�
   await assert.rejects(prepareServerEnvironment(f.dir, { eulaAccepted: true, runInstaller: async () => {
     f.write("run.bat", original.replaceAll("47.3.0", "47.4.10"));
     throw Error("download interrupted");
-  } }), /準備に失敗/);
+  } }), /ダウンロードできませんでした.*インターネット/);
   const backups = path.join(f.dir, "forge-launcher-backups");
   assert.equal(fs.readFileSync(path.join(backups, fs.readdirSync(backups)[0], "run.bat"), "utf8"), original);
   assert.equal(inspectSetup(f.dir).complete, false);

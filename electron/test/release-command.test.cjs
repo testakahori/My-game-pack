@@ -67,7 +67,9 @@ function writeStamp(dir, modDir, inputs) {
 }
 const stampAll = dir => { for (const modDir of ['BridgeMod', 'DisplayMod', 'SaikutuMod', 'ObsMod', 'UmetateMod']) writeStamp(dir, modDir); };
 const reasons = dir => release.staleMods(dir).map(row => [row.name, row.reason]);
-const quiet = { local: false, log: () => {} };
+// 作る前と作ったあとの確かめ（scripts/release_checks.cjs）は、ここでは問題なしの偽物にする。中身は release-checks.test.cjs で確かめる。
+const CLEAN = { commit: '0123456789abcdef0123456789abcdef01234567', short: '0123456', branch: 'main', changes: [] };
+const quiet = { local: false, log: () => {}, git: () => CLEAN, dependencies: () => [], verifyOutput: () => [] };
 const freshExe = (put, version = '1.2.3') => () => { put(`release/MyGamePack-Setup-${version}.exe`, 'exe', new Date()); };
 
 test('リリース: package.json は release:win の1本で、pack:win は無い。electron-builder の版は固定', () => {
@@ -343,7 +345,9 @@ test('リリース: 作った物の置き場を消せないときは、開いて
   assert.deepEqual(release.REMOVE_OPTIONS, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }, 'ふだんは何度か試し直す');
 });
 
-test('リリース: 最後の表示に、どのコミットから作ったかと、コミットしていない変更の数を出す（最後のレビュー 軽い6）', async t => {
+// 何から作ったか（manifest の commit）が中身と合わなくなるので、コミットしていない変更があれば止める（2026-11-06 品質レビュー）。
+// 試し用の版だけは --allow-dirty で変更を入れたまま作れる（版を -local. にするのも変更なので）。
+test('リリース: コミットしていない変更があれば何も作らずに止め、最後の表示にどのコミットから作ったかを出す（最後のレビュー 軽い6）', async t => {
   const { dir, put } = fakeRepo(t);
   const git = (...args) => cp.execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   git('init', '-q', '-b', 'release-test');
@@ -353,9 +357,65 @@ test('リリース: 最後の表示に、どのコミットから作ったかと
   git('add', 'package.json');
   git('commit', '-q', '-m', 'test');
   const head = git('rev-parse', '--short', 'HEAD');
+  const real = { ...quiet, git: undefined, root: dir, outDir: path.join(dir, 'release') };
   put('package.json', JSON.stringify({ version: '1.2.3', changed: true }));
-  const summary = await release.runRelease({ ...quiet, root: dir, outDir: path.join(dir, 'release'), run: () => {}, packageInstaller: freshExe(put) });
-  assert.ok(summary.includes(`作った元: ${head}（release-test）・コミットしていない変更 1 件`), summary.join('\n'));
+  const calls = [];
+  await assert.rejects(release.runRelease({ ...real, run: step => calls.push(step), packageInstaller: () => calls.push('package') }),
+    /コミットしていない変更が 1 件.*\n- +M package\.json.*コミットしてから/s);
+  await assert.rejects(release.runRelease({ ...real, allowDirty: true, run: step => calls.push(step), packageInstaller: () => calls.push('package') }),
+    /試し用の版（-local\.）だけ/, '配る版は --allow-dirty でも作らない');
+  assert.deepEqual(calls, []);
+  // 試し用の版は、--allow-dirty なら変更を入れたまま作れる。表示に変更の数を出す。
+  put('package.json', JSON.stringify({ version: '1.2.3-local.1' }));
+  const local = await release.runRelease({ ...real, local: true, allowDirty: true, run: () => {}, packageInstaller: freshExe(put, '1.2.3-local.1') });
+  assert.ok(local.includes(`作った元: ${head}（release-test）・コミットしていない変更 1 件`), local.join('\n'));
+  assert.ok(!local.some(line => line.startsWith('タグを付けるとき')), '試し用の版にはタグの案内を出さない');
+  // コミットすれば作れる。タグは付けず、付けるときの形だけを出す。
+  put('package.json', JSON.stringify({ version: '1.2.3', released: true }));
+  git('add', 'package.json');
+  git('commit', '-q', '-m', 'release');
+  const full = git('rev-parse', 'HEAD');
+  const summary = await release.runRelease({ ...real, run: () => {}, packageInstaller: freshExe(put) });
+  assert.ok(summary.includes(`作った元: ${full.slice(0, 7)}（release-test）・コミットしていない変更 0 件`), summary.join('\n'));
+  assert.ok(summary.includes(`タグを付けるとき: git tag v1.2.3 ${full} && git push origin v1.2.3`), summary.join('\n'));
+  assert.equal(git('tag', '--list'), '', 'タグは付けない');
+});
+
+test('リリース: git の情報が取れないときは、配る版を作らない', async t => {
+  const { dir, put } = fakeRepo(t);
+  const calls = [];
+  await assert.rejects(release.runRelease({ ...quiet, git: () => null, root: dir, outDir: path.join(dir, 'release'), run: step => calls.push(step), packageInstaller: () => calls.push('package') }),
+    /git の情報が取れない/);
+  assert.deepEqual(calls, []);
+});
+
+// 1.0.48 では bridge に tiktok-live-connector 2.4.3 が入ったまま配られた（package.json・package-lock.json は 2.5.0。2026-11-06 品質レビュー）。
+test('リリース: node_modules が package-lock.json と合わなければ、何も作らずに止め、npm ci で直すよう案内する', async t => {
+  const { dir } = fakeRepo(t);
+  const calls = [];
+  await assert.rejects(release.runRelease({ ...quiet, dependencies: () => ['bridge/ tiktok-live-connector: node_modules は 2.4.3、package-lock.json は 2.5.0'],
+    root: dir, outDir: path.join(dir, 'release'), run: step => calls.push(step), packageInstaller: () => calls.push('package') }),
+  /node_modules が package\.json・package-lock\.json と合わない.*tiktok-live-connector: node_modules は 2\.4\.3.*npm ci --ignore-scripts/s);
+  assert.deepEqual(calls, []);
+});
+
+// できた物に配ってはいけない物があれば、成功にせず、記録（manifest）も書かない（2026-11-06 品質レビュー）。
+test('リリース: 配る物の確かめで問題が見つかれば止め、記録を書かない。問題が無ければ記録を書き、SHA-256 を出す', async t => {
+  const { dir, put } = fakeRepo(t);
+  const outDir = path.join(dir, 'release');
+  await assert.rejects(release.runRelease({ ...quiet, verifyOutput: () => ['配らないファイルが入っています: resources/bridge/telnet_test.js'], root: dir, outDir, run: () => {}, packageInstaller: freshExe(put) }),
+    /できたインストーラーに問題があります（1 件）。このインストーラーは配らないでください.*telnet_test\.js/s);
+  assert.equal(fs.existsSync(path.join(outDir, '1.2.3-manifest.json')), false);
+  // 通らなかったインストーラーは名前を変え、うっかり配らないようにする（2026-11-06 レビュー 軽い6）。
+  assert.equal(fs.existsSync(path.join(outDir, 'MyGamePack-Setup-1.2.3.exe')), false);
+  assert.equal(fs.existsSync(path.join(outDir, 'MyGamePack-Setup-1.2.3.rejected.exe')), true);
+  const summary = await release.runRelease({ ...quiet, root: dir, outDir, run: () => {}, packageInstaller: freshExe(put) });
+  const manifest = JSON.parse(fs.readFileSync(path.join(outDir, '1.2.3-manifest.json'), 'utf8'));
+  assert.equal(manifest.installer.file, 'MyGamePack-Setup-1.2.3.exe');
+  assert.equal(manifest.installer.sha256, jarInputs.sha256File(path.join(outDir, 'MyGamePack-Setup-1.2.3.exe')));
+  assert.equal(manifest.commit, CLEAN.commit);
+  assert.ok(summary.includes(`SHA-256: ${manifest.installer.sha256}`), summary.join('\n'));
+  assert.ok(summary.includes(`記録: ${path.join(outDir, '1.2.3-manifest.json')}`), summary.join('\n'));
 });
 
 // package-windows.cjs を直接動かすと、ビルドと準備をせずに前に作ったものが入る（前の一番の問題。最後のレビュー 重要3）。
@@ -374,12 +434,15 @@ test('インストーラー: package-windows.cjs は release:win（試し用は 
 
 test('リリース: main は引数から出力先と試し用かを決め、npm と package-windows.cjs を合図つきで呼ぶ（最後のレビュー 軽い2）', async t => {
   const { dir, put } = fakeRepo(t);
-  assert.deepEqual(release.releaseOptions([], dir), { local: false, outDir: path.join(dir, 'release') });
-  assert.deepEqual(release.releaseOptions(['--local'], dir), { local: true, outDir: path.join(dir, 'release-local') });
-  assert.deepEqual(release.releaseOptions(['out dir', '--local'], dir), { local: true, outDir: path.resolve('out dir') });
+  assert.deepEqual(release.releaseOptions([], dir, {}), { local: false, allowDirty: false, outDir: path.join(dir, 'release') });
+  assert.deepEqual(release.releaseOptions(['--local'], dir, {}), { local: true, allowDirty: false, outDir: path.join(dir, 'release-local') });
+  assert.deepEqual(release.releaseOptions(['out dir', '--local'], dir, {}), { local: true, allowDirty: false, outDir: path.resolve('out dir') });
+  // 試し用の版を変更を入れたまま作る合図：--allow-dirty か、環境変数 MYGAMEPACK_RELEASE_ALLOW_DIRTY=1。
+  assert.deepEqual(release.releaseOptions(['--allow-dirty', 'out dir', '--local'], dir, {}), { local: true, allowDirty: true, outDir: path.resolve('out dir') });
+  assert.deepEqual(release.releaseOptions(['--local'], dir, { MYGAMEPACK_RELEASE_ALLOW_DIRTY: '1' }), { local: true, allowDirty: true, outDir: path.join(dir, 'release-local') });
   const cli = path.join(dir, 'npm-cli.js');
   const calls = [];
-  await release.main([], { root: dir, cli, log: () => {}, exec: (args, options) => {
+  await release.main([], { ...quiet, root: dir, cli, log: () => {}, exec: (args, options) => {
     calls.push([args.map(arg => path.basename(arg)), options.cwd, options.env.npm_execpath, options.env[RELEASE_PIPELINE_ENV]]);
     if (args[0].endsWith('package-windows.cjs')) freshExe(put)();
   } });
@@ -459,6 +522,10 @@ test('文書: 配布の手順は release:win と公式 HP。GitHub Release と p
   assert.match(manual, /npm ci --ignore-scripts/);
   assert.match(manual, /ジャンクション/);
   assert.match(manual, /\.inputs\.json/);
+  // 署名していないインストーラーの開き方と、公式 HP に載せる SHA-256 の確かめ方を書く。リポジトリが公開か非公開かは書かない（2026-11-06 品質レビュー）。
+  for (const word of ['Windows によって PC が保護されました', '「詳細情報」', '「実行」', 'Get-FileHash', 'SHA-256', '-manifest.json']) assert.ok(manual.includes(word), word);
+  assert.doesNotMatch(manual, /非公開/);
+  assert.match(fs.readFileSync(path.join(root, 'docs/ローカル更新.md'), 'utf8'), /--allow-dirty/);
   for (const name of ['docs/手動配布とアプリ更新.md', 'docs/ローカル更新.md', 'docs/採掘MODと統一コマンド.md', 'AGENTS.md']) {
     assert.doesNotMatch(fs.readFileSync(path.join(root, name), 'utf8'), /pack:win/, name);
   }

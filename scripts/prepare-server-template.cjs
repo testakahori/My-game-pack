@@ -11,7 +11,9 @@ function prepareServerTemplate(source, destination, modJar, displayJar, obsJar) 
   if (displayJar && (!fs.existsSync(displayJar) || !fs.statSync(displayJar).isFile())) throw new Error(`Build the current DisplayMod first: ${displayJar}`);
   if (obsJar && (!fs.existsSync(obsJar) || !fs.statSync(obsJar).isFile())) throw new Error(`Build the current ObsMod first: ${obsJar}`);
   // GiftStream_Pack（古いデータパック）は配らない。サーバーフォルダーの直下では Minecraft に読まれず、中身もほかが受け持っている（2026-10-30 ユーザーの決定）。
-  const directories = ["jdk-21.0.4+7", "libraries", "mods"];
+  // libraries も配らない。中に Mojang のサーバー本体の jar と、再配布してはいけない対応表（mappings）が入っていた。
+  // 配信者の PC で、初回の環境構築が Forge のインストーラー（--installServer）で取りに行く（electron/initial_setup.cjs。2026-11-06 ユーザーの決定）。
+  const directories = ["jdk-21.0.4+7", "mods"];
   const files = [`forge-${FORGE_VERSION}-installer.jar`, "run.bat", "run.sh", "setup.bat", "user_jvm_args.txt"];
   for (const name of [...directories, ...files]) {
     const src = path.join(source, name);

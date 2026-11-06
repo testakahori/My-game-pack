@@ -5,7 +5,8 @@ const os = require("node:os");
 const path = require("node:path");
 const { prepareServerTemplate } = require("../../scripts/prepare-server-template.cjs");
 
-test("公開テンプレート: ワールド・プレイヤー・パスワード・設定・ログ・古いデータパック・作業の道具のフォルダーを含めない", t => {
+// libraries（Mojang のサーバー本体の jar・再配布してはいけない対応表 mappings・古い Forge の部品）も配らない。初回の環境構築で取りに行く（2026-11-06 ユーザーの決定）。
+test("公開テンプレート: ワールド・プレイヤー・パスワード・設定・ログ・古いデータパック・作業の道具のフォルダー・libraries を含めない", t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "release-template-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   // 元のサーバーの親に .claude があっても、外すのは元のサーバーより下の .omc・.claude だけ（PR #169 レビュー 軽い3）。
@@ -21,7 +22,10 @@ test("公開テンプレート: ワールド・プレイヤー・パスワード
   fs.writeFileSync(path.join(source, "run.bat"), "java @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt nogui");
   fs.writeFileSync(path.join(source, "setup.bat"), "java -jar forge-1.20.1-47.3.0-installer.jar --installServer");
   // 作業の道具（.omc・.claude）が写すフォルダーの中で動くと、記録のフォルダーができる（2026-10-30 に本物のサーバーで起きた。PR #168 レビュー 軽い2）。
-  for (const dir of ["mods/.omc/state", "libraries/.claude", "jdk-21.0.4+7/.omc", "libraries/org/.OMC/deep"]) {
+  for (const file of ["libraries/net/minecraft/server/1.20.1/server-1.20.1.jar", "libraries/net/minecraft/server/1.20.1-20230612.114412/server-1.20.1-20230612.114412-mappings.txt", "libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt"]) {
+    fs.mkdirSync(path.dirname(path.join(source, file)), { recursive: true }); fs.writeFileSync(path.join(source, file), "mojang");
+  }
+  for (const dir of ["mods/.omc/state", "mods/.claude", "jdk-21.0.4+7/.omc", "jdk-21.0.4+7/lib/.OMC/deep"]) {
     fs.mkdirSync(path.join(source, dir), { recursive: true }); fs.writeFileSync(path.join(source, dir, "note.json"), "{}");
   }
   const currentMod = path.join(root, "bridgemod-1.3.0.jar");
@@ -39,9 +43,15 @@ test("公開テンプレート: ワールド・プレイヤー・パスワード
   assert.match(fs.readFileSync(path.join(target, "setup.bat"), "utf8"), /forge-1\.20\.1-47\.4\.10-installer/);
   assert.match(fs.readFileSync(path.join(source, "run.bat"), "utf8"), /47\.3\.0/);
   // GiftStream_Pack はサーバーフォルダーの直下では Minecraft に読まれず、中身もほかが受け持っているので配らない（2026-10-30 ユーザーの決定）。
-  for (const name of ["world", "bridge", "logs", "GiftStream_Pack", "RCON_password.txt", "server.properties", "usercache.json", "ops.json"]) assert.equal(fs.existsSync(path.join(target, name)), false, name);
-  for (const dir of ["mods/.omc", "libraries/.claude", "jdk-21.0.4+7/.omc", "libraries/org/.OMC"]) assert.equal(fs.existsSync(path.join(target, dir)), false, dir);
-  for (const dir of ["mods", "libraries", "jdk-21.0.4+7"]) assert.equal(fs.existsSync(path.join(target, dir, "fixture")), true, `${dir} の中身は写す`);
-  assert.equal(fs.existsSync(path.join(target, "libraries", "org")), true, "道具のフォルダーの横にあるものは写す");
+  for (const name of ["world", "bridge", "logs", "GiftStream_Pack", "RCON_password.txt", "server.properties", "usercache.json", "ops.json", "libraries"]) assert.equal(fs.existsSync(path.join(target, name)), false, name);
+  for (const dir of ["mods/.omc", "mods/.claude", "jdk-21.0.4+7/.omc", "jdk-21.0.4+7/lib/.OMC"]) assert.equal(fs.existsSync(path.join(target, dir)), false, dir);
+  for (const dir of ["mods", "jdk-21.0.4+7"]) assert.equal(fs.existsSync(path.join(target, dir, "fixture")), true, `${dir} の中身は写す`);
+  assert.equal(fs.existsSync(path.join(target, "jdk-21.0.4+7", "lib")), true, "道具のフォルダーの横にあるものは写す");
+  // 初回の環境構築でインストーラーを動かすのに要るものは入れる。
+  for (const name of ["forge-1.20.1-47.4.10-installer.jar", "run.bat", "user_jvm_args.txt"]) assert.equal(fs.existsSync(path.join(target, name)), true, name);
   assert.throws(() => prepareServerTemplate(source, target), /already exists/);
+  // 元のサーバーに libraries が無くても作れる。
+  fs.rmSync(path.join(source, "libraries"), { recursive: true });
+  prepareServerTemplate(source, path.join(root, "template2"), currentMod, displayMod);
+  assert.equal(fs.existsSync(path.join(root, "template2", "libraries")), false);
 });
