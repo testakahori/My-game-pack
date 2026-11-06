@@ -20,6 +20,8 @@ const STOP_ORIGINS = Object.freeze({
   'map:load': 'MAPの読込',
   'map:backup': 'MAPのバックアップ',
   'console': 'コンソールコマンドのstop',
+  // アプリを閉じるときに止める（app_quit.cjs。2026-11-06 品質レビュー 重大）。main だけが渡し、画面からは渡さない。
+  'app:quit': 'アプリの終了',
   'home:pause': '配信ホームの一時停止',
   'home:resume': '配信ホームの再開',
   'banner:resume': '一時停止の帯の再開',

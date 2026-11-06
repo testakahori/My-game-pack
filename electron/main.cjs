@@ -195,13 +195,18 @@ const { launchBridge, stopBridge } = bridgeProcess;
 bridgeProcess.register(ipcMain);
 
 const isDev = process.env.ELECTRON_DEV === "1";
+// 閉じるときに、このアプリが起動したサーバーを保存して止め、BRIDGE も止めてから終わる（2026-11-06 品質レビュー 重大）。
+// サーバー・BRIDGE の状態と停止は、呼ばれたときに serverProcess・bridgeProcess から読む（テストが差し替えて配線を確かめるため）。
+const { createAppQuit } = require('./app_quit.cjs');
+const appQuit = createAppQuit({ app, dialog, serverProcess, bridgeProcess, getWindow: () => BrowserWindow.getAllWindows()[0] || null });
 const { createAppWindow } = require('./window.cjs');
-// 保存・準備中（初期セットアップ・MAP の作業・サーバーの起動と停止・ゲームの切り替え）はウィンドウを閉じない。
+// 保存・準備中（初期セットアップ・MAP の作業・サーバーの起動と停止・ゲームの切り替え・閉じる前の停止）はウィンドウを閉じない。
 // 名前のある関数にして、テストから作業ごとに確かめる（MAP・サーバーの起動と停止は差し替えて、初期セットアップ・ゲームの操作は本当に作業中にして）。
 function isAppBusy() {
-  return isInitialSetupRunning() || mapOperations.isBusy() || serverProcess.isStarting() || serverProcess.isStopping() || isGameProfileBusy();
+  return isInitialSetupRunning() || mapOperations.isBusy() || serverProcess.isStarting() || serverProcess.isStopping() || isGameProfileBusy() || appQuit.isBusy();
 }
-const appWindow = createAppWindow({ BrowserWindow, session, dialog, shell, appDir: __dirname, isDev, isBusy: () => isAppBusy() });
+const appWindow = createAppWindow({ BrowserWindow, session, dialog, shell, appDir: __dirname, isDev, isBusy: () => isAppBusy(),
+  onClose: (event, win) => appQuit.onWindowClose(event, win) });
 const { installProdOnlyCsp, createWindow } = appWindow;
 appWindow.register(ipcMain);
 
@@ -244,3 +249,6 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
+// app.quit() はウィンドウを閉じる前に before-quit が来る。ウィンドウがすべて閉じたあとの will-quit で BRIDGE を止める（app_quit.cjs）。
+app.on("before-quit", event => appQuit.onBeforeQuit(event));
+app.on("will-quit", event => appQuit.onWillQuit(event));
