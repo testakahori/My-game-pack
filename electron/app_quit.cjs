@@ -12,11 +12,13 @@ const CONFIRM = {
 };
 
 // 保存・停止が終わらなかったとき。黙って強制終了せず、選んでもらう（すぐ決めるボタンは「やめる」）。
-function failedOptions(error) {
+// BRIDGE を止めたあとなら、「やめる」を選んでもギフトが届かないことを書いておく（2026-11-06 レビュー 軽い4）。
+function failedOptions(error, bridgeStopped) {
   return {
     type: "warning", title: "サーバーを止められませんでした",
     message: "ワールドの保存とサーバーの停止が終わっていません。",
-    detail: `${error?.message || error}\n\n強制終了すると、最後に保存したあとのワールドの変化が消えることがあります。`,
+    detail: `${error?.message || error}\n\n強制終了すると、最後に保存したあとのワールドの変化が消えることがあります。`
+      + (bridgeStopped ? "\n\nBRIDGE は止めました。「やめる」で配信を続けるときは、配信ホームで BRIDGE を起動し直してください。" : ""),
     buttons: ["強制終了して閉じる", "やめる"], defaultId: 1, cancelId: 1, noLink: true,
   };
 }
@@ -50,17 +52,23 @@ function createAppQuit({ app, dialog, serverProcess, bridgeProcess, getWindow = 
       if (await ask(win, CONFIRM) !== 0) return;
       phase = "stopping";
       // 先に BRIDGE を止めて、ギフトがサーバーへ送られないようにする。止められなくてもサーバーの保存は続ける。
+      let bridgeStopped = false;
       if (bridgeProcess.isActive()) {
-        try { await bridgeProcess.stopBridge("app:quit"); } catch (error) { log.warn("[Quit] BRIDGE を止められませんでした:", error?.message || error); }
+        try { await bridgeProcess.stopBridge("app:quit"); bridgeStopped = true; } catch (error) { log.warn("[Quit] BRIDGE を止められませんでした:", error?.message || error); }
       }
       try {
         await serverProcess.stopServer("app:quit");
       } catch (error) {
-        phase = "asking";
-        if (await ask(win, failedOptions(error)) !== 0) return;
-        phase = "stopping";
-        try { await serverProcess.killServer(); } catch (killError) { log.warn("[Quit] サーバーを強制終了できませんでした:", killError?.message || killError); }
-        forcedChild = serverProcess.child();
+        // サーバーはもう終わっている（終了コードが 0 でない・止めた直後のポートの確かめで失敗した）なら、強制終了は聞かずに終える（2026-11-06 レビュー 軽い3）。
+        if (serverRunning()) {
+          phase = "asking";
+          if (await ask(win, failedOptions(error, bridgeStopped)) !== 0) return;
+          phase = "stopping";
+          try { await serverProcess.killServer(); } catch (killError) { log.warn("[Quit] サーバーを強制終了できませんでした:", killError?.message || killError); }
+          forcedChild = serverProcess.child();
+        } else {
+          log.warn("[Quit] サーバーの停止は失敗を返しましたが、サーバーはもう終わっています:", error?.message || error);
+        }
       }
       // 終了の中で close・before-quit がもう一度来るので、先に作業中を外す。未保存の設定の確認はこのあと（ウィンドウを閉じるとき）に出る。
       phase = "idle";
@@ -75,7 +83,8 @@ function createAppQuit({ app, dialog, serverProcess, bridgeProcess, getWindow = 
     if (phase !== "idle") { event.preventDefault(); return; }
     if (!serverRunning()) return;
     event.preventDefault();
-    void stopAndQuit(win);
+    // 窓が壊れたあとなどの思わぬ失敗も受け取る（作業中は finally で外れる。2026-11-06 レビュー 軽い6）。
+    stopAndQuit(win).catch(error => log.warn("[Quit]", error?.message || error));
   }
 
   // アプリの終了（app.quit()）。ウィンドウを閉じるより先に来るので、同じように聞く。
@@ -83,7 +92,7 @@ function createAppQuit({ app, dialog, serverProcess, bridgeProcess, getWindow = 
     if (phase !== "idle") { event.preventDefault(); return; }
     if (!serverRunning()) return;
     event.preventDefault();
-    void stopAndQuit(getWindow());
+    stopAndQuit(getWindow()).catch(error => log.warn("[Quit]", error?.message || error));
   }
 
   // ウィンドウがすべて閉じたあと（未保存の設定の確認も済んだあと）。BRIDGE が動いていれば、聞かずに止めてから終わる。

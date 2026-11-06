@@ -244,3 +244,29 @@ test('BRIDGE を止められなくても、終わる', async () => {
   assert.ok(x.warnings.some(line => line.includes('Bridgeを停止できませんでした。')));
   assert.equal(x.willQuit().prevented, false);
 });
+
+// 停止が失敗を返しても、サーバーがもう終わっていれば「止められませんでした／強制終了」は聞かずに終える（2026-11-06 レビュー 軽い3）。
+// 例：終了コードが 0 でない・止めた直後のポートの確かめで失敗した・確認の窓の間にサーバーが落ちた。
+test('停止が失敗を返しても、サーバーがもう終わっていれば、強制終了は聞かずに終わる', async () => {
+  const x = setup();
+  x.state.stopServer = () => { x.state.serverChild = null; return Promise.reject(new Error('ポートがまだ使われています')); };
+  x.close();
+  await tick();
+  await x.answer(0, 0);
+  assert.equal(x.asked.length, 1, '2つ目の窓を出さない');
+  assert.deepEqual(x.calls, ['stopServer:app:quit', 'quit']);
+  assert.match(x.warnings.join('\n'), /もう終わっています/);
+});
+
+// BRIDGE を止めたあとに停止が失敗したら、「やめる」で配信を続けるときのために BRIDGE を止めたことを書く（2026-11-06 レビュー 軽い4）。
+test('BRIDGE を止めたあとに停止が失敗したら、2つ目の窓に BRIDGE を止めたことを書く', async () => {
+  const x = setup({ bridge: true });
+  x.state.stopServer = () => Promise.reject(new Error('時間切れ'));
+  x.close();
+  await tick();
+  await x.answer(0, 0);
+  assert.equal(x.asked.length, 2);
+  assert.match(x.asked[1].options.detail, /BRIDGE は止めました。「やめる」で配信を続けるときは、配信ホームで BRIDGE を起動し直してください。/);
+  await x.answer(1, 1);
+  assert.deepEqual(x.calls, ['stopBridge:app:quit', 'stopServer:app:quit']);
+});
