@@ -3927,6 +3927,7 @@ button.tts-status-card:hover {
 
 /* 狭い窓（1120×720）でも、状態の文が「…」で切れないよう2行まで折り返す（文字の大きさは変えない。2026-11-08 品質レビュー） */
 .tts-status-card .tts-status-card__value,
+.tts-status-card:nth-child(3) .tts-status-card__value,
 .tts-status-card .tts-status-card__copy > span:last-child {
   display: -webkit-box;
   -webkit-box-orient: vertical;

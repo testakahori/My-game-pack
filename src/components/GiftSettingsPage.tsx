@@ -193,10 +193,13 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void; gameName?: st
   // 元の場所へ戻す。そのあいだに同じギフトを登録し直していたら、二重にしない。
   const undoRemove = useCallback(() => {
     if (!undoRemoved) return;
-    const { mapping, index } = undoRemoved;
-    setUndoRemoved(null);
+    const current = undoRemoved;
+    const { mapping, index } = current;
     const giftId = String(mapping.giftId).trim();
-    void commitMappings(p => p.some(x => String(x.giftId).trim() === giftId) ? p : [...p.slice(0, index), mapping, ...p.slice(index)]).catch(() => {});
+    // 保存できたときだけ知らせを消す（保存できなければ、もう一度押せるように残す）。
+    void commitMappings(p => p.some(x => String(x.giftId).trim() === giftId) ? p : [...p.slice(0, index), mapping, ...p.slice(index)])
+      .then(() => setUndoRemoved(previous => previous === current ? null : previous))
+      .catch(() => {});
   }, [commitMappings, undoRemoved]);
   // 登録済みギフトの並べ替え（ギフトのあるマスへ落とすと入れ替え、空いたマスへ落とすと最後へ。src/lib/giftBoard.ts）。
   // 並び順は設定の mappings の順として保存する（アプリを閉じても残る。2026-11-05 ユーザーの決定）。
