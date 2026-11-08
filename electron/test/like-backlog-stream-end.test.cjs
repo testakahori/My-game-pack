@@ -67,8 +67,11 @@ test('BridgeMOD 1.7.5 は /bridge/control でいいねの待ちを捨てる（�
   assert.match(control, /if \(!"discard"\.equals\(action\) \|\| !"like"\.equals\(type\)\)/, 'いいね以外は捨てない');
   assert.match(control, /"\{\\"ok\\":true,\\"discarded\\":" \+ discarded \+ "\}"/);
   // 実行中のいいねは残りを0にして止める。捨てたあとに来た新しいいいねを、取り出しで消さない。
-  assert.match(mod, /private synchronized int discardLikeQueue\(\) \{\s*int discarded = likeQueue\.size\(\);\s*for \(BridgeEvent event : likeQueue\) event\.remaining = 0;\s*likeQueue\.clear\(\);\s*return discarded;\s*\}/);
-  assert.match(mod, /if \(queue\.peekFirst\(\) == event\) queue\.pollFirst\(\);/);
+  // BridgeMOD 1.8.4 から待ち列は EventQueues にあり、この動きは JUnit の EventQueuesTest でも確かめる（2026-11-07 品質レビュー）。
+  assert.match(control, /int discarded = queues\.discardLikes\(\);/);
+  const queues = read('BridgeMod/src/main/java/jp/douma/bridgemod/EventQueues.java');
+  assert.match(queues, /synchronized int discardLikes\(\) \{\s*int discarded = like\.size\(\);\s*for \(E event : like\) event\.remaining = 0;\s*like\.clear\(\);\s*return discarded;\s*\}/);
+  assert.match(queues, /if \(queue\.peekFirst\(\) == event\) queue\.pollFirst\(\);/);
   // 取り出したあとに捨てられたイベントは実行しない（ゲームMODへ count=0 で渡さない。PR #94 レビュー）。
   assert.match(mod, /private int executeEventSlice\(MinecraftServer server, BridgeEvent event, int commandBudget\) \{\s*(?:\/\/[^\n]*\s*)*if \(event\.remaining <= 0\) return 0;/);
   const [major, minor, patch] = read('BridgeMod/gradle.properties').match(/^mod_version=(\d+)\.(\d+)\.(\d+)\r?$/m).slice(1).map(Number);

@@ -44,10 +44,11 @@ const pass = message => { result.checks.push(message); console.log('PASS ' + mes
   }
   let res = await post({ type: 'like', key: 'cod', count: 1, eventId: 'excess' });
   assert.equal(res.status, 429); await res.text();
+  // BridgeMOD 1.8.4: a retry of an accepted ID is a duplicate (202), never a 429, and is not queued twice.
   res = await post({ type: 'like', key: 'cod', count: 1, eventId: 'full-0' });
-  assert.equal(res.status, 429); await res.text();
+  assert.equal(res.status, 202); assert.equal((await res.json()).duplicate, true);
   assert.equal((await status()).like, 120);
-  pass('full like queue applies backpressure without dropping old requests');
+  pass('full like queue applies backpressure without dropping old requests; a retry of an accepted ID is not queued twice');
   bot = mineflayer.createBot({ host: '127.0.0.1', port: 25587, username: 'LikeLoadTester', auth: 'offline', version: '1.20.1', viewDistance: 'tiny' });
   bot.on('error', error => console.error(error.message));
   await new Promise((resolve, reject) => { bot.once('spawn', resolve); bot.once('kicked', reject); });
@@ -81,9 +82,9 @@ const pass = message => { result.checks.push(message); console.log('PASS ' + mes
   assert.ok(result.samples.every(s => s.likeCodActive <= 64));
   assert.ok(result.samples.some(s => s.likeCodActive === 64), 'test actually reaches the active cap');
   res = await post({ type: 'like', key: 'cod', count: 1, eventId: 'full-0' });
-  assert.equal(res.status, 202); await res.text(); await sleep(500);
-  assert.equal((await status()).likeCodSpawned, done.likeCodSpawned + 1);
-  pass('120 likes all execute, active like fish stay within 64, common requests run again even with the same ID');
+  assert.equal(res.status, 202); assert.equal((await res.json()).duplicate, true); await sleep(500);
+  assert.equal((await status()).likeCodSpawned, done.likeCodSpawned);
+  pass('120 likes all execute, active like fish stay within 64, a late retry with the same ID does not run again');
   await until(async () => (await status()).likeCodActive === 0, 30000);
   assert.match(await cmd('data get entity @e[tag=qa_world_fish,limit=1] Health'), /20|3/);
   await cmd('scoreboard objectives add qa_fish dummy');

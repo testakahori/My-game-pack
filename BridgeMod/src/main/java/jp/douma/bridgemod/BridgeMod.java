@@ -47,19 +47,8 @@ public class BridgeMod {
     private static final int MAX_COUNT = 100;
     private static final int MAX_GAME_COUNT = 100000;
     private long discardedGameRequests;
-    private static final int MAX_HTTP_BODY_BYTES = 8192;
-    // キュー上限は種別ごとに分離：いいねが溜まってもギフトは拒否されない
-    private static final int MAX_GIFT_QUEUE = 600;
-    private static final int MAX_LIKE_QUEUE = 120;
-    private static final int MAX_OTHER_QUEUE = 280;
-    // 1tickあたりの実行コマンド予算：repeat大のギフトも複数tickへ分割してTPS低下を防ぐ
-    private static final int MAX_COMMANDS_PER_TICK = 60;
-    // ギフト連続時でも、いいねが完全に止まらないように予約する予算
-    private static final int LIKE_RESERVED_COMMANDS_PER_TICK = 8;
-
-    private final Deque<BridgeEvent> giftQueue = new ArrayDeque<>();
-    private final Deque<BridgeEvent> likeQueue = new ArrayDeque<>();
-    private final Deque<BridgeEvent> otherQueue = new ArrayDeque<>();
+    // ギフト・いいね・そのほかの待ち列、tick の予算、一時停止、要求 ID の重複の確かめ（EventQueues。2026-11-07 品質レビュー）。
+    private final EventQueues<BridgeEvent> queues = new EventQueues<>();
     private final LikeCodLimiter likeCod = new LikeCodLimiter();
 
     private HttpServer bridgeServer;
@@ -78,9 +67,8 @@ public class BridgeMod {
     private volatile String lastStatusRest = ",\"starting\":true}";
     // サーバーのスレッドだけが読み書きする。同じ失敗を毎秒ログに出さない。
     private String lastStatusFailure = "";
-    // 妨害の一時停止（休憩・準備の間だけ止める。2026-10-16 ユーザーの決定）。メモリだけに持ち、サーバーを止めたら解く。
+    // 妨害の一時停止（休憩・準備の間だけ止める。2026-10-16 ユーザーの決定）は queues が持つ。メモリだけに持ち、サーバーを止めたら解く。
     // 受付（HTTP）は続け、待ちから取り出して実行することだけを止める。
-    private volatile boolean paused;
     private long executedCommands = 0;
     private long failedCommands = 0;
     private volatile String lastError = "";
@@ -134,30 +122,21 @@ public class BridgeMod {
 
     // 0 なら処理を続ける。拒否した要求には 403（ブラウザー・別ホスト・トークン違い）か 415 を返す。
     private boolean authorize(HttpExchange exchange) throws IOException {
-        BridgeAuth current = auth;
-        int status = current == null ? 403
-            : current.checkHttp(exchange.getRequestMethod(), getBridgePort(), name -> exchange.getRequestHeaders().getFirst(name));
-        if (status == BridgeAuth.ALLOWED) return true;
-        sendHttp(exchange, status, status == 415 ? "{\"ok\":false,\"error\":\"json_required\"}" : "{\"ok\":false,\"error\":\"forbidden\"}");
-        return false;
+        return BridgeHttp.authorize(exchange, auth, getBridgePort());
     }
 
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
         // HTTP を閉じる前にサーバーを外す。止めている間に届いた状態の要求は、サーバーを待たずに古い状態を返す（PR #98 レビュー）。
         activeServer = null;
-        paused = false;
         GameEvents.clearSessions(); discardedGameRequests = 0;
         giftEffects.stop();
         EnvironmentOverrides.reset();
         stopBridgeHttpServer();
         stopWebSocketServer();
         auth = null;
-        synchronized (this) {
-            giftQueue.clear();
-            likeQueue.clear();
-            otherQueue.clear();
-        }
+        // 待ち・覚えた要求 ID を消し、一時停止も解く（再起動すると止めていない状態で始まる）。
+        queues.clear();
         likeCod.reset();
     }
 
@@ -181,7 +160,7 @@ public class BridgeMod {
         likeCod.tick();
         // 妨害のコマンド（txt と /bridge/exec）は、実行のあとで変わったコマンドブロックを中身ごと戻す（BlockProtection）。
         // 一時停止の間は待ちから取り出さない（始まっている演出・固定環境・状態の送信は続ける）。
-        if (!paused && hasQueuedEvents()) BlockProtection.runProtected(activeServer, "bridgemod", this::processQueues);
+        if (queues.hasWork()) BlockProtection.runProtected(activeServer, "bridgemod", this::processQueues);
         giftEffects.tick(activeServer);
         environment.apply(activeServer, giftEffects);
         if (++statusBroadcastTicks >= 20) {
@@ -192,16 +171,9 @@ public class BridgeMod {
         }
     }
 
+    // ギフト → そのほか → いいね（予約の 8）の順に、tick の予算の中で動かす（EventQueues.process）。
     private void processQueues() {
-        // Gift work is independent. Likes cannot borrow unused gift budget and cause a burst.
-        int budget = MAX_COMMANDS_PER_TICK - LIKE_RESERVED_COMMANDS_PER_TICK;
-        budget -= processQueue(activeServer, giftQueue, budget);
-        budget -= processQueue(activeServer, otherQueue, budget);
-        processQueue(activeServer, likeQueue, LIKE_RESERVED_COMMANDS_PER_TICK);
-    }
-
-    private synchronized boolean hasQueuedEvents() {
-        return !giftQueue.isEmpty() || !otherQueue.isEmpty() || !likeQueue.isEmpty();
+        queues.process((event, budget) -> executeEventSlice(activeServer, event, budget));
     }
 
     private void register(CommandDispatcher<CommandSourceStack> d) {
@@ -264,11 +236,11 @@ public class BridgeMod {
             String gameId = event.parsed.meta.get("GAME_MOD");
             if (gameId != null) event.gameSessionId = GameEvents.sessionId(gameId);
         } catch (IOException error) { source.sendFailure(Component.literal("[Bridge] " + error.getMessage())); return 0; }
-        if (!enqueueBridgeEvent(event)) {
+        if (queues.offer(event) == EventQueues.Offer.FULL) {
             source.sendFailure(Component.literal("[Bridge] queue is full, try again later"));
             return 0;
         }
-        if (paused) source.sendSuccess(() -> Component.literal("[Bridge] 妨害は一時停止中です。再開すると実行されます"), false);
+        if (queues.paused()) source.sendSuccess(() -> Component.literal("[Bridge] 妨害は一時停止中です。再開すると実行されます"), false);
         return 1;
     }
 
@@ -278,7 +250,8 @@ public class BridgeMod {
         int port = getBridgePort();
         try {
             bridgeServer = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 32);
-            bridgeServer.createContext("/bridge/event", exchange -> { if (authorize(exchange)) handleBridgeEvent(server, exchange); });
+            // 同じ要求 ID の送り直しは積まずに 202（"duplicate":true）を返す（BridgeHttp.events。2026-11-07 品質レビュー）。
+            bridgeServer.createContext("/bridge/event", BridgeHttp.events(() -> auth, port, BridgeEvent::fromJson, queues));
             bridgeServer.createContext("/bridge/exec", exchange -> { if (authorize(exchange)) handleBridgeExec(server, exchange); });
             bridgeServer.createContext("/bridge/status", exchange -> { if (authorize(exchange)) handleBridgeStatus(exchange); });
             bridgeServer.createContext("/bridge/control", exchange -> { if (authorize(exchange)) handleBridgeControl(exchange); });
@@ -321,34 +294,6 @@ public class BridgeMod {
         } catch (Exception ignored) {
         }
         return 25576;
-    }
-
-    private void handleBridgeEvent(MinecraftServer server, HttpExchange exchange) throws IOException {
-        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-            sendHttp(exchange, 405, "{\"ok\":false,\"error\":\"method_not_allowed\"}");
-            return;
-        }
-
-        String path = exchange.getRequestURI().getPath();
-        if (!"/bridge/event".equals(path)) {
-            sendHttp(exchange, 404, "{\"ok\":false,\"error\":\"not_found\"}");
-            return;
-        }
-
-        String body = readHttpBody(exchange);
-        BridgeEvent event = BridgeEvent.fromJson(body);
-        if (event == null || event.key.isBlank()) {
-            sendHttp(exchange, 400, "{\"ok\":false,\"error\":\"bad_request\"}");
-            return;
-        }
-
-        boolean accepted = enqueueBridgeEvent(event);
-        if (!accepted) {
-            sendHttp(exchange, 429, "{\"ok\":false,\"error\":\"queue_full\"}");
-            return;
-        }
-
-        sendHttp(exchange, 202, "{\"ok\":true,\"queued\":true}");
     }
 
     // 生コマンド配列の実行（ルーレット演出などBridge側でタイミング制御するフレーム用）。
@@ -398,7 +343,7 @@ public class BridgeMod {
             return;
         }
         BridgeEvent event = BridgeEvent.inline(safe, listenerName);
-        if (!enqueueBridgeEvent(event)) {
+        if (queues.offer(event) == EventQueues.Offer.FULL) {
             sendHttp(exchange, 429, "{\"ok\":false,\"error\":\"queue_full\"}");
             return;
         }
@@ -406,10 +351,7 @@ public class BridgeMod {
     }
 
     private String readHttpBody(HttpExchange exchange) throws IOException {
-        InputStream in = exchange.getRequestBody();
-        byte[] buf = in.readNBytes(MAX_HTTP_BODY_BYTES + 1);
-        if (buf.length > MAX_HTTP_BODY_BYTES) return "";
-        return new String(buf, StandardCharsets.UTF_8);
+        return BridgeHttp.readBody(exchange);
     }
 
     // 待ち列への指示（トークンが必要）。
@@ -430,7 +372,8 @@ public class BridgeMod {
             return;
         }
         if ("pause".equals(action) || "resume".equals(action)) {
-            paused = "pause".equals(action);
+            boolean paused = "pause".equals(action);
+            queues.setPaused(paused);
             System.out.println("[Bridge] disruptions " + (paused ? "paused" : "resumed"));
             sendHttp(exchange, 200, "{\"ok\":true,\"paused\":" + paused + "}");
             return;
@@ -439,16 +382,10 @@ public class BridgeMod {
             sendHttp(exchange, 400, "{\"ok\":false,\"error\":\"unsupported\"}");
             return;
         }
-        int discarded = discardLikeQueue();
+        // 実行中のいいねも残りを0にして止める（実行中の1回分は終わる。EventQueues.discardLikes）。
+        int discarded = queues.discardLikes();
         System.out.println("[Bridge] discarded " + discarded + " queued like event(s)");
         sendHttp(exchange, 200, "{\"ok\":true,\"discarded\":" + discarded + "}");
-    }
-    // 実行中のいいねも残りを0にして止める（実行中の1回分は終わる）。
-    private synchronized int discardLikeQueue() {
-        int discarded = likeQueue.size();
-        for (BridgeEvent event : likeQueue) event.remaining = 0;
-        likeQueue.clear();
-        return discarded;
     }
     // キュー滞留の可視化用（Bridge側の診断ログやデバッグで使用）
     private void handleBridgeStatus(HttpExchange exchange) throws IOException {
@@ -482,16 +419,12 @@ public class BridgeMod {
 
     /** どのスレッドから呼んでもよい。待ちの件数はその場で数え、ほかはサーバーのスレッドで最後に作った状態を使う。 */
     private String staleStatus() {
-        int gift, like, other;
-        synchronized (this) {
-            gift = giftQueue.size(); like = likeQueue.size(); other = otherQueue.size();
-        }
-        return statusHead(gift, like, other) + ",\"stale\":true" + lastStatusRest;
+        return statusHead(queues.sizes()) + ",\"stale\":true" + lastStatusRest;
     }
 
-    private String statusHead(int gift, int like, int other) {
-        return "{\"ok\":true,\"mod\":\"bridgemod\",\"environmentFixed\":true,\"paused\":" + paused
-            + ",\"gift\":" + gift + ",\"like\":" + like + ",\"other\":" + other;
+    private String statusHead(EventQueues.Sizes queued) {
+        return "{\"ok\":true,\"mod\":\"bridgemod\",\"environmentFixed\":true,\"paused\":" + queues.paused()
+            + ",\"gift\":" + queued.gift() + ",\"like\":" + queued.like() + ",\"other\":" + queued.other();
     }
 
     // サーバーのスレッドからだけ呼ぶ。状態を作れなくても、起動と tick は止めない（null を返す）。
@@ -515,10 +448,7 @@ public class BridgeMod {
      * 待ちの件数より後ろの部分は lastStatusRest に残す（WebSocket の最初の送信と、サーバーが応えないときに使う）。
      */
     private String buildStatusJson() {
-        int gift, like, other;
-        synchronized (this) {
-            gift = giftQueue.size(); like = likeQueue.size(); other = otherQueue.size();
-        }
+        EventQueues.Sizes queued = queues.sizes();
         ServerPlayer player = activeServer == null || activeServer.getPlayerList().getPlayers().isEmpty()
             ? null : activeServer.getPlayerList().getPlayers().get(0);
         double x = player == null ? 0 : player.getX();
@@ -544,7 +474,7 @@ public class BridgeMod {
             + ",\"y\":" + String.format(Locale.ROOT, "%.2f", y) + ",\"z\":" + String.format(Locale.ROOT, "%.2f", z) + "}}";
         lastStatusRest = rest;
         // サーバーで作った状態は "stale":false（つないだ直後の古い状態の印を、Bridge の記録に残し続けない）。
-        return statusHead(gift, like, other) + ",\"stale\":false" + rest;
+        return statusHead(queued) + ",\"stale\":false" + rest;
     }
 
     private void startWebSocketServer() {
@@ -645,49 +575,7 @@ public class BridgeMod {
     }
 
     private void sendHttp(HttpExchange exchange, int status, String text) throws IOException {
-        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
-        exchange.sendResponseHeaders(status, bytes.length);
-        try (OutputStream out = exchange.getResponseBody()) {
-            out.write(bytes);
-        }
-    }
-
-    private synchronized boolean enqueueBridgeEvent(BridgeEvent event) {
-        // Common events run as received. A game MOD owns duplicate-request detection.
-        Deque<BridgeEvent> queue = "gift".equals(event.type) ? giftQueue : "like".equals(event.type) ? likeQueue : otherQueue;
-        int limit = queue == giftQueue ? MAX_GIFT_QUEUE : queue == likeQueue ? MAX_LIKE_QUEUE : MAX_OTHER_QUEUE;
-        // Backpressure: the sender retains the head until accepted. Never discard an older event.
-        if (queue.size() >= limit) return false;
-        queue.addLast(event);
-        return true;
-    }
-
-    /**
-     * キューを処理してこのtickで実行したコマンド数を返す。
-     * イベントの残countが予算を超える場合は途中で止め、次tickで先頭から続きを実行する。
-     */
-    private int processQueue(MinecraftServer server, Deque<BridgeEvent> queue, int commandBudget) {
-        int used = 0;
-        while (used < commandBudget) {
-            BridgeEvent event;
-            synchronized (this) {
-                event = queue.peekFirst();
-            }
-            if (event == null) break;
-
-            used += executeEventSlice(server, event, commandBudget - used);
-
-            if (event.remaining <= 0) {
-                synchronized (this) {
-                    // 実行中に待ちを捨てられた（/bridge/control）ときは、あとから入った別のイベントを取り出さない。
-                    if (queue.peekFirst() == event) queue.pollFirst();
-                }
-            } else {
-                break; // 予算切れ：次tickで続きから
-            }
-        }
-        return used;
+        BridgeHttp.send(exchange, status, text);
     }
 
     /**
@@ -813,16 +701,14 @@ public class BridgeMod {
         return data.get(key) instanceof Number value ? value.doubleValue() : 0;
     }
 
-    private static class BridgeEvent {
-        final String type;
+    // type（待ちの種類）・remaining（残り）・requestId（BRIDGE が付けた要求 ID）は EventQueues.Event が持つ。
+    private static class BridgeEvent extends EventQueues.Event {
         final String key;
         int count;
         final String listenerName;
         final boolean announce;
         final boolean protectionEnabled;
         final double protectX1, protectX2, protectZ1, protectZ2;
-        // Only the server tick changes progress; HTTP requests never merge into an executing event.
-        volatile int remaining;
         boolean announced;
         // /bridge/exec 用：ファイルではなく生コマンド配列を実行する（null ならファイル実行）
         List<String> inlineCommands;
@@ -844,7 +730,7 @@ public class BridgeMod {
         BridgeEvent(String type, String key, int count, String listenerName, boolean announce,
                     boolean protectionEnabled, double protectX1, double protectX2,
                     double protectZ1, double protectZ2) {
-            this.type = normalizeType(type);
+            super(normalizeType(type), count);
             this.key = sanitizeKey(key);
             if (count < 1 || count > MAX_GAME_COUNT) throw new IllegalArgumentException("count must be from 1 to " + MAX_GAME_COUNT);
             this.count = count;
@@ -856,7 +742,6 @@ public class BridgeMod {
             this.protectX2 = protectX2;
             this.protectZ1 = protectZ1;
             this.protectZ2 = protectZ2;
-            this.remaining = this.count;
             this.announced = false;
         }
 
@@ -877,7 +762,11 @@ public class BridgeMod {
                 String legacyId = memberString(data, "eventId", "");
                 String requestId = memberString(data, "requestId", legacyId);
                 if (!legacyId.isEmpty() && !legacyId.equals(requestId)) return null;
-                if (!requestId.isEmpty()) event.eventId = requestId;
+                // BRIDGE は送り直しでも同じ requestId を付ける。待ちに積むときに、受け付け済みの番号なら積まない（EventQueues。2026-11-07 品質レビュー）。
+                if (!requestId.isEmpty()) {
+                    event.eventId = requestId;
+                    event.requestId = requestId;
+                }
                 event.gameSessionId = memberString(data, "gameSessionId", "");
                 if (!event.gameSessionId.isEmpty() && !event.gameSessionId.matches("[A-Za-z0-9_.:-]{1,128}")) return null;
                 if (data.has("args")) {
