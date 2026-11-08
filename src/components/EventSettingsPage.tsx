@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ToggleSlider } from "./ToggleSlider";
 import EventTypeIcon, { type EventIconKind } from "./EventTypeIcon";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
+import { ipcErrorMessage } from "../lib/ipcError";
 import { commandOptionLabel } from "../lib/commandLabel";
 import { toRepeat, toThreshold } from "../lib/integerInput";
 import { findCommandFile } from "../lib/commandFiles";
@@ -143,9 +144,9 @@ function SimpleEventCard({
         <ToggleSlider label={`${title}を有効にする`} checked={event.enabled} onChange={onToggle} />
       </div>
 
-      {/* 実行イベント + 回数 */}
+      {/* 実行コマンド + 回数 */}
       <div className="event-simple-card__controls">
-        <label className="text-xs font-bold text-gray-400 mb-1.5 block">実行イベント</label>
+        <label className="text-xs font-bold text-gray-400 mb-1.5 block">実行コマンド</label>
         <div className="flex items-center gap-2">
           <div className="flex-1 min-w-0">
             <CmdFileSelect
@@ -252,7 +253,7 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
       setIsDirty(false);
       onDirtyChangeRef.current?.(false);
     } catch (e: any) {
-      setMsg({ type: "error", text: `読み込みエラー: ${e?.message ?? String(e)}` });
+      setMsg({ type: "error", text: `読み込みエラー: ${ipcErrorMessage(e)}` });
     } finally {
       setLoading(false);
     }
@@ -286,7 +287,7 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
       setMsg({ type: "ok", text: "保存しました。稼働中のBRIDGEには数秒で自動反映されます。" });
       setTimeout(() => setMsg(null), 4000);
     } catch (e: any) {
-      setMsg({ type: "error", text: `保存エラー: ${e?.message ?? String(e)}` });
+      setMsg({ type: "error", text: `保存エラー: ${ipcErrorMessage(e)}` });
     } finally {
       setSaving(false);
     }
@@ -430,13 +431,13 @@ const EventSettingsPage: React.FC<Props> = ({ onDirtyChange }) => {
             onClick={() => setLikeEventsD((prev) => [...prev, newLikeEvent()])}
             className="px-4 py-2 rounded-xl text-xs font-bold bg-cyan-700 hover:bg-cyan-600 text-white transition shrink-0"
           >
-            ＋ ルール追加
+            ＋ ルールを追加
           </button>
         </div>
 
         {likeEvents.length === 0 ? (
           <div className="text-center py-8 border border-dashed border-gray-700 rounded-xl text-gray-500 text-sm">
-            「＋ ルール追加」でいいね設定を追加できます
+            「＋ ルールを追加」でいいね設定を追加できます
           </div>
         ) : (
           <div className="events-like-table">

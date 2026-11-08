@@ -228,7 +228,7 @@ const GiftsViewerPage: React.FC<Props> = ({ bridgeRunning, modOnline }) => {
       <header className="gift-catalog-v2__header">
         <div>
           <h1>ギフト一覧</h1>
-          <p>TikTok のギフトと、値段・ID の一覧</p>
+          <p>TikTok のギフトと、価格・ID の一覧</p>
         </div>
       </header>
 
@@ -253,8 +253,8 @@ const GiftsViewerPage: React.FC<Props> = ({ bridgeRunning, modOnline }) => {
           <input aria-label="ギフト名・IDを検索" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="ギフト名・IDを検索..." />
         </div>
         <select aria-label="ギフトの並び順" value={sort} onChange={(e) => { setSort(e.target.value as typeof sort); setPage(1); }}>
-          <option value="costAsc">コスト 低→高</option>
-          <option value="costDesc">コスト 高→低</option>
+          <option value="costAsc">価格の安い順</option>
+          <option value="costDesc">価格の高い順</option>
           <option value="nameAsc">名前 A→Z</option>
         </select>
       </section>

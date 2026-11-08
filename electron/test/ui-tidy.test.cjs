@@ -133,3 +133,40 @@ test('配信ホーム：「切替は停止中に」はいつも見え、ギフ�
   const hint = bar.indexOf('{count === 0 && <span');
   assert.ok(hint >= 0 && hint < bar.indexOf('<summary>くわしく</summary>'), '押せない理由はボタンの横に見える形で');
 });
+
+// 品質レビュー（2026-11-08）：ボタン・言葉のそろえ方。コード上の名前や保存データは変えない。
+test('言葉：品質レビューでそろえた言い方（古い言い方を画面に残さず、新しい言い方が出ている）', () => {
+  const all = components().map(([, src]) => src).join('\n');
+  const pairs = [
+    // [古い言い方（出さない）, 新しい言い方（出ている）]
+    [/ギフト設定を保存|ギフト設定を読み込む/, 'ファイルに書き出す'],
+    [/実行イベント/, '実行コマンド'],
+    [/実行回数/, '回数'],
+    [/TIKTOK LIVE STUDIO|TikTok LIVE STUDIO|TikTok Live Studio/, 'TikTok LIVE Studio'],
+    [/Bridge MOD|BRIDGE MOD/, 'BridgeMOD'],
+    [/フォルダ(?!ー)/, 'フォルダー'],
+    [/コスト 低|コスト 高|値段/, '価格'],
+    [/ルール追加/, 'ルールを追加'],
+    [/MAPの保存・読込/, 'MAPセーブ・ロード'],
+  ];
+  for (const [oldText, next] of pairs) {
+    assert.doesNotMatch(all, oldText, `${oldText} が残っている`);
+    assert.ok(all.includes(next), `${next} が無い`);
+  }
+  assert.ok(all.includes('ファイルから読み込む'));
+});
+
+test('配信ホームの流れの見出しは日本語で、ワールドが未選択のときは「未選択」と出す', () => {
+  const dash = code(read('src/components/DashboardPage.tsx'));
+  for (const label of ['"サーバー"', '"配信ワールド"', '"BRIDGE"']) assert.ok(dash.includes(`label: ${label}`), label);
+  assert.doesNotMatch(dash, /label: "(Forge Server|Game|Bridge)"/);
+  assert.ok(dash.includes('"未選択"'));
+});
+
+test('ipc のエラーは ipcErrorMessage を通して出す（Electron が付ける前置きを画面に出さない）', () => {
+  for (const file of ['TTSSettingsPage', 'EventSettingsPage', 'EventSettings2Page', 'OperationsPage', 'MappingEditor', 'GiftTemplateToolbar']) {
+    const src = code(read(`src/components/${file}.tsx`));
+    assert.ok(src.includes('ipcErrorMessage'), file);
+    assert.doesNotMatch(src, /\$\{e(rror)?\?\.message/, file);
+  }
+});

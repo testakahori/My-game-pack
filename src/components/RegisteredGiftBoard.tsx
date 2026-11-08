@@ -22,6 +22,8 @@ type Props = {
   onPickGift: (giftId: string, giftName: string, image?: string | null, diamonds?: number) => void;
   onRemove: (id: string) => void;
   onMove: (fromId: string, toId: string | null) => void;
+  // ✖ で外した直後の「元に戻す」（GiftSettingsPage が数秒で消す。2026-11-07 品質レビュー）。
+  undo?: { name: string; onUndo: () => void } | null;
 };
 type Notice = { type: "ok" | "error"; text: string };
 
@@ -45,7 +47,7 @@ function createFitter() {
   };
 }
 
-export default function RegisteredGiftBoard({ mappings, gifts, commandFiles, gameName, selectedGiftId, onPickGift, onRemove, onMove }: Props) {
+export default function RegisteredGiftBoard({ mappings, gifts, commandFiles, gameName, selectedGiftId, onPickGift, onRemove, onMove, undo }: Props) {
   const items = useMemo(() => boardItems(mappings, gifts, commandFiles), [mappings, gifts, commandFiles]);
   const pageCount = boardPageCount(items.length);
   const [page, setPage] = useState(1);
@@ -217,6 +219,7 @@ export default function RegisteredGiftBoard({ mappings, gifts, commandFiles, gam
       </div>
 
       <div className="gift-board-status" role="status">
+        {undo && <span className="is-ok">『{undo.name}』を外しました<button type="button" onClick={undo.onUndo}>元に戻す</button></span>}
         {loadingCount > 0 && <span>PNG用のギフト画像を読み込み中… 残り{loadingCount}枚</span>}
         {failedCount > 0 && <span className="is-error">{failedCount}枚の画像を読み込めませんでした（保存すると、絵の代わりに名前を描きます）。<button type="button" onClick={() => cache.retryFailed(allUrls)}>画像を再読み込み</button></span>}
         {disabledCount > 0 && <span>設定ファイルで無効にしたギフト（{disabledCount}件）は、PNGには載せません。</span>}

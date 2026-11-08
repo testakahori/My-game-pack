@@ -13,8 +13,11 @@ import { useUnsavedGuard } from "../UnsavedChanges";
 import { fromConfigMappings, removedPickedGift, toConfigMappings } from "../lib/giftMappingRows";
 import { normalizeTikTokId } from "../lib/tiktokId";
 import { dropOnBoard, type CatalogGift } from "../lib/giftBoard";
+import { ipcErrorMessage } from "../lib/ipcError";
 import "./GiftSettingsBoard.css";
 
+// ✖ で外したあと「元に戻す」を出しておく間。
+const UNDO_REMOVE_MS = 6000;
 const LS_ACTIVE_TAB   = "mc_bridge_active_tab_v1";
 const LS_MAPPINGS     = "mc_tiktok_mappings_unified_v1";
 const LS_COMMAND_SETS = "mc_bridge_command_sets_v1";
@@ -157,7 +160,7 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void; gameName?: st
         setMappings(next);
         setSaveError("");
       } catch (error: any) {
-        setSaveError(`保存できませんでした: ${error?.message || String(error)}`);
+        setSaveError(`保存できませんでした: ${ipcErrorMessage(error)}`);
         throw error;
       }
     });
@@ -167,14 +170,34 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void; gameName?: st
   const addMapping = useCallback((m: Omit<GiftMapping, "id">) => commitMappings(p => [...p, { ...m, id: uuid() }]), [commitMappings]);
   const updateMapping = useCallback((id: string, updated: Partial<GiftMapping>) =>
     commitMappings(p => p.map(x => x.id === id ? { ...x, ...updated } : x)), [commitMappings]);
+  // ✖ で外した直後だけ「元に戻す」を出す（確かめの画面は出さない。2026-11-07 品質レビュー）。
+  const [undoRemoved, setUndoRemoved] = useState<{ mapping: GiftMapping; index: number } | null>(null);
+  useEffect(() => {
+    if (!undoRemoved) return;
+    const timer = setTimeout(() => setUndoRemoved(null), UNDO_REMOVE_MS);
+    return () => clearTimeout(timer);
+  }, [undoRemoved]);
   const removeMapping = useCallback((id: string) => {
     if (!confirmDiscard()) return;
-    const removedGiftId = String(mappingsRef.current.find(x => x.id === id)?.giftId ?? "").trim();
+    const index = mappingsRef.current.findIndex(x => x.id === id);
+    const removed = mappingsRef.current[index];
+    const removedGiftId = String(removed?.giftId ?? "").trim();
     // 編集中のギフトを消したら選択を外す（src/lib/giftMappingRows.ts の removedPickedGift。2026-11-04 ユーザーの決定）。
     void commitMappings(p => p.filter(x => x.id !== id))
-      .then(() => { if (removedPickedGift(pickedGiftIdRef.current, removedGiftId, mappingsRef.current)) clearPickedGift(); })
+      .then(() => {
+        if (removedPickedGift(pickedGiftIdRef.current, removedGiftId, mappingsRef.current)) clearPickedGift();
+        if (removed) setUndoRemoved({ mapping: removed, index });
+      })
       .catch(() => {});
   }, [commitMappings, confirmDiscard]);
+  // 元の場所へ戻す。そのあいだに同じギフトを登録し直していたら、二重にしない。
+  const undoRemove = useCallback(() => {
+    if (!undoRemoved) return;
+    const { mapping, index } = undoRemoved;
+    setUndoRemoved(null);
+    const giftId = String(mapping.giftId).trim();
+    void commitMappings(p => p.some(x => String(x.giftId).trim() === giftId) ? p : [...p.slice(0, index), mapping, ...p.slice(index)]).catch(() => {});
+  }, [commitMappings, undoRemoved]);
   // 登録済みギフトの並べ替え（ギフトのあるマスへ落とすと入れ替え、空いたマスへ落とすと最後へ。src/lib/giftBoard.ts）。
   // 並び順は設定の mappings の順として保存する（アプリを閉じても残る。2026-11-05 ユーザーの決定）。
   const moveMapping = useCallback((fromId: string, toId: string | null) => {
@@ -227,6 +250,7 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void; gameName?: st
             onPickGift={handlePickGift}
             onRemove={removeMapping}
             onMove={moveMapping}
+            undo={undoRemoved ? { name: undoRemoved.mapping.name || undoRemoved.mapping.giftId, onUndo: undoRemove } : null}
           />
         </div>
       );
@@ -249,6 +273,7 @@ const GiftSettingsPage: React.FC<{ onOpenImageEditor?: () => void; gameName?: st
     handlePickGift,
     catalogGifts, commandFiles, gameName,
     addMapping, updateMapping, removeMapping, moveMapping,
+    undoRemoved, undoRemove,
   ]);
 
   return (

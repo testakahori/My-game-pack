@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { GiftAssignment, GiftTemplatePreview } from '../types/electron';
 import { useUnsavedChanges, useUnsavedGuard } from '../UnsavedChanges';
+import { ipcErrorMessage } from '../lib/ipcError';
 
 function TemplatePreviewDialog({ preview, busy, error, onClose, onApply }: {
   preview: GiftTemplatePreview; busy: boolean; error: string; onClose: () => void; onApply: () => void;
@@ -38,8 +39,8 @@ export default function GiftTemplateToolbar({ ready, count, onResetEditor, onApp
     if (!start()) return;
     try {
       const result = await window.mygamepack.giftTemplateSave();
-      if (result.canceled === false) setNotice(`「${result.name}」に${result.count}件を保存しました。このJSONファイルを配布できます。`);
-    } catch (e) { setError('ギフト設定を保存できませんでした: ' + String((e as Error)?.message || e)); }
+      if (result.canceled === false) setNotice(`「${result.name}」に${result.count}件を書き出しました。このJSONファイルを配布できます。`);
+    } catch (e) { setError('ファイルに書き出せませんでした。保存先のフォルダーを変えて、もう一度お試しください。理由: ' + ipcErrorMessage(e)); }
     finally { finish(); }
   };
   const open = async () => {
@@ -47,7 +48,7 @@ export default function GiftTemplateToolbar({ ready, count, onResetEditor, onApp
     try {
       const result = await window.mygamepack.giftTemplateOpen();
       if (result.canceled === false) setPreview(result.preview);
-    } catch (e) { setError('ギフト設定を読み込めませんでした: ' + String((e as Error)?.message || e)); }
+    } catch (e) { setError('ファイルから読み込めませんでした: ' + ipcErrorMessage(e)); }
     finally { finish(); }
   };
   const close = () => {
@@ -63,19 +64,20 @@ export default function GiftTemplateToolbar({ ready, count, onResetEditor, onApp
       onApplied(result.mappings);
       setNotice(`「${preview.name}」の${result.mappings.length}件を適用しました。元の設定は運用センターのバックアップから復元できます。`);
       setPreview(null);
-    } catch (e) { setError('適用できませんでした: ' + String((e as Error)?.message || e)); }
+    } catch (e) { setError('適用できませんでした: ' + ipcErrorMessage(e)); }
     finally { finish(); }
   };
   // 1行にまとめ、説明は「くわしく」へ（大きな枠で、ギフトの一覧が狭くなっていた。2026-10-29 ユーザーの決定）。
+  // ボタンの名前は「ファイルに書き出す」「ファイルから読み込む」（前の「ギフト設定を保存」は、未保存の帯を見て押すと編集が消えた。2026-11-07 品質レビュー）。
   return <section className="gift-template-tools" aria-label="ギフト設定のファイル">
-    <div className="gift-template-toolbar"><div><b><i className="fa-regular fa-folder-open" />ギフト設定のファイル</b></div><div className="gift-template-actions"><button className="studio-quiet" disabled={!ready || busy || count === 0} title={count === 0 ? 'ギフトとコマンドを登録すると、ギフト設定を保存できます。' : undefined} onClick={() => void save()}><i className="fa-solid fa-download" />ギフト設定を保存</button><button className="studio-primary" disabled={!ready || busy} onClick={() => void open()}><i className="fa-solid fa-folder-open" />ギフト設定を読み込む</button></div></div>
-    {/* 保存ボタンを押せない理由は、ボタンの横にいつも見える形で出す（title はキーボードでは読めない。最後のレビュー）。 */}
-    {count === 0 && <span className="panel-hint">ギフトとコマンドを登録すると、ギフト設定を保存できます。</span>}
+    <div className="gift-template-toolbar"><div><b><i className="fa-regular fa-folder-open" />ギフト設定のファイル</b></div><div className="gift-template-actions"><button className="studio-quiet" disabled={!ready || busy || count === 0} title={count === 0 ? 'ギフトとコマンドを登録すると、ファイルに書き出せます。' : undefined} onClick={() => void save()}><i className="fa-solid fa-download" />ファイルに書き出す</button><button className="studio-primary" disabled={!ready || busy} onClick={() => void open()}><i className="fa-solid fa-folder-open" />ファイルから読み込む</button></div></div>
+    {/* 書き出しボタンを押せない理由は、ボタンの横にいつも見える形で出す（title はキーボードでは読めない。最後のレビュー）。 */}
+    {count === 0 && <span className="panel-hint">ギフトとコマンドを登録すると、ファイルに書き出せます。</span>}
     <details className="studio-advanced"><summary>くわしく</summary>
       <p className="panel-hint">保存済みの割り当てを、ゲーム別に使い分け・配布できます。</p>
       <p className="panel-hint">アカウントやパスワード、コマンドのファイル本体は保存しません。配布先にも同じコマンドが必要です。</p>
     </details>
-    {busy && !preview && <p role="status" className="panel-hint">ファイルの選択・保存中…</p>}
+    {busy && !preview && <p role="status" className="panel-hint">ファイルの選択・読み書き中…</p>}
     {notice && <p className="studio-notice" role="status">{notice}</p>}
     {error && !preview && <p className="studio-alert" role="alert">{error}</p>}
     {preview && <TemplatePreviewDialog preview={preview} busy={busy} error={error} onClose={close} onApply={() => void apply()} />}
