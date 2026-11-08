@@ -177,6 +177,8 @@ declare global {
       bridgeRestart: (origin: StopOrigin) => Promise<{ ok: true }>;
       bridgeProcessStatus: () => Promise<any>;
       bridgeLogs: () => Promise<{ ok: true; lines: string[] }>;
+      // アプリのログ（main-YYYYMMDD.log など）のフォルダーを開く（2026-11-07 品質レビュー）。
+      logsOpenFolder: () => Promise<{ ok: true; path: string }>;
       minecraftLaunch: () => Promise<{ ok: true }>;
       minecraftGrantOp: () => Promise<{ ok: true; name: string; offline?: boolean; message?: string }>;
       serverGamerulesApply: () => Promise<{ ok: true }>;

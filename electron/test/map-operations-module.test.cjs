@@ -55,3 +55,18 @@ test('MAP の作業: 動いていたサーバーと BRIDGE は、止めて作業
   assert.equal(result.restartError, '');
   assert.deepEqual(x.calls, ['gameProfileIdle', 'stopBridge:map:save', 'stopMapServer:map:save', 'startServer:true', 'launchBridge']);
 });
+
+// 前は定義していない reason を返していて、サーバーと BRIDGE を止めて MAP を保存したあとに ReferenceError で落ち、
+// 止めたものを起動し直さないままになっていた（2026-11-07 品質レビュー）。
+test('MAP の作業: world:backup は MAP を保存し、止めたサーバーと BRIDGE を起動し直して、保存の場所と理由を返す', async t => {
+  const x = setup(t, { serverRunning: true, bridgeActive: true });
+  const result = await x.invoke('world:backup');
+  assert.equal(result.ok, true);
+  assert.equal(result.reason, 'manual');
+  assert.match(result.message, /^MAPを保存しました: /);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(result.path, 'map.json'), 'utf8')).reason, 'manual', '保存した MAP の理由も同じ');
+  assert.equal(result.restarted, true);
+  assert.equal(result.restartError, '');
+  assert.deepEqual(x.calls, ['gameProfileIdle', 'stopBridge:map:backup', 'stopMapServer:map:backup', 'startServer:true', 'launchBridge']);
+  assert.equal(x.mapOperations.isBusy(), false);
+});

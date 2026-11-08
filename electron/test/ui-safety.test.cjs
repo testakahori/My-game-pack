@@ -41,7 +41,8 @@ test('停止: 動いているものを止めるときだけ確認し、配信中
 test('停止: 状態を取得できないときは動いているものとして確認し、失敗しても前回の値を残す', () => {
   // サーバーのポート確認がタイムアウトすると状態の取得ごと失敗し、停止パネルが消えて BRIDGE を止められなかった。
   const unknown = stopState(null, null);
-  assert.deepEqual(unknown, { bridgeRunning: null, serverRunning: null, tiktokConnected: false });
+  // 送信待ち（2026-11-07 品質レビュー）は、BRIDGE が動いているとわかっているときだけ数える。不明なら 0 件。
+  assert.deepEqual(unknown, { bridgeRunning: null, serverRunning: null, tiktokConnected: false, pendingDeliveries: 0, pendingGifts: 0 });
   for (const target of ['all', 'bridge', 'server']) assert.match(stopConfirmMessage(target, unknown), /状態を確認できていません/);
   assert.match(stopConfirmMessage('all', { bridgeRunning: false, serverRunning: null }), /^サーバーの状態を確認できていません/);
   assert.doesNotMatch(stopConfirmMessage('bridge', { bridgeRunning: true, serverRunning: null }), /確認できていません/, 'BRIDGEだけ止めるときはサーバーの不明を書かない');

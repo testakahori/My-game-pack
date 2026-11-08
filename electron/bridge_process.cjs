@@ -1,5 +1,6 @@
 // BRIDGE（配信のイベントを受けてゲームへ送る node のプロセス）の起動・停止・自動再起動・ログ・状態と、Euler の鍵・TikTok LIVE の確かめ。
-// main.cjs から分けた（2026-10-17 設計書 docs/superpowers/specs/2026-10-17-main-split-design.md）。child_process・electron は読み込まず、spawn・spawnSync・shell・runProc は main から受け取る。
+// main.cjs から分けた（2026-10-17 設計書 docs/superpowers/specs/2026-10-17-main-split-design.md）。child_process・electron は読み込まず、spawn・shell・runProc は main から受け取る。
+// spawnSync は使わない（状態の問い合わせで main を止めない。2026-11-07 品質レビュー）。
 const path = require("path");
 const fs = require("fs");
 const { RestartPolicy } = require("./restart_policy.cjs");
@@ -10,7 +11,7 @@ const { CONFIG_UNREADABLE_MESSAGE } = require('./preflight.cjs');
 
 // MAP の作業中かは map_operations が持つので、呼ばれたときに読む関数（assertMapIdle）で受け取る。
 // getTtsSettingsPath は userData 側の読み上げの設定の場所。BRIDGE 側が壊れていて写しも使えないとき、BRIDGE はそれを読む（設定ファイルの PR2）。
-function createBridgeProcess({ process, spawn, spawnSync, shell, runProc, stopRequests, eulerCredentials, getBridgeBatDir, getServerRoot, getConfigPath, getNodeCommand, getGvToolPath,
+function createBridgeProcess({ process, spawn, shell, runProc, stopRequests, eulerCredentials, getBridgeBatDir, getServerRoot, getConfigPath, getNodeCommand, getGvToolPath,
   getBridgeEntryPoint, ensureNodeRuntimeAvailable, assertGameProfileIdle, selectableCommandNames, gameProfiles, waitChildExit, assertMapIdle, migrateSavedConfig, getTtsSettingsPath }) {
   let bridgeEulerRevision = null;
   // BRIDGE を起動した時刻。runtime-status.json がこれより前に書かれていれば、前の BRIDGE が残したもの（2026-10-18）。
@@ -43,24 +44,37 @@ function createBridgeProcess({ process, spawn, spawnSync, shell, runProc, stopRe
     });
   }
 
+  // CPU・メモリの測り方（PowerShell）は1回に1秒ほどかかる。前は状態の問い合わせ（2〜5秒ごと）のたびに spawnSync で待ち、
+  // そのあいだ main が止まって画面が固まっていた（2026-11-07 品質レビュー）。今は裏で測り、最後に測った値をすぐ返す。
+  // 測るのは METRICS_REFRESH_MS に1回まで、PowerShell は同時に1つだけ。
+  const METRICS_REFRESH_MS = 15000;
+  let metrics = { pid: null, at: -Infinity, cpuPercent: null, memMb: null };
+  let measuring = false;
+  function measureProcessMetrics(pid) {
+    measuring = true;
+    metrics = { ...metrics, pid, at: Date.now() };
+    Promise.resolve().then(() => runProc("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `$p=Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | Where-Object {$_.IDProcess -eq ${Number(pid)}} | Select-Object -First 1 PercentProcessorTime,WorkingSet; if ($p) { "$($p.PercentProcessorTime)|$([math]::Round($p.WorkingSet/1MB,1))" }`,
+    ], undefined, { timeoutMs: 10000 })).then(result => {
+      const raw = String(result?.out || "").trim();
+      const [cpu, mem] = raw.split("|");
+      // 測っている間に BRIDGE が入れ替わったら、前の BRIDGE の値は使わない。
+      if (metrics.pid === pid) metrics = { ...metrics,
+        cpuPercent: raw && Number.isFinite(Number(cpu)) ? Number(cpu) : null,
+        memMb: raw && Number.isFinite(Number(mem)) ? Number(mem) : null };
+    }, () => {
+      if (metrics.pid === pid) metrics = { ...metrics, cpuPercent: null, memMb: null };
+    }).finally(() => { measuring = false; });
+  }
   function getProcessMetrics(pid) {
     if (!pid || process.platform !== "win32") return { cpuPercent: null, memMb: null };
-    try {
-      const result = spawnSync("powershell.exe", [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        `$p=Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | Where-Object {$_.IDProcess -eq ${Number(pid)}} | Select-Object -First 1 PercentProcessorTime,WorkingSet; if ($p) { "$($p.PercentProcessorTime)|$([math]::Round($p.WorkingSet/1MB,1))" }`,
-      ], { windowsHide: true, timeout: 1500, encoding: "utf8" });
-      const raw = String(result.stdout || "").trim();
-      const [cpu, mem] = raw.split("|");
-      return {
-        cpuPercent: Number.isFinite(Number(cpu)) ? Number(cpu) : null,
-        memMb: Number.isFinite(Number(mem)) ? Number(mem) : null,
-      };
-    } catch {
-      return { cpuPercent: null, memMb: null };
-    }
+    // 別の BRIDGE（再起動したあと）の値は出さない。
+    if (metrics.pid !== pid) metrics = { pid, at: -Infinity, cpuPercent: null, memMb: null };
+    if (!measuring && Date.now() - metrics.at >= METRICS_REFRESH_MS) measureProcessMetrics(pid);
+    return { cpuPercent: metrics.cpuPercent, memMb: metrics.memMb };
   }
 
   const checkTikTokLive = require("./tiktok_live_status.cjs").createLiveStatusChecker({
@@ -105,6 +119,7 @@ function createBridgeProcess({ process, spawn, spawnSync, shell, runProc, stopRe
     bridgeRestartPolicy.start();
     const spawnOnce = () => {
       bridgeStartedAt = Date.now();
+      bridgeRestartPolicy.spawned();
       const { env, revision } = eulerCredentials.runtime();
       appendBridgeLog(`[BRIDGE] 起動します: ${indexJs}`);
       // BridgeMOD の認証トークンはサーバーフォルダーにある。開発時は bridge とサーバーの場所が離れているので明示する。
@@ -210,6 +225,8 @@ function createBridgeProcess({ process, spawn, spawnSync, shell, runProc, stopRe
       } catch {}
       return { ...status, ...getProcessMetrics(bridgePid), tiktok: status.running ? (runtime.tiktok || null) : null, recording: status.running ? (runtime.recording || null) : null,
         delivery: status.running ? (runtime.delivery || null) : null,
+        // BridgeMOD にまだ受け付けられていない分（送信待ち）。前の BRIDGE が残した値は出さない（2026-11-07 品質レビュー）。
+        sendQueue: status.running && runtimeWrittenAt >= bridgeStartedAt ? (runtime.sendQueue || null) : null,
         // 配信中につなぎ方（TikTok ID など）を変えて保存したとき、BRIDGE が書く「再起動で反映される設定」の名前（2026-10-18）。
         // 起動した直後、新しい BRIDGE が書き直すまでの間は、前の BRIDGE の案内を出さない。
         pendingRestart: status.running && runtimeWrittenAt >= bridgeStartedAt && Array.isArray(runtime.pendingRestart) ? runtime.pendingRestart : [] };

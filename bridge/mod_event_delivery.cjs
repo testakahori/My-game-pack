@@ -5,6 +5,8 @@ const { isGameModId } = require("./game_commands.cjs");
 // Resending the same request can never succeed and would block every later event in the same FIFO lane.
 // 403 is not listed: a restarted server issues a new token, and the next attempt reads it again.
 const PERMANENT_HTTP_STATUSES = new Set([400, 404, 405, 413, 415]);
+// BRIDGE を止めたときに、まだ送れていなかった分の理由（操作履歴に失敗として残す。2026-11-07 品質レビュー）。
+const UNSENT_ON_STOP = "BRIDGE停止で未送信";
 function isPermanentDeliveryFailure(error) {
   return error?.permanent === true || PERMANENT_HTTP_STATUSES.has(Number(error?.status));
 }
@@ -15,6 +17,8 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {}, 
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), maxRetries = Infinity, prepare = event => event } = {}) {
   const lanes = { gift: [], like: [], other: [] };
   const running = new Set();
+  // close() のあと（BRIDGE を止めている間）に来た分は送らない（2026-11-07 品質レビュー）。
+  let closed = false;
   const report = (event, error) => {
     try { rejected(event, error); } catch { /* Recording failure must not stop the remaining events. */ }
   };
@@ -81,6 +85,7 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {}, 
   return {
     enqueue(event) {
       const fail = error => { report({ ...event }, error); return Promise.reject(error); };
+      if (closed) return fail(Object.assign(new Error(UNSENT_ON_STOP), { stopped: true }));
       try { event = prepare({ ...event }); } catch (error) { return fail(error); }
       const count = Number(event.count ?? 1);
       if (!Number.isSafeInteger(count) || count < 1 || event.gameMod && count > 100000) return fail(new Error("Invalid event count"));
@@ -89,11 +94,33 @@ function createModEventDelivery({ send, delivered = () => {}, retry = () => {}, 
       if (!Number.isSafeInteger(repetitions) || repetitions < 1 || !Number.isSafeInteger(total)) return fail(new Error("Invalid game request repetitions"));
       const lane = event.type === "gift" ? "gift" : event.type === "like" ? "like" : "other";
       return new Promise((resolve, reject) => {
-        lanes[lane].push({ event: { ...event, count }, remaining: total, total, part: 0, id: randomUUID(), resolve, reject });
+        lanes[lane].push({ event: { ...event, count }, remaining: total, total, part: 0, id: randomUUID(), enqueuedAt: Date.now(), resolve, reject });
         void drain(lane);
       });
     },
     pending() { return Object.fromEntries(Object.entries(lanes).map(([key, jobs]) => [key, jobs.reduce((n, job) => n + (job.discarded ? 0 : job.remaining), 0)])); },
+    // 送信待ち（BridgeMOD にまだ受け付けられていないイベント）の件数と、いちばん古いものを受けた時刻。配信ホームに出す（2026-11-07 品質レビュー）。
+    backlog() {
+      const jobs = Object.values(lanes).flat().filter(job => !job.discarded);
+      const oldest = jobs.reduce((at, job) => Math.min(at, job.enqueuedAt), Infinity);
+      return { pending: jobs.length, gifts: lanes.gift.filter(job => !job.discarded).length, oldestAt: jobs.length ? new Date(oldest).toISOString() : null };
+    },
+    // BRIDGE を止めるとき：まだ BridgeMOD に受け付けられていない分を列から外して返す（2026-11-07 品質レビュー）。
+    // 送信中の1回は応答を待つ（BridgeMOD の HTTP の時間切れは 1.5 秒）。待ちきれなければ、それも未送信として返す（届いていたかもしれない）。
+    // 返した分は送り直さない。ファイルにも残さない（次に起動した BRIDGE が配信の途中で急に動かすと驚かせるため）。
+    async close({ waitMs = 2000 } = {}) {
+      closed = true;
+      const jobs = Object.values(lanes).flat().filter(job => !job.discarded);
+      for (const job of jobs) job.discarded = true;
+      // 先頭以外は今すぐ外す。先頭は送信や再送の待ちの途中なので、drain が外す（送れた分は送れた分として記録する）。
+      for (const lane of Object.keys(lanes)) {
+        const head = running.has(lane) ? lanes[lane].slice(0, 1) : [];
+        for (const job of lanes[lane].slice(head.length)) job.resolve();
+        lanes[lane] = head;
+      }
+      for (const end = Date.now() + waitMs; jobs.some(job => job.inFlight) && Date.now() < end;) await new Promise(resolve => setTimeout(resolve, 20));
+      return jobs.filter(job => job.remaining > 0).map(job => ({ ...job.event, count: job.remaining }));
+    },
     // まだ送っていない分を捨て、捨てた回数を返す（配信が終わったときのいいね。2026-10-14 ユーザーの決定）。
     // 送信中の1回は止められないので、その応答のあとで止まる。捨てた要求は失敗として記録しない。
     discard(lane) {
@@ -145,11 +172,13 @@ function createLikeBatcher({ dispatch, windowMs, schedule = setTimeout, prepare 
     }, typeof windowMs === "function" ? windowMs() : windowMs);
   };
   // まとめ送りを待っている分を捨て、捨てた回数を返す（配信が終わったときのいいね）。
-  batch.discard = () => {
-    const discarded = pending.reduce((n, event) => n + event.count * (event.repeatRequests || 1), 0);
+  // まとめ送りを待っている分を外して返す（BRIDGE を止めるとき、未送信として履歴に残す。2026-11-07 品質レビュー）。
+  batch.take = () => {
+    const events = pending;
     pending = []; timer = null; generation++;
-    return discarded;
+    return events;
   };
+  batch.discard = () => batch.take().reduce((n, event) => n + event.count * (event.repeatRequests || 1), 0);
   return batch;
 }
 
@@ -171,4 +200,4 @@ function captureGameEvent(event, gameMod, sessions = {}) {
   }
   return Object.freeze({ ...event, gameMod, gameSessionId: event.gameSessionId ?? sessions[gameMod]?.sessionId ?? '', args: Object.freeze({ ...args }) });
 }
-module.exports = { createModEventDelivery, createLikeBatcher, captureGameEvent, isPermanentDeliveryFailure };
+module.exports = { createModEventDelivery, createLikeBatcher, captureGameEvent, isPermanentDeliveryFailure, UNSENT_ON_STOP };

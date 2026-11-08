@@ -84,7 +84,8 @@
       "bridge/audience_stats.cjs",
       "bridge/tiktok_events.cjs",
       "bridge/tiktok_connection.cjs",
-      "bridge/safe_json_file.cjs"
+      "bridge/safe_json_file.cjs",
+      "bridge/log_cleanup.cjs"
     ],
     "extraResources": [
       {
