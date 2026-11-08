@@ -558,6 +558,7 @@ if (import.meta.env.DEV && !win.mygamepack) {
       serverRunning: devServerRunning,
     }),
     bridgeLogs: async () => ({ ok: true, lines: [...devBridgeLogs] }),
+    logsOpenFolder: async () => { throw new Error('ログのフォルダーはインストール版で開けます。'); },
     bridgeSyncStatus: async () => ({ state: "complete", phase: "ready" }),
     appVersion: async () => String((pkg as { version?: string }).version || "0.0.0"),
     setupInspectEnvironment: async () => ({

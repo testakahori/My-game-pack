@@ -130,6 +130,8 @@ contextBridge.exposeInMainWorld("mygamepack", {
   bridgeRestart: (origin) => ipcRenderer.invoke("bridge:restart", origin),
   bridgeProcessStatus: () => ipcRenderer.invoke("bridge:processStatus"),
   bridgeLogs: () => ipcRenderer.invoke("bridge:logs"),
+  // アプリのログ（main-YYYYMMDD.log など）のフォルダーを開く。運用センターのボタン（2026-11-07 品質レビュー）。
+  logsOpenFolder: () => ipcRenderer.invoke("logs:openFolder"),
   modStatus: () => ipcRenderer.invoke("mod:status"),
   // 妨害の一時停止・再開（origin はどのボタンから押したか。logs/stop-requests.log に残す）
   modPause: (origin) => ipcRenderer.invoke("mod:pause", origin),

@@ -5,11 +5,19 @@ export type StopTarget = "all" | "bridge" | "server";
 /**
  * null は状態を取得できていない（不明）。動いているかもしれないものとして扱う。
  * disruptionPaused は妨害を一時停止中か（2026-10-16）。サーバーを止めると、BridgeMOD で預かっている分は消える。
+ * pendingDeliveries・pendingGifts は BRIDGE の送信待ち（BridgeMOD にまだ受け付けられていない分）の件数と、そのうちのギフト。
+ * BRIDGE を止める・再起動すると消える（送り直さず、操作履歴に「BRIDGE停止で未送信」と残る。2026-11-07 品質レビュー）。
  */
-export type RunningState = { bridgeRunning: boolean | null; serverRunning: boolean | null; tiktokConnected?: boolean; disruptionPaused?: boolean };
+export type RunningState = { bridgeRunning: boolean | null; serverRunning: boolean | null; tiktokConnected?: boolean; disruptionPaused?: boolean;
+  pendingDeliveries?: number; pendingGifts?: number };
 
-type BridgeStatus = { running?: boolean; tiktok?: { state?: string } | null } | null | undefined;
+/** BRIDGE が runtime-status.json に書く送信待ち（bridge:processStatus の sendQueue）。 */
+export type SendQueue = { pending?: number; gifts?: number; oldestAt?: string | null } | null | undefined;
+type BridgeStatus = { running?: boolean; tiktok?: { state?: string } | null; sendQueue?: SendQueue } | null | undefined;
 type ServerStatus = { running?: boolean; managed?: boolean } | null | undefined;
+
+// 件数として使える値だけを数える（無い・壊れた値は 0）。
+const countOf = (value: unknown) => (typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : 0);
 
 /**
  * 停止ボタンから見た状態。サーバーはこのアプリから止められるもの（running かつ managed が false でない）だけを動いているとする。
@@ -18,11 +26,45 @@ type ServerStatus = { running?: boolean; managed?: boolean } | null | undefined;
  */
 export function stopState(bridge: BridgeStatus, server: ServerStatus): RunningState {
   const bridgeRunning = typeof bridge?.running === "boolean" ? bridge.running : null;
+  const queue = bridgeRunning === true ? bridge?.sendQueue : null;
   return {
     bridgeRunning,
     serverRunning: typeof server?.running === "boolean" ? server.running && server.managed !== false : null,
     tiktokConnected: bridgeRunning === true && bridge?.tiktok?.state === "connected",
+    pendingDeliveries: countOf(queue?.pending),
+    pendingGifts: countOf(queue?.gifts),
   };
+}
+
+/**
+ * BRIDGE を止める・再起動すると消える送信待ちの文（無ければ空の文字）。確認文の頭に足す（2026-11-07 品質レビュー）。
+ */
+export function unsentNote(state: RunningState): string {
+  const total = countOf(state.pendingDeliveries);
+  const gifts = Math.min(countOf(state.pendingGifts), total);
+  const others = total - gifts;
+  const text = (gifts > 0 ? `未送信のギフト ${gifts}件は消えます。` : "")
+    + (others > 0 ? `未送信のいいね・コメントなど ${others}件${gifts > 0 ? "も" : "は"}消えます。` : "");
+  return text ? `${text}\n` : "";
+}
+
+/**
+ * BRIDGE を再起動する前の確認文。送信待ちが無ければ null（今までどおり確認なしで再起動する。2026-11-07 品質レビュー）。
+ */
+export function restartConfirmMessage(state: RunningState): string | null {
+  const unsent = unsentNote(state);
+  return unsent ? `${unsent}BRIDGEを再起動しますか？` : null;
+}
+
+/**
+ * 配信ホームに出す送信待ちの文。0件なら null（2026-11-07 品質レビュー）。
+ */
+export function sendQueueNotice(queue: SendQueue, now = Date.now()): string | null {
+  const pending = countOf(queue?.pending);
+  if (!pending) return null;
+  const since = Date.parse(String(queue?.oldestAt || ""));
+  const age = Number.isFinite(since) ? `（いちばん古いものは ${Math.max(0, Math.round((now - since) / 1000))}秒前から）` : "";
+  return `送信待ち ${pending}件${age}。BridgeMODへ送れるまでBRIDGEが預かっています。BRIDGEを止める・再起動すると消えます。`;
 }
 
 /**
@@ -55,7 +97,8 @@ export function stopConfirmMessage(target: StopTarget, state: RunningState): str
   const unknownNote = unknown.length ? `${unknown.join("と")}の状態を確認できていません（動いているかもしれません）。\n` : "";
   // サーバーを止めると一時停止は解け、BridgeMOD の待ちは消える（PR レビュー I-1）。BRIDGE停止はサーバーに触れない。
   const pausedNote = target !== "bridge" && state.disruptionPaused ? "妨害を一時停止中です。サーバーを止めると一時停止は解け、BridgeMOD で預かっている分は消えます。\n" : "";
-  const note = unknownNote + pausedNote;
+  // BRIDGE の送信待ちは、BRIDGE を止めると消える。サーバーだけを止めるときは BRIDGE が持ったまま再送を続ける（2026-11-07 品質レビュー）。
+  const note = unknownNote + pausedNote + (target !== "server" ? unsentNote(state) : "");
   if (target === "bridge") {
     if (state.bridgeRunning === false) return null;
     return `${live}${note}BRIDGEを停止します。止めている間のギフト・いいね・コメントはゲームに届かず、あとから届くこともありません。\n停止しますか？`;

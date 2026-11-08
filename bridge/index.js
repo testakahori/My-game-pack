@@ -36,7 +36,7 @@ const { liveOptions, restartRequired } = require("./live_config.cjs");
 const { CONFIG_DEFAULTS, commandsDirSetting, bridgeCommandsDir, bridgeModEndpoint } = require("./config_defaults.cjs");
 const { giftMappingsById } = require("./gift_mappings.cjs");
 const { isRouletteCommand, prepareRoulette, createRouletteRunner, rouletteSpins } = require("./roulette.cjs");
-const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require("./mod_event_delivery.cjs");
+const { createModEventDelivery, createLikeBatcher, captureGameEvent, UNSENT_ON_STOP } = require("./mod_event_delivery.cjs");
 const { commandFileProblem, ensureTxt, bridgeCommandKey } = require("./command_files.cjs");
 const { parseCommandText } = require("./command_text.cjs");
 const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("./bridge_mod_token.cjs");
@@ -144,14 +144,9 @@ let logToFileOnly = () => {};
   const logsDir = path.join(__dirname, "logs");
   if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
 
-  // 古いログを整理（最新 50 件だけ残す）
-  try {
-    const files = fs.readdirSync(logsDir)
-      .filter(f => f.startsWith("bridge-") && f.endsWith(".log"))
-      .map(f => ({ name: f, mtime: fs.statSync(path.join(logsDir, f)).mtimeMs }))
-      .sort((a, b) => b.mtime - a.mtime);
-    files.slice(50).forEach(f => fs.unlinkSync(path.join(logsDir, f.name)));
-  } catch (_) {}
+  // 古いログを整理する。7日より古いものだけを消し、今日のログは数が多くても消さない（2026-11-07 品質レビュー）。
+  // 前は新しい 50 件だけを残していて、再起動の繰り返しで最初に落ちたときのログと前の配信のログが消えていた。
+  require("./log_cleanup.cjs").pruneLogFiles(logsDir, { prefix: "bridge-" });
 
   const stamp = new Date().toISOString().replace(/:/g, "-").replace(/\..+/, "");
   const logPath = path.join(logsDir, `bridge-${stamp}.log`);
@@ -787,6 +782,19 @@ function recordDeliveryRejection(event, error) {
   }
 }
 
+// BRIDGE を止めたとき、まだ BridgeMOD に受け付けられていなかった分を、操作履歴に失敗（BRIDGE停止で未送信）として残す（2026-11-07 品質レビュー）。
+// 前は黙って消え、履歴にも残らなかった。ホーム画面の「送れなかったイベント」には数えない（止めたあとなので）。
+function recordUnsentOnStop(events) {
+  const at = new Date().toISOString();
+  for (const event of events) {
+    appendOperationsHistoryLine(path.join(__dirname, "operations-history.json"), {
+      at, type: event?.historyType || event?.type || "other", sender: event?.listenerName || "viewer", commandFile: ensureTxt(event?.commandFile),
+      count: event?.count || 1, ok: false, message: UNSENT_ON_STOP, ...(event?.source === "test" ? { source: "test" } : {}),
+    });
+  }
+  if (events.length) console.warn(`[Bridge] ${UNSENT_ON_STOP}のイベント ${events.length}件を、操作履歴に失敗として残しました（送り直しません）`);
+}
+
 function bridgeEventDelivery(bridgeMod, opts = {}) {
   const prepare = opts.prepare || (event => event);
   return createModEventDelivery({
@@ -798,6 +806,8 @@ function bridgeEventDelivery(bridgeMod, opts = {}) {
       return prepare(event);
     },
     rejected: (event, error) => {
+      // 止めている間に来た分（ルーレットの演出の終わりなど）は送らず、未送信として残す（2026-11-07 品質レビュー）。
+      if (error?.stopped) return recordUnsentOnStop([event]);
       // 403 以外の応答が返ったなら、トークンは通っている（認証の失敗の表示を残さない）。
       if (Number.isInteger(error?.status) && error.status !== 403) markBridgeModAuth(false);
       recordDeliveryRejection(event, error);
@@ -1305,6 +1315,19 @@ async function main() {
     if (event.testRun) pending.then(() => event.testRun.finished(event));
     return pending;
   };
+  // 送信待ち（BridgeMOD にまだ受け付けられていない分）の件数といちばん古い時刻を、変わったときだけ runtime-status.json に書く。
+  // 配信ホームの「送信待ち N件」と、停止・再起動の確認の「未送信のギフト N件は消えます」に使う（2026-11-07 品質レビュー）。
+  let lastSendQueue = "";
+  const writeSendQueue = () => {
+    const sendQueue = modDelivery ? modDelivery.backlog() : { pending: 0, gifts: 0, oldestAt: null };
+    const text = JSON.stringify(sendQueue);
+    if (text === lastSendQueue) return;
+    lastSendQueue = text;
+    updateRuntimeStatus({ sendQueue });
+  };
+  writeSendQueue();
+  const sendQueueTimer = setInterval(writeSendQueue, 1000);
+  if (typeof sendQueueTimer.unref === "function") sendQueueTimer.unref();
 
   // RCON/Telnet 実行を直列化しつつ、ギフトをいいねの backlog より優先する。
   // 並列接続でギフトごとのコマンド（タイトルの表示も含む）が混ざらないよう、実行自体は常に1本。
@@ -2272,10 +2295,14 @@ async function main() {
     return run.result(name);
   }
 
+  // SIGINT・ipc の切断・アプリからの shutdown が重なっても、止める処理は1回だけ。
+  let stopping = null;
   function shutdownBridge() {
+    if (stopping) return stopping;
     recordStream('end', 'monitoring-stopped');
     clearInterval(audienceTimer);
     clearInterval(recordingTimer);
+    clearInterval(sendQueueTimer);
     console.log("\n[Bridge] Stopping...");
     bridgeModWebSocketStopping = true;
     if (tiktokReconnectTimer) clearTimeout(tiktokReconnectTimer);
@@ -2283,6 +2310,18 @@ async function main() {
     try {
       tiktok.disconnect();
     } catch {}
+    stopping = recordUnsentAndExit();
+    return stopping;
+  }
+  // まだ BridgeMOD に受け付けられていない分（いいねのまとめ送りの待ちも）は、操作履歴に失敗として残してから終わる（2026-11-07 品質レビュー）。
+  // 送り直しはしない（ファイルにも残さない）。次に起動した BRIDGE が、配信の途中で前のギフトを急に動かすと驚かせるため。
+  async function recordUnsentAndExit() {
+    if (modDelivery) {
+      try {
+        const batched = queueLikeEventBatched.take().map(event => ({ ...event, count: event.count * (event.repeatRequests || 1) }));
+        recordUnsentOnStop([...batched, ...await modDelivery.close()]);
+      } catch (error) { console.error("[Bridge] 未送信の分を記録できませんでした:", error?.message || error); }
+    }
     process.exit(0);
   }
   process.on('SIGINT', shutdownBridge);

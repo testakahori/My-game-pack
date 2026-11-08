@@ -284,3 +284,68 @@ test('ゲーム要求: 予約名（bridgemod など）の GAME_MOD は送らな�
   for (const id of ['bridgemod', 'displaymod', 'doumacmd', 'minecraft_obs_bridge']) assert.throws(() => captureGameEvent({ type: 'gift', commandFile: 'x.txt' }, id), /Invalid game MOD ID/, id);
   assert.equal(captureGameEvent({ type: 'gift', commandFile: 'x.txt' }, 'gamemod').gameMod, 'gamemod');
 });
+
+// BRIDGE を止めたとき、まだ BridgeMOD に受け付けられていない分は黙って消えていた（2026-11-07 品質レビュー）。
+// 送信待ちの件数を画面に出し、止めるときは送れていない分を返して、履歴に失敗として残す。
+test('送信待ち: backlog() は待っている件数・ギフトの件数・いちばん古い時刻を返す。close() は送れていない分を返し、そのあとは送らない', async () => {
+  let wake;
+  const sent = [], delivered = [], rejected = [];
+  const delivery = createModEventDelivery({
+    send: async event => { sent.push([event.listenerName, event.count]); if (event.type === 'gift') throw Object.assign(new Error('HTTP 503'), { status: 503 }); },
+    sleep: () => new Promise(resolve => { wake = resolve; }),
+    delivered: event => delivered.push([event.listenerName, event.count]),
+    rejected: (event, error) => rejected.push([event.listenerName, error.message, error.stopped]),
+  });
+  assert.deepEqual(delivery.backlog(), { pending: 0, gifts: 0, oldestAt: null });
+  const before = Date.now();
+  const gifts = ['A', 'B'].map(listenerName => delivery.enqueue({ type: 'gift', commandFile: 'zombie.txt', count: 3, listenerName }));
+  await delivery.enqueue({ type: 'like', commandFile: 'cod.txt', count: 5, listenerName: 'L' });
+  await new Promise(resolve => setImmediate(resolve));
+  const backlog = delivery.backlog();
+  assert.deepEqual([backlog.pending, backlog.gifts], [2, 2], '送れたいいねは数えない');
+  assert.ok(Date.parse(backlog.oldestAt) >= before - 1 && Date.parse(backlog.oldestAt) <= Date.now());
+  const unsent = await delivery.close();
+  assert.deepEqual(unsent.map(event => [event.type, event.listenerName, event.commandFile, event.count]), [['gift', 'A', 'zombie.txt', 3], ['gift', 'B', 'zombie.txt', 3]]);
+  assert.deepEqual(delivery.backlog(), { pending: 0, gifts: 0, oldestAt: null });
+  await assert.rejects(delivery.enqueue({ type: 'gift', commandFile: 'zombie.txt', count: 1, listenerName: 'C' }), /BRIDGE停止で未送信/);
+  assert.deepEqual(rejected, [['C', 'BRIDGE停止で未送信', true]], '止めたあとに来た分も未送信として知らせる');
+  wake();
+  await Promise.all(gifts);
+  assert.deepEqual(sent, [['A', 3], ['L', 5]], '止めたあとは送り直さない');
+  assert.deepEqual(delivered, [['L', 5]]);
+});
+
+test('送信待ち: close() は送信中の1回の応答を待ち、届いた分は送れた分として記録する（未送信に入れない）', async () => {
+  let answer;
+  const delivered = [];
+  const delivery = createModEventDelivery({
+    send: () => new Promise(resolve => { answer = resolve; }),
+    delivered: event => delivered.push([event.listenerName, event.count]),
+  });
+  const first = delivery.enqueue({ type: 'gift', commandFile: 'zombie.txt', count: 2, listenerName: 'A' });
+  delivery.enqueue({ type: 'gift', commandFile: 'zombie.txt', count: 1, listenerName: 'B' });
+  const closing = delivery.close({ waitMs: 1000 });
+  setTimeout(() => answer(), 30);
+  assert.deepEqual((await closing).map(event => [event.listenerName, event.count]), [['B', 1]]);
+  await first;
+  assert.deepEqual(delivered, [['A', 2]]);
+});
+
+test('送信待ち: close() は送信中の応答を待ちきれなければ、それも未送信として返す', async () => {
+  const delivery = createModEventDelivery({ send: () => new Promise(() => {}) });
+  delivery.enqueue({ type: 'gift', commandFile: 'zombie.txt', count: 2, listenerName: 'A' });
+  assert.deepEqual((await delivery.close({ waitMs: 50 })).map(event => [event.listenerName, event.count]), [['A', 2]]);
+});
+
+test('いいねのまとめ送り: take() は待っている分を外して返し、待ち時間が明けても送らない', () => {
+  const timers = [], dispatched = [];
+  const batch = createLikeBatcher({ dispatch: event => dispatched.push(event), windowMs: 100, schedule: fn => timers.push(fn) });
+  batch('cod.txt', 3, 'A', true);
+  batch('cod.txt', 2, 'A', true);
+  assert.deepEqual(batch.take().map(event => [event.commandFile, event.count, event.listenerName]), [['cod.txt', 5, 'A']]);
+  for (const fn of timers) fn();
+  assert.deepEqual(dispatched, []);
+  assert.deepEqual(batch.take(), []);
+  batch('cod.txt', 4, 'B', true);
+  assert.equal(batch.discard(), 4, 'discard() は今までどおり回数を返す');
+});

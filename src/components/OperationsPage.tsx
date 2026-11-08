@@ -418,6 +418,7 @@ export default function OperationsPage({ onRestored, gameReady }: { onRestored: 
             <span><small>更新方法</small><b>配布されたインストーラーで更新</b></span>
           </div>
           <p>アプリをアンインストールする必要はありません。設定とMAPはそのまま引き継ぎます。</p>
+          <button type="button" className="ops-small-button" onClick={() => api.logsOpenFolder().then(() => setNotice("ログのフォルダーを開きました"), (error: any) => setNotice(`ログのフォルダーを開けませんでした: ${error?.message || String(error)}`))}>ログのフォルダーを開く</button>
         </OpsPanel>
       </div>
 

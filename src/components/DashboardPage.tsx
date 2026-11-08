@@ -6,7 +6,7 @@ import PreflightPanel from "./PreflightPanel";
 import EulerApiKeySettings from './EulerApiKeySettings';
 import { useUnsavedChanges } from "../UnsavedChanges";
 import type { GiftMapping } from "../types";
-import { stopConfirmMessage, stopState, type StopTarget } from "../lib/stopSafety";
+import { restartConfirmMessage, sendQueueNotice, stopConfirmMessage, stopState, type SendQueue, type StopTarget } from "../lib/stopSafety";
 import type { PauseView } from "../lib/disruptionPause";
 import { toRepeat } from "../lib/integerInput";
 import { ipcErrorMessage } from "../lib/ipcError";
@@ -35,6 +35,10 @@ type BridgeProcessStatus = {
   cpuPercent?: number | null;
   memMb?: number | null;
   restartCount?: number;
+  // 起動してすぐ落ちるのを繰り返したなどで、自動再起動の上限に達して止めた（2026-11-07 品質レビュー）。
+  restartExhausted?: boolean;
+  // BridgeMOD にまだ受け付けられていない分（送信待ち）。BRIDGE を止める・再起動すると消える（2026-11-07 品質レビュー）。
+  sendQueue?: SendQueue;
   // 配信中につなぎ方（TikTok ID など）を変えて保存したとき、BRIDGE を再起動すると反映される設定の名前（2026-10-18）。
   pendingRestart?: string[];
   tiktok?: {
@@ -520,6 +524,9 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
 
   const handleBridgeRestart = async () => {
     if (!startReady) return;
+    // 送信待ちがあるときだけ、消えることを確かめる（2026-11-07 品質レビュー）。
+    const restartMessage = restartConfirmMessage(stopState(bridgeProcess, serverProc));
+    if (restartMessage && !window.confirm(restartMessage)) return;
     setBridgeState("starting"); addLog("BRIDGEを再起動中…");
     try {
       // main側で「停止完了→起動」を直列実行する専用IPCを使う（stop→launch連打の空振りを防ぐ）
@@ -936,6 +943,12 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
               Modへ送れなかったイベントが{bridgeProcess.delivery.rejected}件あります（後ろのギフトは止めずに処理しています）。
               {bridgeProcess.delivery.last ? ` 直近: ${bridgeProcess.delivery.last.commandFile || "不明"} — ${bridgeProcess.delivery.last.reason || "理由不明"}` : ""}
               {" "}割り当てたコマンドを見直してください。
+            </p>
+          ) : null}
+          {sendQueueNotice(bridgeProcess.sendQueue) ? <p role="status" className="cockpit-launch-notice cockpit-launch-notice--info">{sendQueueNotice(bridgeProcess.sendQueue)}</p> : null}
+          {bridgeProcess.restartExhausted ? (
+            <p role="alert" className="cockpit-launch-notice cockpit-launch-notice--error">
+              BRIDGEが落ちるのを繰り返したため、自動再起動の上限に達して止めました。設定を確認して手動で再起動してください（くわしくは「接続ログ」のBRIDGEログ）。
             </p>
           ) : null}
           {!startReady && <p className="cockpit-all-start-note" role="status">起動するには、「プレイするゲーム」の欄でゲームを選んで保存してください。</p>}
