@@ -38,7 +38,8 @@ test('Bridge のルーレットは来た順にまとめて回し、当たりは�
   const run = source.slice(source.indexOf('function runRoulette('), source.indexOf('function dispatchBridgeEvent('));
   assert.match(run, /const spins = rouletteSpins\(count\);/);
   // run・step はテスト発火のルーレットだけ（本番は null。2026-10-16）。
-  assert.match(run, /rouletteRequests\.push\(\{ getConfig, triggerName, historyType, spins, done: 0, run, step \}\);/);
+  // fired・at・fromGift は、止めたときの未送信と送信待ちの数えに使う（2026-11-08 PR #196 レビュー）。
+  assert.match(run, /rouletteRequests\.push\(\{ getConfig, triggerName, historyType, spins, done: 0, fired: 0, at: Date\.now\(\), fromGift, run, step \}\);/);
   assert.match(run, /const rl = request\.getConfig\(\);/);
   // 行頭の ${tag} はテスト発火のルーレットのときだけ「[Test] 」になる（2026-10-16）。
   assert.match(run, /if \(request\.done > 0\) console\.warn\(`\$\{tag\}\[Roulette\] ルーレットが無効になったため、残り\$\{request\.spins - request\.done\}回を取りやめました`\);/,
@@ -47,7 +48,7 @@ test('Bridge のルーレットは来た順にまとめて回し、当たりは�
   assert.match(run, /round = prepareRoulette\(rl, commandsDirAbs, Math\.random, rouletteDefaults\(request\.historyType\)\);/);
   assert.match(run, /request\.done\+\+;\s*if \(request\.done < request\.spins\) nextRouletteSpin\(\); else finish\(\);/, '同じ依頼を全部回してから次の依頼');
   assert.match(run, /Promise\.resolve\(\)\.then\(nextRouletteSpin\)/, '取りやめが続いても呼び出しを深く重ねない');
-  assert.match(source, /runRoulette\(\(\) => rouletteCfg, event\.listenerName, event\.historyType \|\| "roulette", event\.count, run\)/);
+  assert.match(source, /runRoulette\(\(\) => rouletteCfg, event\.listenerName, event\.historyType \|\| "roulette", event\.count, run, event\.type === "gift"\)/);
   assert.match(source, /runRoulette\(\(\) => rl, String\(status\.player \|\| "player"\), "death_roulette", 1, ctx\.run\)/, 'デスルーレットは1回');
 });
 
@@ -70,7 +71,7 @@ test('同時に来た2人のルーレットは、来た順にまとめて回す�
 // 2026-10-16 からテスト発火も BRIDGE の本番のルーレットを通る。演出を送れなかったら、回している依頼のテストの結果に理由を書く。
 test('テスト発火のルーレットで演出を送れなかったら、そのテストの結果に理由を書く', () => {
   const source = read('bridge/index.js');
-  const runner = source.slice(source.indexOf('const animateRoulette = createRouletteRunner({'), source.indexOf('const rouletteRequests = [];'));
+  const runner = source.slice(source.indexOf('const animateRoulette = createRouletteRunner({'), source.indexOf('function runRoulette('));
   assert.match(runner, /rouletteRequests\[0\]\?\.run\?\.notice\(`ルーレットの演出を送れなかったため、演出を省いて当たりを送りました: /);
 });
 

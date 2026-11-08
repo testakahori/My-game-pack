@@ -34,8 +34,11 @@ function createMapOperations({
     } finally { mapOperationBusy = false; }
   }
 
+  // 前は定義していない reason を返していて、サーバーと BRIDGE を止めて保存したあとに ReferenceError で落ち、
+  // 止めたものを起動し直さないままになっていた（2026-11-07 品質レビュー）。保存の理由は mapSaves.save に渡すものと同じ 'manual'。
   async function createWorldBackup() {
-    const saved = await mapSaves.save('', 'manual');
+    const reason = 'manual';
+    const saved = await mapSaves.save('', reason);
     return { ok: true, path: path.join(getServerRoot(), 'map-saves', saved.id), reason, message: 'MAPを保存しました: ' + saved.name };
   }
 

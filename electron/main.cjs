@@ -11,6 +11,9 @@ const stopRequests = createStopRequestLog({ file: () => path.join(app.getPath("u
 // 設定ファイルが壊れていて戻したことを logs/settings-recovery.log に残す（画面には出さない。2026-10-23 設計書の 5.3）。
 const { createSettingsRecoveryLog } = require("./settings_recovery_log.cjs");
 const settingsRecovery = createSettingsRecoveryLog({ file: () => path.join(app.getPath("userData"), "logs", "settings-recovery.log") });
+// main の console.warn・console.error を logs/main-YYYYMMDD.log に残す（7日分）。書き始めるのは app.whenReady の中（2026-11-07 品質レビュー）。
+const mainLog = require("./main_log.cjs").createMainLog({ app, shell });
+mainLog.register(ipcMain);
 const { createSettingsBackups } = require("./settings_backups.cjs");
 const { assertGameCommands } = require('./game_command_scope.cjs');
 const { bridgeCommandsDir } = require("../bridge/config_defaults.cjs");
@@ -183,7 +186,7 @@ const { requestBridgeMod, waitForBridgeMod } = bridgeModClient;
 bridgeModClient.register(ipcMain);
 const { createBridgeProcess } = require('./bridge_process.cjs');
 const bridgeProcess = createBridgeProcess({
-  process, spawn, spawnSync, shell, runProc, stopRequests, eulerCredentials, getBridgeBatDir, getServerRoot, getConfigPath, getNodeCommand, getGvToolPath,
+  process, spawn, shell, runProc, stopRequests, eulerCredentials, getBridgeBatDir, getServerRoot, getConfigPath, getNodeCommand, getGvToolPath,
   getBridgeEntryPoint, ensureNodeRuntimeAvailable, assertGameProfileIdle, selectableCommandNames, gameProfiles, waitChildExit,
   assertMapIdle: () => mapOperations.assertIdle(),
   migrateSavedConfig: () => bridgeSettings.ensureSavedConfigMigrated(),
@@ -229,6 +232,7 @@ if (!gotLock) {
 }
 
 app.whenReady().then(() => {
+  mainLog.install();
   consumeInstallerSetupReset();
   pruneOperationsHistoryOldRows(30);
   installProdOnlyCsp();

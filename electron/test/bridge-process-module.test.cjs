@@ -15,7 +15,9 @@ const waitChildExit = (child, ms) => new Promise(resolve => {
   child.once('exit', () => { clearTimeout(timer); resolve(true); });
 });
 
-function setup(t, { ensureNodeRuntimeAvailable = async () => {}, migrateSavedConfig = () => {} } = {}) {
+// platform・runProc・spawnSync は、CPU・メモリの測り方を確かめるテストが差し替える（2026-11-07 品質レビュー）。
+function setup(t, { ensureNodeRuntimeAvailable = async () => {}, migrateSavedConfig = () => {}, platform = 'linux', runProc = async () => ({ out: '{}' }),
+  spawnSync = () => ({ stdout: '' }) } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-process-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const bridge = path.join(root, 'bridge'), server = path.join(root, 'server');
@@ -31,7 +33,7 @@ function setup(t, { ensureNodeRuntimeAvailable = async () => {}, migrateSavedCon
     return child;
   };
   const bridgeProcess = createBridgeProcess({
-    process: { platform: 'linux' }, spawn, spawnSync: () => ({ stdout: '' }), shell: { openExternal: async () => {} }, runProc: async () => ({ out: '{}' }),
+    process: { platform }, spawn, spawnSync, shell: { openExternal: async () => {} }, runProc,
     stopRequests: { record: (kind, origin) => { records.push(`${kind}:${origin}`); return '出どころ'; } },
     eulerCredentials: { runtime: () => ({ env: { FIXTURE: '1' }, revision: 7 }), status: (revision, running) => ({ revision, running }), save() {}, clear() {} },
     getBridgeBatDir: () => bridge, getServerRoot: () => server, getConfigPath: () => path.join(bridge, 'config.minecraft.json'),
@@ -158,4 +160,88 @@ test('BRIDGE の起動: ギフト設定が読めなければ、配信前チェ�
   fs.writeFileSync(path.join(x.bridge, 'config.minecraft.json'), '{壊れた');
   await assert.rejects(x.invoke('bridge:launch'), /^Error: 設定を読み込めません。初期セットアップと設定バックアップを確認してください。$/);
   assert.equal(x.spawned.length, 0);
+});
+
+// 前は状態の問い合わせ（配信ホーム・運用センター・停止パネルが 2〜5 秒ごと）のたびに spawnSync で PowerShell を待ち、
+// main が1秒ほど止まっていた（2026-11-07 品質レビュー）。
+test('BRIDGE の状態: CPU・メモリは spawnSync で待たずに裏で測り、15秒の間は最後に測った値を返す（PowerShell は同時に1つだけ）', async t => {
+  t.mock.timers.enable({ apis: ['Date'] });
+  const syncCalls = [], measured = [];
+  let answer;
+  const x = setup(t, {
+    platform: 'win32',
+    spawnSync: (...args) => { syncCalls.push(args); return { stdout: '99|99' }; },
+    runProc: (cmd, args) => {
+      if (cmd !== 'powershell.exe') return Promise.resolve({ out: '{}' });
+      measured.push(args.at(-1));
+      answer = Promise.withResolvers();
+      return answer.promise;
+    },
+  });
+  await x.invoke('bridge:launch');
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  const first = x.invoke('bridge:processStatus');
+  assert.deepEqual([first.cpuPercent, first.memMb], [null, null], 'まだ測れていなければ、待たずに空で返す');
+  await flush();
+  assert.equal(measured.length, 1);
+  assert.match(measured[0], /IDProcess -eq 40000/);
+  x.invoke('bridge:processStatus');
+  await flush();
+  assert.equal(measured.length, 1, '測っている間は2つ目の PowerShell を起動しない');
+  answer.resolve({ out: '12.5|80.3\r\n' });
+  await flush();
+  const second = x.invoke('bridge:processStatus');
+  assert.deepEqual([second.running, second.cpuPercent, second.memMb], [true, 12.5, 80.3]);
+  t.mock.timers.tick(14000);
+  assert.equal(x.invoke('bridge:processStatus').cpuPercent, 12.5);
+  await flush();
+  assert.equal(measured.length, 1, '15秒の間は測り直さない');
+  t.mock.timers.tick(1000);
+  assert.equal(x.invoke('bridge:processStatus').cpuPercent, 12.5, '測り直す間も、最後の値をすぐ返す');
+  await flush();
+  assert.equal(measured.length, 2);
+  answer.resolve({ out: '' });
+  await flush();
+  assert.deepEqual(syncCalls, [], 'spawnSync は呼ばない');
+  await x.invoke('bridge:stop', 'home:stop');
+});
+
+// 前は自動再起動の上限が効かず、起動して 0.5 秒で落ちる BRIDGE がいつまでも再起動していた（2026-11-07 品質レビュー）。
+// 上限の案内はログ欄（配信ホームでは閉じていることが多い）だけでなく、状態にも出して配信ホームに表示する。
+test('BRIDGE の自動再起動: 起動してすぐ落ちるのを繰り返したら再起動をやめ、上限の案内をログと状態（restartExhausted）に出す', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const x = setup(t);
+  await x.invoke('bridge:launch');
+  for (let i = 0; i < 3; i++) {
+    const child = x.children.at(-1);
+    t.mock.timers.tick(500);
+    child.exitCode = 1;
+    child.emit('exit', 1);
+    t.mock.timers.tick(60000);
+  }
+  t.mock.timers.tick(10 * 60000);
+  assert.equal(x.spawned.length, 3, '最初の起動と、自動再起動の2回だけ');
+  assert.ok(x.invoke('bridge:logs').lines.some(line => line.includes('自動再起動の上限に達しました')));
+  assert.equal(x.invoke('bridge:processStatus').restartExhausted, true);
+  assert.equal(x.bridgeProcess.isActive(), false);
+  await x.invoke('bridge:launch');
+  assert.equal(x.invoke('bridge:processStatus').restartExhausted, false, '手で起動し直したら上限の印を消す');
+  await x.invoke('bridge:stop', 'home:stop');
+});
+
+// BridgeMOD にまだ受け付けられていない分（送信待ち）は、BRIDGE が runtime-status.json に書く。配信ホームと停止の確認に出す（2026-11-07 品質レビュー）。
+test('BRIDGE の状態: 動いている間は送信待ち（sendQueue）を返し、前の BRIDGE が書いたものと止まっているときは出さない', async t => {
+  const x = setup(t);
+  const file = path.join(x.bridge, 'runtime-status.json');
+  const sendQueue = { pending: 2, gifts: 1, oldestAt: '2026-11-07T10:00:00.000Z' };
+  fs.writeFileSync(file, JSON.stringify({ sendQueue }));
+  const old = new Date(Date.now() - 60000);
+  fs.utimesSync(file, old, old);
+  await x.invoke('bridge:launch');
+  assert.equal(x.invoke('bridge:processStatus').sendQueue, null, '前の BRIDGE が残した値は出さない');
+  const later = new Date(Date.now() + 1000);
+  fs.utimesSync(file, later, later);
+  assert.deepEqual(x.invoke('bridge:processStatus').sendQueue, sendQueue);
+  await x.invoke('bridge:stop', 'home:stop');
+  assert.equal(x.invoke('bridge:processStatus').sendQueue, null);
 });

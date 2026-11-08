@@ -24,8 +24,9 @@ async function until(check, label) {
  * @param commandsFolder txt を書くフォルダー（BRIDGE のフォルダーからの相対。'commands/minecraft' のような入れ子も作る）。既定は 'commands'
  * @param config bridge の設定。options の commandsDir・transport・接続先はこちらで埋める（commandsDir: undefined を渡すと設定から消える）
  * @param respond 偽 BridgeMOD が返す HTTP ステータス（要求の本文と URL を受け取る）。既定は 202
+ * @param onExit BRIDGE が process.exit を呼んだときに呼ぶ（止めるときの確かめ用。2026-11-07）。無ければ process.exit はテストを落とす
  */
-async function startBridgeFixture(t, { commands = {}, commandsFolder = 'commands', config = {}, env = {}, respond = () => 202 } = {}) {
+async function startBridgeFixture(t, { commands = {}, commandsFolder = 'commands', config = {}, env = {}, respond = () => 202, onExit = null } = {}) {
   const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-fixture-')));
   const requests = [], logs = [], timers = new Set(), watchers = [], streams = [];
   const server = http.createServer((req, res) => {
@@ -62,7 +63,7 @@ async function startBridgeFixture(t, { commands = {}, commandsFolder = 'commands
   }
   const replies = [];
   const fakeProcess = Object.assign(new EventEmitter(), { argv: ['node', source], env, platform: process.platform, cwd: () => dir,
-    exit: code => { throw Error('unexpected exit ' + code); },
+    exit: code => { if (onExit) return onExit(code); throw Error('unexpected exit ' + code); },
     // アプリ（main）との ipc の代わり。BRIDGE からの返事を、ipc と同じく JSON で写してためる。
     send: message => { replies.push(JSON.parse(JSON.stringify(message))); return true; } });
   const testFs = { ...fs, watch: (...args) => { const w = fs.watch(...args); watchers.push(w); return w; },
@@ -126,7 +127,9 @@ async function startBridgeFixture(t, { commands = {}, commandsFolder = 'commands
     assert.ok(reply, 'Timed out: test event ' + id);
     return reply.result;
   };
-  return { dir, requests, logs, speech, emit, until, wait, testEvent, connection: () => connection };
+  // アプリ（main）から BRIDGE を止める（bridge_process.cjs の stopBridge と同じ ipc の知らせ）。
+  const shutdown = () => fakeProcess.emit('message', { type: 'shutdown' });
+  return { dir, requests, logs, speech, emit, until, wait, testEvent, shutdown, connection: () => connection };
 }
 
 module.exports = { startBridgeFixture };

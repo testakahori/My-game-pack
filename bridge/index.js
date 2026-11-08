@@ -36,7 +36,7 @@ const { liveOptions, restartRequired } = require("./live_config.cjs");
 const { CONFIG_DEFAULTS, commandsDirSetting, bridgeCommandsDir, bridgeModEndpoint } = require("./config_defaults.cjs");
 const { giftMappingsById } = require("./gift_mappings.cjs");
 const { isRouletteCommand, prepareRoulette, createRouletteRunner, rouletteSpins } = require("./roulette.cjs");
-const { createModEventDelivery, createLikeBatcher, captureGameEvent } = require("./mod_event_delivery.cjs");
+const { createModEventDelivery, createLikeBatcher, captureGameEvent, UNSENT_ON_STOP } = require("./mod_event_delivery.cjs");
 const { commandFileProblem, ensureTxt, bridgeCommandKey } = require("./command_files.cjs");
 const { parseCommandText } = require("./command_text.cjs");
 const { bridgeModTokenPath, readBridgeModToken, withBridgeModToken } = require("./bridge_mod_token.cjs");
@@ -144,14 +144,9 @@ let logToFileOnly = () => {};
   const logsDir = path.join(__dirname, "logs");
   if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
 
-  // 古いログを整理（最新 50 件だけ残す）
-  try {
-    const files = fs.readdirSync(logsDir)
-      .filter(f => f.startsWith("bridge-") && f.endsWith(".log"))
-      .map(f => ({ name: f, mtime: fs.statSync(path.join(logsDir, f)).mtimeMs }))
-      .sort((a, b) => b.mtime - a.mtime);
-    files.slice(50).forEach(f => fs.unlinkSync(path.join(logsDir, f.name)));
-  } catch (_) {}
+  // 古いログを整理する。7日より古いものだけを消し、今日のログは数が多くても消さない（2026-11-07 品質レビュー）。
+  // 前は新しい 50 件だけを残していて、再起動の繰り返しで最初に落ちたときのログと前の配信のログが消えていた。
+  require("./log_cleanup.cjs").pruneLogFiles(logsDir, { prefix: "bridge-" });
 
   const stamp = new Date().toISOString().replace(/:/g, "-").replace(/\..+/, "");
   const logPath = path.join(logsDir, `bridge-${stamp}.log`);
@@ -725,7 +720,26 @@ function sendBridgeExec({ host, port }, commands, listenerName = "system") {
 // 従来の「全体読み込み→unshift→全体書き込み」は同時書き込みで履歴が巻き戻る事故があったため、
 // 追記のみ（JSONL: 1行1イベント・古い順）に変更した。旧フォーマット（JSON配列）は初回書き込み時に
 // その場で変換する。electron/operations_stats.cjs 側にも同じ変換ロジックがある（どちらが先に書いても安全）。
+// 旧フォーマット（JSON配列）かどうかを、ファイルの頭だけ読んで見分ける。
+// 前は1行書くたびに履歴の全体（数十MBになる）を読んでいて、止めるときに数百件を書くと数秒かかった（2026-11-08 PR #196 レビュー）。
+function operationsHistoryIsJsonArray(historyPath) {
+  let fd;
+  try {
+    fd = fs.openSync(historyPath, "r");
+    const head = Buffer.alloc(256);
+    const size = fs.readSync(fd, head, 0, head.length, 0);
+    const text = head.toString("utf8", 0, size).trimStart();
+    // 頭が空白だけで埋まっているときは、全体を読んで確かめる（ふつうは起きない）。
+    return text.startsWith("[") || (text === "" && size === head.length);
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+  }
+}
+
 function migrateOperationsHistoryToJsonlIfNeeded(historyPath) {
+  if (!operationsHistoryIsJsonArray(historyPath)) return;
   let raw = "";
   try { raw = fs.readFileSync(historyPath, "utf8"); } catch { return; }
   const trimmed = raw.trim();
@@ -739,9 +753,15 @@ function migrateOperationsHistoryToJsonlIfNeeded(historyPath) {
 }
 
 function appendOperationsHistoryLine(historyPath, row) {
+  appendOperationsHistoryLines(historyPath, [row]);
+}
+
+// 何行かをまとめて1回で書く（止めるときの未送信の記録など）。
+function appendOperationsHistoryLines(historyPath, rows) {
+  if (!rows.length) return;
   try {
     migrateOperationsHistoryToJsonlIfNeeded(historyPath);
-    fs.appendFileSync(historyPath, JSON.stringify(row) + "\n", "utf8");
+    fs.appendFileSync(historyPath, rows.map(row => JSON.stringify(row) + "\n").join(""), "utf8");
   } catch { /* ignore */ }
 }
 
@@ -787,6 +807,17 @@ function recordDeliveryRejection(event, error) {
   }
 }
 
+// BRIDGE を止めたとき、まだ BridgeMOD に受け付けられていなかった分を、操作履歴に失敗（BRIDGE停止で未送信）として残す（2026-11-07 品質レビュー）。
+// 前は黙って消え、履歴にも残らなかった。ホーム画面の「送れなかったイベント」には数えない（止めたあとなので）。
+function recordUnsentOnStop(events) {
+  const at = new Date().toISOString();
+  appendOperationsHistoryLines(path.join(__dirname, "operations-history.json"), events.map(event => ({
+    at, type: event?.historyType || event?.type || "other", sender: event?.listenerName || "viewer", commandFile: ensureTxt(event?.commandFile),
+    count: event?.count || 1, ok: false, message: UNSENT_ON_STOP, ...(event?.source === "test" ? { source: "test" } : {}),
+  })));
+  if (events.length) console.warn(`[Bridge] ${UNSENT_ON_STOP}のイベント ${events.length}件を、操作履歴に失敗として残しました（送り直しません）`);
+}
+
 function bridgeEventDelivery(bridgeMod, opts = {}) {
   const prepare = opts.prepare || (event => event);
   return createModEventDelivery({
@@ -798,6 +829,8 @@ function bridgeEventDelivery(bridgeMod, opts = {}) {
       return prepare(event);
     },
     rejected: (event, error) => {
+      // 止めている間に来た分（ルーレットの演出の終わりなど）は送らず、未送信として残す（2026-11-07 品質レビュー）。
+      if (error?.stopped) return recordUnsentOnStop([event]);
       // 403 以外の応答が返ったなら、トークンは通っている（認証の失敗の表示を残さない）。
       if (Number.isInteger(error?.status) && error.status !== 403) markBridgeModAuth(false);
       recordDeliveryRejection(event, error);
@@ -1305,6 +1338,32 @@ async function main() {
     if (event.testRun) pending.then(() => event.testRun.finished(event));
     return pending;
   };
+  // 送信待ち（BridgeMOD にまだ受け付けられていない分）の件数といちばん古い時刻を、変わったときだけ runtime-status.json に書く。
+  // 配信ホームの「送信待ち N件」と、停止・再起動の確認の「未送信のギフト N件は消えます」に使う（2026-11-07 品質レビュー）。
+  // ルーレットのまだ回していない分（演出の途中の1回も）も送信待ちに数える。止めると、その分も消える（2026-11-08 PR #196 レビュー）。
+  // 依頼の並び（rouletteRequests）は下のルーレットの処理が使う。ここで先に作るのは、最初の writeSendQueue() から数えるため。
+  const rouletteRequests = [];
+  let rouletteBusy = false;
+  let rouletteStopped = false;
+  const rouletteLeft = request => Math.max(0, request.spins - request.fired);
+  let lastSendQueue = "";
+  const writeSendQueue = () => {
+    const queued = modDelivery ? modDelivery.backlog() : { pending: 0, gifts: 0, oldestAt: null };
+    const roulette = rouletteRequests.filter(request => rouletteLeft(request) > 0);
+    const oldest = Math.min(Date.parse(queued.oldestAt || "") || Infinity, ...roulette.map(request => request.at));
+    const sendQueue = {
+      pending: queued.pending + roulette.reduce((n, request) => n + rouletteLeft(request), 0),
+      gifts: queued.gifts + roulette.reduce((n, request) => n + (request.fromGift ? rouletteLeft(request) : 0), 0),
+      oldestAt: Number.isFinite(oldest) ? new Date(oldest).toISOString() : null,
+    };
+    const text = JSON.stringify(sendQueue);
+    if (text === lastSendQueue) return;
+    lastSendQueue = text;
+    updateRuntimeStatus({ sendQueue });
+  };
+  writeSendQueue();
+  const sendQueueTimer = setInterval(writeSendQueue, 1000);
+  if (typeof sendQueueTimer.unref === "function") sendQueueTimer.unref();
 
   // RCON/Telnet 実行を直列化しつつ、ギフトをいいねの backlog より優先する。
   // 並列接続でギフトごとのコマンド（タイトルの表示も含む）が混ざらないよう、実行自体は常に1本。
@@ -1365,22 +1424,23 @@ async function main() {
   // 別の人のルーレットとは来た順にまとめて回す：前のルーレットを全部回し終えてから次（デスルーレットも並ぶ。2026-10-12 ユーザーの決定）。
   // 当たりは回す直前に、その時の設定（getConfig）で決める。N 回分を先に全部決めると、大きな N で Bridge が止まり、
   // 途中で設定を変えても古い当たりが出る（PR #79 レビュー）。途中で無効にしたら、その依頼の残りは取りやめる。
-  const rouletteRequests = [];
-  let rouletteBusy = false;
-  function runRoulette(getConfig, triggerName, historyType, count = 1, run = null) {
-    if (!bridgeMod) return false;
+  // 依頼の並び（rouletteRequests）は、送信待ちの数え（writeSendQueue）の前で作っている。
+  // fired は当たりを送る列へ渡した回数。止めたときは spins - fired を未送信として残す（2026-11-08 PR #196 レビュー）。
+  function runRoulette(getConfig, triggerName, historyType, count = 1, run = null, fromGift = false) {
+    if (!bridgeMod || rouletteStopped) return false;
     const spins = rouletteSpins(count);
     // テスト発火のルーレットは1つの手順として数え、回し終えるまで結果を待つ（2026-10-16）。
     const step = run ? run.step({ commandFile: "roulette.txt", count: spins, historyType: historyType || "roulette" }, { roulette: true }) : null;
     if (run) run.hold(step);
-    rouletteRequests.push({ getConfig, triggerName, historyType, spins, done: 0, run, step });
+    rouletteRequests.push({ getConfig, triggerName, historyType, spins, done: 0, fired: 0, at: Date.now(), fromGift, run, step });
     if (!rouletteBusy) nextRouletteSpin();
     // 無効な項目を旧 roulette.txt へ流して成功扱いにしない。
     return true;
   }
   function nextRouletteSpin() {
     const request = rouletteRequests[0];
-    if (!request) { rouletteBusy = false; return; }
+    // 止めている間は次を回さない（残りは recordUnsentAndExit が未送信として残す）。
+    if (!request || rouletteStopped) { rouletteBusy = false; return; }
     rouletteBusy = true;
     // 依頼を終えて次へ。取りやめが続いても呼び出しを深く重ねない。
     const finish = () => {
@@ -1407,6 +1467,9 @@ async function main() {
       return finish();
     }
     animateRoulette(round, request.triggerName, winner => {
+      // 止めたあとに演出が終わった1回は送らない（未送信として数えてある）。
+      if (rouletteStopped) return;
+      request.fired++;
       const event = {
         type: "other", historyType: request.historyType || "roulette",
         commandFile: winner.commandFile, count: winner.repeat,
@@ -1428,7 +1491,7 @@ async function main() {
     if (rouletteCfg?.enabled && isRouletteCommand(event.commandFile)) {
       // 条件だけ確認では回さない。回す回数だけ書く。
       if (run?.preview) { previewRoulette(run, rouletteCfg, { ...event, label: "ルーレット", count: rouletteSpins(event.count) }); return; }
-      if (runRoulette(() => rouletteCfg, event.listenerName, event.historyType || "roulette", event.count, run)) return;
+      if (runRoulette(() => rouletteCfg, event.listenerName, event.historyType || "roulette", event.count, run, event.type === "gift")) return;
     }
     if (run?.preview) { previewEvent(run, event); return; }
     enqueueMod(run ? run.mark(event) : event);
@@ -2272,10 +2335,16 @@ async function main() {
     return run.result(name);
   }
 
+  // SIGINT・ipc の切断・アプリからの shutdown が重なっても、止める処理は1回だけ。
+  let stopping = null;
   function shutdownBridge() {
+    if (stopping) return stopping;
+    // 止め始めたら、新しいルーレットは受けない・次の1回も回さない。
+    rouletteStopped = true;
     recordStream('end', 'monitoring-stopped');
     clearInterval(audienceTimer);
     clearInterval(recordingTimer);
+    clearInterval(sendQueueTimer);
     console.log("\n[Bridge] Stopping...");
     bridgeModWebSocketStopping = true;
     if (tiktokReconnectTimer) clearTimeout(tiktokReconnectTimer);
@@ -2283,6 +2352,24 @@ async function main() {
     try {
       tiktok.disconnect();
     } catch {}
+    stopping = recordUnsentAndExit();
+    return stopping;
+  }
+  // まだ BridgeMOD に受け付けられていない分（いいねのまとめ送りの待ちも）は、操作履歴に失敗として残してから終わる（2026-11-07 品質レビュー）。
+  // 送り直しはしない（ファイルにも残さない）。次に起動した BRIDGE が、配信の途中で前のギフトを急に動かすと驚かせるため。
+  async function recordUnsentAndExit() {
+    if (modDelivery) {
+      try {
+        const batched = queueLikeEventBatched.take().map(event => ({ ...event, count: event.count * (event.repeatRequests || 1) }));
+        // ルーレットのまだ回していない分（演出の途中の1回も）は、roulette.txt の未送信として残す（2026-11-08 PR #196 レビュー）。
+        rouletteStopped = true;
+        const roulette = rouletteRequests.splice(0).filter(request => rouletteLeft(request) > 0).map(request => ({
+          type: "other", historyType: request.historyType || "roulette", commandFile: "roulette.txt", count: rouletteLeft(request),
+          listenerName: request.triggerName || "roulette", ...(request.run ? { source: "test" } : {}),
+        }));
+        recordUnsentOnStop([...batched, ...roulette, ...await modDelivery.close()]);
+      } catch (error) { console.error("[Bridge] 未送信の分を記録できませんでした:", error?.message || error); }
+    }
     process.exit(0);
   }
   process.on('SIGINT', shutdownBridge);
