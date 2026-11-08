@@ -11,6 +11,7 @@ import { opsConfigToSave } from "../lib/opsConfig";
 import CONFIG_DEFAULTS from "../../bridge/config_defaults.json";
 // 画面のコードに直接書いた文字の大きさにも、CSS と同じ分を足す（scripts/postcss-font-size-offset.cjs）。
 import FONT_SIZE_OFFSET from "../lib/fontSizeOffset.json";
+import { ipcErrorMessage } from "../lib/ipcError";
 
 type ModStatus = {
   online: boolean;
@@ -90,8 +91,9 @@ function tailPath(value?: string, fallback = "server/Douma_Craft") {
   return parts.slice(-2).join("/") || fallback;
 }
 
+// 配信ホームの「配信ワールド」・MAPセーブ・ロードと同じく、haihu_world/ を除いた名前。選んでいなければ「未選択」（2026-11-07 品質レビュー）。
 function parseWorldName(value?: string) {
-  if (!value) return "未設定";
+  if (!value) return "未選択";
   const parts = String(value).split(/[\\/]+/).filter(Boolean);
   return parts.at(-1) || value;
 }
@@ -244,7 +246,7 @@ export default function OperationsPage({ onRestored, gameReady }: { onRestored: 
       setNotice(validation.warnings?.length ? `保存しました: ${validation.warnings.join(" / ")}` : "運用設定を保存しました");
       await refresh();
     } catch (error: any) {
-      setNotice(`保存失敗: ${error?.message || String(error)}`);
+      setNotice(`保存できませんでした。入力した値を確かめて、もう一度保存してください。理由:${ipcErrorMessage(error)}`);
     } finally { setSaving(false); }
   };
 
@@ -252,22 +254,24 @@ export default function OperationsPage({ onRestored, gameReady }: { onRestored: 
     try {
       if (api.bridgeCommandsOpenFolder) {
         await api.bridgeCommandsOpenFolder();
-        setNotice("コマンドフォルダを開きました");
+        setNotice("コマンドフォルダーを開きました");
       } else {
-        setNotice("コマンドフォルダを開くAPIが見つかりません");
+        setNotice("コマンドフォルダーを開くAPIが見つかりません");
       }
     } catch (error: any) {
-      setNotice(`ファイルを開けませんでした: ${error?.message || String(error)}`);
+      setNotice(`フォルダーを開けませんでした: ${ipcErrorMessage(error)}`);
     }
   };
 
+  // 消した履歴は戻せないので確かめる（2026-11-07 品質レビュー）。
   const clearHistory = async () => {
+    if (!window.confirm("イベント履歴をすべて消しますか？\n消した履歴は元に戻せません。")) return;
     try {
       await api.operationsHistoryClear();
       await refresh();
-      setNotice("ログをクリアしました");
+      setNotice("履歴を消去しました");
     } catch (error: any) {
-      setNotice(`ログクリア失敗: ${error?.message || String(error)}`);
+      setNotice(`履歴を消去できませんでした。少し待ってから、もう一度お試しください。理由: ${ipcErrorMessage(error)}`);
     }
   };
 

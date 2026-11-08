@@ -164,7 +164,10 @@ test('readJavaCommandLines は error の結果をあとの close で上書きせ
 // 上のテストはスクリプトの形だけを見ているので、Windows では本物の PowerShell で引用符と $session の展開まで確かめる。
 // 速さは確かめない。CI の Windows では、ほかのテストと同時に走ると PowerShell の起動と最初の Get-CimInstance が遅くなり、
 // 直近30回でふだん約3.4秒、長いと7.4秒かかり、3回は本番の待ち時間（8秒）を越えて落ちた（2026-10-16）。テストでは30秒待つ。
-test('readJavaCommandLines は Windows の本物の PowerShell で java.exe の一覧を読める', { skip: process.platform !== 'win32' }, async () => {
+// 30秒でも、ほかのテストと同時だと落ちた（2026-11-04 の main）。ほかのテストと分け、CI の Windows で最後に1本だけ動かす
+// （.github/workflows/verify.yml。手元では MYGAMEPACK_POWERSHELL_TEST=1 を付けて動かす。2026-11-07 品質レビュー）。
+const realPowerShell = process.platform === 'win32' && process.env.MYGAMEPACK_POWERSHELL_TEST === '1';
+test('readJavaCommandLines は Windows の本物の PowerShell で java.exe の一覧を読める', { skip: !realPowerShell }, async () => {
   const started = Date.now();
   const lines = await readJavaCommandLines(undefined, 30000);
   assert.ok(Array.isArray(lines), `確認に失敗した: ${lines}（${Date.now() - started}ms）`);
