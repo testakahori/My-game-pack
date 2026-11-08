@@ -1,3 +1,4 @@
+import { ipcErrorMessage } from '../lib/ipcError';
 import React, { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { GiftMapping } from '../types';
 import type { GiftAssignment } from '../types/electron';
@@ -86,11 +87,12 @@ export default function ImageEditorPage({ mappings = EMPTY_MAPPINGS }: { mapping
     Promise.all([window.mygamepack.giftsRead(), window.mygamepack.bridgeCommandsReadMeta(), window.mygamepack.configRead()])
       .then(([catalog, commands, config]: any[]) => {
         if (canceled) return;
-        setGifts(Array.isArray(catalog?.gifts) ? catalog.gifts : []);
+        // 同じ ID のギフトが重なっていても、数え間違えない・同じカードを2枚出さない（2026-11-08 品質レビュー）。
+        setGifts(Array.isArray(catalog?.gifts) ? catalog.gifts.filter((g: any, i: number, all: any[]) => all.findIndex(x => String(x.id) === String(g.id)) === i) : []);
         setMetadata(Array.isArray(commands) ? commands : []);
         // 割り当てはギフト設定の画面と同じ形で読む（giftId の前後の空白を除き、手で書いた enabled: false を落とさない。処理のコピー PR8）。
         setSavedMappings(fromConfigMappings(config, () => ''));
-      }).catch(e => { if (!canceled) setDataError('ギフトを読み込めませんでした: ' + String(e?.message || e)); })
+      }).catch(e => { if (!canceled) setDataError('ギフトを読み込めませんでした: ' + ipcErrorMessage(e)); })
       .finally(() => { if (!canceled) setLoading(false); });
     return () => { canceled = true; };
   }, [reload]);
