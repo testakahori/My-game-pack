@@ -60,11 +60,14 @@ test('控える範囲は、プレイヤーの描画距離・強制読み込み�
 test('BridgeMOD は tick ごとのキュー処理（txt と /bridge/exec）を runProtected で包む', () => {
   const source = read('BridgeMod/src/main/java/jp/douma/bridgemod/BridgeMod.java');
   const tick = source.slice(source.indexOf('public void onServerTick('), source.indexOf('private void processQueues()'));
-  // 妨害の一時停止の間は、待ちから取り出さない（BridgeMOD 1.8.0）。
-  assert.match(tick, /if \((?:!paused && )?hasQueuedEvents\(\)\) BlockProtection\.runProtected\(activeServer, "bridgemod", this::processQueues\);/);
-  assert.doesNotMatch(tick, /processQueue\(activeServer/, 'キューを包みの外で処理しない');
+  // 妨害の一時停止の間は、待ちから取り出さない（BridgeMOD 1.8.0。1.8.4 から止めているかは EventQueues.hasWork が見る）。
+  assert.match(tick, /if \(queues\.hasWork\(\)\) BlockProtection\.runProtected\(activeServer, "bridgemod", this::processQueues\);/);
+  assert.doesNotMatch(tick, /queues\.process\(|executeEventSlice\(/, 'キューを包みの外で処理しない');
+  // ギフト・そのほか・いいねの3つの待ちは、包みの中の EventQueues.process が回す（BridgeMOD 1.8.4。順と予算は JUnit の EventQueuesTest）。
   const queues = source.slice(source.indexOf('private void processQueues()'));
-  for (const name of ['giftQueue', 'otherQueue', 'likeQueue']) assert.match(queues.slice(0, 600), new RegExp('processQueue\\(activeServer, ' + name));
+  assert.match(queues.slice(0, 300), /queues\.process\(\(event, budget\) -> executeEventSlice\(activeServer, event, budget\)\);/);
+  const process = read('BridgeMod/src/main/java/jp/douma/bridgemod/EventQueues.java');
+  for (const name of ['gift', 'other', 'like']) assert.match(process, new RegExp('drain\\(' + name + ', '));
   assert.match(source, /",\\"protectedBlockRestores\\":" \+ BlockProtection\.restoredTotal\(\)/);
 });
 

@@ -14,7 +14,9 @@ const noDisplay = process.env.GIFT_QA_NO_DISPLAY === '1';
 const cmd = command => rcon.send(command);
 async function send(event, code=202) {
   const response=await bridgeFetch('http://127.0.0.1:25578/bridge/event',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'gift',key:'qa_game',count:1,listenerName:'Aさん',...event})});
-  assert.equal(response.status,code,await response.text());
+  const text=await response.text();
+  assert.equal(response.status,code,text);
+  return JSON.parse(text);
 }
 (async()=>{
   fs.writeFileSync(path.join(root,'bridge/commands/minecraft/qa_game.txt'),'# GAME_MOD: gameprobe\n# GAME_KEY: AquaTower\n# TITLE: MUST-NOT-SHOW-AT-RECEIPT\n');
@@ -26,8 +28,9 @@ async function send(event, code=202) {
   await cmd('gamemode creative GameTester'); await cmd('gameprobe pause');
   let session=(await status()).gameSessions.gameprobe.sessionId;
   const first={requestId:'1001',gameSessionId:session,count:150,args:{strength:7,color:'red'}};
-  await send(first);await send(first);await send({...first,requestId:'1002',count:2,listenerName:'Bさん'});
-  await wait(async()=>{const s=(await status()).games.gameprobe;return s.waiting===2&&s.duplicates===1;});
+  // BridgeMOD 1.8.4 から、受け付け済みの番号の送り直しは BridgeMOD が受付で止める（202 と duplicate:true。ゲームMODまで届かない）。
+  await send(first);assert.equal((await send(first)).duplicate,true);await send({...first,requestId:'1002',count:2,listenerName:'Bさん'});
+  await wait(async()=>{const s=(await status()).games.gameprobe;return s.waiting===2&&s.duplicates===0;});
   assert.equal(packets.filter(p=>p.name==='set_title_text').length,0);
   pass('同じ1001の再送は1回登録、別番号1002は別要求。待機中は表示しない');
   await cmd('gameprobe resume'); await wait(async()=>(await status()).games.gameprobe.started.length===2);
@@ -43,7 +46,7 @@ async function send(event, code=202) {
     assert.equal(times.length,2); assert.ok(times.every(p=>p.data.fadeIn===0&&p.data.stay===120&&p.data.fadeOut===20),JSON.stringify(times));
     pass('実開始時に各1回表示し、0/120/20 tickの指定時間を実クライアントが受信');
   } else {assert.equal(packets.length,0);pass('DisplayMODなしでも表示だけ省略しゲームは続行');}
-  await send(first); await wait(async()=>(await status()).games.gameprobe.duplicates===2);
+  assert.equal((await send(first)).duplicate,true); await sleep(500);
   assert.equal((await status()).games.gameprobe.started.length,2); pass('実行完了後の同じ要求番号も二重実行しない');
   await cmd('gameprobe block');
   for(const type of ['gift','like','other']) await send({type,requestId:'old-'+type,gameSessionId:session});
@@ -71,9 +74,13 @@ async function send(event, code=202) {
   for(const count of [0,1.5,'10',100001]) await send({count},400);
   await send({args:{nested:{count:1}}},400);
   pass('不正な個数・入れ子引数を黙って丸めずHTTP 400で拒否');
-  await send({key:'zombie',requestId:'common-same',listenerName:'CommonTwice',announce:false});
-  await send({key:'zombie',requestId:'common-same',listenerName:'CommonTwice',announce:false});
-  await wait(async()=>{const output=await cmd('execute as @e[type=minecraft:zombie] run data get entity @s CustomName');return(output.match(/CommonTwice/g)||[]).length===2;});
-  pass('共通ゾンビは同じ要求番号でも届いた2件を2回実行');
+  // BridgeMOD 1.8.4 から、共通イベントも同じ番号の送り直しは1回だけ実行する。番号が違えば、同じ中身でも届いた分を実行する。
+  const zombies=async()=>((await cmd('execute as @e[type=minecraft:zombie] run data get entity @s CustomName')).match(/CommonRetry/g)||[]).length;
+  await send({key:'zombie',requestId:'common-same',listenerName:'CommonRetry',announce:false});
+  assert.equal((await send({key:'zombie',requestId:'common-same',listenerName:'CommonRetry',announce:false})).duplicate,true);
+  await wait(async()=>(await zombies())===1); await sleep(1000); assert.equal(await zombies(),1);
+  await send({key:'zombie',requestId:'common-other',listenerName:'CommonRetry',announce:false});
+  await wait(async()=>(await zombies())===2);
+  pass('共通ゾンビも同じ要求番号の送り直しは1回だけ実行し、番号が違えば届いた分を実行');
   const final=await status();assert.equal(final.failed,0,final.lastError);result.ok=true;result.status=final;
 })().catch(error=>{result.error=error.stack;console.error(error);process.exitCode=1;}).finally(()=>{fs.writeFileSync(path.join(root,noDisplay?'game-integration-no-display-results.json':'game-integration-results.json'),JSON.stringify(result,null,2));bot?.quit();rcon?.end();});

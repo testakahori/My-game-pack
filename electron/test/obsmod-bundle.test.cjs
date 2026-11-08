@@ -76,7 +76,9 @@ test('OBSMOD: 「ゲーム MOD ではない」一覧に入れる（BRIDGE と Br
   assert.match(read('BridgeMod/src/main/java/jp/douma/bridgemod/api/GameEvents.java'), /RESERVED_MOD_IDS = Set\.of\("bridgemod", "displaymod", "doumacmd", "minecraft_obs_bridge"\)/);
   const cases = JSON.parse(read('bridge/test/fixtures/game-mod-ids.json'));
   assert.ok(cases.some(c => c.id === 'minecraft_obs_bridge' && c.ok === false), '契約テストで BRIDGE と BridgeMOD の結果をそろえる');
-  assert.match(read('BridgeMod/gradle.properties'), /^mod_version=1\.8\.3\r?$/m);
+  // BridgeMOD 1.8.3 から（以降の版でも外さない）。
+  const [major, minor, patch] = read('BridgeMod/gradle.properties').match(/^mod_version=(\d+)\.(\d+)\.(\d+)\r?$/m).slice(1).map(Number);
+  assert.ok(major > 1 || major === 1 && (minor > 8 || minor === 8 && patch >= 3), 'BridgeMOD 1.8.3 以上');
 });
 
 test('OBSMOD 2.4.8: obs-send.properties でオンのときだけ OBS ツールへ送る', () => {

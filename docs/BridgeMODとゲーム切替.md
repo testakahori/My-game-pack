@@ -30,6 +30,7 @@
 - 旧設定の`douma_mod`・`doumaModHost`・`doumaModPort`は読み取り互換を維持する。旧MODを起動する意味ではない。
 - ワールド中の既存Mobタグ・天候の保存ファイル名は互換のため維持する。
 - ギフト600／いいね120／その他280の別キュー、60コマンドのtick予算といいね8予約枠、Java効果の生成予算を引き継ぐ。
+- BridgeMOD 1.8.4 から（2026-11-07 品質レビュー）、同じ requestId の送り直しは待ちに積まず、202（`"duplicate":true`）を返す。受け付けた番号を新しい順に 4,096 件覚え、待ちがいっぱいでも 429 にしない。サーバーを止めると忘れる。待ち列（`EventQueues.java`）と `/bridge/event` の受付（`BridgeHttp.java`）は Minecraft に頼らないクラスに分け、JUnit（`EventQueuesTest`・`BridgeHttpTest`）で動きを確かめる。
 
 ## 固定環境
 

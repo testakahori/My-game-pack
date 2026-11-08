@@ -23,7 +23,7 @@ test('状態はサーバーのスレッドだけで作る（起動時・tick・H
   assert.match(safely, /String status = buildStatusJson\(\);\s*lastStatusFailure = "";\s*return status;/, '直ったら、同じ失敗をまたログに出す（PR #98 再レビュー m3）');
   assert.match(safely, /catch \(RuntimeException \| StackOverflowError \| LinkageError error\)/);
   // サーバーで作った状態は "stale":false。WebSocket の最初の古い状態の印が、Bridge の記録に残り続けない（PR #98 再レビュー m1）。
-  assert.match(body('private String buildStatusJson()'), /return statusHead\(gift, like, other\) \+ ",\\"stale\\":false" \+ rest;/);
+  assert.match(body('private String buildStatusJson()'), /return statusHead\(queued\) \+ ",\\"stale\\":false" \+ rest;/);
   // 一度も状態を作れていないときは、起動中と分かるようにする（PR #98 再レビュー m2）。
   assert.match(mod, /private volatile String lastStatusRest = ",\\"starting\\":true\}";/);
   const started = body('public void onServerStarted(');
@@ -43,7 +43,9 @@ test('HTTP の状態の要求は、サーバーを少しだけ待ち、応えな
   assert.match(current, /future\.cancel\(false\);/);
   assert.match(current, /return staleStatus\(\);/);
   const stale = body('private String staleStatus()');
-  assert.match(stale, /synchronized \(this\)/, '待ちの件数はその場で数える');
+  // 待ちの件数はその場で数える（3つの待ちを同じ鍵の中で数える EventQueues.sizes。BridgeMOD 1.8.4）。
+  assert.match(stale, /statusHead\(queues\.sizes\(\)\)/, '待ちの件数はその場で数える');
+  assert.match(read('BridgeMod/src/main/java/jp/douma/bridgemod/EventQueues.java'), /synchronized Sizes sizes\(\) \{\s*return new Sizes\(gift\.size\(\), like\.size\(\), other\.size\(\)\);/);
   assert.match(stale, /\\"stale\\":true/);
   assert.match(body('private void handleBridgeStatus('), /sendHttp\(exchange, 200, currentStatus\(\)\);/);
   // 状態の要求がサーバーを待っていても、ギフトの受付が後ろに並ばないよう、HTTP は複数のスレッドで受ける。止めるときは閉じる。
