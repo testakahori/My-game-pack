@@ -58,11 +58,14 @@ export function restartConfirmMessage(state: RunningState): string | null {
 
 /**
  * 配信ホームに出す送信待ちの文。0件なら null（2026-11-07 品質レビュー）。
+ * いちばん古いものが3秒より新しいあいだは出さない（ふつうに送れている分やルーレットの演出中に、出たり消えたりしないように。2026-11-08 PR #196 レビュー）。
  */
+export const SEND_QUEUE_NOTICE_AFTER_MS = 3000;
 export function sendQueueNotice(queue: SendQueue, now = Date.now()): string | null {
   const pending = countOf(queue?.pending);
   if (!pending) return null;
   const since = Date.parse(String(queue?.oldestAt || ""));
+  if (Number.isFinite(since) && now - since < SEND_QUEUE_NOTICE_AFTER_MS) return null;
   const age = Number.isFinite(since) ? `（いちばん古いものは ${Math.max(0, Math.round((now - since) / 1000))}秒前から）` : "";
   return `送信待ち ${pending}件${age}。BridgeMODへ送れるまでBRIDGEが預かっています。BRIDGEを止める・再起動すると消えます。`;
 }

@@ -49,6 +49,9 @@ test('送信待ち: 配信ホームの文は件数といちばん古いものの
   assert.equal(sendQueueNotice({ pending: 1, oldestAt: null }, now), '送信待ち 1件。BridgeMODへ送れるまでBRIDGEが預かっています。BRIDGEを止める・再起動すると消えます。');
   assert.equal(sendQueueNotice({ pending: 0, oldestAt: null }, now), null);
   assert.equal(sendQueueNotice(null, now), null);
+  // 3秒より新しいあいだは出さない（ふつうに送れている分で、出たり消えたりしない。2026-11-08 PR #196 レビュー）。
+  assert.equal(sendQueueNotice({ pending: 1, oldestAt: '2026-11-07T10:00:10.000Z' }, now), null);
+  assert.match(sendQueueNotice({ pending: 1, oldestAt: '2026-11-07T10:00:09.400Z' }, now), /^送信待ち 1件（いちばん古いものは 3秒前から）/);
 });
 
 test('配信ホーム: 送信待ちと自動再起動の上限を、ログ欄の外（ほかの案内と同じ並び）に出し、再起動の前に送信待ちを確かめる', () => {

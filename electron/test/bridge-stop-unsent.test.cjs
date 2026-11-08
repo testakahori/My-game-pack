@@ -42,6 +42,32 @@ test('BRIDGE を止めると、BridgeMOD にまだ受け付けられていない
   assert.deepEqual(exits, [0]);
 });
 
+// ルーレットのまだ回していない分も、送信待ちに数え、止めたら未送信として残す（2026-11-08 PR #196 レビュー）。
+// 前は残りの回数が履歴にも件数にも出ず、止めたあとも演出が終わった1回の当たりを送ろうとしていた。
+test('ルーレットの途中で BRIDGE を止めると、まだ回していない回数を roulette.txt の未送信として残し、当たりは送らない', async t => {
+  const exits = [];
+  const bridge = await startBridgeFixture(t, {
+    commands: { qa: 'say qa\n' },
+    config: { mappings: [{ giftId: '1', name: 'くじ', commandFile: 'roulette.txt', repeat: 3 }],
+      roulette: { enabled: true, items: [{ commandFile: 'qa.txt', label: 'QA', weight: 1, repeat: 1 }] } },
+    onExit: code => exits.push(code),
+  });
+  const status = () => JSON.parse(fs.readFileSync(path.join(bridge.dir, 'runtime-status.json'), 'utf8'));
+  await bridge.emit('WebcastGiftMessage', { giftId: '1', gift: { name: 'くじ', diamondCount: 1 }, repeatCount: 1, repeatEnd: 1 });
+  await bridge.until(() => bridge.requests.some(x => Array.isArray(x.commands)), 'first roulette frame');
+  await bridge.until(() => status().sendQueue?.pending === 3, 'three spins are waiting');
+  assert.equal(status().sendQueue.gifts, 3, 'ギフトから回すルーレットは、未送信のギフトに数える');
+
+  bridge.shutdown();
+  await bridge.until(() => exits.length === 1, 'bridge exits');
+  const rows = fs.readFileSync(path.join(bridge.dir, 'operations-history.json'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.deepEqual(rows.map(row => [row.type, row.commandFile, row.count, row.ok, row.message]),
+    [['roulette', 'roulette.txt', 3, false, 'BRIDGE停止で未送信']]);
+  // 演出が終わっても（約2秒）、当たりは送らない。次の回も回さない。
+  await bridge.wait(3000);
+  assert.ok(!bridge.requests.some(x => x.commandFile === 'qa.txt'), '止めたあとに当たりを送らない');
+});
+
 test('BRIDGE を止めても、送れたギフトは履歴の成功のまま（未送信には入れない）', async t => {
   const exits = [];
   const bridge = await startBridgeFixture(t, {
@@ -57,4 +83,19 @@ test('BRIDGE を止めても、送れたギフトは履歴の成功のまま（�
   const rows = fs.readFileSync(history, 'utf8').trim().split('\n').map(line => JSON.parse(line));
   assert.deepEqual(rows.map(row => [row.commandFile, row.ok]), [['zombie.txt', true]]);
   assert.ok(!bridge.logs.some(line => line.includes('BRIDGE停止で未送信')));
+});
+
+// 履歴に1行足すたびに全体を読まない（ファイルの頭だけで旧フォーマットか見分ける。2026-11-08 PR #196 レビュー）。
+// 旧フォーマット（JSON配列・新しい順。頭に BOM や空白があっても）は、今までどおり古い順の JSONL に直してから足す。
+test('旧フォーマット（JSON配列）の履歴は、JSONL に直してから足す（頭に BOM・空白があっても）', async t => {
+  const bridge = await startBridgeFixture(t, {
+    commands: { zombie: '# TITLE: zombie\nsay zombie\n' },
+    config: { mappings: [{ giftId: '5655', name: 'バラ', commandFile: 'zombie.txt', repeat: 1 }] },
+  });
+  const history = path.join(bridge.dir, 'operations-history.json');
+  fs.writeFileSync(history, '﻿\n  ' + JSON.stringify([{ commandFile: 'new.txt', ok: true }, { commandFile: 'old.txt', ok: true }]), 'utf8');
+  await bridge.emit('WebcastGiftMessage', { giftId: '5655', gift: { name: 'バラ', diamondCount: 1 }, repeatCount: 1, repeatEnd: 1 });
+  await bridge.until(() => fs.readFileSync(history, 'utf8').includes('zombie.txt'), 'gift delivered');
+  const rows = fs.readFileSync(history, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.deepEqual(rows.map(row => row.commandFile), ['old.txt', 'new.txt', 'zombie.txt']);
 });
