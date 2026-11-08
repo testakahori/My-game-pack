@@ -8,16 +8,17 @@ for(const value of ['server-ip=127.0.0.1','server-port=25587','rcon.port=25588']
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const status=async()=> (await bridgeFetch('http://127.0.0.1:25578/bridge/status')).json();
 async function wait(fn,ms=20000){const end=Date.now()+ms;while(Date.now()<end){if(await fn())return;await sleep(100);}throw Error('Timed out');}
-async function post(key,requestId,count=1){const r=await bridgeFetch('http://127.0.0.1:25578/bridge/event',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({key,requestId,type:'gift',count,listenerName:'テスト視聴者',announce:true})});assert.equal(r.status,202);await r.text();}
+async function post(key,requestId,count=1){const r=await bridgeFetch('http://127.0.0.1:25578/bridge/event',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({key,requestId,type:'gift',count,listenerName:'テスト視聴者',announce:true})});assert.equal(r.status,202);return JSON.parse(await r.text());}
 let bot,rcon;const result={checks:[]};const pass=m=>{result.checks.push(m);console.log('PASS '+m);};
 (async()=>{
  rcon=await Rcon.connect({host:'127.0.0.1',port:25588,password:props.match(/^rcon.password=(.*)$/m)[1].trim(),timeout:15000});
  const cmd=text=>rcon.send(text);
  await wait(async()=>!(await status()).player.online);
- await post('get_tree','retry-1');await post('get_tree','retry-1');await post('get_tree','gift-2',2);
- await wait(async()=>{const g=(await status()).games.saikutumod;return g.gift===2&&g.duplicates===1;});
+ // BridgeMOD 1.8.4 から、受け付け済みの番号の送り直しは BridgeMOD が受付で止める（202 と duplicate:true。saikutuMOD まで届かない）。
+ await post('get_tree','retry-1');assert.equal((await post('get_tree','retry-1')).duplicate,true);await post('get_tree','gift-2',2);
+ await wait(async()=>{const g=(await status()).games.saikutumod;return g.gift===2&&g.duplicates===0;});
  assert.equal((await status()).games.saikutumod.started,0);
- pass('同じ要求番号の再送はゲームMODの待ち列へ1件だけ登録、別番号は別件');
+ pass('同じ要求番号の再送はBridgeMODが受付で止め、ゲームMODの待ち列へは1件だけ。別番号は別件');
  bot=mineflayer.createBot({host:'127.0.0.1',port:25587,username:'MiningTester',auth:'offline',version:'1.20.1',viewDistance:'tiny'});
  let titles=0;bot._client.on('set_title_text',()=>titles++);
  await new Promise((resolve,reject)=>{bot.once('spawn',resolve);bot.once('kicked',reject);});
@@ -25,7 +26,7 @@ let bot,rcon;const result={checks:[]};const pass=m=>{result.checks.push(m);conso
  await wait(async()=> (await status()).games.saikutumod.completed===2);
  assert.match(await cmd('clear MiningTester minecraft:oak_wood 0'),/30/);
  assert.equal(titles,2);
- await post('get_tree','retry-1');await sleep(350);
+ assert.equal((await post('get_tree','retry-1')).duplicate,true);await sleep(350);
  assert.equal((await status()).games.saikutumod.completed,2);
  await post('get_tree','gift-3');await wait(async()=> (await status()).games.saikutumod.completed===3);
  assert.match(await cmd('clear MiningTester minecraft:oak_wood 0'),/40/);
@@ -33,9 +34,13 @@ let bot,rcon;const result={checks:[]};const pass=m=>{result.checks.push(m);conso
  const file=path.join(root,'bridge/commands/minecraft/qa_received.txt');
  fs.writeFileSync(file,'scoreboard players add #common qa_received 1');
  await cmd('scoreboard objectives add qa_received dummy');
- await post('qa_received','common-repeat');await post('qa_received','common-repeat');
- await wait(async()=>/has 2 /.test(await cmd('scoreboard players get #common qa_received')));
- pass('共通の即時イベントは同じ番号の要求でも届いた2件を実行');
+ // BridgeMOD 1.8.4 から、共通の即時イベントも同じ番号の送り直しは1回だけ実行する。番号が違えば届いた分を実行する。
+ const received=async()=>(await cmd('scoreboard players get #common qa_received')).match(/has (\d+) /)?.[1];
+ await post('qa_received','common-repeat');assert.equal((await post('qa_received','common-repeat')).duplicate,true);
+ await wait(async()=>(await received())==='1');await sleep(1000);assert.equal(await received(),'1');
+ await post('qa_received','common-other');
+ await wait(async()=>(await received())==='2');
+ pass('共通の即時イベントも同じ番号の送り直しは1回だけ実行し、番号が違えば届いた分を実行');
  for(const [key,item,amount] of [['get_ender_pearl','ender_pearl',2],['get_iron_pickaxe','iron_pickaxe',1],['get_water_backet','water_bucket',1]]){
    await cmd('bridge '+key+' 1');await wait(async()=>new RegExp('(?:Found|found) '+amount+' ').test(await cmd('clear MiningTester minecraft:'+item+' 0')));
  }
