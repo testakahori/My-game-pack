@@ -71,7 +71,7 @@ test('既存セットアップを確認中は別のセットアップ操作を�
   const pending = existingButton(harness.render()).props.onClick();
   const busy = harness.render();
   assert.equal(existingButton(busy).props['aria-busy'], true);
-  const folderButton = nodes(busy, node => node.type === 'button' && node.props.children === '📁 フォルダを選択')[0];
+  const folderButton = nodes(busy, node => node.type === 'button' && node.props.children === '📁 フォルダーを選択')[0];
   assert.equal(folderButton.props.disabled, true);
   finish({ serverFolder: 'D:\\existing-server' });
   await pending;

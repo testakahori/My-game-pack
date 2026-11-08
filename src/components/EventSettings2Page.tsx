@@ -3,6 +3,7 @@
 // デザインはイベント設定①（EventSettingsPage）を踏襲。
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
+import { ipcErrorMessage } from "../lib/ipcError";
 import { commandOptionLabel } from "../lib/commandLabel";
 import { commandGroupLabel, groupCommandsByCategory } from "../lib/commandGroups";
 import { toEveryDeaths, toRepeat, toWeight } from "../lib/integerInput";
@@ -359,7 +360,7 @@ const EventSettings2Page: React.FC = () => {
       setCommentRules(loadedRules);
       setSavedSnapshot(JSON.stringify({ roulette: loadedRoulette, deathRoulette: loadedDeathRoulette, commentRules: loadedRules, commentEnabled: c.enabled === true }));
     } catch (e: any) {
-      setMsg({ type: "error", text: `読み込みエラー: ${e?.message ?? String(e)}` });
+      setMsg({ type: "error", text: `読み込みエラー: ${ipcErrorMessage(e)}` });
     } finally {
       setLoading(false);
     }
@@ -412,11 +413,11 @@ const EventSettings2Page: React.FC = () => {
             "",
           ].join("\n"),
         });
-      } catch { /* コマンドフォルダ未作成でも保存自体は成功扱い */ }
+      } catch { /* コマンドフォルダー未作成でも保存自体は成功扱い */ }
       setMsg({ type: "ok", text: `${label}を保存しました。次回 BRIDGE 起動（または数秒後の自動の再読み込み）から有効になります。` });
       setTimeout(() => setMsg(null), 5000);
     } catch (e: any) {
-      setMsg({ type: "error", text: `保存エラー: ${e?.message ?? String(e)}` });
+      setMsg({ type: "error", text: `保存エラー: ${ipcErrorMessage(e)}` });
     } finally {
       setSaving(false);
     }

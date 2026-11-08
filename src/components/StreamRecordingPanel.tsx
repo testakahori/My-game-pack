@@ -20,7 +20,7 @@ export default function StreamRecordingPanel() {
       {error && <p role="alert">{error}</p>}
       <details className="studio-advanced"><summary>記録について</summary>
         <p>TikTokへ接続すると配信ごとに記録を開始し、終了を検知すると閉じます。同じ配信への再接続は、同じ記録にまとまります。</p>
-        <p>記録できるのは接続中の区間です。接続前・切断中・アプリ停止中の時間は含みません。配信そのものの開始・終了操作はTikTok LIVE STUDIOで行ってください。</p>
+        <p>記録できるのは接続中の区間です。接続前・切断中・アプリ停止中の時間は含みません。配信そのものの開始・終了操作は TikTok LIVE Studio で行ってください。</p>
       </details>
     </div>
   </section>;

@@ -36,6 +36,18 @@ const PAGE_TITLE: Partial<Record<AppPage, string>> = {
   [AppPage.STATS]: "配信統計",
 };
 
+// 未保存の帯は、そのページの保存ボタンの名前を出す（「保存して」だけでは、どれを押すか分からなかった。2026-11-07 品質レビュー）。
+// ギフト設定の「この内容で登録」は、編集の欄が自分で渡す（useUnsavedChanges の hint。コマンド編集のタブでは出さない）。
+const SAVE_ACTION_TEXT = "未保存の変更があります。「保存する」を押すと保存されます。";
+const UNSAVED_TEXT: Partial<Record<AppPage, string>> = {
+  [AppPage.DASHBOARD]: "未保存の変更があります。変えた欄の「IDを承認する」「保存」「キーを保存」を押すと保存されます。",
+  [AppPage.EVENTS]: SAVE_ACTION_TEXT,
+  [AppPage.EVENTS2]: SAVE_ACTION_TEXT,
+  [AppPage.TTS]: SAVE_ACTION_TEXT,
+  [AppPage.OPERATIONS]: "未保存の変更があります。「変更を保存」（OBS 連携は「OBS 連携を保存」）を押すと保存されます。",
+  [AppPage.STATS]: "未保存の変更があります。「受取額を保存」を押すと保存されます。",
+};
+
 const App: React.FC = () => {
   const [activePage, setActivePage] = useState<AppPage>(AppPage.SETUP);
   const [setupComplete, setSetupComplete] = useState(false);
@@ -47,7 +59,7 @@ const App: React.FC = () => {
   const [disruption, setDisruption] = useState<PauseView>(() => pauseView(null));
   const [pauseError, setPauseError] = useState("");
   const pollRef = useRef<() => Promise<void>>(async () => {});
-  const { confirmDiscard, hasChanges } = useUnsavedGuard();
+  const { confirmDiscard, hasChanges, hint: unsavedHint } = useUnsavedGuard();
   const [settingsRevision, setSettingsRevision] = useState(0);
   const contentRef = useRef<HTMLElement>(null);
   const [gameStatus, setGameStatus] = useState<GameStatus | null>(null);
@@ -206,7 +218,7 @@ const App: React.FC = () => {
 
           </header>
 
-          {hasChanges && <div className="unsaved-banner" role="status">未保存の変更があります。保存してから画面を移動してください。</div>}
+          {hasChanges && <div className="unsaved-banner" role="status">{unsavedHint || UNSAVED_TEXT[activePage] || "未保存の変更があります。保存してから画面を移動してください。"}</div>}
           {disruption.paused && <div className="pause-banner" role="status">
             <span>{pauseBannerText(disruption)}</span>
             <button type="button" onClick={resumeFromBanner}>▶ 再開</button>

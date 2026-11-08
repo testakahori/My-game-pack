@@ -869,7 +869,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
   const liveTitle = liveState === "error" ? accountLive.error : undefined;
   // 保存済みの ID の形が正しくなければ承認済みと出さない（BRIDGE は起動しない。PR9 の最後のレビュー）。
   const idApproved = sameTikTokId(username, appliedUsername) && isValidTikTokId(appliedUsername);
-  const worldDisplay = levelName ? levelName.replace(`${WORLD_PREFIX}/`, "") : "未設定";
+  const worldDisplay = levelName ? levelName.replace(`${WORLD_PREFIX}/`, "") : "未選択";
   const stepForge: StepStatus = forgeState  === "running" ? "done" : forgeState  === "error" ? "error" : forgeState  === "starting" ? "active" : "pending";
   const stepBridge: StepStatus = bridgeState === "running" ? "done" : bridgeState === "error" ? "error" : bridgeState === "starting" ? "active" : "pending";
   const isBusy = allStartBusy || allStopBusy || forgeState === "starting" || bridgeState === "starting";
@@ -881,11 +881,12 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
     warn:  "text-amber-400",
   };
 
+  // 見出しは日本語（英語の Game は配信ワールドのことで、「プレイするゲーム」と取り違えた。2026-11-07 品質レビュー）。
   const pipeline = [
     { label: "TikTok LIVE", value: tiktokConfigured ? `@${typedTikTokId}` : "未設定", icon: "tiktok", state: liveState === "live" ? "running" : liveState === "checking" ? "starting" : liveState === "error" ? "error" : "stopped", tone: "green", runningText: "接続済み（配信中）" },
-    { label: "Forge Server", value: serverProc.running && serverProc.managed === false ? "起動済み（アプリ外）" : "Forge 1.20.1", icon: "▣", state: forgeState, tone: "red", runningText: "接続中" },
-    { label: "Game", value: gameRunning ? "Minecraft 検知中" : worldDisplay, icon: "world", state: gameRunning ? "running" : "stopped", tone: "green", runningText: "起動中" },
-    { label: "Bridge", value: "TikTok → Minecraft", icon: "⛓", state: bridgeState, tone: "red", runningText: "接続中" },
+    { label: "サーバー", value: serverProc.running && serverProc.managed === false ? "起動済み（アプリ外）" : "Forge 1.20.1", icon: "▣", state: forgeState, tone: "red", runningText: "接続中" },
+    { label: "配信ワールド", value: worldDisplay, icon: "world", state: gameRunning ? "running" : "stopped", tone: "green", runningText: "Minecraft 起動中" },
+    { label: "BRIDGE", value: "TikTok → Minecraft", icon: "⛓", state: bridgeState, tone: "red", runningText: "接続中" },
   ] as const;
 
 
@@ -895,7 +896,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
         <section className="cockpit-main">
           <div className="cockpit-panel-title">
             <span>›</span>
-            <div><h1>配信の準備をはじめよう</h1><p>TikTok LIVE STUDIOの接続後、MinecraftとBRIDGEを準備します</p></div>
+            <div><h1>配信の準備をはじめよう</h1><p>TikTok LIVE Studio の接続後、MinecraftとBRIDGEを準備します</p></div>
           </div>
 
           <div className="cockpit-pipeline">
@@ -1061,7 +1062,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
             {worldFolders.map((folder) => <option value={folder} key={folder}>{WORLD_PREFIX}/ {folder}</option>)}
           </select>
           <WorldDiorama />
-          <small>状態: <b>{worldSaving ? "保存中…" : !worldFolders.length ? "配布ワールドなし" : levelName ? "選択済み" : "未設定"}</b></small>
+          <small>状態: <b>{worldSaving ? "保存中…" : !worldFolders.length ? "配布ワールドなし" : levelName ? "選択済み" : "未選択"}</b></small>
           {serverProc.running === true && <small className="cockpit-world-msg">サーバーの動作中はワールドを変えられません。停止してから選んでください。</small>}
           {worldMsg && <small role={worldMsg.type === "error" ? "alert" : "status"} className={`cockpit-world-msg cockpit-world-msg--${worldMsg.type}`}>{worldMsg.text}</small>}
           </section>
@@ -1070,7 +1071,7 @@ const DashboardPage: React.FC<{ onNavigate: (page: AppPage) => void; disruption?
           <h2><span>◇</span> MAPセーブ・ロード</h2>
           <div className="cockpit-safety-state"><span>◇</span><div><b>遊ぶ前の世界を保存</b><small>地形も持ち物も、保存した時点へ</small></div></div>
           <ul><li>「保存する」を押した時だけ保存</li><li>自動セーブなし</li></ul>
-          <button type="button" onClick={() => onNavigate(AppPage.OPERATIONS)}>MAPの保存・読込を開く</button>
+          <button type="button" onClick={() => onNavigate(AppPage.OPERATIONS)}>MAPセーブ・ロードを開く</button>
           </section>
         </div>
       </div>

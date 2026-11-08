@@ -538,7 +538,8 @@ if (import.meta.env.DEV && !win.mygamepack) {
     testEvent: async () => ({ ok: false, message: '実際のイベントテストはインストール版で利用してください。' }),
     minecraftGrantOp: async () => ({ ok: true, name: "dev_player" }),
     worldBackup: ok,
-    worldSavesList: async () => ({ world: 'haihu_world/world', busy: false, recoveryPending: false, saves: [] }),
+    // ワールドは、アプリと同じく server.properties の level-name（運用センターの上の「ワールド」と同じ元。2026-11-07 品質レビュー）。
+    worldSavesList: async () => ({ world: String((await readDevServerProps())["level-name"] || ""), busy: false, recoveryPending: false, saves: [] }),
     worldSavesSave: async () => { throw new Error('MAPの保存はインストール版で利用できます。'); },
     worldSavesLoad: async () => { throw new Error('MAPの読込はインストール版で利用できます。'); },
     operationsStatsExport: async () => { throw new Error('配信統計の書き出しはインストール版で利用できます。'); },

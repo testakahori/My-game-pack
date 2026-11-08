@@ -11,6 +11,7 @@ import { commandFileStem, findCommandFile, sameCommandFile } from "../lib/comman
 import { isDisabledMapping } from "../lib/giftMappingRows";
 import DisabledMappingMark from "./DisabledMappingMark";
 import { commandGroupLabel, groupCommandsByCategory, searchCommandGroups } from "../lib/commandGroups";
+import { ipcErrorMessage } from "../lib/ipcError";
 
 export type CmdFile = { name: string; title: string; category?: string; description?: string; invalidName?: boolean; invalidReason?: string };
 
@@ -63,7 +64,6 @@ const MappingEditor: React.FC<Props> = (props) => {
   const [cmdMsg, setCmdMsg]               = useState<SaveMsg | null>(null);
   const currentSnapshot = JSON.stringify({ commandFile, repeat });
   const [savedSnapshot, setSavedSnapshot] = useState(currentSnapshot);
-  useUnsavedChanges(currentSnapshot !== savedSnapshot, saving);
 
   const titleOf = (commandFile: string) => findCommandFile(cmdFiles, commandFile)?.title;
 
@@ -71,6 +71,10 @@ const MappingEditor: React.FC<Props> = (props) => {
     () => mappings.find((m) => String(m.giftId) === String(giftId)),
     [mappings, giftId]
   );
+  // 未保存の帯には、押すボタンの名前を出す（前は「保存して」とだけ出て、上の「ファイルに書き出す」を押すと編集が消えた。2026-11-07 品質レビュー）。
+  useUnsavedChanges(currentSnapshot !== savedSnapshot, saving, already
+    ? "未保存の変更があります。②の「この内容で更新」を押すと保存されます。"
+    : "未登録の変更があります。②の「この内容で登録」を押すと保存されます。");
 
   const canSave = useMemo(() => (
     giftId.trim().length > 0 &&
@@ -96,7 +100,7 @@ const MappingEditor: React.FC<Props> = (props) => {
         setTimeout(() => setCmdMsg(null), 2500);
       })
       .catch((error: any) => {
-        setCmdMsg({ type: "error", text: `コマンドを再読み込みできませんでした: ${error?.message ?? String(error)}` });
+        setCmdMsg({ type: "error", text: `コマンドを読み込めませんでした。少し待ってから「↻ コマンドを再読み込み」を押してください。理由: ${ipcErrorMessage(error)}` });
       });
   };
 
@@ -163,7 +167,7 @@ const MappingEditor: React.FC<Props> = (props) => {
     setSavedSnapshot(currentSnapshot);
     setTimeout(() => setSaveMsg(null), 3000);
     } catch (error: any) {
-      setSaveMsg({ type: "error", text: `保存できませんでした: ${error?.message || String(error)}` });
+      setSaveMsg({ type: "error", text: `保存できませんでした: ${ipcErrorMessage(error)}` });
     } finally { setSaving(false); }
   };
 
@@ -226,7 +230,7 @@ const MappingEditor: React.FC<Props> = (props) => {
         </label>
         {!visibleCommandGroups.length && cmdFiles.length > 0 && <p className="gift-edit-empty" role="status">一致するコマンドがありません。検索条件を変えてください。</p>}
         <div className="gift-edit-field gift-edit-repeat">
-          <span><label htmlFor="gift-repeat">実行回数</label><small>1〜100回</small></span>
+          <span><label htmlFor="gift-repeat">回数</label><small>1〜100回</small></span>
           <div className="gift-edit-stepper">
             <button type="button" aria-label="回数を減らす" disabled={saving} onClick={() => setRepeat((value) => toRepeat(value - 1))}>−</button>
             <input

@@ -237,7 +237,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
 
   const handlePickFolder = async () => {
     try {
-      const res = await api.dialogPickFolder("セットアップを実行するフォルダを選択");
+      const res = await api.dialogPickFolder("セットアップを実行するフォルダーを選択");
       if (!res.canceled && res.path) {
         await saveServerFolder(res.path);
         setManualFolderMode(false);
@@ -254,10 +254,10 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
         setManualFolderMode(true);
         setManualFolderInput(customFolder || "");
         setErrorMsg(
-          `フォルダ選択エラー: ${setupError(e)}。開発ブラウザではフォルダ選択ダイアログが使えないため、下の入力欄にセットアップ先パスを直接入力してください。`,
+          `フォルダー選択エラー: ${setupError(e)}。開発ブラウザではフォルダー選択ダイアログが使えないため、下の入力欄にセットアップ先パスを直接入力してください。`,
         );
       } else {
-        setErrorMsg(`フォルダ選択エラー: ${setupError(e)}`);
+        setErrorMsg(`フォルダー選択エラー: ${setupError(e)}`);
       }
     }
   };
@@ -265,7 +265,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
   const handleApplyManualFolder = async () => {
     const normalized = manualFolderInput.trim();
     if (!normalized) {
-      setErrorMsg("セットアップ先フォルダのパスを入力してください。");
+      setErrorMsg("セットアップ先フォルダーのパスを入力してください。");
       return;
     }
     try {
@@ -276,7 +276,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
       setSetupState("idle");
       setVerifyMsg("");
     } catch (e: any) {
-      setErrorMsg(`フォルダ設定エラー: ${setupError(e)}`);
+      setErrorMsg(`フォルダー設定エラー: ${setupError(e)}`);
     }
   };
 
@@ -343,10 +343,10 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
     setErrorMsg("");
     try {
       const targetFolder = await resolveTargetFolder();
-      if (!targetFolder) throw new Error("サーバーフォルダが設定されていません。");
+      if (!targetFolder) throw new Error("サーバーフォルダーが設定されていません。");
       await api.folderOpen(targetFolder);
     } catch (e: any) {
-      setErrorMsg(`フォルダを開けませんでした: ${setupError(e)}`);
+      setErrorMsg(`フォルダーを開けませんでした: ${setupError(e)}`);
     }
   };
 
@@ -375,7 +375,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
     setErrorMsg("");
     try {
       const targetFolder = await resolveTargetFolder();
-      if (!targetFolder) throw new Error("セットアップ先フォルダが設定されていません。フォルダを選択してください。");
+      if (!targetFolder) throw new Error("セットアップ先フォルダーが設定されていません。フォルダーを選択してください。");
       await api.appConfigWrite({ serverFolder: targetFolder });
       await runCopyTemplateWithProgress(targetFolder);
       await api.serverForgeInstallAtPath(targetFolder);
@@ -394,7 +394,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
     let poll: ReturnType<typeof setInterval> | undefined;
     try {
       const targetFolder = await resolveTargetFolder();
-      if (!targetFolder) throw new Error("セットアップ先フォルダが設定されていません。フォルダを選択してください。");
+      if (!targetFolder) throw new Error("セットアップ先フォルダーが設定されていません。フォルダーを選択してください。");
       await api.appConfigWrite({ serverFolder: targetFolder });
       await runCopyTemplateWithProgress(targetFolder);
       polling = true;
@@ -442,9 +442,9 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
       let targetFolder = await resolveTargetFolder();
 
       if (!targetFolder) {
-        const picked = await api.dialogPickFolder("セットアップ済みのMinecraftサーバーフォルダを選択");
+        const picked = await api.dialogPickFolder("セットアップ済みのMinecraftサーバーフォルダーを選択");
         if (picked.canceled || !picked.path) {
-          setExistingFeedback({ error: false, text: "フォルダの選択をキャンセルしました。セットアップ済みのサーバーフォルダを選んで再度お試しください。" });
+          setExistingFeedback({ error: false, text: "フォルダーの選択をキャンセルしました。セットアップ済みのサーバーフォルダーを選んで再度お試しください。" });
           return;
         }
         targetFolder = picked.path;
@@ -453,7 +453,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
 
       await api.appConfigWrite({ serverFolder: targetFolder });
       const status = await api.serverCheckSetupComplete();
-      if (!status.complete) throw new Error(`このフォルダには準備が必要です: ${(status.missing || ["サーバー環境"]).join("、")}。「環境構築をする」から準備できます。`);
+      if (!status.complete) throw new Error(`このフォルダーには準備が必要です: ${(status.missing || ["サーバー環境"]).join("、")}。「環境構築をする」から準備できます。`);
       forgetRememberedTikTokUser(await api.bridgeExtractTo(targetFolder));
       await api.appConfigWrite({ setupComplete: true, setupRequiredByInstall: false });
       onSetupComplete();
@@ -467,14 +467,31 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
   const handleChooseCompletedFolder = async () => {
     setErrorMsg("");
     try {
-      const picked = await api.dialogPickFolder("使用するMinecraftサーバーフォルダを選択");
+      const picked = await api.dialogPickFolder("使用するMinecraftサーバーフォルダーを選択");
       if (picked.canceled || !picked.path) return;
       await saveServerFolder(picked.path);
       forgetRememberedTikTokUser(await api.bridgeExtractTo(picked.path));
-      setVerifyMsg("サーバーフォルダを設定しました。");
+      setVerifyMsg("サーバーフォルダーを設定しました。");
     } catch (e: any) {
-      setErrorMsg(`サーバーフォルダの設定に失敗しました: ${setupError(e)}`);
+      setErrorMsg(`サーバーフォルダーの設定に失敗しました: ${setupError(e)}`);
     }
+  };
+
+  // 「セットアップをやり直す」は、終わるまでほとんどのページを閉じるので確かめる。
+  // サーバー・BRIDGE が動いている間は、確かめより先に理由を出して断る（2026-11-07 品質レビュー）。
+  const handleResetSetup = async () => {
+    setErrorMsg(""); setVerifyMsg("");
+    const [server, bridge] = await Promise.all([
+      api.serverProcessStatus?.().catch(() => null),
+      api.bridgeProcessStatus?.().catch(() => null),
+    ]);
+    const running = [server?.running && "サーバー", bridge?.running && "BRIDGE"].filter(Boolean).join("と");
+    if (running) {
+      setErrorMsg(`${running}が動いています。配信ホームの「一括停止」で止めてから「セットアップをやり直す」を押してください。`);
+      return;
+    }
+    if (!window.confirm("初期セットアップをやり直しますか？\n終わるまで、配信ホーム・ギフト設定などのページは使えません。\nこの操作だけでは、設定やMAPは消えません。")) return;
+    onResetSetup();
   };
 
   if (setupComplete) {
@@ -490,13 +507,13 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
 
         <div className="setup-complete-grid-v2">
           <section className="setup-info-panel-v2">
-            <h2>サーバーフォルダ</h2>
+            <h2>サーバーフォルダー</h2>
             <div className="setup-folder-row-v2">
               <code>{customFolder || DEFAULT_SERVER_FOLDER}</code>
-              <button type="button" onClick={handleChooseCompletedFolder}>📁 フォルダを選択</button>
-              <button type="button" onClick={handleOpenFolder}>📁 フォルダを開く</button>
+              <button type="button" onClick={handleChooseCompletedFolder}>📁 フォルダーを選択</button>
+              <button type="button" onClick={handleOpenFolder}>📁 フォルダーを開く</button>
             </div>
-            <p>設定ファイルやログはこのフォルダに保存されます。</p>
+            <p>設定ファイルやログはこのフォルダーに保存されます。</p>
             <div className="setup-server-meta-v2">
               <span>▣ <small>サーバー状態</small><b>セットアップ完了</b></span>
               <span>◷ <small>最終更新</small><b>この端末</b></span>
@@ -543,7 +560,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
             <span>🚀</span>
             <div><b>配信ホームへ戻る</b><small>サーバーを起動して配信を開始しましょう！</small></div>
           </button>
-          <button type="button" onClick={onResetSetup} className="setup-reset-button-v2">
+          <button type="button" onClick={() => void handleResetSetup()} className="setup-reset-button-v2">
             <span>↻</span>
             <div><b>セットアップをやり直す</b><small>最初から設定をやり直します</small></div>
           </button>
@@ -599,10 +616,10 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
       </section>
 
       <section className="setup-folder-panel-v2">
-        <div className="setup-folder-label-v2">▱ セットアップ先フォルダ</div>
+        <div className="setup-folder-label-v2">▱ セットアップ先フォルダー</div>
         <div className="setup-folder-input-v2">
-          <input readOnly value={folderDisplay} placeholder="フォルダを選択してください" />
-          <button type="button" onClick={handlePickFolder} disabled={busy}>📁 フォルダを選択</button>
+          <input readOnly value={folderDisplay} placeholder="フォルダーを選択してください" />
+          <button type="button" onClick={handlePickFolder} disabled={busy}>📁 フォルダーを選択</button>
           {customFolder && !busy && (
             <button
               type="button"
@@ -625,7 +642,7 @@ const InitialSetupPage: React.FC<Props> = ({ setupComplete, onSetupComplete, onR
               />
             </label>
             <button type="button" onClick={handleApplyManualFolder} disabled={busy}>
-              このフォルダを使う
+              このフォルダーを使う
             </button>
           </div>
         )}

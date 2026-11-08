@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUnsavedChanges, useUnsavedGuard } from "../UnsavedChanges";
+import { ipcErrorMessage } from "../lib/ipcError";
 // 既定値・範囲はアプリ・BRIDGE と同じ表（bridge/tts_settings.json。処理のコピー PR9）。
 import TTS_SETTINGS from "../../bridge/tts_settings.json";
 
@@ -319,7 +320,7 @@ const TTSSettingsPage: React.FC = () => {
       setIsDirty(false);
       setMsg({ type: "ok", text: "音声設定を保存しました。", source: "save" });
     } catch (error: any) {
-      setMsg({ type: "error", text: `保存エラー: ${error?.message ?? String(error)}`, source: "save" });
+      setMsg({ type: "error", text: `保存エラー: ${ipcErrorMessage(error)}`, source: "save" });
     } finally {
       setSaving(false);
     }
@@ -349,7 +350,7 @@ const TTSSettingsPage: React.FC = () => {
         setMsg({ type: "error", text: `${getEngineLabel(targetEngine)} を起動しましたが、まだAPIが応答していません。少し待ってから再読み込みしてください。` });
       }
     } catch (error: any) {
-      setMsg({ type: "error", text: `起動エラー: ${error?.message ?? String(error)}` });
+      setMsg({ type: "error", text: `起動エラー: ${ipcErrorMessage(error)}` });
     } finally {
       setLaunching(false);
     }
@@ -394,7 +395,7 @@ const TTSSettingsPage: React.FC = () => {
       setMsg({ type: "ok", text: "テスト音声を再生しました。" });
     } catch (error: any) {
       setTestStats((previous) => ({ success: previous.success, total: previous.total + 1 }));
-      setMsg({ type: "error", text: `テスト失敗: ${error?.message ?? String(error)}` });
+      setMsg({ type: "error", text: `テスト失敗: ${ipcErrorMessage(error)}` });
     } finally {
       setTesting(false);
     }
